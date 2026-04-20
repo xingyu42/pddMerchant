@@ -1,0 +1,9 @@
+export const TIMEOUTS = Object.freeze({
+  NAV: 60_000,
+  QUICK_NAV: 20_000,
+  LOGIN_HEADED: 5 * 60_000,
+  LOGIN_QR: 3 * 60_000,
+  XHR_COLLECTOR: 20_000,
+  ELEMENT_READY: 10_000,
+  QR_CAPTURE: 15_000,
+});

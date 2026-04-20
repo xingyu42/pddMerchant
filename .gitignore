@@ -1,0 +1,11 @@
+.ace-tool/
+.jshook-profile/
+node_modules/
+.pdd-cli/
+data/
+config/
+coverage/
+*.log
+.DS_Store
+.claude/
+.smoke/
