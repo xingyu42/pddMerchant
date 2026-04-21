@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import Table from 'cli-table3';
 import { launchBrowser, closeBrowser } from '../../adapter/browser.js';
 import { isAuthValid } from '../../adapter/auth-state.js';
-import { switchTo } from '../../adapter/mall-switcher.js';
+import { currentMall, switchTo } from '../../adapter/mall-switcher.js';
 import { buildEnvelope } from '../../infra/output.js';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { listOrders, getOrderStats, computeOrderStats } from '../../services/orders.js';
@@ -189,6 +189,8 @@ export async function runDiagnoseCommand({ command, options = {}, fetchAndScore,
     let mallCtx = null;
     if (mall) {
       mallCtx = await switchTo(page, mall);
+    } else {
+      mallCtx = await currentMall(page).catch(() => null);
     }
 
     const diagnostic = await fetchAndScore(page, { mallId: mallCtx?.id ?? null });

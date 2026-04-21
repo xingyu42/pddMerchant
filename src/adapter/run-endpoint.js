@@ -2,8 +2,10 @@ import { createCollector, parseBody } from './xhr-collector.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
+import { isMockEnabled, mockRunEndpoint } from './mock-dispatcher.js';
 
 export async function runEndpoint(page, meta, params = {}, ctx = {}) {
+  if (isMockEnabled()) return mockRunEndpoint(meta, params, ctx);
   if (!page || !meta) {
     throw new PddCliError({
       code: 'E_USAGE',
@@ -31,7 +33,7 @@ export async function runEndpoint(page, meta, params = {}, ctx = {}) {
     if (meta.nav?.url) {
       try {
         await page.goto(meta.nav.url, {
-          waitUntil: 'networkidle',
+          waitUntil: meta.nav.waitUntil ?? 'domcontentloaded',
           timeout: meta.navTimeout ?? TIMEOUTS.QUICK_NAV,
         });
       } catch (err) {

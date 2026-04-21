@@ -1,7 +1,8 @@
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
+import { isMockEnabled, mockListMalls, mockCurrentMall, mockSwitchTo } from './mock-dispatcher.js';
 
-const STATE_PATHS = [
+const MALL_LIST_PATHS = [
   ['__PRELOADED_STATE__', 'mall', 'mallList'],
   ['__PRELOADED_STATE__', 'user', 'mallList'],
   ['__PRELOADED_STATE__', 'account', 'mallList'],
@@ -27,6 +28,16 @@ const CURRENT_NAME_PATHS = [
   ['__INITIAL_STATE__', 'user', 'mallName'],
 ];
 
+const STORAGE_ACTIVE_ID_KEYS = [
+  'mallId',
+  'mall_id',
+  'currentMallId',
+  'selectedMallId',
+];
+
+const MALL_CONTEXT_HINT =
+  '若 pdd doctor 显示已登录但店铺识别失败，可能是 mall-switcher 选择器或状态键已过期；可先用 --mall <id> 手动指定';
+
 const SWITCHER_TRIGGER_SELECTORS = [
   '[data-testid="mall-switcher"]',
   '[data-testid="shop-switcher"]',
@@ -37,6 +48,13 @@ const SWITCHER_TRIGGER_SELECTORS = [
   'text=切换店铺',
   'text=店铺',
 ];
+
+function hasMallId(value) {
+  if (value == null) return false;
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (typeof value === 'number') return Number.isFinite(value);
+  return true;
+}
 
 function optionSelectorsFor(mallId) {
   const id = String(mallId);
@@ -103,13 +121,56 @@ async function readActiveIdFromCookie(page) {
   }
 }
 
+async function readActiveIdFromStorage(page) {
+  try {
+    return await page.evaluate((keys) => {
+      for (const key of keys) {
+        const localValue = globalThis.localStorage?.getItem?.(key);
+        if (typeof localValue === 'string' && localValue.trim().length > 0) return localValue.trim();
+        const sessionValue = globalThis.sessionStorage?.getItem?.(key);
+        if (typeof sessionValue === 'string' && sessionValue.trim().length > 0) return sessionValue.trim();
+      }
+      return null;
+    }, STORAGE_ACTIVE_ID_KEYS);
+  } catch {
+    return null;
+  }
+}
+
 function normalizeMallRecord(raw, activeId) {
   const id = String(raw.mallId ?? raw.mall_id ?? raw.id ?? '');
   const name = String(raw.mallName ?? raw.mall_name ?? raw.name ?? '');
+  const isCurrent = activeId != null && String(activeId) === id;
   return {
     id,
     name,
-    active: activeId != null && String(activeId) === id,
+    active: isCurrent,
+    is_current: isCurrent,
+  };
+}
+
+function normalizeMallList(rawList, activeId) {
+  if (!Array.isArray(rawList)) return [];
+  return rawList
+    .map((item) => normalizeMallRecord(item, activeId))
+    .filter((mall) => mall.id);
+}
+
+function resolveActiveName(activeName, malls, activeId) {
+  if (typeof activeName === 'string' && activeName.length > 0) return activeName;
+  if (activeId == null || !Array.isArray(malls)) return '';
+  const hit = malls.find((mall) => mall.id === String(activeId));
+  return typeof hit?.name === 'string' ? hit.name : '';
+}
+
+function buildMallContext({ activeId, activeName, malls, source }) {
+  const normalizedId = activeId == null ? null : String(activeId);
+  const normalizedMalls = normalizeMallList(malls, normalizedId);
+  return {
+    activeId: normalizedId,
+    activeName: resolveActiveName(activeName, normalizedMalls, normalizedId),
+    malls: normalizedMalls,
+    source: source ?? null,
   };
 }
 
@@ -147,55 +208,110 @@ async function readMallListFromDom(page) {
   }
 }
 
-export async function currentMall(page) {
-  const fromState = await readFromState(page, CURRENT_STATE_PATHS);
-  const fromUrl = await readActiveIdFromUrl(page);
-  const fromCookie = await readActiveIdFromCookie(page);
-  const id = fromState ?? fromUrl ?? fromCookie;
-  if (!id) {
-    throw new PddCliError({
-      code: 'E_MALL_UNKNOWN',
-      message: '无法识别当前店铺',
-      hint: '确认已通过 pdd init 登录商家后台',
-      exitCode: ExitCodes.AUTH,
+export async function resolveMallContext(page) {
+  if (isMockEnabled()) {
+    const current = await mockCurrentMall();
+    const malls = await mockListMalls();
+    return buildMallContext({
+      activeId: current?.id ?? null,
+      activeName: current?.name ?? '',
+      malls: Array.isArray(malls) ? malls : [],
+      source: 'mock',
     });
   }
-  const name = await readFromState(page, CURRENT_NAME_PATHS);
-  return { id: String(id), name: typeof name === 'string' ? name : '' };
-}
 
-export async function listMalls(page) {
-  const activeId = await readFromState(page, CURRENT_STATE_PATHS)
-    ?? await readActiveIdFromUrl(page)
-    ?? await readActiveIdFromCookie(page);
+  const activeNameFromState = await readFromState(page, CURRENT_NAME_PATHS);
+  const mallListFromState = await readFromState(page, MALL_LIST_PATHS);
 
-  const fromState = await readFromState(page, STATE_PATHS);
-  if (Array.isArray(fromState) && fromState.length > 0) {
-    return fromState
-      .map((m) => normalizeMallRecord(m, activeId))
-      .filter((m) => m.id);
+  const fromState = await readFromState(page, CURRENT_STATE_PATHS);
+  if (hasMallId(fromState)) {
+    return buildMallContext({
+      activeId: fromState,
+      activeName: activeNameFromState,
+      malls: mallListFromState,
+      source: 'state',
+    });
+  }
+
+  const fromUrl = await readActiveIdFromUrl(page);
+  if (hasMallId(fromUrl)) {
+    return buildMallContext({
+      activeId: fromUrl,
+      activeName: activeNameFromState,
+      malls: mallListFromState,
+      source: 'url',
+    });
+  }
+
+  const fromCookie = await readActiveIdFromCookie(page);
+  if (hasMallId(fromCookie)) {
+    return buildMallContext({
+      activeId: fromCookie,
+      activeName: activeNameFromState,
+      malls: mallListFromState,
+      source: 'cookie',
+    });
+  }
+
+  const fromStorage = await readActiveIdFromStorage(page);
+  if (hasMallId(fromStorage)) {
+    return buildMallContext({
+      activeId: fromStorage,
+      activeName: activeNameFromState,
+      malls: mallListFromState,
+      source: 'storage',
+    });
   }
 
   const opened = await tryOpenSwitcher(page);
   if (opened) {
-    const dom = await readMallListFromDom(page);
+    const domMalls = await readMallListFromDom(page);
     try { await page.keyboard?.press?.('Escape'); } catch { /* ignore */ }
-    if (dom.length > 0) {
-      return dom
-        .map((m) => normalizeMallRecord(m, activeId))
-        .filter((m) => m.id);
+    if (domMalls.length > 0) {
+      const firstId = domMalls[0]?.mallId ?? domMalls[0]?.id ?? null;
+      return buildMallContext({
+        activeId: firstId,
+        activeName: activeNameFromState,
+        malls: domMalls,
+        source: 'dom',
+      });
     }
   }
 
-  if (activeId) {
-    const name = await readFromState(page, CURRENT_NAME_PATHS);
+  return buildMallContext({
+    activeId: null,
+    activeName: activeNameFromState,
+    malls: mallListFromState,
+    source: null,
+  });
+}
+
+export async function currentMall(page) {
+  if (isMockEnabled()) return mockCurrentMall();
+  const ctx = await resolveMallContext(page);
+  if (!ctx.activeId) {
+    throw new PddCliError({
+      code: 'E_MALL_CONTEXT_MISSING',
+      message: '无法从商家后台识别当前店铺',
+      hint: MALL_CONTEXT_HINT,
+      exitCode: ExitCodes.BUSINESS,
+    });
+  }
+  return { id: ctx.activeId, name: ctx.activeName };
+}
+
+export async function listMalls(page) {
+  if (isMockEnabled()) return mockListMalls();
+  const ctx = await resolveMallContext(page);
+  if (ctx.malls.length > 0) return ctx.malls;
+  if (ctx.activeId) {
     return [{
-      id: String(activeId),
-      name: typeof name === 'string' ? name : '',
+      id: ctx.activeId,
+      name: ctx.activeName,
       active: true,
+      is_current: true,
     }];
   }
-
   throw new PddCliError({
     code: 'E_MALL_LIST_EMPTY',
     message: '未能获取店铺列表',
@@ -217,6 +333,7 @@ async function clickMallOption(page, mallId) {
 }
 
 export async function switchTo(page, mallId) {
+  if (isMockEnabled()) return mockSwitchTo(mallId);
   const targetId = String(mallId);
   if (!targetId) {
     throw new PddCliError({

@@ -37,7 +37,7 @@ export async function run(options = {}) {
       await switchTo(page, mall);
     } else {
       const cur = await currentMall(page).catch(() => null);
-      mallId = cur?.mall_id ?? cur?.mallId ?? null;
+      mallId = cur?.id ?? null;
     }
 
     const remote = await getOrderStats(page, { mallId });

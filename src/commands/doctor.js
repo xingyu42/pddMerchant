@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import { launchBrowser, closeBrowser } from '../adapter/browser.js';
 import { loadAuthState, isAuthValid } from '../adapter/auth-state.js';
+import { resolveMallContext } from '../adapter/mall-switcher.js';
 import { emit } from '../infra/output.js';
 import { getLogger } from '../infra/logger.js';
 import { AUTH_STATE_PATH as DEFAULT_AUTH_STATE_PATH } from '../infra/paths.js';
@@ -30,16 +31,10 @@ async function checkAuthFile(path) {
 
 async function detectShopCount(page) {
   try {
-    const count = await page.evaluate(() => {
-      const g = globalThis;
-      const fromPreload = g.__PRELOADED_STATE__?.mall?.mallList
-        ?? g.__PRELOADED_STATE__?.user?.mallList
-        ?? g.__INITIAL_STATE__?.mall?.mallList
-        ?? g.__INITIAL_STATE__?.user?.mallList;
-      if (Array.isArray(fromPreload)) return fromPreload.length;
-      return null;
-    });
-    return typeof count === 'number' ? count : null;
+    const ctx = await resolveMallContext(page);
+    if (Array.isArray(ctx?.malls) && ctx.malls.length > 0) return ctx.malls.length;
+    if (ctx?.activeId) return 1;
+    return null;
   } catch {
     return null;
   }
