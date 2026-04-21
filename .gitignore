@@ -9,3 +9,6 @@ coverage/
 .DS_Store
 .claude/
 .smoke/
+AGENTS.md
+CLAUDE.md
+openspec/

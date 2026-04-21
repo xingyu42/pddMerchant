@@ -1,0 +1,37 @@
+{
+  "total": 3,
+  "goods": [
+    {
+      "goods_id": 1001,
+      "goods_name": "测试商品 A（库存充足）",
+      "quantity": 50,
+      "sku_price": 2999,
+      "sku_group_price": 2499,
+      "origin_sku_group_price": 3499,
+      "promotion": null,
+      "mall_id": 445301049
+    },
+    {
+      "goods_id": 1002,
+      "goods_name": "测试商品 B（低库存）",
+      "quantity": 3,
+      "sku_price": 1999,
+      "sku_group_price": 1699,
+      "origin_sku_group_price": 2299,
+      "promotion": null,
+      "mall_id": 445301049
+    },
+    {
+      "goods_id": 1003,
+      "goods_name": "测试商品 C（缺货）",
+      "quantity": 0,
+      "sku_price": 4999,
+      "sku_group_price": 4499,
+      "origin_sku_group_price": 5999,
+      "promotion": null,
+      "mall_id": 445301049
+    }
+  ],
+  "sessionId": "mock-session-xyz",
+  "raw": { "mock": true, "source": "fixtures/endpoints/goods.list.json" }
+}

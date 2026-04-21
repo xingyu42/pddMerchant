@@ -1,0 +1,50 @@
+{
+  "entities": [
+    {
+      "planId": 1,
+      "adId": 1001,
+      "adName": "搜索计划 A",
+      "goodsId": 1001,
+      "goodsName": "测试商品 A",
+      "scenesType": 1,
+      "scenesMode": "search_standard",
+      "promotionType": "search",
+      "impression": 5000,
+      "click": 100,
+      "ctr": 0.02,
+      "gmv": 15000,
+      "spend": 500
+    },
+    {
+      "planId": 2,
+      "adId": 1002,
+      "adName": "场景计划 B",
+      "goodsId": 1002,
+      "goodsName": "测试商品 B",
+      "scenesType": 2,
+      "scenesMode": "scene_standard",
+      "promotionType": "scene",
+      "impression": 8000,
+      "click": 200,
+      "ctr": 0.025,
+      "gmv": 20000,
+      "spend": 800
+    }
+  ],
+  "totals": {
+    "impression": 13000,
+    "click": 300,
+    "ctr": 0.023,
+    "gmv": 35000,
+    "netGmv": 32000,
+    "cost": 1300,
+    "costPerOrder": 10
+  },
+  "impression": 13000,
+  "click": 300,
+  "ctr": 0.023,
+  "gmv": 35000,
+  "netGmv": 32000,
+  "costPerOrder": 10,
+  "raw": { "mock": true, "source": "fixtures/endpoints/promo.entityReport.json" }
+}

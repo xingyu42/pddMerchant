@@ -1,0 +1,7 @@
+{
+  "unship": 2,
+  "unship12h": 1,
+  "delay": 0,
+  "unreceive": 5,
+  "raw": { "mock": true, "source": "fixtures/endpoints/orders.stats.json" }
+}

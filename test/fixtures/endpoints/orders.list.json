@@ -1,0 +1,33 @@
+{
+  "total": 3,
+  "orders": [
+    {
+      "order_sn": "240101MOCK001",
+      "order_status": 1,
+      "order_time": 1735689600,
+      "ship_time": 1735776000,
+      "after_sale_type": 1,
+      "goods_name": "测试商品 A",
+      "order_amount": 5999
+    },
+    {
+      "order_sn": "240101MOCK002",
+      "order_status": 5,
+      "order_time": 1735689700,
+      "ship_time": 1736380000,
+      "after_sale_type": 2,
+      "goods_name": "测试商品 B",
+      "order_amount": 9999
+    },
+    {
+      "order_sn": "240101MOCK003",
+      "order_status": 3,
+      "order_time": 1735691000,
+      "ship_time": 1735709000,
+      "after_sale_type": 1,
+      "goods_name": "测试商品 C",
+      "order_amount": 2500
+    }
+  ],
+  "raw": { "mock": true, "source": "fixtures/endpoints/orders.list.json" }
+}

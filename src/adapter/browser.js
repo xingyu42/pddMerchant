@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { chromium } from 'playwright';
+import { isMockEnabled, mockLaunchBrowser, mockCloseBrowser } from './mock-dispatcher.js';
 
 const DEFAULT_VIEWPORT = { width: 1920, height: 1080 };
 const DEFAULT_USER_AGENT =
@@ -26,6 +27,7 @@ export async function launchBrowser({
   userAgent = DEFAULT_USER_AGENT,
   extraContextOptions = {},
 } = {}) {
+  if (isMockEnabled()) return mockLaunchBrowser();
   const browser = await chromium.launch({
     headless: !headed,
     args: [
@@ -54,6 +56,7 @@ export async function launchBrowser({
 }
 
 export async function closeBrowser(browser) {
+  if (isMockEnabled()) return mockCloseBrowser(browser);
   if (!browser) return;
   try {
     const contexts = browser.contexts();
