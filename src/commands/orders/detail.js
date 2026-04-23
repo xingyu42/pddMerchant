@@ -59,7 +59,7 @@ export async function run(options = {}) {
         meta: {
           latency_ms: Date.now() - startedAt,
           xhr_count: 1,
-          warnings: ['V0: ORDER_DETAIL 接口未实现，使用 ORDER_LIST 过滤兜底'],
+          warnings: [],
         },
       },
       { json }

@@ -1,0 +1,9 @@
+{
+  "__throws": true,
+  "__error": {
+    "code": "E_RATE_LIMIT",
+    "message": "操作太过频繁，请稍后重试",
+    "hint": "请求过于频繁，请稍后重试",
+    "exitCode": 4
+  }
+}

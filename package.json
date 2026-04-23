@@ -11,7 +11,7 @@
     "pdd": "./bin/pdd.js"
   },
   "scripts": {
-    "test": "node --test test/envelope.test.js test/json-purity.test.js test/shops.smoke.test.js test/orders.smoke.test.js test/goods.smoke.test.js test/promo.smoke.test.js test/diagnose.smoke.test.js test/diagnose-scoring.unit.test.js test/e2e/shops.e2e.test.js test/e2e/orders.e2e.test.js test/e2e/goods.e2e.test.js test/e2e/promo.e2e.test.js test/e2e/diagnose.e2e.test.js test/e2e/errors.e2e.test.js test/mall-switcher.unit.test.js test/auth-state.unit.test.js",
+    "test": "node --test test/envelope.test.js test/json-purity.test.js test/shops.smoke.test.js test/orders.smoke.test.js test/goods.smoke.test.js test/promo.smoke.test.js test/diagnose.smoke.test.js test/diagnose-scoring.unit.test.js test/e2e/shops.e2e.test.js test/e2e/orders.e2e.test.js test/e2e/goods.e2e.test.js test/e2e/promo.e2e.test.js test/e2e/diagnose.e2e.test.js test/e2e/errors.e2e.test.js test/mall-switcher.unit.test.js test/auth-state.unit.test.js test/run-endpoint.unit.test.js test/orders.detail-endpoint.unit.test.js test/orders-collector.unit.test.js",
     "lint": "echo no-lint"
   },
   "dependencies": {

@@ -1,0 +1,9 @@
+{
+  "__throws": true,
+  "__error": {
+    "code": "E_NOT_FOUND",
+    "message": "订单不存在",
+    "hint": "确认订单号是否正确，或使用 pdd orders list 查看最近订单",
+    "exitCode": 6
+  }
+}

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveMallContext } from '../src/adapter/mall-switcher.js';
+import { readActiveIdFromXhr, resolveMallContext } from '../src/adapter/mall-switcher.js';
 
 function readPath(root, path) {
   let cur = root;
@@ -19,6 +19,23 @@ function isStringKeysArg(arg) {
   return Array.isArray(arg) && arg.length > 0 && arg.every((item) => typeof item === 'string');
 }
 
+function createFakeResponse({ headers = {}, bodyObj, bodyText } = {}) {
+  const hasBodyObj = bodyObj !== undefined;
+  return {
+    headers() { return headers; },
+    async json() {
+      if (hasBodyObj) return bodyObj;
+      if (typeof bodyText === 'string') return JSON.parse(bodyText);
+      throw new Error('missing body');
+    },
+    async text() {
+      if (typeof bodyText === 'string') return bodyText;
+      if (hasBodyObj) return JSON.stringify(bodyObj);
+      return '';
+    },
+  };
+}
+
 function createFakePage({
   globals = {},
   currentUrl = 'https://mms.pinduoduo.com/home/',
@@ -26,7 +43,31 @@ function createFakePage({
   storage = {},
   domMalls = [],
   openSwitcher = true,
+  xhrResponses = [],
 } = {}) {
+  const responseListeners = [];
+  let pendingXhrResponses = xhrResponses.slice();
+  let onResponseCalls = 0;
+  let offResponseCalls = 0;
+  let xhrScheduled = false;
+
+  async function fireXhr() {
+    const batch = pendingXhrResponses;
+    pendingXhrResponses = [];
+    for (const entry of batch) {
+      const response = createFakeResponse(entry);
+      for (const listener of responseListeners.slice()) {
+        await listener(response);
+      }
+    }
+  }
+
+  function scheduleXhr() {
+    if (xhrScheduled || pendingXhrResponses.length === 0) return;
+    xhrScheduled = true;
+    setTimeout(() => { void fireXhr(); }, 0);
+  }
+
   return {
     async evaluate(_fn, arg) {
       if (isPathsArg(arg)) {
@@ -45,14 +86,25 @@ function createFakePage({
       }
       return domMalls;
     },
-    url() {
-      return currentUrl;
+    url() { return currentUrl; },
+    context() { return { cookies: async () => cookies }; },
+    on(evt, fn) {
+      if (evt !== 'response') return;
+      onResponseCalls += 1;
+      responseListeners.push(fn);
+      scheduleXhr();
     },
-    context() {
-      return {
-        cookies: async () => cookies,
-      };
+    off(evt, fn) {
+      if (evt !== 'response') return;
+      offResponseCalls += 1;
+      const i = responseListeners.indexOf(fn);
+      if (i >= 0) responseListeners.splice(i, 1);
     },
+    listenerCount(evt) {
+      return evt === 'response' ? responseListeners.length : 0;
+    },
+    get onResponseCalls() { return onResponseCalls; },
+    get offResponseCalls() { return offResponseCalls; },
     locator() {
       return {
         first() {
@@ -65,9 +117,7 @@ function createFakePage({
       };
     },
     keyboard: {
-      async press() {
-        return undefined;
-      },
+      async press() { return undefined; },
     },
   };
 }
@@ -168,3 +218,127 @@ test('resolveMallContext: returns empty context when every probe misses', async 
   assert.equal(ctx.activeId, null);
   assert.deepEqual(ctx.malls, []);
 });
+
+test('resolveMallContext: state hits __mms Next.js path', async () => {
+  delete process.env.PDD_TEST_ADAPTER;
+  const page = createFakePage({
+    globals: {
+      __mms: {
+        user: {
+          userInfo: {
+            _userInfo: {
+              mall_id: 'mms-1',
+              mall: { mall_name: 'MMS Mall' },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const ctx = await resolveMallContext(page);
+  assert.equal(ctx.source, 'state');
+  assert.equal(ctx.activeId, 'mms-1');
+  assert.equal(ctx.activeName, 'MMS Mall');
+});
+
+test('resolveMallContext: state hits __NEXT_DATA__ pageProps path', async () => {
+  delete process.env.PDD_TEST_ADAPTER;
+  const page = createFakePage({
+    globals: {
+      __NEXT_DATA__: {
+        props: {
+          userInfo: { mall_name: 'Next Mall' },
+          pageProps: {
+            coreData: { extra: { mallId: 'next-1' } },
+          },
+        },
+      },
+    },
+  });
+
+  const ctx = await resolveMallContext(page);
+  assert.equal(ctx.source, 'state');
+  assert.equal(ctx.activeId, 'next-1');
+  assert.equal(ctx.activeName, 'Next Mall');
+});
+
+test('resolveMallContext: XHR hits when earlier probes miss', async () => {
+  delete process.env.PDD_TEST_ADAPTER;
+  const page = createFakePage({
+    xhrResponses: [
+      {
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+        bodyObj: { data: { rows: [{ mall_id: 'xhr-1' }] } },
+      },
+    ],
+  });
+
+  assert.equal(page.listenerCount('response'), 0);
+  const ctx = await resolveMallContext(page);
+  assert.equal(ctx.source, 'xhr');
+  assert.equal(ctx.activeId, 'xhr-1');
+  assert.equal(page.onResponseCalls, 1);
+  assert.equal(page.offResponseCalls, 1);
+  assert.equal(page.listenerCount('response'), 0);
+});
+
+test('resolveMallContext: XHR timeout falls through to dom', async () => {
+  delete process.env.PDD_TEST_ADAPTER;
+  const page = createFakePage({
+    domMalls: [{ mallId: 'dom-7', mallName: 'Dom Mall Timeout' }],
+  });
+
+  const ctx = await resolveMallContext(page);
+  assert.equal(ctx.source, 'dom');
+  assert.equal(ctx.activeId, 'dom-7');
+  assert.equal(page.onResponseCalls, 1);
+  assert.equal(page.offResponseCalls, 1);
+  assert.equal(page.listenerCount('response'), 0);
+}, { timeout: 10000 });
+
+test('resolveMallContext: upstream hit does not attach XHR listener', async () => {
+  delete process.env.PDD_TEST_ADAPTER;
+  const page = createFakePage({
+    globals: {
+      __INITIAL_STATE__: { mall: { mallId: 'state-no-xhr' } },
+    },
+    xhrResponses: [
+      {
+        headers: { 'content-type': 'application/json' },
+        bodyObj: { mall_id: 'xhr-ignored' },
+      },
+    ],
+  });
+
+  const ctx = await resolveMallContext(page);
+  assert.equal(ctx.source, 'state');
+  assert.equal(ctx.activeId, 'state-no-xhr');
+  assert.equal(page.onResponseCalls, 0);
+  assert.equal(page.offResponseCalls, 0);
+  assert.equal(page.listenerCount('response'), 0);
+});
+
+test('readActiveIdFromXhr cleans up listener after malformed responses', async () => {
+  delete process.env.PDD_TEST_ADAPTER;
+  const page = createFakePage({
+    xhrResponses: [
+      {
+        headers: { 'content-type': 'application/json' },
+        bodyText: '<html>not json</html>',
+      },
+      {
+        headers: { 'content-type': 'text/html' },
+        bodyText: '<html>still not json</html>',
+      },
+    ],
+  });
+
+  assert.equal(page.listenerCount('response'), 0);
+  const activeId = await readActiveIdFromXhr(page, { timeoutMs: 50 });
+  assert.equal(activeId, null);
+  assert.equal(page.onResponseCalls, 1);
+  assert.equal(page.offResponseCalls, 1);
+  assert.equal(page.listenerCount('response'), 0);
+});
+

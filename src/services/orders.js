@@ -1,5 +1,5 @@
 import { runEndpoint } from '../adapter/run-endpoint.js';
-import { ORDER_LIST, ORDER_STATS } from '../adapter/endpoints/orders.js';
+import { ORDER_LIST, ORDER_DETAIL, ORDER_STATS } from '../adapter/endpoints/orders.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 
 export async function listOrders(page, params = {}, ctx = {}) {
@@ -14,25 +14,11 @@ export async function getOrderDetail(page, sn, ctx = {}) {
   if (!sn) {
     throw new PddCliError({
       code: 'E_USAGE',
-      message: 'getOrderDetail: sn (order_sn / shipping_id) is required',
+      message: 'getOrderDetail: sn (order_sn) is required',
       exitCode: ExitCodes.USAGE,
     });
   }
-  // V0 占位：ORDER_DETAIL 接口未侦察，改用 ORDER_LIST 过滤兜底
-  const list = await listOrders(page, { page: 1, size: 50 }, ctx);
-  const orders = Array.isArray(list.orders) ? list.orders : [];
-  const hit = orders.find((o) => {
-    return String(o.order_sn ?? o.orderSn ?? o.shipping_id ?? '').toLowerCase() === String(sn).toLowerCase();
-  });
-  if (!hit) {
-    throw new PddCliError({
-      code: 'E_BUSINESS',
-      message: `未在最近订单中找到 sn=${sn}`,
-      hint: '订单详情接口 V0 未实现；请扩大 pageSize 或等 V0.1 的 ORDER_DETAIL endpoint',
-      exitCode: ExitCodes.BUSINESS,
-    });
-  }
-  return { order: hit, raw: list.raw };
+  return runEndpoint(page, ORDER_DETAIL, { order_sn: String(sn), source: 'MMS' }, ctx);
 }
 
 function percentile(sorted, p) {

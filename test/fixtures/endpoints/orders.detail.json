@@ -1,0 +1,34 @@
+{
+  "order": {
+    "order_sn": "240101MOCK001",
+    "order_status": 1,
+    "order_time": 1735689600,
+    "ship_time": 1735776000,
+    "after_sale_type": 1,
+    "goods_id": 732191698596,
+    "goods_name": "测试商品 A",
+    "goods_number": 1,
+    "goods_price": 5999,
+    "order_amount": 5999,
+    "out_goods_sn": "TEST-A-001",
+    "spec": "颜色-红色,尺码-M",
+    "shipping": {
+      "shipping_name": "顺丰速运",
+      "shipping_sn": "SF1234567890",
+      "shipping_status": 2
+    },
+    "buyer_address": {
+      "receiver_name": "测试买家",
+      "receiver_phone": "138****0000",
+      "receiver_province": "浙江省",
+      "receiver_city": "杭州市",
+      "receiver_district": "西湖区",
+      "receiver_address": "****"
+    },
+    "remark": ""
+  },
+  "raw": {
+    "mock": true,
+    "source": "fixtures/endpoints/orders.detail.json"
+  }
+}

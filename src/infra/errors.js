@@ -28,7 +28,7 @@ export function mapErrorToExit(err) {
   if (code.includes('RATE') || code === 'E_RATE_LIMIT' || code === 'TOO_MANY_REQUESTS') return ExitCodes.RATE_LIMIT;
   if (code.includes('NETWORK') || code === 'ECONNRESET' || code === 'ETIMEDOUT' || code === 'ENOTFOUND') return ExitCodes.NETWORK;
   if (code === 'E_USAGE' || code === 'EINVAL') return ExitCodes.USAGE;
-  if (code === 'E_BUSINESS') return ExitCodes.BUSINESS;
+  if (code === 'E_BUSINESS' || code === 'E_NOT_FOUND') return ExitCodes.BUSINESS;
   if (code === 'E_PARTIAL') return ExitCodes.PARTIAL;
   return ExitCodes.GENERAL;
 }

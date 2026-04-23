@@ -10,7 +10,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export const PROJECT_ROOT = join(__dirname, '..', '..');
 export const DATA_DIR = join(PROJECT_ROOT, 'data');
 export const CONFIG_DIR = join(PROJECT_ROOT, 'config');
-export const AUTH_STATE_PATH = join(DATA_DIR, 'auth-state.json');
+
+const authEnv = process.env.PDD_AUTH_STATE_PATH;
+export const AUTH_STATE_PATH = authEnv && authEnv.length > 0
+  ? authEnv
+  : join(DATA_DIR, 'auth-state.json');
 export const CONFIG_PATH = join(CONFIG_DIR, 'config.json');
 
 export async function ensureDir(path) {

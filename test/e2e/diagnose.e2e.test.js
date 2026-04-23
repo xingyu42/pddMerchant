@@ -35,6 +35,11 @@ test('e2e: diagnose inventory dimension: fixture triggers red status', () => {
   assert.equal(envelope.data.status, 'red');
   assert.equal(envelope.data.detail.total, 3);
   assert.equal(envelope.data.detail.out_of_stock, 1);
+  // V0.1 stale detection wired (fixture orders 与 goods 名称不一致 → 2 件 stale，matched_by=mixed)
+  assert.equal(envelope.data.detail.stale_count, 2);
+  assert.equal(envelope.data.detail.matched_by, 'mixed');
+  assert.ok(Array.isArray(envelope.data.detail.stale_sample));
+  assert.equal(envelope.data.detail.stale_sample.length, 2);
 });
 
 test('e2e: diagnose promo dimension: fixture triggers green status', () => {
@@ -46,10 +51,14 @@ test('e2e: diagnose promo dimension: fixture triggers green status', () => {
   assert.equal(envelope.data.score, 100);
 });
 
-test('e2e: diagnose funnel dimension: always partial in V0', () => {
+test('e2e: diagnose funnel dimension: order fulfillment funnel from listOrders', () => {
   const { status, envelope } = runPdd(['diagnose', 'funnel', '--json']);
   assert.equal(status, 0);
   assertOkEnvelope(envelope, 'diagnose.funnel');
-  assert.equal(envelope.data.status, 'partial');
-  assert.equal(envelope.data.score, null);
+  // fixture 3 单 1 退款 → refund_rate≈0.333 (>15%) + conversion≈0.667 (<85%) → red
+  assert.equal(envelope.data.status, 'red');
+  assert.equal(envelope.data.detail.total_orders, 3);
+  assert.equal(envelope.data.detail.refund_count, 1);
+  assert.ok(envelope.data.detail.refund_rate > 0.3);
+  assert.ok(envelope.data.issues.length >= 1);
 });

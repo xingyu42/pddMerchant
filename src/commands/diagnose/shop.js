@@ -9,6 +9,7 @@ import { listOrders, getOrderStats, computeOrderStats } from '../../services/ord
 import { listGoods } from '../../services/goods.js';
 import { getPromoReport } from '../../services/promo.js';
 import { diagnoseShop } from '../../services/diagnose/index.js';
+import { collectOrdersForStaleAnalysis } from '../../services/diagnose/orders-collector.js';
 import { AUTH_STATE_PATH as DEFAULT_AUTH_STATE_PATH } from '../../infra/paths.js';
 
 const ICON = {
@@ -224,26 +225,49 @@ export async function runDiagnoseCommand({ command, options = {}, fetchAndScore,
 }
 
 async function collectOrdersInput(page, ctx) {
-  let stats = null;
-  let listStats = null;
+  // getOrderStats 与 listOrders 都 nav 到 /orders/list，同一 page 上二次 goto 在真实 PDD
+  // 环境不稳定（后端缓存/节流导致 XHR 不再 fire）；拆独立 page 并发。
+  const hasContext = typeof page?.context === 'function';
+  const statsPage = hasContext ? await page.context().newPage() : page;
   try {
-    stats = await getOrderStats(page, ctx);
-  } catch { /* partial */ }
-  try {
-    const result = await listOrders(page, { page: 1, size: 50 }, ctx);
-    listStats = computeOrderStats(result?.orders ?? []);
-  } catch { /* partial */ }
-  if (stats == null && listStats == null) return undefined;
-  return { stats, listStats };
+    const [statsResult, listResult] = await Promise.allSettled([
+      getOrderStats(statsPage, ctx),
+      listOrders(page, { page: 1, size: 50 }, ctx),
+    ]);
+    const stats = statsResult.status === 'fulfilled' ? statsResult.value : null;
+    const listStats = listResult.status === 'fulfilled'
+      ? computeOrderStats(listResult.value?.orders ?? [])
+      : null;
+    if (stats == null && listStats == null) return undefined;
+    return { stats, listStats };
+  } finally {
+    if (hasContext && statsPage !== page) await statsPage.close().catch(() => {});
+  }
 }
 
 async function collectGoodsInput(page, ctx) {
+  let goods;
+  let goodsTotal;
   try {
     const result = await listGoods(page, { page: 1, size: 100 }, ctx);
-    return { goods: result?.goods ?? [] };
+    goods = result?.goods ?? [];
+    const reported = Number(result?.total);
+    goodsTotal = Number.isFinite(reported) && reported > 0 ? reported : goods.length;
   } catch {
     return undefined;
   }
+  let orders30d = null;
+  let truncated = false;
+  let ratelimited = false;
+  try {
+    const collected = await collectOrdersForStaleAnalysis(page, ctx);
+    orders30d = collected.orders;
+    truncated = collected.truncated;
+    ratelimited = collected.ratelimited;
+  } catch {
+    // collector 抛异常视为 stale 数据缺失，scoreInventoryHealth 自动走 missing 分支
+  }
+  return { goods, goodsTotal, orders30d, truncated, ratelimited };
 }
 
 async function collectPromoInput(page, ctx) {
@@ -261,17 +285,29 @@ export async function run(options = {}) {
     options,
     isShop: true,
     fetchAndScore: async (page, ctx) => {
-      const [orders, goods, promo] = await Promise.all([
-        collectOrdersInput(page, ctx),
-        collectGoodsInput(page, ctx),
-        collectPromoInput(page, ctx),
-      ]);
-      return diagnoseShop({
-        orders,
-        goods,
-        promo,
-        funnel: { data: null },
-      });
+      // Per-dim 独立 page：3 维度并发采集，共享 context 里的登录态，避免 page.goto 互相覆盖。
+      // Mock 模式下 page 无 context()，所有 collect* 走 fixture 短路，共享 page 无竞态。
+      const hasContext = typeof page?.context === 'function';
+      const goodsPage = hasContext ? await page.context().newPage() : page;
+      const promoPage = hasContext ? await page.context().newPage() : page;
+      try {
+        const [orders, goods, promo] = await Promise.all([
+          collectOrdersInput(page, ctx),
+          collectGoodsInput(goodsPage, ctx),
+          collectPromoInput(promoPage, ctx),
+        ]);
+        return diagnoseShop({
+          orders,
+          goods,
+          promo,
+          funnel: orders?.listStats ? { orderStats: orders.listStats, windowDays: 7 } : undefined,
+        });
+      } finally {
+        if (hasContext) {
+          await goodsPage.close().catch(() => {});
+          await promoPage.close().catch(() => {});
+        }
+      }
     },
   });
 }

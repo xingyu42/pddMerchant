@@ -12,6 +12,11 @@ const MALL_LIST_PATHS = [
 ];
 
 const CURRENT_STATE_PATHS = [
+  ['__mms', 'user', 'userInfo', '_userInfo', 'mall_id'],
+  ['__mms', 'user', 'userInfo', '_userInfo', 'mall', 'mall_id'],
+  ['__NEXT_DATA__', 'props', 'userInfo', 'mall_id'],
+  ['__NEXT_DATA__', 'props', 'user', 'mallId'],
+  ['__NEXT_DATA__', 'props', 'pageProps', 'coreData', 'extra', 'mallId'],
   ['__PRELOADED_STATE__', 'mall', 'currentMallId'],
   ['__PRELOADED_STATE__', 'mall', 'mallId'],
   ['__PRELOADED_STATE__', 'user', 'mallId'],
@@ -22,6 +27,8 @@ const CURRENT_STATE_PATHS = [
 ];
 
 const CURRENT_NAME_PATHS = [
+  ['__NEXT_DATA__', 'props', 'userInfo', 'mall_name'],
+  ['__mms', 'user', 'userInfo', '_userInfo', 'mall', 'mall_name'],
   ['__PRELOADED_STATE__', 'mall', 'mallName'],
   ['__PRELOADED_STATE__', 'user', 'mallName'],
   ['__INITIAL_STATE__', 'mall', 'mallName'],
@@ -134,6 +141,84 @@ async function readActiveIdFromStorage(page) {
     }, STORAGE_ACTIVE_ID_KEYS);
   } catch {
     return null;
+  }
+}
+
+const ACTIVE_ID_RESPONSE_KEYS = ['mall_id', 'mallId', 'currentMallId'];
+const PAYLOAD_SEARCH_MAX_DEPTH = 10;
+
+function findActiveIdInPayload(value, seen = new Set(), depth = 0) {
+  if (value == null || depth > PAYLOAD_SEARCH_MAX_DEPTH) return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const hit = findActiveIdInPayload(item, seen, depth + 1);
+      if (hasMallId(hit)) return hit;
+    }
+    return null;
+  }
+  if (typeof value !== 'object') return null;
+  if (seen.has(value)) return null;
+  seen.add(value);
+  for (const key of ACTIVE_ID_RESPONSE_KEYS) {
+    if (!Object.hasOwn(value, key)) continue;
+    const candidate = value[key];
+    if ((typeof candidate === 'string' || typeof candidate === 'number') && hasMallId(candidate)) {
+      return candidate;
+    }
+  }
+  for (const nested of Object.values(value)) {
+    const hit = findActiveIdInPayload(nested, seen, depth + 1);
+    if (hasMallId(hit)) return hit;
+  }
+  return null;
+}
+
+export async function readActiveIdFromXhr(page, { timeoutMs = 3000 } = {}) {
+  if (typeof page?.on !== 'function' || typeof page?.off !== 'function') return null;
+
+  let settled = false;
+  let resolveProbe;
+  let timeoutId = null;
+
+  async function handleResponse(response) {
+    if (settled) return;
+    try {
+      const rawHeaders = typeof response?.headers === 'function' ? response.headers() : response?.headers;
+      const headers = rawHeaders instanceof Promise ? await rawHeaders : rawHeaders;
+      const contentType = Object.entries(headers ?? {})
+        .find(([key]) => key.toLowerCase() === 'content-type')?.[1];
+      if (typeof contentType !== 'string' || !contentType.toLowerCase().includes('application/json')) return;
+
+      let body;
+      try {
+        body = typeof response.json === 'function' ? await response.json() : JSON.parse(await response.text());
+      } catch {
+        return;
+      }
+
+      const hit = findActiveIdInPayload(body);
+      if (hasMallId(hit) && !settled) {
+        settled = true;
+        resolveProbe?.(hit);
+      }
+    } catch {
+      /* best-effort probe: ignore malformed responses */
+    }
+  }
+
+  try {
+    return await new Promise((resolve) => {
+      resolveProbe = resolve;
+      page.on('response', handleResponse);
+      timeoutId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        resolve(null);
+      }, timeoutMs);
+    });
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    try { page.off('response', handleResponse); } catch { /* noop */ }
   }
 }
 
@@ -263,6 +348,16 @@ export async function resolveMallContext(page) {
     });
   }
 
+  const fromXhr = await readActiveIdFromXhr(page);
+  if (hasMallId(fromXhr)) {
+    return buildMallContext({
+      activeId: fromXhr,
+      activeName: activeNameFromState,
+      malls: mallListFromState,
+      source: 'xhr',
+    });
+  }
+
   const opened = await tryOpenSwitcher(page);
   if (opened) {
     const domMalls = await readMallListFromDom(page);
@@ -297,7 +392,7 @@ export async function currentMall(page) {
       exitCode: ExitCodes.BUSINESS,
     });
   }
-  return { id: ctx.activeId, name: ctx.activeName };
+  return { id: ctx.activeId, name: ctx.activeName, source: ctx.source };
 }
 
 export async function listMalls(page) {
