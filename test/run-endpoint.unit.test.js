@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { runEndpoint, readBusinessError } from '../src/adapter/run-endpoint.js';
+import {
+  runEndpoint,
+  readBusinessError,
+  _resetRateLimitState,
+  _recordRateLimitFailure,
+  _cooldownRemainingMs,
+  _RATE_LIMIT_CONFIG,
+} from '../src/adapter/run-endpoint.js';
 
 function createFakePage({ respondBy, navSelector = true, navSucceeds = true } = {}) {
   const listeners = [];
@@ -276,4 +283,96 @@ test('backward compat: endpoint without errorMapper/requiredTrigger/fn-nav-url b
   };
   const result = await runEndpoint(page, meta, {}, {});
   assert.deepEqual(result.items, [1, 2, 3]);
+});
+
+test('V0.2 #7 cooldown: threshold failures trigger gate and short-circuit page.goto', async () => {
+  _resetRateLimitState();
+  const name = 'test.cooldown.gate';
+
+  // Simulate 3 consecutive rate-limit failures (threshold reached).
+  for (let i = 0; i < _RATE_LIMIT_CONFIG.cooldownThreshold; i += 1) _recordRateLimitFailure(name);
+  assert.ok(_cooldownRemainingMs(name) > 0, 'cooldownUntil should be set after threshold failures');
+
+  let gotoCalls = 0;
+  const page = {
+    on() { /* noop */ },
+    off() { /* noop */ },
+    async goto() { gotoCalls += 1; },
+    async waitForSelector() { /* noop */ },
+    url: () => 'http://fake/cooldown',
+  };
+  const meta = {
+    name,
+    urlPattern: PATTERN,
+    nav: { url: 'http://host/fake/endpoint' },
+    isSuccess: () => true,
+  };
+
+  await assert.rejects(
+    () => runEndpoint(page, meta, {}, {}),
+    (err) => err.code === 'E_RATE_LIMIT'
+      && err.exitCode === 4
+      && err.detail?.cooldown_triggered === true
+      && err.detail?.cooldown_remaining_ms > 0,
+  );
+  assert.equal(gotoCalls, 0, 'cooldown gate MUST short-circuit before page.goto');
+
+  _resetRateLimitState();
+});
+
+test('V0.2 #7 cooldown: successful call resets consecutive failure count', async () => {
+  _resetRateLimitState();
+  const name = 'test.cooldown.reset';
+
+  // Record 2 failures (under threshold — no cooldown yet).
+  _recordRateLimitFailure(name);
+  _recordRateLimitFailure(name);
+  assert.equal(_cooldownRemainingMs(name), 0, 'cooldown MUST NOT trigger below threshold');
+
+  const page = createFakePage(); // defaults to success
+  const meta = {
+    name,
+    urlPattern: PATTERN,
+    nav: { url: 'http://host/fake/endpoint' },
+    isSuccess: () => true,
+  };
+  await runEndpoint(page, meta, {}, {});
+
+  // After success, failure state should be cleared — a third 429 should NOT immediately cooldown.
+  _recordRateLimitFailure(name);
+  assert.equal(_cooldownRemainingMs(name), 0, 'post-success single failure MUST NOT cooldown');
+
+  _resetRateLimitState();
+});
+
+test('V0.2 #7 cooldown: expired cooldown auto-clears state and allows new call', async () => {
+  _resetRateLimitState();
+  const name = 'test.cooldown.expiry';
+  const originalMs = _RATE_LIMIT_CONFIG.cooldownMs;
+  _RATE_LIMIT_CONFIG.cooldownMs = 30; // 30ms cooldown for fast test
+
+  try {
+    // Trigger cooldown
+    for (let i = 0; i < _RATE_LIMIT_CONFIG.cooldownThreshold; i += 1) _recordRateLimitFailure(name);
+    assert.ok(_cooldownRemainingMs(name) > 0);
+
+    // Wait for cooldown to elapse
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Now remaining should be 0 AND state should be cleared
+    assert.equal(_cooldownRemainingMs(name), 0, 'expired cooldown MUST return 0');
+
+    // Next call should proceed (not gated)
+    const page = createFakePage();
+    const meta = {
+      name,
+      urlPattern: PATTERN,
+      nav: { url: 'http://host/fake/endpoint' },
+      isSuccess: () => true,
+    };
+    await runEndpoint(page, meta, {}, {}); // should NOT throw
+  } finally {
+    _RATE_LIMIT_CONFIG.cooldownMs = originalMs;
+    _resetRateLimitState();
+  }
 });

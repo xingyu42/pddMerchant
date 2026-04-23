@@ -7,6 +7,46 @@ import { isMockEnabled, mockRunEndpoint } from './mock-dispatcher.js';
 const RETRY_DELAYS_MS = [1000, 2000, 4000];
 const SUCCESS_BUSINESS_CODES = new Set([0, 1000000]);
 
+const DEFAULT_COOLDOWN_THRESHOLD = 3;
+const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
+
+export const _RATE_LIMIT_CONFIG = {
+  cooldownThreshold: Number(process.env.PDD_COOLDOWN_THRESHOLD) || DEFAULT_COOLDOWN_THRESHOLD,
+  cooldownMs: Number(process.env.PDD_COOLDOWN_MS) || DEFAULT_COOLDOWN_MS,
+};
+
+const rateLimitState = new Map();
+
+export function _resetRateLimitState() {
+  rateLimitState.clear();
+}
+
+export function _cooldownRemainingMs(name, now = Date.now()) {
+  const state = rateLimitState.get(name);
+  if (!state?.cooldownUntil) return 0;
+  const remaining = state.cooldownUntil - now;
+  if (remaining <= 0) {
+    rateLimitState.delete(name);
+    return 0;
+  }
+  return remaining;
+}
+
+export function _recordRateLimitFailure(name) {
+  const prev = rateLimitState.get(name);
+  const failures = (prev?.consecutiveFailures ?? 0) + 1;
+  const state = { consecutiveFailures: failures, cooldownUntil: prev?.cooldownUntil ?? 0 };
+  if (failures >= _RATE_LIMIT_CONFIG.cooldownThreshold) {
+    state.cooldownUntil = Date.now() + _RATE_LIMIT_CONFIG.cooldownMs;
+  }
+  rateLimitState.set(name, state);
+  return state;
+}
+
+export function _recordSuccess(name) {
+  rateLimitState.delete(name);
+}
+
 export function readBusinessError(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const code = raw.error_code ?? raw.errorCode;
@@ -123,6 +163,48 @@ export async function runEndpoint(page, meta, params = {}, ctx = {}) {
   const log = getLogger();
   const startedAt = Date.now();
 
+  // V0.2 #7: Cooldown gate — if this endpoint is cooling down from prior rate-limit storm,
+  // short-circuit before any page.goto to save wall time (especially inside diagnose shop's
+  // concurrent dimensions).
+  const cooldownRemaining = _cooldownRemainingMs(meta.name);
+  if (cooldownRemaining > 0) {
+    throw new PddCliError({
+      code: 'E_RATE_LIMIT',
+      message: `runEndpoint(${meta.name}): in cooldown, ${Math.ceil(cooldownRemaining / 1000)}s remaining`,
+      hint: `连续 ${_RATE_LIMIT_CONFIG.cooldownThreshold} 次限流触发 ${Math.round(_RATE_LIMIT_CONFIG.cooldownMs / 60000)} 分钟冷却期，已跳过请求；请稍后重试`,
+      detail: {
+        endpoint: meta.name,
+        cooldown_remaining_ms: cooldownRemaining,
+        cooldown_triggered: true,
+      },
+      exitCode: ExitCodes.RATE_LIMIT,
+    });
+  }
+
+  try {
+    const result = await _executeEndpoint(page, meta, params, ctx, log, startedAt);
+    _recordSuccess(meta.name);
+    return result;
+  } catch (err) {
+    if (err instanceof PddCliError && err.code === 'E_RATE_LIMIT') {
+      const state = _recordRateLimitFailure(meta.name);
+      if (state.cooldownUntil > 0) {
+        err.detail = {
+          ...(err.detail ?? {}),
+          cooldown_triggered: true,
+          cooldown_threshold: _RATE_LIMIT_CONFIG.cooldownThreshold,
+          cooldown_ms: _RATE_LIMIT_CONFIG.cooldownMs,
+          consecutive_failures: state.consecutiveFailures,
+        };
+        const cooldownMin = Math.round(_RATE_LIMIT_CONFIG.cooldownMs / 60000);
+        err.hint = `连续 ${state.consecutiveFailures} 次限流，已触发 ${cooldownMin} 分钟冷却期；${err.hint ?? ''}`.trim();
+      }
+    }
+    throw err;
+  }
+}
+
+async function _executeEndpoint(page, meta, params, ctx, log, startedAt) {
   // D8: resolve nav.url exactly once per runEndpoint call (reused across 429 retries).
   let navUrl;
   try {
