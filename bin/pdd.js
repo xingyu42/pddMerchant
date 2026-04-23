@@ -133,7 +133,8 @@ wireAction(
 wireAction(
   program
     .command('doctor')
-    .description('⚙️ 环境自检（Chromium / auth-state / 登录态）'),
+    .description('⚙️ 环境自检（Chromium / auth-state / 登录态）')
+    .option('--probe <mode>', 'mall context 探测策略：xhr = state 探测 miss 时主动 reload 激活 XHR 兜底；默认不额外探测'),
   'doctor',
   doctor.run
 );

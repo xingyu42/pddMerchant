@@ -342,3 +342,68 @@ test('readActiveIdFromXhr cleans up listener after malformed responses', async (
   assert.equal(page.listenerCount('response'), 0);
 });
 
+test('resolveMallContext: activeProbeReload triggers page.reload before XHR probe', async () => {
+  delete process.env.PDD_TEST_ADAPTER;
+  let reloadCalls = 0;
+  const page = createFakePage({
+    xhrResponses: [
+      { headers: { 'content-type': 'application/json' }, bodyObj: { mall_id: 'reloaded-1' } },
+    ],
+  });
+  page.reload = async () => { reloadCalls += 1; };
+
+  const ctx = await resolveMallContext(page, { activeProbeReload: true });
+  assert.equal(reloadCalls, 1, 'page.reload called exactly once');
+  assert.equal(ctx.source, 'xhr');
+  assert.equal(ctx.activeId, 'reloaded-1');
+});
+
+test('resolveMallContext: without activeProbeReload page.reload is not invoked', async () => {
+  delete process.env.PDD_TEST_ADAPTER;
+  let reloadCalls = 0;
+  const page = createFakePage({
+    xhrResponses: [
+      { headers: { 'content-type': 'application/json' }, bodyObj: { mall_id: 'xhr-only' } },
+    ],
+  });
+  page.reload = async () => { reloadCalls += 1; };
+
+  const ctx = await resolveMallContext(page);
+  assert.equal(reloadCalls, 0, 'page.reload must NOT be called without flag');
+  assert.equal(ctx.source, 'xhr');
+  assert.equal(ctx.activeId, 'xhr-only');
+});
+
+test('resolveMallContext: activeProbeReload is skipped when state probe already hits', async () => {
+  delete process.env.PDD_TEST_ADAPTER;
+  let reloadCalls = 0;
+  const page = createFakePage({
+    globals: { __PRELOADED_STATE__: { mall: { currentMallId: 'state-early' } } },
+  });
+  page.reload = async () => { reloadCalls += 1; };
+
+  const ctx = await resolveMallContext(page, { activeProbeReload: true });
+  assert.equal(reloadCalls, 0, 'reload must NOT run when upstream probe succeeds');
+  assert.equal(ctx.source, 'state');
+  assert.equal(ctx.activeId, 'state-early');
+});
+
+test('resolveMallContext: activeProbeReload tolerates reload rejection and still runs XHR probe', async () => {
+  delete process.env.PDD_TEST_ADAPTER;
+  let reloadCalls = 0;
+  const page = createFakePage({
+    xhrResponses: [
+      { headers: { 'content-type': 'application/json' }, bodyObj: { mall_id: 'after-reload-fail' } },
+    ],
+  });
+  page.reload = async () => {
+    reloadCalls += 1;
+    throw new Error('simulated reload timeout');
+  };
+
+  const ctx = await resolveMallContext(page, { activeProbeReload: true });
+  assert.equal(reloadCalls, 1);
+  assert.equal(ctx.source, 'xhr');
+  assert.equal(ctx.activeId, 'after-reload-fail');
+});
+

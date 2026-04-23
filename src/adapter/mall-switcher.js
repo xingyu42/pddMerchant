@@ -293,7 +293,7 @@ async function readMallListFromDom(page) {
   }
 }
 
-export async function resolveMallContext(page) {
+export async function resolveMallContext(page, opts = {}) {
   if (isMockEnabled()) {
     const current = await mockCurrentMall();
     const malls = await mockListMalls();
@@ -304,6 +304,8 @@ export async function resolveMallContext(page) {
       source: 'mock',
     });
   }
+
+  const { activeProbeReload = false } = opts;
 
   const activeNameFromState = await readFromState(page, CURRENT_NAME_PATHS);
   const mallListFromState = await readFromState(page, MALL_LIST_PATHS);
@@ -346,6 +348,14 @@ export async function resolveMallContext(page) {
       malls: mallListFromState,
       source: 'storage',
     });
+  }
+
+  if (activeProbeReload && typeof page?.reload === 'function') {
+    try {
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
+    } catch {
+      /* best-effort: reload may fail on headless race or slow network; XHR probe still runs */
+    }
   }
 
   const fromXhr = await readActiveIdFromXhr(page);

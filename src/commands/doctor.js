@@ -29,18 +29,19 @@ async function checkAuthFile(path) {
   }
 }
 
-async function detectShopCount(page) {
+async function detectShopContext(page, opts = {}) {
   try {
-    const ctx = await resolveMallContext(page);
-    if (Array.isArray(ctx?.malls) && ctx.malls.length > 0) return ctx.malls.length;
-    if (ctx?.activeId) return 1;
-    return null;
+    const ctx = await resolveMallContext(page, opts);
+    const shops = (Array.isArray(ctx?.malls) && ctx.malls.length > 0)
+      ? ctx.malls.length
+      : (ctx?.activeId ? 1 : null);
+    return { shops, source: ctx?.source ?? null };
   } catch {
-    return null;
+    return { shops: null, source: null };
   }
 }
 
-async function checkLoggedIn(authStatePath) {
+async function checkLoggedIn(authStatePath, mallProbeOpts) {
   let browser = null;
   try {
     const launched = await launchBrowser({ headed: false, storageStatePath: authStatePath });
@@ -48,10 +49,13 @@ async function checkLoggedIn(authStatePath) {
     const valid = await isAuthValid(launched.page);
     const url = launched.page.url();
     let shops = null;
+    let source = null;
     if (valid) {
-      shops = await detectShopCount(launched.page);
+      const ctx = await detectShopContext(launched.page, mallProbeOpts);
+      shops = ctx.shops;
+      source = ctx.source;
     }
-    return { ok: valid, detail: { url, shops } };
+    return { ok: valid, detail: { url, shops, mall_source: source } };
   } catch (err) {
     return { ok: false, detail: { error: err?.message || '导航失败' } };
   } finally {
@@ -60,9 +64,10 @@ async function checkLoggedIn(authStatePath) {
 }
 
 export async function run(options = {}) {
-  const { json = false, authStatePath = DEFAULT_AUTH_STATE_PATH } = options;
+  const { json = false, authStatePath = DEFAULT_AUTH_STATE_PATH, probe = null } = options;
   const log = getLogger();
   const startedAt = Date.now();
+  const mallProbeOpts = probe === 'xhr' ? { activeProbeReload: true } : {};
 
   const data = {
     chromium: { ok: false, detail: null },
@@ -106,7 +111,7 @@ export async function run(options = {}) {
     );
   }
 
-  data.logged_in = await checkLoggedIn(authStatePath);
+  data.logged_in = await checkLoggedIn(authStatePath, mallProbeOpts);
   if (!data.logged_in.ok) {
     log.debug({ detail: data.logged_in.detail }, 'logged_in check failed');
     return emit(
