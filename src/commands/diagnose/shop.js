@@ -6,10 +6,10 @@ import { currentMall, switchTo } from '../../adapter/mall-switcher.js';
 import { buildEnvelope } from '../../infra/output.js';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { listOrders, getOrderStats, computeOrderStats } from '../../services/orders.js';
-import { listGoods } from '../../services/goods.js';
 import { getPromoReport } from '../../services/promo.js';
 import { diagnoseShop } from '../../services/diagnose/index.js';
 import { collectOrdersForStaleAnalysis } from '../../services/diagnose/orders-collector.js';
+import { collectAllGoods } from '../../services/diagnose/goods-collector.js';
 import { AUTH_STATE_PATH as DEFAULT_AUTH_STATE_PATH } from '../../infra/paths.js';
 
 const ICON = {
@@ -248,14 +248,19 @@ async function collectOrdersInput(page, ctx) {
 async function collectGoodsInput(page, ctx) {
   let goods;
   let goodsTotal;
+  let goodsScanTruncated = false;
+  let goodsScanRateLimited = false;
   try {
-    const result = await listGoods(page, { page: 1, size: 100 }, ctx);
-    goods = result?.goods ?? [];
-    const reported = Number(result?.total);
+    const collected = await collectAllGoods(page, ctx);
+    goods = collected.goods ?? [];
+    goodsScanTruncated = collected.truncated;
+    goodsScanRateLimited = collected.ratelimited;
+    const reported = Number(collected.total);
     goodsTotal = Number.isFinite(reported) && reported > 0 ? reported : goods.length;
   } catch {
     return undefined;
   }
+  if (goods.length === 0 && !goodsScanRateLimited) return undefined;
   let orders30d = null;
   let truncated = false;
   let ratelimited = false;
@@ -267,7 +272,7 @@ async function collectGoodsInput(page, ctx) {
   } catch {
     // collector 抛异常视为 stale 数据缺失，scoreInventoryHealth 自动走 missing 分支
   }
-  return { goods, goodsTotal, orders30d, truncated, ratelimited };
+  return { goods, goodsTotal, goodsScanTruncated, goodsScanRateLimited, orders30d, truncated, ratelimited };
 }
 
 async function collectPromoInput(page, ctx) {
