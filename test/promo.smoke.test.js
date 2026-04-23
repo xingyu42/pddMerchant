@@ -15,13 +15,13 @@ function runPdd(args) {
   });
 }
 
-test('pdd promo --help lists search/scene/ddk subcommands', () => {
+test('pdd promo --help lists search/scene subcommands', () => {
   const result = runPdd(['promo', '--help']);
   assert.equal(result.status, 0, `stderr: ${result.stderr}`);
   const out = result.stdout ?? '';
   assert.match(out, /\bsearch\b/);
   assert.match(out, /\bscene\b/);
-  assert.match(out, /\bddk\b/);
+  assert.doesNotMatch(out, /\bddk\b/);
 });
 
 test('pdd promo search --help shows --since option', () => {
@@ -38,10 +38,9 @@ test('pdd promo scene --help shows --since option', () => {
   assert.match(result.stdout ?? '', /--since/);
 });
 
-test('pdd promo ddk --help exits 0 (V0 placeholder)', () => {
-  const result = runPdd(['promo', 'ddk', '--help']);
-  assert.equal(result.status, 0, `stderr: ${result.stderr}`);
-  assert.match(result.stdout ?? '', /Usage:\s+pdd promo ddk/);
+test('pdd promo ddk is rejected as unknown subcommand (V0.2 removed)', () => {
+  const result = runPdd(['promo', 'ddk']);
+  assert.equal(result.status, 2, `stderr: ${result.stderr}`);
 });
 
 test('pdd promo bogus-sub exits 2 (USAGE)', () => {

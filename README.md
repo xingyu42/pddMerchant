@@ -116,7 +116,7 @@ pdd diagnose orders --json > orders-health.json
 |------|------|------|
 | 📦 orders | `list` / `detail` / `stats` | 订单列表、详情、统计 |
 | 🛍️ goods | `list` / `stock` | 商品列表、库存告警 |
-| 🚀 promo | `search` / `scene` / `ddk` | 搜索 / 场景 / DDK 推广报表 |
+| 🚀 promo | `search` / `scene` | 搜索 / 场景推广报表 |
 | 🩺 diagnose | `shop` / `orders` / `inventory` / `promo` / `funnel` | 健康评分 |
 | 🏬 shops | `list` / `current` | 店铺切换 |
 | ⚙️ utility | `init` / `login` / `doctor` | 鉴权与环境 |
@@ -159,13 +159,82 @@ pdd diagnose orders --json > orders-health.json
 ## V0 已知限制
 
 - **单账号多店铺**：V0 改用 `--profile` 多账号凭据文件（因 stealth 模式下 `userDataDir` 不自动保留 cookies）。
-- **订单详情**：V0 未侦察 `orderDetail` 接口，`pdd orders detail --sn` 使用 `orders list` 过滤兜底，仅限最近订单。
-- **推广 DDK**：`pdd promo ddk` V0 为占位（待 V0.1）。
-- **funnel 诊断**：需 DMP / SYCM 数据接入，V0 返回 `partial` + hint。
+
+---
+
+## V0.1 Migration Notes
+
+> V0 → V0.1 的对外变更清单。若你在 V0 下写了自动化脚本，请按此节核对兼容性。
+
+### 已消失的 warnings 字串
+
+V0 的以下 `meta.warnings` 字串在 V0.1 **不再出现**，依赖它的 grep 需更新：
+
+| 命令 | V0 warning 字串 | V0.1 行为 |
+|------|----------------|-----------|
+| `orders detail` | `V0: ORDER_DETAIL 接口未实现，使用 ORDER_LIST 过滤兜底` | 接入真实 `/mangkhut/mms/orderDetail`，返回完整字段 |
+| `diagnose funnel` | `diagnose funnel partial: ...` 静态提示 | 改为订单履约漏斗，基于真实 orders 数据打分 |
+
+### 新增 error.code
+
+| Code | 触发场景 | Exit |
+|------|----------|------|
+| `E_NOT_FOUND` | `orders detail --sn <未知订单号>` | 6 |
+| `E_RATE_LIMIT` | HTTP 429 重试耗尽 / 业务码 54001 | 4 |
+
+### 新增 data.* 字段（`diagnose inventory`）
+
+| 字段 | 类型 | 含义 |
+|------|------|------|
+| `detail.stale_count` | `number \| null` | 过去 30 天 0 销库存件数；`null` 表示 truncated/ratelimited/缺数据 |
+| `detail.stale_sample` | `array \| null` | 前 10 条滞销 SKU 样本 |
+| `detail.ambiguous_groups` | `array` | 重名组（仅在 goods_name fallback 路径触发） |
+| `detail.truncated` | `boolean` | 30 天订单量超出 500 扫描上限 |
+| `detail.matched_by` | `'goods_id' \| 'goods_name' \| 'mixed' \| null` | stale 匹配策略；`mixed` 表示降级（一侧有 id 另一侧无，生产常态） |
+
+### 新增 data.* 字段（`diagnose funnel`）
+
+| 字段 | 类型 | 含义 |
+|------|------|------|
+| `detail.total_orders` | `number` | 窗口内订单总数 |
+| `detail.refund_count` | `number` | 退款单数 |
+| `detail.refund_rate` | `number` | 退款率（唯一扣分指标） |
+| `detail.fulfillment_rate` | `number` | `1 - refund_rate`，仅展示不扣分 |
+| `detail.window_days` | `number \| null` | 统计窗口天数（shop=7，funnel 独立命令=30） |
+
+### 未变更
+
+- **Envelope top-level schema**：`{ ok, command, data, error, meta }` 完全兼容。
+- **CLI 参数**：所有 V0 命令/flag 保持不变。
+
+---
+
+## V0.2 Migration Notes
+
+> V0.1 → V0.2 的对外变更清单。若你在 V0 / V0.1 下写了自动化脚本，请按此节核对兼容性。
+
+### 已移除的命令
+
+| 命令 | V0 / V0.1 行为 | V0.2 行为 |
+|------|----------------|-----------|
+| `pdd promo ddk` | 占位：返 `error.code='E_DDK_UNAVAILABLE'` + exit 1 | **子命令不存在**；commander 抛 unknown subcommand，exit 2 (USAGE) |
+
+### 已消失的 error.code
+
+| Code | 之前场景 | V0.2 行为 |
+|------|----------|-----------|
+| `E_DDK_UNAVAILABLE` | `pdd promo ddk` 调用 | 不再出现在任何 envelope 中 |
+
+### 迁移建议
+
+- 依赖 `pdd promo ddk` 占位行为的 Agent 脚本：彻底移除对该子命令的调用；多多进宝能力在产品 scope 外。
+- 依赖 `error.code === 'E_DDK_UNAVAILABLE'` 字符串匹配的消费者：移除相关分支。
+- 依赖 exit code 1 的 retry 策略：若触发 `pdd promo ddk` 现为 exit 2（参数错误），建议在脚本侧按 unknown command 处理。
 
 ---
 
 ## 测试
+
 
 ```bash
 npm test

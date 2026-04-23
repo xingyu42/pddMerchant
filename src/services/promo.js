@@ -41,15 +41,4 @@ export async function getScenePromo(page, params = {}) {
   return { ...report, entities, filterType: 'scene' };
 }
 
-export async function getDdkPromo(_page, _params = {}) {
-  return {
-    ok: false,
-    error: {
-      code: 'E_DDK_UNAVAILABLE',
-      message: 'DDK 多多客推广 endpoint 尚未接入',
-      hint: 'V0.1 版本补齐 mms.pinduoduo.com/jinbao/promotionDetail',
-    },
-  };
-}
-
 export { filterByType };

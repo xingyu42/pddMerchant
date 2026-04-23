@@ -1,8 +1,9 @@
 // E2E · promo domain
-// 覆盖：search / scene（按 scenesType 过滤）/ ddk（V0 占位）
+// 覆盖：search / scene（按 scenesType 过滤）
+// 注：V0.2 移除 ddk 子命令（详见 openspec/changes/archive/*-remove-promo-ddk）
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { runPdd, assertOkEnvelope, assertFailEnvelope } from './_helpers.js';
+import { runPdd, assertOkEnvelope } from './_helpers.js';
 
 test('e2e: promo search filters fixture entities by scenesType=1', () => {
   const { status, envelope, stderr } = runPdd(['promo', 'search', '--json']);
@@ -20,13 +21,4 @@ test('e2e: promo scene filters fixture entities by scenesType=2', () => {
   assert.equal(envelope.data.count, 1);
   assert.equal(envelope.data.entities[0].scenesType, 2);
   assert.equal(envelope.data.entities[0].promotionType, 'scene');
-});
-
-test('e2e: promo ddk returns placeholder envelope with E_DDK_UNAVAILABLE', () => {
-  const { status, envelope } = runPdd(['promo', 'ddk', '--json']);
-  // ddk 是占位实现，返回 ok=false 但命令进程退出码由 mapErrorToExit 决定
-  assertFailEnvelope(envelope, 'promo.ddk', 'E_DDK_UNAVAILABLE');
-  assert.ok(envelope.meta.warnings.some((w) => w.includes('DDK')));
-  // E_DDK_UNAVAILABLE 不在已知 code 里，退出码默认 GENERAL=1
-  assert.equal(status, 1);
 });

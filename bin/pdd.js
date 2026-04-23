@@ -12,7 +12,6 @@ import * as goodsListCmd from '../src/commands/goods/list.js';
 import * as goodsStock from '../src/commands/goods/stock.js';
 import * as promoSearch from '../src/commands/promo/search.js';
 import * as promoScene from '../src/commands/promo/scene.js';
-import * as promoDdk from '../src/commands/promo/ddk.js';
 import * as diagnoseShopCmd from '../src/commands/diagnose/shop.js';
 import * as diagnoseOrders from '../src/commands/diagnose/orders.js';
 import * as diagnoseInventory from '../src/commands/diagnose/inventory.js';
@@ -226,13 +225,6 @@ wireAction(
     .option('--size <n>', '每页数量', (v) => Number(v), 10),
   'promo.scene',
   promoScene.run
-);
-wireAction(
-  promo
-    .command('ddk')
-    .description('多多客 DDK 报表（V0 占位，待 V0.1 补全）'),
-  'promo.ddk',
-  promoDdk.run
 );
 
 // 🩺 Diagnose
