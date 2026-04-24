@@ -2,7 +2,9 @@ import chalk from 'chalk';
 import Table from 'cli-table3';
 
 function shouldUseColor({ tty, noColor }) {
+  if (process.env.FORCE_COLOR === '1') return true;
   if (noColor) return false;
+  if (process.env.NO_COLOR) return false;
   if (tty === false) return false;
   return Boolean(tty ?? process.stdout.isTTY);
 }
@@ -90,23 +92,35 @@ function renderError(envelope, { useColor }) {
 export function emit(envelopeInput, options = {}) {
   const envelope = buildEnvelope(envelopeInput);
   const json = options.json === true;
+  const raw = options.raw === true;
   const noColor = options.noColor === true;
   const tty = options.tty;
+  const renderer = options.renderer;
 
-  if (json || process.env.NO_COLOR || !shouldUseColor({ tty, noColor })) {
-    if (json) {
-      process.stdout.write(JSON.stringify(envelope) + '\n');
-      if (envelope.error) {
-        const errLine = renderError(envelope, { useColor: false });
-        if (errLine) process.stderr.write(errLine + '\n');
-      }
-      return envelope;
+  if (json) {
+    process.stdout.write(JSON.stringify(envelope) + '\n');
+    if (envelope.error) {
+      const errLine = renderError(envelope, { useColor: false });
+      if (errLine) process.stderr.write(errLine + '\n');
     }
+    return envelope;
   }
 
   const useColor = shouldUseColor({ tty, noColor });
-  const body = renderTable(envelope, { useColor });
-  process.stdout.write(body + '\n');
+
+  if (raw) {
+    process.stdout.write(JSON.stringify(envelope, null, 2) + '\n');
+    return envelope;
+  }
+
+  if (typeof renderer === 'function') {
+    const rendered = renderer(envelope, { useColor });
+    if (rendered != null) process.stdout.write(String(rendered) + '\n');
+  } else {
+    const body = renderTable(envelope, { useColor });
+    process.stdout.write(body + '\n');
+  }
+
   if (envelope.error) {
     const errLine = renderError(envelope, { useColor });
     if (errLine) process.stderr.write(errLine + '\n');

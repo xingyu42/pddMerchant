@@ -1,5 +1,24 @@
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 
+let globalSeq = 0;
+const pageRequestSeqs = new WeakMap();
+const activeCollectors = new WeakMap();
+
+function ensureRequestTracking(page) {
+  if (pageRequestSeqs.has(page)) return;
+  const seqMap = new WeakMap();
+  pageRequestSeqs.set(page, seqMap);
+  page.on('request', (req) => {
+    seqMap.set(req, ++globalSeq);
+  });
+}
+
+function getRequestSeq(page, request) {
+  const seqMap = pageRequestSeqs.get(page);
+  if (!seqMap) return 0;
+  return seqMap.get(request) ?? 0;
+}
+
 function resolveMatcher(pattern) {
   if (pattern instanceof RegExp) {
     return (url) => pattern.test(url);
@@ -17,7 +36,7 @@ function resolveMatcher(pattern) {
   });
 }
 
-export function createCollector(page, { pattern, count = 1, timeout = 15000 } = {}) {
+export function createCollector(page, { pattern, count = 1, timeout = 15000, multiplex = false } = {}) {
   if (!page || typeof page.on !== 'function') {
     throw new PddCliError({
       code: 'E_USAGE',
@@ -40,6 +59,25 @@ export function createCollector(page, { pattern, count = 1, timeout = 15000 } = 
     });
   }
 
+  if (multiplex) {
+    throw new PddCliError({
+      code: 'E_NOT_IMPLEMENTED',
+      message: 'xhr-collector: multiplex mode is not yet supported',
+      exitCode: ExitCodes.GENERAL,
+    });
+  }
+
+  if (activeCollectors.has(page)) {
+    throw new PddCliError({
+      code: 'E_COLLECTOR_COLLISION',
+      message: 'xhr-collector: another collector is already active on this page',
+      exitCode: ExitCodes.GENERAL,
+    });
+  }
+
+  ensureRequestTracking(page);
+  const snapshotSeq = globalSeq;
+
   const matcher = resolveMatcher(pattern);
   const collected = [];
   let settled = false;
@@ -52,8 +90,18 @@ export function createCollector(page, { pattern, count = 1, timeout = 15000 } = 
     rejectFn = reject;
   });
 
+  const collectorRef = {};
+  activeCollectors.set(page, collectorRef);
+
   const listener = (response) => {
     if (settled) return;
+
+    const request = typeof response.request === 'function' ? response.request() : null;
+    if (request) {
+      const reqSeq = getRequestSeq(page, request);
+      if (reqSeq <= snapshotSeq) return;
+    }
+
     let url;
     try {
       url = typeof response?.url === 'function' ? response.url() : response?.url;
@@ -87,6 +135,9 @@ export function createCollector(page, { pattern, count = 1, timeout = 15000 } = 
       try { page.off('response', listener); } catch { /* ignore */ }
     } else if (typeof page.removeListener === 'function') {
       try { page.removeListener('response', listener); } catch { /* ignore */ }
+    }
+    if (activeCollectors.get(page) === collectorRef) {
+      activeCollectors.delete(page);
     }
   }
 
@@ -126,7 +177,7 @@ export function createCollector(page, { pattern, count = 1, timeout = 15000 } = 
     promise.catch(() => { /* absorb rejection when disposed */ });
   }
 
-  return { waitFor, dispose };
+  return { waitFor, dispose, _snapshotSeq: snapshotSeq };
 }
 
 export async function parseBody(response) {
@@ -144,4 +195,8 @@ export async function parseBody(response) {
     } catch { /* fall through */ }
   }
   return null;
+}
+
+export function _resetCollectorState() {
+  globalSeq = 0;
 }

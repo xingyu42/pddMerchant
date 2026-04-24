@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { chromium } from 'playwright';
 import { isMockEnabled, mockLaunchBrowser, mockCloseBrowser } from './mock-dispatcher.js';
+import { getLogger } from '../infra/logger.js';
 
 const DEFAULT_VIEWPORT = { width: 1920, height: 1080 };
 const DEFAULT_USER_AGENT =
@@ -65,6 +66,34 @@ export async function closeBrowser(browser) {
     }
   } catch { /* ignore */ }
   try { await browser.close(); } catch { /* ignore */ }
+}
+
+export async function withBrowser(options, fn) {
+  const log = getLogger();
+  let browser = null;
+  let context = null;
+  let page = null;
+
+  try {
+    const result = await launchBrowser(options);
+    browser = result.browser;
+    context = result.context;
+    page = result.page;
+  } catch (err) {
+    if (page) { try { await page.close(); } catch (e) { log.warn({ err: e?.message }, 'withBrowser: page cleanup failed'); } }
+    if (context) { try { await context.close(); } catch (e) { log.warn({ err: e?.message }, 'withBrowser: context cleanup failed'); } }
+    if (browser) { try { await browser.close(); } catch (e) { log.warn({ err: e?.message }, 'withBrowser: browser cleanup failed'); } }
+    throw err;
+  }
+
+  try {
+    const result = await fn({ browser, context, page });
+    try { await closeBrowser(browser); } catch (e) { log.warn({ err: e?.message }, 'withBrowser: cleanup on success failed'); }
+    return result;
+  } catch (err) {
+    try { await closeBrowser(browser); } catch (e) { log.warn({ err: e?.message }, 'withBrowser: cleanup on error failed'); }
+    throw err;
+  }
 }
 
 export { DEFAULT_VIEWPORT, DEFAULT_USER_AGENT };

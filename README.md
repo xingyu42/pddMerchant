@@ -233,6 +233,34 @@ V0 的以下 `meta.warnings` 字串在 V0.1 **不再出现**，依赖它的 grep
 
 ---
 
+## V0.3 Migration Notes
+
+> V0.2 → V0.3 的对外变更清单。若你在 V0.2 下写了自动化脚本，请按此节核对兼容性。
+
+### Envelope 变更（向前兼容）
+
+- **`meta.exit_code` 新增字段**：每个 envelope 的 `meta` 现在都带 `exit_code: number`，直接对应 `process.exitCode`。既有基于 `error.code` 的消费者无需修改。
+- **Commander 解析错误现输出 envelope**：未知子命令 / 缺少参数等 Commander 错误现在会在 stdout 输出 `{ ok: false, error: { code: "E_USAGE" } }` envelope（之前 stdout 为空）。
+- **QR 登录 `--json` 模式输出 2 行 JSON**：`pdd init --qr --json` 成功路径输出 `init.qr_pending` + `init` 两行，超时路径输出 `init.qr_pending` + `E_AUTH_TIMEOUT` 两行。
+- **`--json` 模式下 stderr 纯错误信息**：error hint 行从 stdout 移到 stderr。
+
+### Logger / 日志变更
+
+- **pino 日志默认写入 stderr**：之前 pino 默认混入 stdout，破坏 `--json` 单行纯净性。脚本若依赖 `pdd orders list 2>/dev/null` 丢弃 stderr 的行为不变。
+- **`PDD_LOG_DESTINATION`**：接受绝对路径或项目相对路径。`stdout` / `stderr` / `-` 字面量会触发 `E_USAGE`。
+
+### Auth-state 变更
+
+- **默认路径迁移**：auth-state.json 默认位置从项目 `data/auth-state.json` 移至 OS 用户目录（POSIX: `~/.pdd-cli/auth-state.json`，Windows: `%APPDATA%/pdd-cli/auth-state.json`）。首次运行时自动从旧路径拷贝。`PDD_AUTH_STATE_PATH` 环境变量覆盖仍有效。
+
+### 其他
+
+- `REDACT_KEYS` 新增 `goods_image`、`phone`、`addr`、`receiver_name`。
+- `parseMallId` 严格校验（1-15 位数字），`PDD_MALL_ID_STRICT_PARSE=0` 可放宽至 64 字符。
+- `--raw` 标记为 deprecated（仍可使用，V0.4 移除）。
+
+---
+
 ## 测试
 
 

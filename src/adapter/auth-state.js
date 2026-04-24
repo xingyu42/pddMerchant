@@ -1,19 +1,73 @@
-import { chmod, mkdir, readFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
+import { homedir, platform } from 'node:os';
 import { getLogger } from '../infra/logger.js';
+import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { isMockEnabled, mockIsAuthValid } from './mock-dispatcher.js';
+import { DATA_DIR } from '../infra/paths.js';
 
 const PDD_HOME = 'https://mms.pinduoduo.com';
 
+let _tmpSeq = 0;
+
+function defaultAuthStatePath() {
+  const authEnv = process.env.PDD_AUTH_STATE_PATH;
+  if (authEnv && authEnv.length > 0) return authEnv;
+
+  try {
+    const home = homedir();
+    if (platform() === 'win32') {
+      const appData = process.env.APPDATA || join(home, 'AppData', 'Roaming');
+      return join(appData, 'pdd-cli', 'auth-state.json');
+    }
+    return join(home, '.pdd-cli', 'auth-state.json');
+  } catch {
+    throw new PddCliError({
+      code: 'E_USAGE',
+      message: 'Cannot determine home directory for auth-state default path',
+      exitCode: ExitCodes.USAGE,
+    });
+  }
+}
+
+function legacyAuthStatePath() {
+  return join(DATA_DIR, 'auth-state.json');
+}
+
+function validateShape(state) {
+  if (!state || typeof state !== 'object') return false;
+  if (!Array.isArray(state.cookies)) return false;
+  if (!Array.isArray(state.origins)) return false;
+  return true;
+}
+
 export async function saveAuthState(context, path) {
   await mkdir(dirname(path), { recursive: true });
-  await context.storageState({ path });
-  try {
-    await chmod(path, 0o600);
-  } catch (err) {
-    getLogger().warn({ err: err?.message, path }, 'chmod 600 failed (likely Windows), continuing');
+
+  const tmpPath = `${path}.${process.pid}.${++_tmpSeq}.tmp`;
+  await context.storageState({ path: tmpPath });
+
+  const isPosix = platform() !== 'win32';
+  if (isPosix) {
+    const allowInsecure = process.env.PDD_ALLOW_INSECURE_AUTH_STATE === '1';
+    try {
+      await chmod(tmpPath, 0o600);
+    } catch (err) {
+      try { await unlink(tmpPath); } catch { /* ignore */ }
+      if (!allowInsecure) {
+        throw new PddCliError({
+          code: 'E_AUTH_STATE_INSECURE',
+          message: `chmod 600 failed on ${tmpPath}: ${err?.message}`,
+          hint: 'Set PDD_ALLOW_INSECURE_AUTH_STATE=1 to bypass (not recommended)',
+          exitCode: ExitCodes.AUTH,
+        });
+      }
+      getLogger().warn({ err: err?.message, path: tmpPath }, 'chmod 600 failed, continuing (insecure override)');
+    }
   }
+
+  await rename(tmpPath, path);
   return path;
 }
 
@@ -23,7 +77,48 @@ export async function loadAuthState(path) {
   }
   const raw = await readFile(path, 'utf8');
   const state = JSON.parse(raw);
+
+  if (!validateShape(state)) {
+    throw new PddCliError({
+      code: 'E_AUTH_STATE_CORRUPT',
+      message: `auth-state at ${path} has invalid shape (missing cookies or origins array)`,
+      hint: '执行 pdd login 重新登录以生成有效的 auth-state',
+      exitCode: ExitCodes.AUTH,
+    });
+  }
+
   return { path, exists: true, state };
+}
+
+export async function migrateLegacyAuthStateIfNeeded(targetPath, warnings = []) {
+  const legacy = legacyAuthStatePath();
+  if (!existsSync(legacy)) return false;
+  if (existsSync(targetPath)) return false;
+
+  let legacyState;
+  try {
+    const raw = await readFile(legacy, 'utf8');
+    legacyState = JSON.parse(raw);
+  } catch {
+    warnings.push('auth_state_legacy_corrupt_skipped');
+    return false;
+  }
+
+  if (!validateShape(legacyState)) {
+    warnings.push('auth_state_legacy_corrupt_skipped');
+    return false;
+  }
+
+  await mkdir(dirname(targetPath), { recursive: true });
+  await copyFile(legacy, targetPath);
+
+  const isPosix = platform() !== 'win32';
+  if (isPosix) {
+    try { await chmod(targetPath, 0o600); } catch { /* best effort */ }
+  }
+
+  warnings.push('auth_state_migrated_from_legacy');
+  return true;
 }
 
 export async function isAuthValid(page, { timeoutMs = 15000, maxAttempts = 2 } = {}) {
@@ -51,4 +146,4 @@ export async function isAuthValid(page, { timeoutMs = 15000, maxAttempts = 2 } =
   return false;
 }
 
-export { PDD_HOME };
+export { PDD_HOME, defaultAuthStatePath, legacyAuthStatePath, validateShape };

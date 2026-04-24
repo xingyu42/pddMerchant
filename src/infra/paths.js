@@ -1,20 +1,31 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { homedir, platform } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// 项目路径单一事实源。所有模块通过本文件获取路径，禁止用 homedir() + '.pdd-cli' 的老模式。
-// DATA_DIR     runtime artifacts (auth-state.json, QR PNGs, cache)
-// CONFIG_DIR   user-level config.json
 export const PROJECT_ROOT = join(__dirname, '..', '..');
 export const DATA_DIR = join(PROJECT_ROOT, 'data');
 export const CONFIG_DIR = join(PROJECT_ROOT, 'config');
 
-const authEnv = process.env.PDD_AUTH_STATE_PATH;
-export const AUTH_STATE_PATH = authEnv && authEnv.length > 0
-  ? authEnv
-  : join(DATA_DIR, 'auth-state.json');
+function resolveDefaultAuthStatePath() {
+  const authEnv = process.env.PDD_AUTH_STATE_PATH;
+  if (authEnv && authEnv.length > 0) return authEnv;
+
+  try {
+    const home = homedir();
+    if (platform() === 'win32') {
+      const appData = process.env.APPDATA || join(home, 'AppData', 'Roaming');
+      return join(appData, 'pdd-cli', 'auth-state.json');
+    }
+    return join(home, '.pdd-cli', 'auth-state.json');
+  } catch {
+    return join(DATA_DIR, 'auth-state.json');
+  }
+}
+
+export const AUTH_STATE_PATH = resolveDefaultAuthStatePath();
 export const CONFIG_PATH = join(CONFIG_DIR, 'config.json');
 
 export async function ensureDir(path) {

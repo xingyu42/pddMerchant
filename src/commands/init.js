@@ -8,7 +8,7 @@ import {
 } from '../adapter/qr-login.js';
 import { emit } from '../infra/output.js';
 import { getLogger } from '../infra/logger.js';
-import { PddCliError, ExitCodes } from '../infra/errors.js';
+import { PddCliError, ExitCodes, errorToEnvelope } from '../infra/errors.js';
 import { AUTH_STATE_PATH as DEFAULT_AUTH_STATE_PATH } from '../infra/paths.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 
@@ -94,6 +94,27 @@ async function runQrLogin({ command, authStatePath, timeoutMs, json, startedAt, 
       process.stderr.write(`⏳ 等待扫码（超时 ${Math.round(timeoutMs / 1000)}s）...\n\n`);
     }
 
+    if (json) {
+      const truncatedQr = qrContent && qrContent.length > 16384
+        ? qrContent.slice(0, 16384)
+        : qrContent;
+      const intermediateWarnings = [];
+      if (truncatedQr !== qrContent) intermediateWarnings.push('qr_content_truncated');
+      intermediateWarnings.push('qr_pending');
+      emit(
+        {
+          ok: true,
+          command: `${command}.qr_pending`,
+          data: {
+            qr_image_path: imagePath,
+            qr_content: truncatedQr || null,
+          },
+          meta: { warnings: intermediateWarnings },
+        },
+        { json: true }
+      );
+    }
+
     const result = await waitForLogin(page, { timeoutMs });
     if (!result.success) {
       throw new PddCliError({
@@ -159,20 +180,8 @@ export async function runInteractiveLogin(options = {}) {
     }
     return await runHeadedLogin({ command, authStatePath, timeoutMs: effectiveTimeout, json, startedAt });
   } catch (err) {
-    const isCli = err instanceof PddCliError;
-    return emit(
-      {
-        ok: false,
-        command,
-        error: {
-          code: isCli ? err.code : 'E_GENERAL',
-          message: isCli ? err.message : err?.message || '未知错误',
-          hint: isCli ? err.hint : '',
-        },
-        meta: { latency_ms: Date.now() - startedAt },
-      },
-      { json }
-    );
+    const envelope = errorToEnvelope(command, err, { latency_ms: Date.now() - startedAt });
+    return emit(envelope, { json });
   }
 }
 

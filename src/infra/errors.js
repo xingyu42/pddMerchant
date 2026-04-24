@@ -1,3 +1,5 @@
+import { redactRecursive } from './logger.js';
+
 export const ExitCodes = Object.freeze({
   OK: 0,
   GENERAL: 1,
@@ -40,4 +42,36 @@ export function isSuccessResponse(raw) {
   if (raw.errorCode === 1000000) return true;
   if (raw.result !== undefined && raw.success !== false) return true;
   return false;
+}
+
+export function errorToEnvelope(command, err, meta = {}) {
+  const isPddErr = err instanceof PddCliError;
+  const code = isPddErr ? err.code : (err?.code ?? 'E_GENERAL');
+  const exitCode = isPddErr
+    ? err.exitCode
+    : mapErrorToExit(err);
+
+  let detail = null;
+  if (isPddErr && err.detail != null) {
+    detail = redactRecursive(err.detail);
+  }
+
+  return {
+    ok: false,
+    command: command ?? '',
+    data: null,
+    error: {
+      code: String(code).startsWith('E_') ? code : `E_${code}`,
+      message: err?.message ?? '',
+      hint: err?.hint ?? '',
+      ...(detail != null ? { detail } : {}),
+    },
+    meta: {
+      exit_code: exitCode,
+      latency_ms: meta.latency_ms ?? 0,
+      xhr_count: meta.xhr_count ?? 0,
+      warnings: [...(meta.warnings ?? [])],
+      ...(meta.correlation_id ? { correlation_id: meta.correlation_id } : {}),
+    },
+  };
 }

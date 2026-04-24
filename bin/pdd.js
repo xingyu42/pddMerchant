@@ -18,8 +18,8 @@ import * as diagnoseInventory from '../src/commands/diagnose/inventory.js';
 import * as diagnosePromo from '../src/commands/diagnose/promo.js';
 import * as diagnoseFunnel from '../src/commands/diagnose/funnel.js';
 import { emit } from '../src/infra/output.js';
-import { PddCliError, ExitCodes, mapErrorToExit } from '../src/infra/errors.js';
-import { createLogger } from '../src/infra/logger.js';
+import { PddCliError, ExitCodes, mapErrorToExit, errorToEnvelope } from '../src/infra/errors.js';
+import { createLogger, redactRecursive } from '../src/infra/logger.js';
 
 const program = new Command();
 
@@ -29,7 +29,7 @@ program
   .version('0.1.0')
   .option('--json', 'stdout 输出单行 JSON（便于 AI/脚本消费）')
   .option('--no-color', '禁用彩色输出')
-  .option('--raw', '输出原始接口响应（调试用）')
+  .option('--raw', '输出原始接口响应（deprecated, V0.4 移除）')
   .option('--timeout <ms>', '全局超时（毫秒）', (v) => Number(v))
   .option('--mall <id>', '指定店铺 ID（未指定则使用当前）')
   .option('--headed', '以有头浏览器运行（调试）')
@@ -87,26 +87,16 @@ function wireAction(cmd, commandName, runFn) {
     try {
       const envelope = await runFn(opts);
       if (envelope && envelope.ok === false) {
-        const code = envelope.error?.code ?? 'E_GENERAL';
-        process.exitCode = mapErrorToExit({ code });
+        const exitCode = envelope.meta?.exit_code
+          ?? (envelope.error?.code ? mapErrorToExit({ code: envelope.error.code }) : ExitCodes.GENERAL);
+        process.exitCode = exitCode;
       } else {
         process.exitCode = ExitCodes.OK;
       }
     } catch (err) {
-      emit(
-        {
-          ok: false,
-          command: commandName,
-          error: {
-            code: err?.code ?? 'E_GENERAL',
-            message: err?.message ?? '未知错误',
-            hint: err?.hint ?? '',
-          },
-          meta: { latency_ms: 0 },
-        },
-        { json: opts.json, noColor: opts.noColor }
-      );
-      process.exitCode = err instanceof PddCliError ? err.exitCode : mapErrorToExit(err);
+      const envelope = errorToEnvelope(commandName, err);
+      emit(envelope, { json: opts.json, noColor: opts.noColor });
+      process.exitCode = envelope.meta.exit_code;
     }
   });
 }
@@ -168,7 +158,7 @@ wireAction(
 wireAction(
   orders
     .command('detail')
-    .description('订单详情（V0 通过列表过滤兜底）')
+    .description('订单详情（按订单号查询）')
     .requiredOption('--sn <sn>', '订单号 / shipping_id'),
   'orders.detail',
   ordersDetail.run
@@ -261,22 +251,38 @@ async function main() {
     await program.parseAsync(process.argv);
   } catch (err) {
     if (err && err.code && String(err.code).startsWith('commander.')) {
-      return;
-    }
-    emit(
-      {
+      const isHelpOrVersion = err.code === 'commander.helpDisplayed'
+        || err.code === 'commander.help'
+        || err.code === 'commander.version';
+      if (isHelpOrVersion) {
+        return;
+      }
+      const envelope = {
         ok: false,
         command: 'pdd',
+        data: null,
         error: {
-          code: err?.code ?? 'E_GENERAL',
-          message: err?.message ?? '未知错误',
-          hint: err?.hint ?? '',
+          code: 'E_USAGE',
+          message: err?.message ?? 'unknown command or argument',
+          hint: '',
+          detail: {
+            argv: redactRecursive(process.argv.slice(2)),
+            commander_code: err.code,
+          },
         },
-        meta: { latency_ms: 0 },
-      },
-      { json: false }
-    );
-    process.exitCode = err instanceof PddCliError ? err.exitCode : mapErrorToExit(err);
+        meta: {
+          exit_code: ExitCodes.USAGE,
+          latency_ms: 0,
+          warnings: [],
+        },
+      };
+      emit(envelope, { json: true, noColor: true });
+      process.exitCode = ExitCodes.USAGE;
+      return;
+    }
+    const envelope = errorToEnvelope('pdd', err);
+    emit(envelope, { json: false });
+    process.exitCode = envelope.meta.exit_code;
   }
 }
 

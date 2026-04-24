@@ -1,15 +1,17 @@
-import { runDiagnoseCommand, collectPromoInput } from './shop.js';
+import { withCommand } from '../../infra/command-runner.js';
+import { collectPromoInput, renderSingleDashboard } from './shop.js';
 import { scorePromoHealth } from '../../services/diagnose/index.js';
 
-export async function run(options = {}) {
-  return runDiagnoseCommand({
-    command: 'diagnose.promo',
-    options,
-    fetchAndScore: async (page, ctx) => {
-      const input = await collectPromoInput(page, ctx);
-      return scorePromoHealth(input ?? {});
-    },
-  });
-}
+export const run = withCommand({
+  name: 'diagnose.promo',
+  needsAuth: true,
+  needsMall: 'switch',
+  render: renderSingleDashboard,
+  async run(ctx) {
+    const mallId = ctx.mallCtx?.activeId ?? null;
+    const input = await collectPromoInput(ctx.page, { mallId });
+    return scorePromoHealth(input ?? {});
+  },
+});
 
 export default run;

@@ -1,10 +1,10 @@
 import { chromium } from 'playwright';
+import { withCommand } from '../infra/command-runner.js';
 import { launchBrowser, closeBrowser } from '../adapter/browser.js';
-import { loadAuthState, isAuthValid } from '../adapter/auth-state.js';
-import { resolveMallContext } from '../adapter/mall-switcher.js';
-import { emit } from '../infra/output.js';
-import { getLogger } from '../infra/logger.js';
-import { AUTH_STATE_PATH as DEFAULT_AUTH_STATE_PATH } from '../infra/paths.js';
+import { loadAuthState, isAuthValid, defaultAuthStatePath } from '../adapter/auth-state.js';
+import { resolveMallContext } from '../adapter/mall-reader.js';
+import { AUTH_STATE_PATH } from '../infra/paths.js';
+import { PddCliError, ExitCodes } from '../infra/errors.js';
 
 async function checkChromium() {
   try {
@@ -63,83 +63,57 @@ async function checkLoggedIn(authStatePath, mallProbeOpts) {
   }
 }
 
-export async function run(options = {}) {
-  const { json = false, authStatePath = DEFAULT_AUTH_STATE_PATH, probe = null } = options;
-  const log = getLogger();
-  const startedAt = Date.now();
-  const mallProbeOpts = probe === 'xhr' ? { activeProbeReload: true } : {};
+export const run = withCommand({
+  name: 'doctor',
+  needsAuth: false,
+  needsMall: 'none',
+  async run(ctx) {
+    const authStatePath = ctx.authPath ?? AUTH_STATE_PATH;
+    const probe = ctx.config?.probe ?? null;
+    const mallProbeOpts = probe === 'xhr' ? { activeProbeReload: true } : {};
 
-  const data = {
-    chromium: { ok: false, detail: null },
-    auth_file: { ok: false, detail: null },
-    logged_in: { ok: false, detail: null },
-  };
+    const data = {
+      chromium: { ok: false, detail: null },
+      auth_file: { ok: false, detail: null },
+      logged_in: { ok: false, detail: null },
+    };
 
-  data.chromium = await checkChromium();
-  if (!data.chromium.ok) {
-    return emit(
-      {
-        ok: false,
-        command: 'doctor',
-        data,
-        error: {
-          code: 'E_CHROMIUM_MISSING',
-          message: 'Chromium 未安装',
-          hint: '执行 npx playwright install chromium',
-        },
-        meta: { latency_ms: Date.now() - startedAt },
-      },
-      { json }
-    );
-  }
+    data.chromium = await checkChromium();
+    if (!data.chromium.ok) {
+      throw new PddCliError({
+        code: 'E_CHROMIUM_MISSING',
+        message: 'Chromium 未安装',
+        hint: '执行 npx playwright install chromium',
+        detail: data,
+        exitCode: ExitCodes.GENERAL,
+      });
+    }
 
-  data.auth_file = await checkAuthFile(authStatePath);
-  if (!data.auth_file.ok) {
-    return emit(
-      {
-        ok: false,
-        command: 'doctor',
-        data,
-        error: {
-          code: 'E_AUTH_STATE_MISSING',
-          message: '登录凭据缺失或损坏',
-          hint: '执行 pdd init 完成首次授权',
-        },
-        meta: { latency_ms: Date.now() - startedAt },
-      },
-      { json }
-    );
-  }
+    data.auth_file = await checkAuthFile(authStatePath);
+    if (!data.auth_file.ok) {
+      throw new PddCliError({
+        code: 'E_AUTH_STATE_MISSING',
+        message: '登录凭据缺失或损坏',
+        hint: '执行 pdd init 完成首次授权',
+        detail: data,
+        exitCode: ExitCodes.AUTH,
+      });
+    }
 
-  data.logged_in = await checkLoggedIn(authStatePath, mallProbeOpts);
-  if (!data.logged_in.ok) {
-    log.debug({ detail: data.logged_in.detail }, 'logged_in check failed');
-    return emit(
-      {
-        ok: false,
-        command: 'doctor',
-        data,
-        error: {
-          code: 'E_AUTH_EXPIRED',
-          message: '登录态已过期',
-          hint: '执行 pdd login 重新登录',
-        },
-        meta: { latency_ms: Date.now() - startedAt },
-      },
-      { json }
-    );
-  }
+    data.logged_in = await checkLoggedIn(authStatePath, mallProbeOpts);
+    if (!data.logged_in.ok) {
+      ctx.log.debug({ detail: data.logged_in.detail }, 'logged_in check failed');
+      throw new PddCliError({
+        code: 'E_AUTH_EXPIRED',
+        message: '登录态已过期',
+        hint: '执行 pdd login 重新登录',
+        detail: data,
+        exitCode: ExitCodes.AUTH,
+      });
+    }
 
-  return emit(
-    {
-      ok: true,
-      command: 'doctor',
-      data,
-      meta: { latency_ms: Date.now() - startedAt },
-    },
-    { json }
-  );
-}
+    return data;
+  },
+});
 
 export default run;
-export { DEFAULT_AUTH_STATE_PATH };
