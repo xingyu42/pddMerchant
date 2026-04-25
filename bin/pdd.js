@@ -20,6 +20,41 @@ import * as diagnoseFunnel from '../src/commands/diagnose/funnel.js';
 import { emit } from '../src/infra/output.js';
 import { PddCliError, ExitCodes, mapErrorToExit, errorToEnvelope } from '../src/infra/errors.js';
 import { createLogger, redactRecursive } from '../src/infra/logger.js';
+import { closeAllBrowsers } from '../src/adapter/browser.js';
+
+// --- Signal Handlers (C1) ---
+let shuttingDown = false;
+function onSignal(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  const code = { SIGINT: 130, SIGTERM: 143 }[signal] ?? 128;
+  process.exitCode = code;
+  closeAllBrowsers({ timeoutMs: 5000 }).catch(() => {});
+}
+process.on('SIGINT', () => onSignal('SIGINT'));
+process.on('SIGTERM', () => onSignal('SIGTERM'));
+
+// --- Global Exception Handlers (W6) ---
+let fatalEmitted = false;
+process.on('unhandledRejection', (reason) => {
+  if (fatalEmitted) return;
+  fatalEmitted = true;
+  const envelope = errorToEnvelope('pdd', reason instanceof Error ? reason : new Error(String(reason)));
+  emit(envelope, { json: true, noColor: true });
+  closeAllBrowsers().catch(() => {});
+  process.exitCode = ExitCodes.GENERAL;
+});
+
+process.on('uncaughtException', (err) => {
+  if (!fatalEmitted) {
+    fatalEmitted = true;
+    const envelope = errorToEnvelope('pdd', err);
+    emit(envelope, { json: true, noColor: true });
+  }
+  closeAllBrowsers({ timeoutMs: 3000 }).catch(() => {}).finally(() => {
+    process.exit(ExitCodes.GENERAL);
+  });
+});
 
 const program = new Command();
 
@@ -271,6 +306,7 @@ async function main() {
           },
         },
         meta: {
+          v: 1,
           exit_code: ExitCodes.USAGE,
           latency_ms: 0,
           warnings: [],

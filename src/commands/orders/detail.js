@@ -17,7 +17,7 @@ export const run = withCommand({
       });
     }
     const mallId = ctx.mallCtx?.activeId ?? null;
-    const result = await getOrderDetail(ctx.page, sn, { mallId });
+    const result = await getOrderDetail(ctx.page, sn, ctx);
     return { order: result.order, mall_id: mallId };
   },
 });

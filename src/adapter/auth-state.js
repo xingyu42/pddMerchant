@@ -1,7 +1,7 @@
 import { chmod, copyFile, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { homedir, platform } from 'node:os';
+import { platform } from 'node:os';
 import { getLogger } from '../infra/logger.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { isMockEnabled, mockIsAuthValid } from './mock-dispatcher.js';
@@ -10,26 +10,6 @@ import { DATA_DIR } from '../infra/paths.js';
 const PDD_HOME = 'https://mms.pinduoduo.com';
 
 let _tmpSeq = 0;
-
-function defaultAuthStatePath() {
-  const authEnv = process.env.PDD_AUTH_STATE_PATH;
-  if (authEnv && authEnv.length > 0) return authEnv;
-
-  try {
-    const home = homedir();
-    if (platform() === 'win32') {
-      const appData = process.env.APPDATA || join(home, 'AppData', 'Roaming');
-      return join(appData, 'pdd-cli', 'auth-state.json');
-    }
-    return join(home, '.pdd-cli', 'auth-state.json');
-  } catch {
-    throw new PddCliError({
-      code: 'E_USAGE',
-      message: 'Cannot determine home directory for auth-state default path',
-      exitCode: ExitCodes.USAGE,
-    });
-  }
-}
 
 function legacyAuthStatePath() {
   return join(DATA_DIR, 'auth-state.json');
@@ -146,4 +126,4 @@ export async function isAuthValid(page, { timeoutMs = 15000, maxAttempts = 2 } =
   return false;
 }
 
-export { PDD_HOME, defaultAuthStatePath, legacyAuthStatePath, validateShape };
+export { PDD_HOME, legacyAuthStatePath, validateShape };

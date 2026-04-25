@@ -8,7 +8,7 @@ export const run = withCommand({
   async run(ctx) {
     const { page: pageNumber = 1, size = 20, since, until } = ctx.config;
     const mallId = ctx.mallCtx?.activeId ?? null;
-    const result = await listOrders(ctx.page, { page: pageNumber, size, since, until }, { mallId });
+    const result = await listOrders(ctx.page, { page: pageNumber, size, since, until }, ctx);
     return { total: result.total, orders: result.orders, mall_id: mallId };
   },
 });

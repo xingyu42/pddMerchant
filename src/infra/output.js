@@ -17,6 +17,7 @@ function buildEnvelope(input) {
     data: data ?? null,
     error: error ?? null,
     meta: {
+      v: 1,
       latency_ms: 0,
       xhr_count: 0,
       warnings: [],

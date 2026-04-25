@@ -170,7 +170,7 @@ export async function collectGoodsInput(page, ctx) {
 
 export async function collectPromoInput(page, ctx) {
   try {
-    const report = await getPromoReport(page, { mallId: ctx?.mallId });
+    const report = await getPromoReport(page, {}, ctx);
     return { totals: report?.totals ?? null };
   } catch {
     return undefined;
@@ -185,16 +185,15 @@ export const run = withCommand({
   async run(ctx) {
     const mallId = ctx.mallCtx?.activeId ?? null;
     const page = ctx.page;
-    const diagCtx = { mallId };
 
     const hasContext = typeof page?.context === 'function';
     const goodsPage = hasContext ? await page.context().newPage() : page;
     const promoPage = hasContext ? await page.context().newPage() : page;
     try {
       const [orders, goods, promo] = await Promise.all([
-        collectOrdersInput(page, diagCtx),
-        collectGoodsInput(goodsPage, diagCtx),
-        collectPromoInput(promoPage, diagCtx),
+        collectOrdersInput(page, ctx),
+        collectGoodsInput(goodsPage, ctx),
+        collectPromoInput(promoPage, ctx),
       ]);
       return diagnoseShop({
         orders,

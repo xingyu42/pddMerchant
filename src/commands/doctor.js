@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 import { withCommand } from '../infra/command-runner.js';
 import { launchBrowser, closeBrowser } from '../adapter/browser.js';
-import { loadAuthState, isAuthValid, defaultAuthStatePath } from '../adapter/auth-state.js';
+import { loadAuthState, isAuthValid } from '../adapter/auth-state.js';
 import { resolveMallContext } from '../adapter/mall-reader.js';
 import { AUTH_STATE_PATH } from '../infra/paths.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';

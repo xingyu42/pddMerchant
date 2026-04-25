@@ -23,20 +23,21 @@ function filterByType(entities, typeKey) {
   });
 }
 
-export async function getPromoReport(page, params = {}) {
-  const { type = 'entity', mallId, ...rest } = params;
+export async function getPromoReport(page, params = {}, ctx = {}) {
+  const { type = 'entity', mallId: paramMallId, ...rest } = params;
+  const mallId = paramMallId ?? ctx.mallId;
   const meta = type === 'hourly' ? PROMO_HOURLY_REPORT : PROMO_ENTITY_REPORT;
-  return runEndpoint(page, meta, rest, { mallId });
+  return runEndpoint(page, meta, rest, { ...ctx, mallId });
 }
 
-export async function getSearchPromo(page, params = {}) {
-  const report = await getPromoReport(page, { ...params, type: 'entity' });
+export async function getSearchPromo(page, params = {}, ctx = {}) {
+  const report = await getPromoReport(page, { ...params, type: 'entity' }, ctx);
   const entities = filterByType(report?.entities, 'search');
   return { ...report, entities, filterType: 'search' };
 }
 
-export async function getScenePromo(page, params = {}) {
-  const report = await getPromoReport(page, { ...params, type: 'entity' });
+export async function getScenePromo(page, params = {}, ctx = {}) {
+  const report = await getPromoReport(page, { ...params, type: 'entity' }, ctx);
   const entities = filterByType(report?.entities, 'scene');
   return { ...report, entities, filterType: 'scene' };
 }

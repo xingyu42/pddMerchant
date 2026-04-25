@@ -21,6 +21,29 @@ if (originalQuery) {
 }
 `;
 
+// --- Browser Lifecycle Registry ---
+const activeBrowsers = new Set();
+let closeAllPromise = null;
+
+export function registerBrowser(browser) {
+  if (browser) activeBrowsers.add(browser);
+  return browser;
+}
+
+export function unregisterBrowser(browser) {
+  activeBrowsers.delete(browser);
+}
+
+export async function closeAllBrowsers({ timeoutMs = 5000 } = {}) {
+  if (closeAllPromise) return closeAllPromise;
+  closeAllPromise = (async () => {
+    const snapshot = [...activeBrowsers];
+    await Promise.allSettled(snapshot.map((b) => closeBrowser(b)));
+  })();
+  try { return await closeAllPromise; }
+  finally { closeAllPromise = null; }
+}
+
 export async function launchBrowser({
   headed = false,
   storageStatePath,
@@ -37,23 +60,29 @@ export async function launchBrowser({
       '--disable-dev-shm-usage',
     ],
   });
+  registerBrowser(browser);
 
-  const contextOptions = {
-    viewport,
-    userAgent,
-    locale: 'zh-CN',
-    timezoneId: 'Asia/Shanghai',
-    ...extraContextOptions,
-  };
-  if (storageStatePath && existsSync(storageStatePath)) {
-    contextOptions.storageState = storageStatePath;
+  try {
+    const contextOptions = {
+      viewport,
+      userAgent,
+      locale: 'zh-CN',
+      timezoneId: 'Asia/Shanghai',
+      ...extraContextOptions,
+    };
+    if (storageStatePath && existsSync(storageStatePath)) {
+      contextOptions.storageState = storageStatePath;
+    }
+
+    const context = await browser.newContext(contextOptions);
+    await context.addInitScript(STEALTH_SCRIPT);
+    const page = await context.newPage();
+
+    return { browser, context, page };
+  } catch (err) {
+    await closeBrowser(browser);
+    throw err;
   }
-
-  const context = await browser.newContext(contextOptions);
-  await context.addInitScript(STEALTH_SCRIPT);
-  const page = await context.newPage();
-
-  return { browser, context, page };
 }
 
 export async function closeBrowser(browser) {
@@ -66,6 +95,7 @@ export async function closeBrowser(browser) {
     }
   } catch { /* ignore */ }
   try { await browser.close(); } catch { /* ignore */ }
+  finally { unregisterBrowser(browser); }
 }
 
 export async function withBrowser(options, fn) {

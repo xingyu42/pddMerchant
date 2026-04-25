@@ -29,6 +29,7 @@ export function mapErrorToExit(err) {
   if (code.includes('AUTH') || code === 'UNAUTHORIZED' || code === 'E_AUTH') return ExitCodes.AUTH;
   if (code.includes('RATE') || code === 'E_RATE_LIMIT' || code === 'TOO_MANY_REQUESTS') return ExitCodes.RATE_LIMIT;
   if (code.includes('NETWORK') || code === 'ECONNRESET' || code === 'ETIMEDOUT' || code === 'ENOTFOUND') return ExitCodes.NETWORK;
+  if (code.includes('TIMEOUT')) return ExitCodes.NETWORK;
   if (code === 'E_USAGE' || code === 'EINVAL') return ExitCodes.USAGE;
   if (code === 'E_BUSINESS' || code === 'E_NOT_FOUND') return ExitCodes.BUSINESS;
   if (code === 'E_PARTIAL') return ExitCodes.PARTIAL;
@@ -67,6 +68,7 @@ export function errorToEnvelope(command, err, meta = {}) {
       ...(detail != null ? { detail } : {}),
     },
     meta: {
+      v: 1,
       exit_code: exitCode,
       latency_ms: meta.latency_ms ?? 0,
       xhr_count: meta.xhr_count ?? 0,

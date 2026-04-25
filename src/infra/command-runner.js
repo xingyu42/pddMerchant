@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { withBrowser } from '../adapter/browser.js';
-import { isAuthValid, loadAuthState, migrateLegacyAuthStateIfNeeded, defaultAuthStatePath } from '../adapter/auth-state.js';
+import { isAuthValid, loadAuthState, migrateLegacyAuthStateIfNeeded } from '../adapter/auth-state.js';
 import { currentMall, resolveMallContext } from '../adapter/mall-reader.js';
 import { switchTo } from '../adapter/mall-writer.js';
 import { FixtureEndpointClient, mockCurrentMall, mockListMalls } from '../adapter/mock-dispatcher.js';
@@ -11,6 +11,7 @@ import { emit, buildEnvelope } from '../infra/output.js';
 import { PddCliError, ExitCodes, errorToEnvelope } from '../infra/errors.js';
 import { AUTH_STATE_PATH } from '../infra/paths.js';
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
+import { remainingMs, throwIfAborted, timeoutError } from '../infra/abort.js';
 
 function normalizeRunResult(result) {
   if (result == null) return { data: null };
@@ -44,6 +45,18 @@ export function withCommand({
       : getLogger();
 
     const authPath = opts.authStatePath ?? AUTH_STATE_PATH;
+
+    // --- Timeout / AbortController (W1) ---
+    let abortController = null;
+    let deadlineTimer = null;
+    if (typeof opts.timeoutMs === 'number' && opts.timeoutMs > 0) {
+      abortController = new AbortController();
+      deadlineTimer = setTimeout(() => abortController.abort(), opts.timeoutMs);
+    }
+    const signal = abortController?.signal ?? null;
+    const deadlineAt = signal ? startedAt + opts.timeoutMs : null;
+
+    try {
 
     await migrateLegacyAuthStateIfNeeded(authPath, warnings).catch((err) => {
       log.debug({ err: err?.message }, 'legacy auth migration check failed');
@@ -92,11 +105,14 @@ export function withCommand({
         client,
         page: null,
         mallCtx,
+        mallId: mallCtx?.activeId ?? null,
         authPath,
         config: opts,
         log,
         correlation_id: correlationId,
         warnings,
+        signal,
+        deadlineAt,
       };
 
       try {
@@ -134,7 +150,14 @@ export function withCommand({
       storageStatePath: authPath,
     }, async ({ browser, context, page }) => {
       if (needsAuth) {
-        const valid = await isAuthValid(page);
+        throwIfAborted(signal);
+        if (deadlineAt && remainingMs({ deadlineAt }) === 0) {
+          throw timeoutError();
+        }
+        const authTimeoutMs = deadlineAt
+          ? Math.max(1, Math.min(remainingMs({ deadlineAt }), 15000))
+          : undefined;
+        const valid = await isAuthValid(page, authTimeoutMs != null ? { timeoutMs: authTimeoutMs } : undefined);
         if (!valid) {
           throw new PddCliError({
             code: 'E_AUTH_EXPIRED',
@@ -162,12 +185,15 @@ export function withCommand({
         page,
         context,
         mallCtx,
+        mallId: mallCtx?.activeId ?? null,
         authPath,
         config: opts,
         log,
         correlation_id: correlationId,
         warnings,
         pageSession,
+        signal,
+        deadlineAt,
       };
 
       const result = await run(ctx);
@@ -199,5 +225,9 @@ export function withCommand({
       emit(envelope, { json: opts.json, noColor: opts.noColor });
       return envelope;
     });
+
+    } finally {
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+    }
   };
 }

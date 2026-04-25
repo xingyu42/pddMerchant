@@ -3,9 +3,10 @@ import { PddCliError, ExitCodes, mapErrorToExit } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 import { classifyRateLimit } from './classify-rate-limit.js';
+import { throwIfAborted, remainingMs, abortableSleep } from '../infra/abort.js';
 
 const RETRY_DELAYS_MS = [1000, 2000, 4000];
-const SUCCESS_BUSINESS_CODES = new Set([0, 1000000]);
+export const SUCCESS_BUSINESS_CODES = new Set([0, 1000000]);
 
 function responseStatus(response) {
   if (!response) return null;
@@ -27,7 +28,7 @@ function resolveNavUrl(meta, params, ctx) {
   return raw;
 }
 
-function readBusinessError(raw) {
+export function readBusinessError(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const code = raw.error_code ?? raw.errorCode;
   const msg = raw.error_msg ?? raw.errorMsg;
@@ -136,6 +137,7 @@ export class PlaywrightEndpointClient {
     let attempt = 0;
 
     while (true) {
+      throwIfAborted(ctx.signal);
       const response = await this._attemptOnce(page, meta, params, ctx, log, navUrl);
       const status = responseStatus(response);
 
@@ -144,7 +146,7 @@ export class PlaywrightEndpointClient {
           const delay = RETRY_DELAYS_MS[attempt];
           log.debug({ endpoint: meta.name, attempt: attempt + 1, delay }, 'HTTP 429, backing off');
           attempt += 1;
-          await sleep(delay);
+          await abortableSleep(delay, ctx.signal);
           continue;
         }
         throw new PddCliError({
@@ -247,24 +249,35 @@ export class PlaywrightEndpointClient {
   }
 
   async _attemptOnce(page, meta, params, ctx, log, navUrl) {
+    throwIfAborted(ctx.signal);
+    const remaining = remainingMs(ctx);
+    const collectorTimeout = Math.min(
+      meta.collectorTimeout ?? TIMEOUTS.XHR_COLLECTOR,
+      remaining === 0 ? 1 : (remaining || Infinity),
+    );
     const collector = createCollector(page, {
       pattern: meta.urlPattern,
-      timeout: meta.collectorTimeout ?? TIMEOUTS.XHR_COLLECTOR,
+      timeout: collectorTimeout,
+      signal: ctx.signal,
     });
 
     const pageSession = ctx.pageSession ?? this._pageSession;
+    const navTimeout = Math.min(
+      meta.navTimeout ?? TIMEOUTS.QUICK_NAV,
+      remaining === 0 ? 1 : (remaining || Infinity),
+    );
 
     try {
       if (navUrl) {
         if (pageSession) {
           await pageSession.goto(page, navUrl, {
             waitUntil: meta.nav?.waitUntil ?? 'domcontentloaded',
-            timeout: meta.navTimeout ?? TIMEOUTS.QUICK_NAV,
+            timeout: navTimeout,
           });
         } else {
           await page.goto(navUrl, {
             waitUntil: meta.nav?.waitUntil ?? 'domcontentloaded',
-            timeout: meta.navTimeout ?? TIMEOUTS.QUICK_NAV,
+            timeout: navTimeout,
           });
         }
       }
@@ -293,8 +306,8 @@ export class PlaywrightEndpointClient {
         }
       }
     } catch (err) {
-      if (err instanceof PddCliError) throw err;
       collector.dispose();
+      if (err instanceof PddCliError) throw err;
       throw new PddCliError({
         code: 'E_NETWORK',
         message: `${meta.name}: navigation failed: ${err?.message}`,

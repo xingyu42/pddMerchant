@@ -9,8 +9,8 @@ export const run = withCommand({
     const { size = 50 } = ctx.config;
     const mallId = ctx.mallCtx?.activeId ?? null;
 
-    const remote = await getOrderStats(ctx.page, { mallId });
-    const listRes = await listOrders(ctx.page, { page: 1, size }, { mallId });
+    const remote = await getOrderStats(ctx.page, ctx);
+    const listRes = await listOrders(ctx.page, { page: 1, size }, ctx);
     const local = computeOrderStats(listRes.orders);
 
     return {

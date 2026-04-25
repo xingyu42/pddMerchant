@@ -33,6 +33,7 @@ describe('Envelope PBT', () => {
           assert.strictEqual(typeof e.command, 'string');
           assert.ok('data' in e);
           assert.ok('meta' in e);
+          assert.strictEqual(e.meta.v, 1, 'meta.v must be 1');
           assert.ok(Array.isArray(e.meta.warnings));
         }
       ),

@@ -3,17 +3,7 @@ import { getLogger } from '../infra/logger.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 import { isMockEnabled, mockRunEndpoint } from './mock-dispatcher.js';
 import { getSharedClient, _resetSharedClient, _cooldownConfig } from './rate-limiter-singleton.js';
-
-const SUCCESS_BUSINESS_CODES = new Set([0, 1000000]);
-
-export function readBusinessError(raw) {
-  if (!raw || typeof raw !== 'object') return null;
-  const code = raw.error_code ?? raw.errorCode;
-  const msg = raw.error_msg ?? raw.errorMsg;
-  if (code == null) return null;
-  if (SUCCESS_BUSINESS_CODES.has(code)) return null;
-  return { code: String(code), message: msg == null ? '' : String(msg) };
-}
+export { readBusinessError, SUCCESS_BUSINESS_CODES } from './endpoint-client.js';
 
 export async function runEndpoint(page, meta, params = {}, ctx = {}) {
   if (isMockEnabled()) return mockRunEndpoint(meta, params, ctx);

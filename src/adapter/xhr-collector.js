@@ -1,4 +1,5 @@
 import { PddCliError, ExitCodes } from '../infra/errors.js';
+import { timeoutError } from '../infra/abort.js';
 
 let globalSeq = 0;
 const pageRequestSeqs = new WeakMap();
@@ -36,7 +37,7 @@ function resolveMatcher(pattern) {
   });
 }
 
-export function createCollector(page, { pattern, count = 1, timeout = 15000, multiplex = false } = {}) {
+export function createCollector(page, { pattern, count = 1, timeout = 15000, multiplex = false, signal } = {}) {
   if (!page || typeof page.on !== 'function') {
     throw new PddCliError({
       code: 'E_USAGE',
@@ -89,6 +90,7 @@ export function createCollector(page, { pattern, count = 1, timeout = 15000, mul
     resolveFn = resolve;
     rejectFn = reject;
   });
+  promise.catch(() => {}); // prevent unhandled rejection on timeout/dispose race
 
   const collectorRef = {};
   activeCollectors.set(page, collectorRef);
@@ -160,6 +162,20 @@ export function createCollector(page, { pattern, count = 1, timeout = 15000, mul
       exitCode: ExitCodes.NETWORK,
     }));
   }, timeout);
+
+  // AbortSignal integration (W1)
+  if (signal) {
+    if (signal.aborted) {
+      if (!settled) { settled = true; cleanup(); rejectFn(timeoutError()); }
+    } else {
+      signal.addEventListener('abort', () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        rejectFn(timeoutError());
+      }, { once: true });
+    }
+  }
 
   function waitFor() {
     return promise;

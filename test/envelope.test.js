@@ -15,6 +15,7 @@ const EnvelopeSchema = z.object({
     })
     .nullable(),
   meta: z.object({
+    v: z.number(),
     latency_ms: z.number(),
     xhr_count: z.number(),
     warnings: z.array(z.string()),
