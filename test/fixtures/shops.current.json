@@ -1,4 +1,10 @@
 {
   "id": "445301049",
-  "name": "测试店铺 A"
+  "name": "测试店铺 A",
+  "logo_url": "https://img.pddpic.com/open-gw/mock-logo-a.png",
+  "cat_id": 18,
+  "cat_name": "食品",
+  "level": 4,
+  "status": 1,
+  "merchant_type": 1
 }

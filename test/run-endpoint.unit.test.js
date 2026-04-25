@@ -164,7 +164,11 @@ test('requiredTrigger unset: trigger exception is swallowed, XHR still collected
     isSuccess: () => true,
   };
   const result = await runEndpoint(page, meta, {}, {});
-  assert.ok(result);
+  assert.ok(result, 'runEndpoint must resolve (not reject) when trigger is optional');
+  assert.equal(typeof result, 'object', 'result must be an object (XHR collected)');
+  // without normalize fn, runEndpoint wraps as { raw: <body> }
+  assert.ok(result.raw, 'result.raw must contain the XHR response body');
+  assert.equal(result.raw.success, true, 'collected XHR body must have success field');
 });
 
 test('429 retries with exponential backoff [1000, 2000, 4000] then succeeds', async () => {

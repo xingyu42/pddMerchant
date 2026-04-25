@@ -1,4 +1,28 @@
 [
-  { "id": "445301049", "name": "测试店铺 A", "active": true },
-  { "id": "445302000", "name": "测试店铺 B", "active": false }
+  {
+    "id": "445301049",
+    "name": "测试店铺 A",
+    "active": true,
+    "logo_url": "https://img.pddpic.com/open-gw/mock-logo-a.png",
+    "cat_id": 18,
+    "cat_name": "食品",
+    "level": 4,
+    "status": 1,
+    "created_at": "2023-06-15T08:30:00Z",
+    "expire_at": "2025-12-31T23:59:59Z",
+    "merchant_type": 1
+  },
+  {
+    "id": "445302000",
+    "name": "测试店铺 B",
+    "active": false,
+    "logo_url": "https://img.pddpic.com/open-gw/mock-logo-b.png",
+    "cat_id": 24,
+    "cat_name": "家居日用",
+    "level": 3,
+    "status": 1,
+    "created_at": "2024-01-20T10:00:00Z",
+    "expire_at": "2026-06-30T23:59:59Z",
+    "merchant_type": 2
+  }
 ]

@@ -11,10 +11,12 @@ test('e2e: goods list returns normalized goods with total and mall', () => {
   assert.ok(Array.isArray(envelope.data));
   assert.equal(envelope.data.length, 3);
   assert.equal(envelope.meta.total, 3);
-  // 首条商品断言字段存在
+  // 首条商品断言具体值（fixture: goods_id=1001, quantity=50）
   const first = envelope.data[0];
-  assert.ok(first.goods_id);
-  assert.ok(typeof first.quantity === 'number');
+  assert.equal(first.goods_id, 1001);
+  assert.equal(first.goods_name, '测试商品 A（库存充足）');
+  assert.equal(first.quantity, 50);
+  assert.equal(typeof first.sku_price, 'number');
 });
 
 test('e2e: goods stock flags low_stock entries below threshold', () => {
