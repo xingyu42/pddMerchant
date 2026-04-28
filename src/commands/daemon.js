@@ -4,8 +4,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { platform } from 'node:os';
 import { emit, buildEnvelope } from '../infra/output.js';
-import { PROJECT_ROOT } from '../infra/paths.js';
-import { DAEMON_STATE_PATH } from '../infra/paths.js';
+import { PROJECT_ROOT, DAEMON_STATE_PATH } from '../infra/paths.js';
 import { ExitCodes } from '../infra/errors.js';
 import { isPidAlive } from '../infra/process-util.js';
 
@@ -44,11 +43,21 @@ export async function start(opts = {}) {
 
   await mkdir(dirname(DAEMON_STATE_PATH), { recursive: true });
 
-  const child = spawn(process.execPath, [DAEMON_BIN], {
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: true,
-  });
+  let child;
+  if (platform() === 'win32') {
+    const nodeBin = process.execPath.replace(/\\/g, '\\\\');
+    const daemonBin = DAEMON_BIN.replace(/\\/g, '\\\\');
+    const psCmd = `Start-Process -WindowStyle Hidden -FilePath '${nodeBin}' -ArgumentList '"${daemonBin}"'`;
+    child = spawn('powershell.exe', ['-NoProfile', '-Command', psCmd], {
+      windowsHide: true,
+      stdio: 'ignore',
+    });
+  } else {
+    child = spawn(process.execPath, [DAEMON_BIN], {
+      detached: true,
+      stdio: 'ignore',
+    });
+  }
   child.unref();
 
   const childPid = child.pid;
@@ -57,7 +66,7 @@ export async function start(opts = {}) {
   for (let i = 0; i < 25; i++) {
     await new Promise((r) => setTimeout(r, 200));
     const s = await readState();
-    if (s && s.status === 'running' && s.pid === childPid) {
+    if (s && s.status === 'running') {
       confirmed = true;
       break;
     }
@@ -74,10 +83,13 @@ export async function start(opts = {}) {
     return envelope;
   }
 
+  const confirmedState = await readState();
+  const daemonPid = confirmedState?.pid ?? childPid;
+
   const envelope = buildEnvelope({
     ok: true,
     command,
-    data: { pid: childPid, stateFile: DAEMON_STATE_PATH },
+    data: { pid: daemonPid, stateFile: DAEMON_STATE_PATH },
     meta: { latency_ms: Date.now() - startedAt },
   });
   emit(envelope, { json: opts.json, noColor: opts.noColor });

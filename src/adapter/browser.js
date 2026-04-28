@@ -58,6 +58,9 @@ export async function launchBrowser({
       '--disable-blink-features=AutomationControlled',
       '--no-sandbox',
       '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--hide-scrollbars',
+      '--mute-audio',
     ],
   });
   registerBrowser(browser);

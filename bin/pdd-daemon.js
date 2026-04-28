@@ -113,7 +113,6 @@ function scheduleNext(delay) {
     currentRefreshPromise = null;
     scheduleNext(nextDelay);
   }, d);
-  refreshTimer.unref();
 }
 
 async function gracefulShutdown(sig) {
