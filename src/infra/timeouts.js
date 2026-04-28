@@ -6,4 +6,5 @@ export const TIMEOUTS = Object.freeze({
   XHR_COLLECTOR: 20_000,
   ELEMENT_READY: 10_000,
   QR_CAPTURE: 15_000,
+  AUTH_REFRESH: 30_000,
 });

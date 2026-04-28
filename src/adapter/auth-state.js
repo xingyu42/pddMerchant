@@ -5,6 +5,7 @@ import { platform } from 'node:os';
 import { getLogger } from '../infra/logger.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { isMockEnabled, mockIsAuthValid } from './mock-dispatcher.js';
+import { acquireLock, releaseLock } from './auth-lock.js';
 import { DATA_DIR } from '../infra/paths.js';
 
 const PDD_HOME = 'https://mms.pinduoduo.com';
@@ -22,33 +23,45 @@ function validateShape(state) {
   return true;
 }
 
-export async function saveAuthState(context, path) {
+export async function saveAuthState(context, path, { skipLock = false } = {}) {
   await mkdir(dirname(path), { recursive: true });
 
-  const tmpPath = `${path}.${process.pid}.${++_tmpSeq}.tmp`;
-  await context.storageState({ path: tmpPath });
-
-  const isPosix = platform() !== 'win32';
-  if (isPosix) {
-    const allowInsecure = process.env.PDD_ALLOW_INSECURE_AUTH_STATE === '1';
-    try {
-      await chmod(tmpPath, 0o600);
-    } catch (err) {
-      try { await unlink(tmpPath); } catch { /* ignore */ }
-      if (!allowInsecure) {
-        throw new PddCliError({
-          code: 'E_AUTH_STATE_INSECURE',
-          message: `chmod 600 failed on ${tmpPath}: ${err?.message}`,
-          hint: 'Set PDD_ALLOW_INSECURE_AUTH_STATE=1 to bypass (not recommended)',
-          exitCode: ExitCodes.AUTH,
-        });
-      }
-      getLogger().warn({ err: err?.message, path: tmpPath }, 'chmod 600 failed, continuing (insecure override)');
-    }
+  let lockToken = null;
+  if (!skipLock) {
+    const lock = await acquireLock(path, { timeoutMs: 15_000 });
+    lockToken = lock.token;
   }
 
-  await rename(tmpPath, path);
-  return path;
+  try {
+    const tmpPath = `${path}.${process.pid}.${++_tmpSeq}.tmp`;
+    await context.storageState({ path: tmpPath });
+
+    const isPosix = platform() !== 'win32';
+    if (isPosix) {
+      const allowInsecure = process.env.PDD_ALLOW_INSECURE_AUTH_STATE === '1';
+      try {
+        await chmod(tmpPath, 0o600);
+      } catch (err) {
+        try { await unlink(tmpPath); } catch { /* ignore */ }
+        if (!allowInsecure) {
+          throw new PddCliError({
+            code: 'E_AUTH_STATE_INSECURE',
+            message: `chmod 600 failed on ${tmpPath}: ${err?.message}`,
+            hint: 'Set PDD_ALLOW_INSECURE_AUTH_STATE=1 to bypass (not recommended)',
+            exitCode: ExitCodes.AUTH,
+          });
+        }
+        getLogger().warn({ err: err?.message, path: tmpPath }, 'chmod 600 failed, continuing (insecure override)');
+      }
+    }
+
+    await rename(tmpPath, path);
+    return path;
+  } finally {
+    if (lockToken) {
+      await releaseLock(path, lockToken).catch(() => {});
+    }
+  }
 }
 
 export async function loadAuthState(path) {

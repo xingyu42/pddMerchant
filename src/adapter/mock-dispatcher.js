@@ -166,3 +166,11 @@ export class FixtureEndpointClient {
     };
   }
 }
+
+// ---------- auth-refresher.js ----------
+export function mockRefreshAuth() {
+  if (process.env.PDD_TEST_AUTH_INVALID === '1') {
+    return { success: false, reason: 'auth_expired', qrPngPath: null };
+  }
+  return { success: true, reason: 'refreshed' };
+}

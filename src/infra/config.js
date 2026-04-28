@@ -17,6 +17,8 @@ const ConfigSchema = z.object({
   cooldownMs: z.number().int().positive().optional(),
   authStatePath: z.string().optional(),
   logDestination: z.string().optional(),
+  refreshIntervalMs: z.number().int().positive().optional(),
+  refreshJitterMs: z.number().int().nonnegative().optional(),
 }).partial();
 
 const REJECTED_LOG_DESTINATIONS = new Set(['stdout', 'stderr', '-', ':console']);
@@ -34,11 +36,14 @@ const ENV_KEY_MAP = {
   PDD_COOLDOWN_MS: 'cooldownMs',
   PDD_AUTH_STATE_PATH: 'authStatePath',
   PDD_LOG_DESTINATION: 'logDestination',
+  PDD_REFRESH_INTERVAL_MS: 'refreshIntervalMs',
+  PDD_REFRESH_JITTER_MS: 'refreshJitterMs',
 };
 
 const NUMERIC_KEYS = new Set([
   'timeoutMs', 'rateLimitQps', 'rateLimitBurst',
   'cooldownThreshold', 'cooldownMs',
+  'refreshIntervalMs', 'refreshJitterMs',
 ]);
 
 function readEnv(env = process.env) {
@@ -90,6 +95,8 @@ const RUNTIME_DEFAULTS = Object.freeze({
   rateLimitBurst: 3,
   cooldownThreshold: 3,
   cooldownMs: 5 * 60 * 1000,
+  refreshIntervalMs: 60 * 60 * 1000,
+  refreshJitterMs: 15 * 60 * 1000,
 });
 
 function validateLogDestination(dest) {
@@ -114,6 +121,8 @@ export async function loadRuntimeConfig(options) {
     cooldownThreshold: validIntPositiveOrDefault(config.cooldownThreshold, RUNTIME_DEFAULTS.cooldownThreshold),
     cooldownMs: validIntPositiveOrDefault(config.cooldownMs, RUNTIME_DEFAULTS.cooldownMs),
     logDestination,
+    refreshIntervalMs: validIntPositiveOrDefault(config.refreshIntervalMs, RUNTIME_DEFAULTS.refreshIntervalMs),
+    refreshJitterMs: validIntNonNegOrDefault(config.refreshJitterMs, RUNTIME_DEFAULTS.refreshJitterMs),
     testAdapter: (options?.env ?? process.env).PDD_TEST_ADAPTER || null,
   });
   return runtime;
@@ -132,6 +141,11 @@ function validFinitePositiveOrDefault(v, fallback) {
 
 function validIntPositiveOrDefault(v, fallback) {
   if (typeof v === 'number' && Number.isInteger(v) && v > 0) return v;
+  return fallback;
+}
+
+function validIntNonNegOrDefault(v, fallback) {
+  if (typeof v === 'number' && Number.isInteger(v) && v >= 0) return v;
   return fallback;
 }
 

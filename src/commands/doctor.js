@@ -3,8 +3,33 @@ import { withCommand } from '../infra/command-runner.js';
 import { launchBrowser, closeBrowser } from '../adapter/browser.js';
 import { loadAuthState, isAuthValid } from '../adapter/auth-state.js';
 import { resolveMallContext } from '../adapter/mall-reader.js';
-import { AUTH_STATE_PATH } from '../infra/paths.js';
+import { AUTH_STATE_PATH, DAEMON_STATE_PATH } from '../infra/paths.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { isPidAlive } from '../infra/process-util.js';
+
+function checkDaemon() {
+  if (!existsSync(DAEMON_STATE_PATH)) {
+    return { ok: false, detail: { running: false } };
+  }
+  try {
+    const state = JSON.parse(readFileSync(DAEMON_STATE_PATH, 'utf8'));
+    const pid = state?.pid;
+    if (typeof pid !== 'number') return { ok: false, detail: { running: false } };
+    const alive = isPidAlive(pid);
+    return {
+      ok: alive,
+      detail: {
+        running: alive,
+        pid,
+        lastRefreshAt: state.lastRefreshAt || null,
+        lastResult: state.lastResult || null,
+      },
+    };
+  } catch {
+    return { ok: false, detail: { running: false, error: 'state file corrupt' } };
+  }
+}
 
 async function checkChromium() {
   try {
@@ -76,6 +101,7 @@ export const run = withCommand({
       chromium: { ok: false, detail: null },
       auth_file: { ok: false, detail: null },
       logged_in: { ok: false, detail: null },
+      daemon: checkDaemon(),
     };
 
     data.chromium = await checkChromium();

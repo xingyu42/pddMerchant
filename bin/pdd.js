@@ -17,6 +17,7 @@ import * as diagnoseOrders from '../src/commands/diagnose/orders.js';
 import * as diagnoseInventory from '../src/commands/diagnose/inventory.js';
 import * as diagnosePromo from '../src/commands/diagnose/promo.js';
 import * as diagnoseFunnel from '../src/commands/diagnose/funnel.js';
+import * as daemonCmd from '../src/commands/daemon.js';
 import { emit } from '../src/infra/output.js';
 import { PddCliError, ExitCodes, mapErrorToExit, errorToEnvelope } from '../src/infra/errors.js';
 import { createLogger, redactRecursive } from '../src/infra/logger.js';
@@ -279,6 +280,24 @@ wireAction(
   diagnose.command('funnel').description('漏斗维度健康（V0 partial）'),
   'diagnose.funnel',
   diagnoseFunnel.run
+);
+
+// 🔄 Daemon
+const daemon = program.command('daemon').description('🔄 后台 auth 自动续期');
+wireAction(
+  daemon.command('start').description('启动 daemon（后台定时刷新 cookie）'),
+  'daemon.start',
+  daemonCmd.start
+);
+wireAction(
+  daemon.command('stop').description('停止 daemon'),
+  'daemon.stop',
+  daemonCmd.stop
+);
+wireAction(
+  daemon.command('status').description('查看 daemon 状态'),
+  'daemon.status',
+  daemonCmd.status
 );
 
 async function main() {

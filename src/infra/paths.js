@@ -28,6 +28,35 @@ function resolveDefaultAuthStatePath() {
 export const AUTH_STATE_PATH = resolveDefaultAuthStatePath();
 export const CONFIG_PATH = join(CONFIG_DIR, 'config.json');
 
+function resolveDefaultDaemonStatePath() {
+  try {
+    const home = homedir();
+    if (platform() === 'win32') {
+      const appData = process.env.APPDATA || join(home, 'AppData', 'Roaming');
+      return join(appData, 'pdd-cli', 'daemon-state.json');
+    }
+    return join(home, '.pdd-cli', 'daemon-state.json');
+  } catch {
+    return join(DATA_DIR, 'daemon-state.json');
+  }
+}
+
+function resolveDefaultDaemonLogPath() {
+  try {
+    const home = homedir();
+    if (platform() === 'win32') {
+      const appData = process.env.APPDATA || join(home, 'AppData', 'Roaming');
+      return join(appData, 'pdd-cli', 'daemon.log');
+    }
+    return join(home, '.pdd-cli', 'daemon.log');
+  } catch {
+    return join(DATA_DIR, 'daemon.log');
+  }
+}
+
+export const DAEMON_STATE_PATH = resolveDefaultDaemonStatePath();
+export const DAEMON_LOG_PATH = resolveDefaultDaemonLogPath();
+
 export async function ensureDir(path) {
   await mkdir(path, { recursive: true });
   return path;
