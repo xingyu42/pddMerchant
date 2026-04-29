@@ -249,6 +249,79 @@ export class PlaywrightEndpointClient {
   }
 
   async _attemptOnce(page, meta, params, ctx, log, navUrl) {
+    const hasFetchPath = typeof meta.buildPayload === 'function' && meta.apiUrl;
+    if (hasFetchPath) {
+      return this._attemptFetch(page, meta, params, ctx, log, navUrl);
+    }
+    return this._attemptLegacy(page, meta, params, ctx, log, navUrl);
+  }
+
+  async _attemptFetch(page, meta, params, ctx, log, navUrl) {
+    throwIfAborted(ctx.signal);
+    const remaining = remainingMs(ctx);
+    const navTimeout = Math.min(
+      meta.navTimeout ?? TIMEOUTS.QUICK_NAV,
+      remaining === 0 ? 1 : (remaining || Infinity),
+    );
+    const collectorTimeout = Math.min(
+      meta.collectorTimeout ?? TIMEOUTS.XHR_COLLECTOR,
+      remaining === 0 ? 1 : (remaining || Infinity),
+    );
+
+    const payload = meta.buildPayload(params, ctx);
+    const routeHandler = async (route) => {
+      await route.continue({ postData: JSON.stringify(payload) });
+    };
+    await page.route(meta.urlPattern, routeHandler);
+
+    const collector = createCollector(page, {
+      pattern: meta.urlPattern,
+      timeout: collectorTimeout,
+      signal: ctx.signal,
+    });
+
+    try {
+      if (navUrl) {
+        const pageSession = ctx.pageSession ?? this._pageSession;
+        if (pageSession) {
+          await pageSession.goto(page, navUrl, {
+            waitUntil: meta.nav?.waitUntil ?? 'domcontentloaded',
+            timeout: navTimeout,
+          });
+        } else {
+          await page.goto(navUrl, {
+            waitUntil: meta.nav?.waitUntil ?? 'domcontentloaded',
+            timeout: navTimeout,
+          });
+        }
+      }
+
+      if (meta.nav?.readyEl) {
+        try {
+          await page.waitForSelector(meta.nav.readyEl, { timeout: TIMEOUTS.ELEMENT_READY });
+        } catch {
+          log.debug({ endpoint: meta.name, readyEl: meta.nav.readyEl }, 'readyEl not found, continuing');
+        }
+      }
+
+      const responses = await collector.waitFor();
+      return responses[0];
+    } catch (err) {
+      collector.dispose();
+      if (err instanceof PddCliError) throw err;
+      throw new PddCliError({
+        code: 'E_NETWORK',
+        message: `${meta.name}: navigation failed: ${err?.message}`,
+        hint: '检查网络连通性或登录态',
+        detail: { url: navUrl },
+        exitCode: ExitCodes.NETWORK,
+      });
+    } finally {
+      await page.unroute(meta.urlPattern, routeHandler).catch(() => {});
+    }
+  }
+
+  async _attemptLegacy(page, meta, params, ctx, log, navUrl) {
     throwIfAborted(ctx.signal);
     const remaining = remainingMs(ctx);
     const collectorTimeout = Math.min(

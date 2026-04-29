@@ -24,6 +24,7 @@ function formatDateTime(d) {
 export const PROMO_ENTITY_REPORT = {
   name: 'promo.entityReport',
   urlPattern: /apollo\/api\/report\/queryEntityReport/,
+  apiUrl: '/apollo/api/report/queryEntityReport',
   nav: PROMO_NAV,
   trigger: async () => {
     // 页面自动加载
@@ -68,6 +69,7 @@ export const PROMO_ENTITY_REPORT = {
 export const PROMO_HOURLY_REPORT = {
   name: 'promo.hourlyReport',
   urlPattern: /apollo\/api\/report\/queryHourlyRangeReport/,
+  apiUrl: '/apollo/api/report/queryHourlyRangeReport',
   nav: PROMO_NAV,
   trigger: async () => {
     // 页面自动加载

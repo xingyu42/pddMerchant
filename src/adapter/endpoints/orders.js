@@ -4,6 +4,7 @@ import { ExitCodes } from '../../infra/errors.js';
 export const ORDER_LIST = {
   name: 'orders.list',
   urlPattern: /mangkhut\/mms\/recentOrderList/,
+  apiUrl: '/mangkhut/mms/recentOrderList',
   nav: {
     url: 'https://mms.pinduoduo.com/orders/list',
     readyEl: 'button:has-text("查询")',
@@ -89,6 +90,7 @@ export const ORDER_DETAIL = {
 export const ORDER_STATS = {
   name: 'orders.stats',
   urlPattern: /mars\/app\/order\/statisticWithType/,
+  apiUrl: '/mars/app/order/statisticWithType',
   nav: {
     url: 'https://mms.pinduoduo.com/orders/list',
     readyEl: 'button:has-text("查询")',

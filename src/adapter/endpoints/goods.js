@@ -1,6 +1,7 @@
 export const GOODS_LIST = {
   name: 'goods.list',
   urlPattern: /vodka\/v2\/mms\/query\/display\/mall\/goodsList/,
+  apiUrl: '/vodka/v2/mms/query/display/mall/goodsList',
   nav: {
     url: 'https://mms.pinduoduo.com/goods/goods_list/v2',
     readyEl: 'table, [class*="goods"], [class*="list"]',
@@ -38,6 +39,7 @@ export const GOODS_LIST = {
 export const GOODS_AD_STRATEGY = {
   name: 'goods.adStrategy',
   urlPattern: /mms-gateway\/mms\/home\/goods\/queryMmsGoodsListAdStrategy/,
+  apiUrl: '/mms-gateway/mms/home/goods/queryMmsGoodsListAdStrategy',
   nav: {
     url: 'https://mms.pinduoduo.com/goods/goods_list/v2',
     readyEl: 'table, [class*="goods"], [class*="list"]',
