@@ -1,14 +1,12 @@
-import { spawn, execSync } from 'node:child_process';
-import { readFile, unlink, mkdir } from 'node:fs/promises';
+import { execSync } from 'node:child_process';
+import { readFile, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
 import { platform } from 'node:os';
 import { emit, buildEnvelope } from '../infra/output.js';
-import { PROJECT_ROOT, DAEMON_STATE_PATH } from '../infra/paths.js';
+import { DAEMON_STATE_PATH } from '../infra/paths.js';
 import { ExitCodes } from '../infra/errors.js';
 import { isPidAlive } from '../infra/process-util.js';
-
-const DAEMON_BIN = join(PROJECT_ROOT, 'bin', 'pdd-daemon.js');
+import { ensureDaemonRunning } from '../infra/daemon-launcher.js';
 
 async function readState() {
   if (!existsSync(DAEMON_STATE_PATH)) return null;
@@ -27,52 +25,20 @@ export async function start(opts = {}) {
   const command = 'daemon.start';
   const startedAt = Date.now();
 
-  const state = await readState();
-  if (state && typeof state.pid === 'number' && isPidAlive(state.pid)) {
+  const result = await ensureDaemonRunning();
+
+  if (!result.started) {
     const envelope = buildEnvelope({
       ok: true,
       command,
-      data: { pid: state.pid, already_running: true, stateFile: DAEMON_STATE_PATH },
+      data: { pid: result.pid, already_running: true, stateFile: DAEMON_STATE_PATH },
       meta: { latency_ms: Date.now() - startedAt },
     });
     emit(envelope, { json: opts.json, noColor: opts.noColor });
     return envelope;
   }
 
-  if (state) await cleanStaleState();
-
-  await mkdir(dirname(DAEMON_STATE_PATH), { recursive: true });
-
-  let child;
-  if (platform() === 'win32') {
-    const nodeBin = process.execPath.replace(/\\/g, '\\\\');
-    const daemonBin = DAEMON_BIN.replace(/\\/g, '\\\\');
-    const psCmd = `Start-Process -WindowStyle Hidden -FilePath '${nodeBin}' -ArgumentList '"${daemonBin}"'`;
-    child = spawn('powershell.exe', ['-NoProfile', '-Command', psCmd], {
-      windowsHide: true,
-      stdio: 'ignore',
-    });
-  } else {
-    child = spawn(process.execPath, [DAEMON_BIN], {
-      detached: true,
-      stdio: 'ignore',
-    });
-  }
-  child.unref();
-
-  const childPid = child.pid;
-
-  let confirmed = false;
-  for (let i = 0; i < 25; i++) {
-    await new Promise((r) => setTimeout(r, 200));
-    const s = await readState();
-    if (s && s.status === 'running') {
-      confirmed = true;
-      break;
-    }
-  }
-
-  if (!confirmed) {
+  if (result.confirmed === false) {
     const envelope = buildEnvelope({
       ok: false,
       command,
@@ -83,13 +49,10 @@ export async function start(opts = {}) {
     return envelope;
   }
 
-  const confirmedState = await readState();
-  const daemonPid = confirmedState?.pid ?? childPid;
-
   const envelope = buildEnvelope({
     ok: true,
     command,
-    data: { pid: daemonPid, stateFile: DAEMON_STATE_PATH },
+    data: { pid: result.pid, stateFile: DAEMON_STATE_PATH },
     meta: { latency_ms: Date.now() - startedAt },
   });
   emit(envelope, { json: opts.json, noColor: opts.noColor });
@@ -207,3 +170,5 @@ export async function status(opts = {}) {
   emit(envelope, { json: opts.json, noColor: opts.noColor });
   return envelope;
 }
+
+export { ensureDaemonRunning };

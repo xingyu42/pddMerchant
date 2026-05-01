@@ -12,6 +12,7 @@ import { PddCliError, ExitCodes, errorToEnvelope } from '../infra/errors.js';
 import { AUTH_STATE_PATH } from '../infra/paths.js';
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
 import { remainingMs, throwIfAborted, timeoutError } from '../infra/abort.js';
+import { ensureDaemonRunning } from '../infra/daemon-launcher.js';
 
 function normalizeRunResult(result) {
   if (result == null) return { data: null };
@@ -166,6 +167,10 @@ export function withCommand({
             exitCode: ExitCodes.AUTH,
           });
         }
+
+        ensureDaemonRunning().catch((err) => {
+          log.debug({ err: err?.message }, 'auto-start daemon failed (non-fatal)');
+        });
       }
 
       let mallCtx = null;
