@@ -16,8 +16,8 @@ async function waitForLogin(page, { timeoutMs }) {
   try {
     await page.waitForURL(
       (url) => {
-        const s = url.toString();
-        return s.includes('mms.pinduoduo.com') && !s.includes('/login');
+        const u = new URL(url.toString());
+        return u.hostname.includes('mms.pinduoduo.com') && !u.pathname.startsWith('/login');
       },
       { timeout: timeoutMs }
     );

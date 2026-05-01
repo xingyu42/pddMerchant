@@ -12,6 +12,23 @@ Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] });
 Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
 window.chrome = window.chrome || { runtime: {} };
+if (!navigator.userAgentData || !navigator.userAgentData.brands ||
+    !navigator.userAgentData.brands.some(b => b.brand === 'Google Chrome')) {
+  Object.defineProperty(navigator, 'userAgentData', { get: () => ({
+    brands: [
+      { brand: 'Google Chrome', version: '130' },
+      { brand: 'Chromium', version: '130' },
+      { brand: 'Not?A_Brand', version: '99' },
+    ],
+    mobile: false,
+    platform: 'Windows',
+    getHighEntropyValues: () => Promise.resolve({
+      brands: [{ brand: 'Google Chrome', version: '130.0.0.0' }],
+      platform: 'Windows', platformVersion: '15.0.0',
+      architecture: 'x86', model: '', uaFullVersion: '130.0.0.0',
+    }),
+  })});
+}
 const originalQuery = window.navigator.permissions && window.navigator.permissions.query;
 if (originalQuery) {
   window.navigator.permissions.query = (parameters) =>
@@ -71,6 +88,7 @@ export async function launchBrowser({
       userAgent,
       locale: 'zh-CN',
       timezoneId: 'Asia/Shanghai',
+      deviceScaleFactor: 2,
       ...extraContextOptions,
     };
     if (storageStatePath && existsSync(storageStatePath)) {
