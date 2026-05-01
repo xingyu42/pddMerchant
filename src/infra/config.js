@@ -95,8 +95,8 @@ const RUNTIME_DEFAULTS = Object.freeze({
   rateLimitBurst: 3,
   cooldownThreshold: 3,
   cooldownMs: 5 * 60 * 1000,
-  refreshIntervalMs: 60 * 60 * 1000,
-  refreshJitterMs: 15 * 60 * 1000,
+  refreshIntervalMs: 10 * 60 * 1000,
+  refreshJitterMs: 2 * 60 * 1000,
 });
 
 function validateLogDestination(dest) {

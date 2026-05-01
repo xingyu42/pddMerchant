@@ -12,6 +12,22 @@ function checkAborted(signal) {
   return false;
 }
 
+const HEARTBEAT_URL = 'https://mms.pinduoduo.com/janus/api/informSeller/queryInformSellerTabList';
+
+async function heartbeat(page, { timeoutMs = 10_000 } = {}) {
+  const result = await page.evaluate(async (url) => {
+    try {
+      const resp = await fetch(url, { credentials: 'include' });
+      return { status: resp.status, ok: resp.ok };
+    } catch (e) {
+      return { status: 0, ok: false, error: e.message };
+    }
+  }, HEARTBEAT_URL);
+  if (result.status === 401 || result.status === 403) return false;
+  if (result.status === 302) return false;
+  return result.ok || (result.status >= 200 && result.status < 400);
+}
+
 export async function refreshAuth({ authStatePath, log, signal } = {}) {
   log = log ?? getLogger();
 
@@ -46,6 +62,24 @@ export async function refreshAuth({ authStatePath, log, signal } = {}) {
         return { success: false, reason: 'aborted' };
       }
 
+      await page.goto('https://mms.pinduoduo.com/home', {
+        waitUntil: 'domcontentloaded',
+        timeout: TIMEOUTS.AUTH_REFRESH,
+      });
+
+      if (checkAborted(signal)) {
+        return { success: false, reason: 'aborted' };
+      }
+
+      const alive = await heartbeat(page);
+
+      if (alive) {
+        await saveAuthState(context, authStatePath, { skipLock: true });
+        log.info('auth-refresher: heartbeat ok, cookies saved');
+        return { success: true, reason: 'refreshed' };
+      }
+
+      log.debug('auth-refresher: heartbeat failed, falling back to full validation');
       const valid = await isAuthValid(page, { timeoutMs: TIMEOUTS.AUTH_REFRESH });
 
       if (checkAborted(signal)) {
@@ -54,7 +88,7 @@ export async function refreshAuth({ authStatePath, log, signal } = {}) {
 
       if (valid) {
         await saveAuthState(context, authStatePath, { skipLock: true });
-        log.info('auth-refresher: cookies refreshed successfully');
+        log.info('auth-refresher: full validation ok, cookies saved');
         return { success: true, reason: 'refreshed' };
       }
 

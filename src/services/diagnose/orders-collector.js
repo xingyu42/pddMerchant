@@ -17,7 +17,8 @@ export async function collectOrdersForStaleAnalysis(page, ctx = {}, options = {}
   const delayMs = options.delayMs ?? PAGE_DELAY_MS;
   const now = options.now ?? Math.floor(Date.now() / 1000);
   const listOrdersFn = options.listOrders ?? defaultListOrders;
-  const since = now - STALE_SCAN_DAYS * DAY_SECONDS;
+  const scanDays = options.scanDays ?? STALE_SCAN_DAYS;
+  const since = options.since ?? (now - scanDays * DAY_SECONDS);
 
   const orders = [];
   let truncated = false;

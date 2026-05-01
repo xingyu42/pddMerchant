@@ -277,7 +277,8 @@ wireAction(
   diagnosePromo.run
 );
 wireAction(
-  diagnose.command('funnel').description('漏斗维度健康（V0 partial）'),
+  diagnose.command('funnel').description('漏斗维度健康（退款率 / 履约率）')
+    .option('--days <n>', '分析窗口天数', (v) => Number(v), 30),
   'diagnose.funnel',
   diagnoseFunnel.run
 );
