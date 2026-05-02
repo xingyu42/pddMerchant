@@ -6,8 +6,9 @@ export const run = withCommand({
   needsAuth: true,
   needsMall: 'current',
   async run(ctx) {
-    const malls = ctx.mallCtx?.malls ?? await listMalls(ctx.page);
-    return malls;
+    const cached = ctx.mallCtx?.malls;
+    if (Array.isArray(cached) && cached.length > 0) return cached;
+    return listMalls(ctx.page);
   },
 });
 
