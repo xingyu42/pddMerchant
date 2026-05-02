@@ -312,6 +312,40 @@ test('scorePromoHealth: healthy ROI + good CTR → green', () => {
   assert.equal(r.status, 'green');
 });
 
+test('scorePromoHealth: backward-compatible with totals-only input', () => {
+  const r = scorePromoHealth({
+    totals: { impression: 5000, click: 200, gmv: 1000, spend: 100 },
+  });
+  assert.equal(r.score, 100);
+  assert.equal(r.detail.waste_plan_count, null);
+  assert.equal(r.detail.per_plan_roi_available, false);
+});
+
+test('scorePromoHealth: entities exposes waste_plan_count', () => {
+  const r = scorePromoHealth({
+    totals: { impression: 5000, click: 200, gmv: 1000, spend: 100 },
+    entities: [
+      { spend: 500, gmv: 100 },
+      { spend: 200, gmv: 1000 },
+    ],
+  });
+  assert.equal(r.detail.waste_plan_count, 1);
+  assert.equal(r.detail.waste_spend, 500);
+  assert.equal(r.detail.per_plan_roi_available, true);
+});
+
+test('scorePromoHealth: roiAnalysis overrides entities for waste_plan_count', () => {
+  const r = scorePromoHealth({
+    totals: { impression: 5000, click: 200, gmv: 1000, spend: 100 },
+    roiAnalysis: {
+      summary: { waste_count: 3, waste_spend: 2000 },
+    },
+  });
+  assert.equal(r.detail.waste_plan_count, 3);
+  assert.equal(r.detail.waste_spend, 2000);
+  assert.equal(r.detail.per_plan_roi_available, true);
+});
+
 // ---------- scoreFunnelHealth (order fulfillment funnel) ----------
 
 test('scoreFunnelHealth: no orderStats → partial', () => {
@@ -389,11 +423,11 @@ test('diagnoseShop: returns null score when no dimensions provided', () => {
   assert.equal(r.weight_used, 0);
 });
 
-test('diagnoseShop: uses WEIGHTS 0.40/0.25/0.25/0.10', () => {
-  assert.equal(WEIGHTS.orders, 0.40);
-  assert.equal(WEIGHTS.inventory, 0.25);
-  assert.equal(WEIGHTS.promo, 0.25);
-  assert.equal(WEIGHTS.funnel, 0.10);
+test('diagnoseShop: uses WEIGHTS 0.35/0.20/0.30/0.15', () => {
+  assert.equal(WEIGHTS.orders, 0.35);
+  assert.equal(WEIGHTS.inventory, 0.20);
+  assert.equal(WEIGHTS.promo, 0.30);
+  assert.equal(WEIGHTS.funnel, 0.15);
 });
 
 test('diagnoseShop: partial dimensions contribute only their weight', () => {
@@ -401,10 +435,10 @@ test('diagnoseShop: partial dimensions contribute only their weight', () => {
     orders: { stats: { unship: 5, delay: 0 }, listStats: { shipping_seconds: { p95: 3600 * 10 }, refund_rate: 0.02 } },
     // inventory / promo / funnel undefined → excluded
   });
-  // only orders (100) with weight 0.40 → weighted avg = 100
+  // only orders (100) with weight 0.35 → weighted avg = 100
   assert.equal(r.score, 100);
   assert.equal(r.status, 'green');
-  assert.equal(r.weight_used, 0.40);
+  assert.equal(r.weight_used, 0.35);
 });
 
 test('diagnoseShop: aggregates issues and hints across dimensions', () => {

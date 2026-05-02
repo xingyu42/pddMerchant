@@ -22,3 +22,14 @@ test('e2e: promo scene filters fixture entities by scenesType=2', () => {
   assert.equal(envelope.data.entities[0].scenesType, 2);
   assert.equal(envelope.data.entities[0].promotionType, 'scene');
 });
+
+test('e2e: promo roi --json returns ROI analysis envelope', () => {
+  const { status, envelope, stderr } = runPdd(['promo', 'roi', '--json']);
+  assert.equal(status, 0, `stderr: ${stderr}`);
+  assertOkEnvelope(envelope, 'promo.roi');
+  assert.equal(envelope.data.by, 'plan');
+  assert.ok(Array.isArray(envelope.data.rows));
+  assert.ok(typeof envelope.data.summary === 'object');
+  assert.ok(typeof envelope.data.summary.total_rows === 'number');
+  assert.ok(typeof envelope.data.summary.overall_roi === 'number' || envelope.data.summary.overall_roi === null);
+});

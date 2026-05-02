@@ -1,0 +1,28 @@
+{
+  "total": 2,
+  "orders": [
+    {
+      "order_sn": "240101PREV001",
+      "order_status": 1,
+      "order_time": 1735084800,
+      "ship_time": 1735171200,
+      "after_sale_type": 1,
+      "goods_name": "测试商品 A",
+      "goods_id": 1001,
+      "goods_quantity": 2,
+      "order_amount": 3999
+    },
+    {
+      "order_sn": "240101PREV002",
+      "order_status": 1,
+      "order_time": 1735084900,
+      "ship_time": 1735257600,
+      "after_sale_type": 1,
+      "goods_name": "测试商品 B",
+      "goods_id": 1002,
+      "goods_quantity": 1,
+      "order_amount": 4999
+    }
+  ],
+  "raw": { "mock": true, "source": "fixtures/endpoints/orders.list.prev-7d.json" }
+}

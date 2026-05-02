@@ -36,3 +36,17 @@ test('e2e: goods stock with high threshold includes all goods', () => {
   assert.equal(status, 0);
   assert.equal(envelope.meta.low_stock_count, 3, '阈值 100 时所有商品低库存');
 });
+
+test('e2e: goods segment --json returns segmentation envelope', () => {
+  const { status, envelope, stderr } = runPdd(['goods', 'segment', '--json', '--no-promo']);
+  assert.equal(status, 0, `stderr: ${stderr}`);
+  assertOkEnvelope(envelope, 'goods.segment');
+  assert.equal(envelope.data.level, 'goods');
+  assert.ok(typeof envelope.data.tiers === 'object');
+  assert.ok(Array.isArray(envelope.data.items));
+  assert.ok(typeof envelope.data.summary === 'object');
+  const tiers = envelope.data.tiers;
+  assert.ok('A' in tiers && 'B' in tiers && 'C' in tiers && 'D' in tiers);
+  const totalCount = tiers.A.count + tiers.B.count + tiers.C.count + tiers.D.count;
+  assert.equal(totalCount, envelope.data.items.length);
+});

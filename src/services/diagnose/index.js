@@ -4,10 +4,10 @@ import { scorePromoHealth } from './promo-health.js';
 import { scoreFunnelHealth } from './funnel-health.js';
 
 const WEIGHTS = Object.freeze({
-  orders: 0.40,
-  inventory: 0.25,
-  promo: 0.25,
-  funnel: 0.10,
+  orders: 0.35,
+  inventory: 0.20,
+  promo: 0.30,
+  funnel: 0.15,
 });
 
 function shopStatusFromScore(score) {

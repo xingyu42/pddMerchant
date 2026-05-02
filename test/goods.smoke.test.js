@@ -15,12 +15,13 @@ function runPdd(args) {
   });
 }
 
-test('pdd goods --help lists list/stock subcommands', () => {
+test('pdd goods --help lists list/stock/segment subcommands', () => {
   const result = runPdd(['goods', '--help']);
   assert.equal(result.status, 0, `stderr: ${result.stderr}`);
   const out = result.stdout ?? '';
   assert.match(out, /\blist\b/);
   assert.match(out, /\bstock\b/);
+  assert.match(out, /\bsegment\b/);
 });
 
 test('pdd goods list --help shows --status option', () => {
@@ -40,4 +41,13 @@ test('pdd goods stock --help shows --threshold option', () => {
 test('pdd goods bogus-sub exits 2 (USAGE)', () => {
   const result = runPdd(['goods', 'bogus-sub']);
   assert.equal(result.status, 2, `stderr: ${result.stderr}`);
+});
+
+test('pdd goods segment --help shows --days and --break-even options', () => {
+  const result = runPdd(['goods', 'segment', '--help']);
+  assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+  const out = result.stdout ?? '';
+  assert.match(out, /--days/);
+  assert.match(out, /--break-even/);
+  assert.match(out, /--no-promo/);
 });

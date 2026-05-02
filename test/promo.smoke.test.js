@@ -15,12 +15,13 @@ function runPdd(args) {
   });
 }
 
-test('pdd promo --help lists search/scene subcommands', () => {
+test('pdd promo --help lists search/scene/roi subcommands', () => {
   const result = runPdd(['promo', '--help']);
   assert.equal(result.status, 0, `stderr: ${result.stderr}`);
   const out = result.stdout ?? '';
   assert.match(out, /\bsearch\b/);
   assert.match(out, /\bscene\b/);
+  assert.match(out, /\broi\b/);
   assert.doesNotMatch(out, /\bddk\b/);
 });
 
@@ -46,4 +47,13 @@ test('pdd promo ddk is rejected as unknown subcommand (V0.2 removed)', () => {
 test('pdd promo bogus-sub exits 2 (USAGE)', () => {
   const result = runPdd(['promo', 'bogus-sub']);
   assert.equal(result.status, 2, `stderr: ${result.stderr}`);
+});
+
+test('pdd promo roi --help shows --by and --break-even options', () => {
+  const result = runPdd(['promo', 'roi', '--help']);
+  assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+  const out = result.stdout ?? '';
+  assert.match(out, /--by/);
+  assert.match(out, /--break-even/);
+  assert.match(out, /--include-inactive/);
 });

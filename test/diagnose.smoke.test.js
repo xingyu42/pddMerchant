@@ -38,3 +38,11 @@ test('pdd diagnose bogus-sub exits 2 (USAGE)', () => {
   const result = runPdd(['diagnose', 'bogus-sub']);
   assert.equal(result.status, 2, `stderr: ${result.stderr}`);
 });
+
+test('pdd diagnose shop --help shows --compare and --days options', () => {
+  const result = runPdd(['diagnose', 'shop', '--help']);
+  assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+  const out = result.stdout ?? '';
+  assert.match(out, /--compare/);
+  assert.match(out, /--days/);
+});

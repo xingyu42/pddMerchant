@@ -19,7 +19,7 @@ function resolveSpend(totals) {
   return null;
 }
 
-export function scorePromoHealth({ totals } = {}) {
+export function scorePromoHealth({ totals, entities, roiAnalysis } = {}) {
   if (!totals) {
     return {
       score: null,
@@ -77,6 +77,35 @@ export function scorePromoHealth({ totals } = {}) {
     issues.push('高曝光零点击，可能素材或定向异常');
   }
 
+  let wastePlanCount = null;
+  let wasteSpend = null;
+  let perPlanRoiAvailable = false;
+
+  if (roiAnalysis && roiAnalysis.summary) {
+    wastePlanCount = roiAnalysis.summary.waste_count ?? 0;
+    wasteSpend = roiAnalysis.summary.waste_spend ?? 0;
+    perPlanRoiAvailable = true;
+    if (wastePlanCount > 0) {
+      issues.push(`${wastePlanCount} 个计划 ROI 低于保本线，烧钱 ${wasteSpend}`);
+      hints.push('执行 pdd promo roi 查看具体浪费计划');
+    }
+  } else if (Array.isArray(entities) && entities.length > 0) {
+    let wc = 0;
+    let ws = 0;
+    for (const e of entities) {
+      const s = Number(e.spend ?? e.cost ?? 0);
+      const g = Number(e.gmv ?? 0);
+      if (s > 0 && g / s < 1) { wc += 1; ws += s; }
+    }
+    wastePlanCount = wc;
+    wasteSpend = ws;
+    perPlanRoiAvailable = true;
+    if (wc > 0) {
+      issues.push(`${wc} 个计划 ROI 低于保本线，烧钱 ${ws}`);
+      hints.push('执行 pdd promo roi 查看具体浪费计划');
+    }
+  }
+
   const finalScore = clampScore(score);
   return {
     score: finalScore,
@@ -90,6 +119,9 @@ export function scorePromoHealth({ totals } = {}) {
       spend: spend ?? 0,
       ctr: Number(ctr.toFixed(4)),
       roi: roi == null ? null : Number(roi.toFixed(2)),
+      waste_plan_count: wastePlanCount,
+      waste_spend: wasteSpend,
+      per_plan_roi_available: perPlanRoiAvailable,
     },
   };
 }

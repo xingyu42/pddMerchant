@@ -10,14 +10,17 @@ import * as ordersDetail from '../src/commands/orders/detail.js';
 import * as ordersStats from '../src/commands/orders/stats.js';
 import * as goodsListCmd from '../src/commands/goods/list.js';
 import * as goodsStock from '../src/commands/goods/stock.js';
+import * as goodsSegment from '../src/commands/goods/segment.js';
 import * as promoSearch from '../src/commands/promo/search.js';
 import * as promoScene from '../src/commands/promo/scene.js';
+import * as promoRoi from '../src/commands/promo/roi.js';
 import * as diagnoseShopCmd from '../src/commands/diagnose/shop.js';
 import * as diagnoseOrders from '../src/commands/diagnose/orders.js';
 import * as diagnoseInventory from '../src/commands/diagnose/inventory.js';
 import * as diagnosePromo from '../src/commands/diagnose/promo.js';
 import * as diagnoseFunnel from '../src/commands/diagnose/funnel.js';
 import * as daemonCmd from '../src/commands/daemon.js';
+import * as actionPlan from '../src/commands/action/plan.js';
 import { emit } from '../src/infra/output.js';
 import { PddCliError, ExitCodes, mapErrorToExit, errorToEnvelope } from '../src/infra/errors.js';
 import { createLogger, redactRecursive } from '../src/infra/logger.js';
@@ -230,6 +233,18 @@ wireAction(
   'goods.stock',
   goodsStock.run
 );
+wireAction(
+  goods
+    .command('segment')
+    .description('商品分层（A/B/C/D 四象限）')
+    .option('--days <n>', '销量统计窗口天数', (v) => Number(v), 30)
+    .option('--size <n>', '商品分页大小', (v) => Number(v), 50)
+    .option('--max-pages <n>', '最大商品页数', (v) => Number(v), 10)
+    .option('--break-even <n>', '推广保本 ROI 阈值', (v) => Number(v), 1.0)
+    .option('--no-promo', '跳过推广 ROI 数据'),
+  'goods.segment',
+  goodsSegment.run
+);
 
 // 🚀 Promo
 const promo = program.command('promo').description('🚀 推广报表');
@@ -253,11 +268,26 @@ wireAction(
   'promo.scene',
   promoScene.run
 );
+wireAction(
+  promo
+    .command('roi')
+    .description('推广 ROI 诊断（按计划/商品/渠道维度）')
+    .option('--by <dimension>', '分组维度 plan|sku|channel', 'plan')
+    .option('--since <date>', '起始日期 YYYY-MM-DD')
+    .option('--page <n>', '页码', (v) => Number(v), 1)
+    .option('--size <n>', '每页数量', (v) => Number(v), 50)
+    .option('--break-even <n>', '保本 ROI 阈值', (v) => Number(v), 1.0)
+    .option('--include-inactive', '包含已删除/暂停计划'),
+  'promo.roi',
+  promoRoi.run
+);
 
 // 🩺 Diagnose
 const diagnose = program.command('diagnose').description('🩺 店铺健康诊断');
 wireAction(
-  diagnose.command('shop').description('店铺总分（4 维度加权平均）'),
+  diagnose.command('shop').description('店铺总分（4 维度加权平均）')
+    .option('--compare', '启用环比对比')
+    .option('--days <n>', '对比窗口天数', (v) => Number(v), 7),
   'diagnose.shop',
   diagnoseShopCmd.run
 );
@@ -281,6 +311,22 @@ wireAction(
     .option('--days <n>', '分析窗口天数', (v) => Number(v), 30),
   'diagnose.funnel',
   diagnoseFunnel.run
+);
+
+// 🎯 Action
+const action = program.command('action').description('🎯 运营动作');
+wireAction(
+  action
+    .command('plan')
+    .description('生成优先级运营动作清单')
+    .option('--days <n>', '诊断窗口天数', (v) => Number(v), 7)
+    .option('--compare', '包含环比趋势')
+    .option('--limit <n>', '最大动作数', (v) => Number(v), 10)
+    .option('--break-even <n>', '推广保本 ROI 阈值', (v) => Number(v), 1.0)
+    .option('--no-promo', '跳过推广 ROI')
+    .option('--no-segment', '跳过商品分层'),
+  'action.plan',
+  actionPlan.run
 );
 
 // 🔄 Daemon

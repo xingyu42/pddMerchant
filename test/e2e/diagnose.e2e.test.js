@@ -62,3 +62,16 @@ test('e2e: diagnose funnel dimension: order fulfillment funnel from listOrders',
   assert.ok(envelope.data.detail.refund_rate > 0.3);
   assert.ok(envelope.data.issues.length >= 1);
 });
+
+test('e2e: diagnose shop --compare --json returns compare block', () => {
+  const { status, envelope, stderr } = runPdd(['diagnose', 'shop', '--compare', '--json']);
+  assert.equal(status, 0, `stderr: ${stderr}`);
+  assertOkEnvelope(envelope, 'diagnose.shop');
+  const d = envelope.data;
+  assert.ok(typeof d.score === 'number' || d.score === null);
+  assert.ok(d.compare, 'compare block must exist');
+  assert.ok(d.compare.current_window, 'current_window required');
+  assert.ok(d.compare.previous_window, 'previous_window required');
+  assert.ok(typeof d.compare.dimensions === 'object');
+  assert.ok(d.compare.dimensions.inventory?.note === 'current_snapshot_only');
+});

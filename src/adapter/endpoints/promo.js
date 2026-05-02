@@ -32,6 +32,7 @@ export const PROMO_ENTITY_REPORT = {
   buildPayload: (params = {}, ctx = {}) => {
     const now = new Date();
     const since = params.since ?? new Date(now.getTime() - 7 * 86400000);
+    const until = params.until ?? now;
     return {
       clientType: 1,
       entityId: ctx.mallId,
@@ -40,7 +41,7 @@ export const PROMO_ENTITY_REPORT = {
       reportPromotionType: params.promotionType ?? 9,
       blockTypes: [6],
       startDate: formatDate(since),
-      endDate: formatDate(now),
+      endDate: formatDate(until),
       externalFields: PROMO_EXTERNAL_FIELDS,
       queryRange: { pageNumber: params.page ?? 1, pageSize: params.size ?? 10 },
       orderBy: 9999,

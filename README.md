@@ -53,9 +53,10 @@ src/infra/          横切关注: envelope, errors, logger, timeouts, abort
 | 分组 | 命令 | 说明 |
 |------|------|------|
 | orders | `list` / `detail` / `stats` | 订单列表、详情、统计 |
-| goods | `list` / `stock` | 商品列表、库存告警 |
-| promo | `search` / `scene` | 搜索 / 场景推广报表 |
-| diagnose | `shop` / `orders` / `inventory` / `promo` / `funnel` | 健康评分 |
+| goods | `list` / `stock` / `segment` | 商品列表、库存告警、SKU 分层 |
+| promo | `search` / `scene` / `roi` | 搜索 / 场景推广报表、ROI 诊断 |
+| diagnose | `shop` / `orders` / `inventory` / `promo` / `funnel` | 健康评分（shop 支持 `--compare`） |
+| action | `plan` | 一键运营动作清单 |
 | shops | `list` / `current` | 店铺切换 |
 | daemon | `start` / `stop` / `status` | 后台 auth 自动续期 |
 | utility | `init` / `login` / `doctor` | 鉴权与环境 |
@@ -82,6 +83,10 @@ src/infra/          横切关注: envelope, errors, logger, timeouts, abort
 | `goods list` | `--page` `--size` `--status` | 分页与状态筛选（onsale/offline） |
 | `goods stock` | `--threshold` | 低库存阈值（默认 10） |
 | `promo search/scene` | `--since` `--page` `--size` | 日期与分页 |
+| `promo roi` | `--by` `--break-even` `--include-inactive` | ROI 分组/保本线/含已删除 |
+| `goods segment` | `--days` `--break-even` `--no-promo` | SKU 分层窗口/保本线 |
+| `diagnose shop` | `--compare` `--days` | 环比对比/窗口天数 |
+| `action plan` | `--limit` `--compare` `--break-even` `--no-promo` `--no-segment` | 动作数/趋势/保本线 |
 | `doctor` | `--probe <mode>` | mall context 探测策略 |
 
 ---
