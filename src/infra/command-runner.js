@@ -10,6 +10,7 @@ import { createLogger, getLogger } from '../infra/logger.js';
 import { emit, buildEnvelope } from '../infra/output.js';
 import { PddCliError, ExitCodes, errorToEnvelope } from '../infra/errors.js';
 import { AUTH_STATE_PATH } from '../infra/paths.js';
+import { resolveAccountContext, accountMetaForEnvelope } from '../infra/account-resolver.js';
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
 import { remainingMs, throwIfAborted, timeoutError } from '../infra/abort.js';
 import { ensureDaemonRunning } from '../infra/daemon-launcher.js';
@@ -47,6 +48,20 @@ export function withCommand({
 
     const authPath = opts.authStatePath ?? AUTH_STATE_PATH;
 
+    let accountCtx = null;
+    try {
+      accountCtx = await resolveAccountContext({
+        account: opts.account,
+        authStatePath: opts.authStatePath,
+        needsAuth,
+        warnings,
+      });
+    } catch (resolveErr) {
+      if (resolveErr instanceof PddCliError) throw resolveErr;
+      log.debug({ err: resolveErr?.message }, 'account resolution failed, falling back');
+    }
+    const resolvedAuthPath = accountCtx?.authPath ?? authPath;
+
     // --- Timeout / AbortController (W1) ---
     let abortController = null;
     let deadlineTimer = null;
@@ -59,7 +74,7 @@ export function withCommand({
 
     try {
 
-    await migrateLegacyAuthStateIfNeeded(authPath, warnings).catch((err) => {
+    await migrateLegacyAuthStateIfNeeded(resolvedAuthPath, warnings).catch((err) => {
       log.debug({ err: err?.message }, 'legacy auth migration check failed');
     });
 
@@ -107,7 +122,9 @@ export function withCommand({
         page: null,
         mallCtx,
         mallId: mallCtx?.activeId ?? null,
-        authPath,
+        authPath: resolvedAuthPath,
+        account: accountCtx?.account ?? null,
+        accountSlug: accountCtx?.slug ?? null,
         config: opts,
         log,
         correlation_id: correlationId,
@@ -130,6 +147,7 @@ export function withCommand({
             warnings: allWarnings,
             correlation_id: correlationId,
             exit_code: ExitCodes.OK,
+            ...accountMetaForEnvelope(accountCtx),
             ...extraMeta,
           },
         });
@@ -148,7 +166,7 @@ export function withCommand({
 
     return withBrowser({
       headed: opts.headed,
-      storageStatePath: authPath,
+      storageStatePath: resolvedAuthPath,
     }, async ({ browser, context, page }) => {
       if (needsAuth) {
         throwIfAborted(signal);
@@ -191,7 +209,9 @@ export function withCommand({
         context,
         mallCtx,
         mallId: mallCtx?.activeId ?? null,
-        authPath,
+        authPath: resolvedAuthPath,
+        account: accountCtx?.account ?? null,
+        accountSlug: accountCtx?.slug ?? null,
         config: opts,
         log,
         correlation_id: correlationId,
@@ -216,6 +236,7 @@ export function withCommand({
           warnings: allWarnings,
           correlation_id: correlationId,
           exit_code: ExitCodes.OK,
+          ...accountMetaForEnvelope(accountCtx),
           ...extraMeta,
         },
       });

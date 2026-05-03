@@ -36,6 +36,70 @@ export function mapErrorToExit(err) {
   return ExitCodes.GENERAL;
 }
 
+export function accountNotFound(slug) {
+  return new PddCliError({
+    code: 'E_ACCOUNT_NOT_FOUND',
+    message: `Account "${slug}" not found in registry`,
+    hint: 'Run "pdd account list" to see registered accounts',
+    exitCode: ExitCodes.USAGE,
+  });
+}
+
+export function accountRequired() {
+  return new PddCliError({
+    code: 'E_ACCOUNT_REQUIRED',
+    message: 'Multiple accounts registered but no --account specified and no default set',
+    hint: 'Use --account <slug> or run "pdd account default <slug>"',
+    exitCode: ExitCodes.USAGE,
+  });
+}
+
+export function accountAmbiguous(slug, matches) {
+  return new PddCliError({
+    code: 'E_ACCOUNT_AMBIGUOUS',
+    message: `Account name "${slug}" matches multiple accounts: ${matches.join(', ')}`,
+    hint: 'Use the exact slug from "pdd account list"',
+    exitCode: ExitCodes.USAGE,
+  });
+}
+
+export function accountRegistryCorrupt(detail) {
+  return new PddCliError({
+    code: 'E_ACCOUNT_REGISTRY_CORRUPT',
+    message: 'Account registry (accounts.json) is corrupted or invalid',
+    detail,
+    exitCode: ExitCodes.GENERAL,
+  });
+}
+
+export function credentialDecryptFailed() {
+  return new PddCliError({
+    code: 'E_CREDENTIAL_DECRYPT_FAILED',
+    message: 'Failed to decrypt stored credentials — wrong master password or tampered ciphertext',
+    hint: 'Check PDD_MASTER_PASSWORD or re-add the account with "pdd account add"',
+    exitCode: ExitCodes.AUTH,
+  });
+}
+
+export function authChallengeRequired(type) {
+  return new PddCliError({
+    code: 'E_AUTH_CHALLENGE_REQUIRED',
+    message: `Login requires interactive challenge: ${type || 'captcha/SMS/slider'}`,
+    hint: 'Use QR login or complete the challenge manually',
+    exitCode: ExitCodes.AUTH,
+  });
+}
+
+export function passwordLoginFormChanged(detail) {
+  return new PddCliError({
+    code: 'E_PASSWORD_LOGIN_FORM_CHANGED',
+    message: 'PDD login form structure has changed — selectors no longer match',
+    detail,
+    hint: 'Report this issue; fallback to QR login',
+    exitCode: ExitCodes.AUTH,
+  });
+}
+
 export function isSuccessResponse(raw) {
   if (!raw || typeof raw !== 'object') return false;
   if (raw.success === true) return true;

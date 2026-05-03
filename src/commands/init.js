@@ -10,6 +10,7 @@ import { emit } from '../infra/output.js';
 import { getLogger } from '../infra/logger.js';
 import { PddCliError, ExitCodes, errorToEnvelope } from '../infra/errors.js';
 import { AUTH_STATE_PATH as DEFAULT_AUTH_STATE_PATH } from '../infra/paths.js';
+import { resolveAccountContext } from '../infra/account-resolver.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 
 async function waitForLogin(page, { timeoutMs }) {
@@ -152,12 +153,19 @@ export async function runInteractiveLogin(options = {}) {
   const {
     json = false,
     command = 'init',
-    authStatePath = DEFAULT_AUTH_STATE_PATH,
+    authStatePath,
     timeoutMs,
     timeout,
     qr = false,
     headed = false,
+    account,
   } = options;
+
+  let resolvedAuthPath = authStatePath ?? DEFAULT_AUTH_STATE_PATH;
+  if (account && !authStatePath) {
+    const ctx = await resolveAccountContext({ account });
+    resolvedAuthPath = ctx.authPath;
+  }
 
   const globalTimeout = typeof timeout === 'number' && Number.isFinite(timeout) ? timeout : undefined;
   const effectiveTimeout = typeof timeoutMs === 'number' && Number.isFinite(timeoutMs)
@@ -170,7 +178,7 @@ export async function runInteractiveLogin(options = {}) {
     if (qr) {
       return await runQrLogin({
         command,
-        authStatePath,
+        authStatePath: resolvedAuthPath,
         timeoutMs: effectiveTimeout,
         json,
         startedAt,
@@ -178,7 +186,7 @@ export async function runInteractiveLogin(options = {}) {
         qrCaptureTimeoutMs,
       });
     }
-    return await runHeadedLogin({ command, authStatePath, timeoutMs: effectiveTimeout, json, startedAt });
+    return await runHeadedLogin({ command, authStatePath: resolvedAuthPath, timeoutMs: effectiveTimeout, json, startedAt });
   } catch (err) {
     const envelope = errorToEnvelope(command, err, { latency_ms: Date.now() - startedAt });
     return emit(envelope, { json });

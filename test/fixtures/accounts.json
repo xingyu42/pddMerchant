@@ -1,0 +1,119 @@
+{
+  "empty": {
+    "version": 1,
+    "defaultAccount": null,
+    "updatedAt": "2026-05-03T00:00:00.000Z",
+    "accounts": {}
+  },
+  "single": {
+    "version": 1,
+    "defaultAccount": "default",
+    "updatedAt": "2026-05-03T00:00:00.000Z",
+    "accounts": {
+      "default": {
+        "slug": "default",
+        "displayName": "张三的旗舰店",
+        "mallId": "445301049",
+        "credential": null,
+        "createdAt": "2026-05-03T00:00:00.000Z",
+        "updatedAt": "2026-05-03T00:00:00.000Z",
+        "lastLoginAt": null,
+        "lastRefreshAt": null,
+        "disabled": false,
+        "migratedFrom": "legacy-auth-state"
+      }
+    }
+  },
+  "multi": {
+    "version": 1,
+    "defaultAccount": "default",
+    "updatedAt": "2026-05-03T00:00:00.000Z",
+    "accounts": {
+      "default": {
+        "slug": "default",
+        "displayName": "张三的旗舰店",
+        "mallId": "445301049",
+        "credential": null,
+        "createdAt": "2026-05-03T00:00:00.000Z",
+        "updatedAt": "2026-05-03T00:00:00.000Z",
+        "lastLoginAt": "2026-05-03T08:00:00.000Z",
+        "lastRefreshAt": "2026-05-03T10:00:00.000Z",
+        "disabled": false,
+        "migratedFrom": "legacy-auth-state"
+      },
+      "李四专卖店": {
+        "slug": "李四专卖店",
+        "displayName": "李四专卖店",
+        "mallId": "998877665",
+        "credential": {
+          "version": 1,
+          "kind": "encrypted-credential",
+          "cipher": "aes-256-gcm",
+          "kdf": "scrypt",
+          "kdfParams": { "N": 32768, "r": 8, "p": 1 },
+          "salt": "dGVzdHNhbHQxMjM0NTY=",
+          "iv": "dGVzdGl2MTIzNA==",
+          "tag": "dGVzdHRhZzEyMzQ1Njc4",
+          "aad": "pdd-cli:credential:v1:李四专卖店",
+          "ciphertext": "ZW5jcnlwdGVkZGF0YQ=="
+        },
+        "createdAt": "2026-05-03T01:00:00.000Z",
+        "updatedAt": "2026-05-03T09:00:00.000Z",
+        "lastLoginAt": "2026-05-03T09:00:00.000Z",
+        "lastRefreshAt": "2026-05-03T10:30:00.000Z",
+        "disabled": false,
+        "migratedFrom": null
+      }
+    }
+  },
+  "disabled": {
+    "version": 1,
+    "defaultAccount": "active-shop",
+    "updatedAt": "2026-05-03T00:00:00.000Z",
+    "accounts": {
+      "active-shop": {
+        "slug": "active-shop",
+        "displayName": "活跃店铺",
+        "mallId": "111222333",
+        "credential": null,
+        "createdAt": "2026-05-03T00:00:00.000Z",
+        "updatedAt": "2026-05-03T00:00:00.000Z",
+        "lastLoginAt": null,
+        "lastRefreshAt": null,
+        "disabled": false,
+        "migratedFrom": null
+      },
+      "disabled-shop": {
+        "slug": "disabled-shop",
+        "displayName": "已停用店铺",
+        "mallId": "444555666",
+        "credential": null,
+        "createdAt": "2026-05-03T00:00:00.000Z",
+        "updatedAt": "2026-05-03T00:00:00.000Z",
+        "lastLoginAt": null,
+        "lastRefreshAt": null,
+        "disabled": true,
+        "migratedFrom": null
+      }
+    }
+  },
+  "legacy-migrated": {
+    "version": 1,
+    "defaultAccount": "default",
+    "updatedAt": "2026-05-03T00:00:00.000Z",
+    "accounts": {
+      "default": {
+        "slug": "default",
+        "displayName": "default",
+        "mallId": null,
+        "credential": null,
+        "createdAt": "2026-05-03T00:00:00.000Z",
+        "updatedAt": "2026-05-03T00:00:00.000Z",
+        "lastLoginAt": null,
+        "lastRefreshAt": null,
+        "disabled": false,
+        "migratedFrom": "legacy-auth-state"
+      }
+    }
+  }
+}

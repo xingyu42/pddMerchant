@@ -164,6 +164,7 @@ export async function status(opts = {}) {
       qrPngPath: state.qrPngPath,
       refreshCount: state.refreshCount,
       failureCount: state.failureCount,
+      accounts: state.accounts ?? null,
     },
     meta: { latency_ms: Date.now() - startedAt },
   });

@@ -22,6 +22,12 @@ const REDACT_KEYS = [
   'phone',
   'addr',
   'receiver_name',
+  'password',
+  'credential',
+  'credentials',
+  'mobile',
+  'masterPassword',
+  'ciphertext',
 ];
 
 const REDACT_KEY_SET = new Set(REDACT_KEYS);

@@ -21,6 +21,7 @@ import * as diagnosePromo from '../src/commands/diagnose/promo.js';
 import * as diagnoseFunnel from '../src/commands/diagnose/funnel.js';
 import * as daemonCmd from '../src/commands/daemon.js';
 import * as actionPlan from '../src/commands/action/plan.js';
+import * as accountCmd from '../src/commands/account.js';
 import { emit } from '../src/infra/output.js';
 import { PddCliError, ExitCodes, mapErrorToExit, errorToEnvelope } from '../src/infra/errors.js';
 import { createLogger, redactRecursive } from '../src/infra/logger.js';
@@ -73,6 +74,7 @@ program
   .option('--mall <id>', '指定店铺 ID（未指定则使用当前）')
   .option('--headed', '以有头浏览器运行（调试）')
   .option('--verbose', '启用 debug 日志')
+  .option('--account <slug>', '指定账号（多账号模式）')
   .showHelpAfterError(false);
 
 program.exitOverride((err) => {
@@ -103,6 +105,7 @@ function mergeOptions(commanderCmd) {
     headed = false,
     verbose = false,
     qr = false,
+    account,
     ...rest
   } = merged;
   return {
@@ -116,6 +119,7 @@ function mergeOptions(commanderCmd) {
     headed: Boolean(headed),
     verbose: Boolean(verbose),
     qr: Boolean(qr),
+    account: account || undefined,
   };
 }
 
@@ -154,7 +158,8 @@ wireAction(
   program
     .command('login')
     .description('⚙️ 重新登录（刷新 auth-state）')
-    .option('--qr', '无头模式：终端渲染二维码 + 保存 PNG 到 data/'),
+    .option('--qr', '无头模式：终端渲染二维码 + 保存 PNG 到 data/')
+    .option('--password', '��码登录模式（交互式输入手机号+密码）'),
   'login',
   login.run
 );
@@ -327,6 +332,34 @@ wireAction(
     .option('--no-segment', '跳过商品分层'),
   'action.plan',
   actionPlan.run
+);
+
+// 👤 Account
+const account = program.command('account').description('👤 多账号管理');
+wireAction(
+  account.command('add').description('添加新账号（密码登录 + 自动注册）'),
+  'account.add',
+  accountCmd.add
+);
+wireAction(
+  account.command('remove')
+    .description('移除账号')
+    .requiredOption('--slug <slug>', '账号 slug')
+    .option('--remove-files', '同时删除账号目录'),
+  'account.remove',
+  accountCmd.remove
+);
+wireAction(
+  account.command('list').description('列出所有账号'),
+  'account.list',
+  accountCmd.list
+);
+wireAction(
+  account.command('default')
+    .description('设置默认账号')
+    .requiredOption('--slug <slug>', '账号 slug'),
+  'account.default',
+  accountCmd.setDefault
 );
 
 // 🔄 Daemon

@@ -174,3 +174,33 @@ export function mockRefreshAuth() {
   }
   return { success: true, reason: 'refreshed' };
 }
+
+// ---------- account-registry.js ----------
+export function mockAccountRegistry() {
+  try {
+    return loadFixture('accounts.json');
+  } catch {
+    return null;
+  }
+}
+
+// ---------- credential-vault.js ----------
+export function mockDecryptCredential() {
+  return { version: 1, mobile: '13800138000', password: 'mock-password', createdAt: '2026-05-03T00:00:00Z' };
+}
+
+// ---------- password-login.js ----------
+export function mockPasswordLogin({ mobile, authStatePath } = {}) {
+  try {
+    const fixture = loadFixture('endpoints/password-login.json');
+    return { ...fixture, authStatePath: authStatePath ?? fixture.authStatePath };
+  } catch {
+    return {
+      success: true,
+      mode: 'password',
+      authStatePath,
+      mall: { id: '445301049', name: '测试店铺' },
+      savedAt: new Date().toISOString(),
+    };
+  }
+}

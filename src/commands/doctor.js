@@ -3,10 +3,11 @@ import { withCommand } from '../infra/command-runner.js';
 import { launchBrowser, closeBrowser } from '../adapter/browser.js';
 import { loadAuthState, isAuthValid } from '../adapter/auth-state.js';
 import { resolveMallContext } from '../adapter/mall-reader.js';
-import { AUTH_STATE_PATH, DAEMON_STATE_PATH } from '../infra/paths.js';
+import { AUTH_STATE_PATH, DAEMON_STATE_PATH, accountAuthStatePath } from '../infra/paths.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { isPidAlive } from '../infra/process-util.js';
+import { listAccounts } from '../infra/account-registry.js';
 
 function checkDaemon() {
   if (!existsSync(DAEMON_STATE_PATH)) {
@@ -136,6 +137,21 @@ export const run = withCommand({
         detail: data,
         exitCode: ExitCodes.AUTH,
       });
+    }
+
+    const accounts = await listAccounts().catch(() => []);
+    if (accounts.length > 0) {
+      data.accounts = [];
+      for (const acct of accounts) {
+        const acctAuthPath = accountAuthStatePath(acct.slug);
+        const fileCheck = await checkAuthFile(acctAuthPath);
+        data.accounts.push({
+          slug: acct.slug,
+          displayName: acct.displayName,
+          auth_file: fileCheck,
+          hasCredential: acct.credential != null,
+        });
+      }
     }
 
     return data;
