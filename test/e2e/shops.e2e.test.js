@@ -1,6 +1,6 @@
 // E2E · shops domain
 // 数据来源 test/fixtures/shops.{list,current}.json
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { runPdd, assertOkEnvelope } from './_helpers.js';
 

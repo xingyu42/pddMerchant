@@ -1,4 +1,4 @@
-import { describe, it, afterEach } from 'node:test';
+import { describe, it, afterEach } from 'vitest';
 import { strict as assert } from 'node:assert';
 import { execSync, spawn } from 'node:child_process';
 import { readFile, unlink, writeFile } from 'node:fs/promises';

@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import { parseMallId, requireMallId } from '../src/adapter/mall-id.js';
 import { cssEscape } from '../src/adapter/css-escape.js';

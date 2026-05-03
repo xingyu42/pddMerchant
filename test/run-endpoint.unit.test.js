@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import {
   runEndpoint,
@@ -222,7 +222,7 @@ test('function-form nav.url is evaluated ONLY once even across 429 retries (W1)'
   assert.equal(idx, 2, 'page should respond exactly 2 times (1 initial + 1 retry)');
 });
 
-test('429 exhausts retries and rejects with E_RATE_LIMIT', async () => {
+test('429 exhausts retries and rejects with E_RATE_LIMIT', { timeout: 30000 }, async () => {
   const page = createFakePage({
     respondBy: () => ({ status: 429, body: { error_code: 54001, error_msg: '操作太过频繁' } }),
   });
@@ -236,7 +236,7 @@ test('429 exhausts retries and rejects with E_RATE_LIMIT', async () => {
     () => runEndpoint(page, meta, {}, {}),
     (err) => err.code === 'E_RATE_LIMIT' && err.exitCode === 4,
   );
-}, { timeout: 30000 });
+});
 
 test('401 rejects with E_AUTH_EXPIRED immediately (no retry)', async () => {
   const page = createFakePage({

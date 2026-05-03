@@ -1,6 +1,6 @@
 // E2E · orders domain
 // 覆盖：list / detail / stats（含本地 P50/P95 聚合）
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { runPdd, assertOkEnvelope, assertFailEnvelope, PROJECT_ROOT } from './_helpers.js';

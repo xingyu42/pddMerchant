@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
 import { buildEnvelope, emit } from '../src/infra/output.js';

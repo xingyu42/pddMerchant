@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import { classifyRateLimit } from '../src/adapter/classify-rate-limit.js';
 import { createRateLimiter } from '../src/adapter/rate-limiter.js';

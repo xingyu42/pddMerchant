@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import { errorToEnvelope, PddCliError, ExitCodes } from '../src/infra/errors.js';
 import { buildEnvelope, emit } from '../src/infra/output.js';

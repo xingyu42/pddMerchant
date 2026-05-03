@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { readActiveIdFromXhr, resolveMallContext } from '../src/adapter/mall-switcher.js';
 
@@ -283,7 +283,7 @@ test('resolveMallContext: XHR hits when earlier probes miss', async () => {
   assert.equal(page.listenerCount('response'), 0);
 });
 
-test('resolveMallContext: XHR timeout falls through to dom', async () => {
+test('resolveMallContext: XHR timeout falls through to dom', { timeout: 10000 }, async () => {
   delete process.env.PDD_TEST_ADAPTER;
   const page = createFakePage({
     domMalls: [{ mallId: 'dom-7', mallName: 'Dom Mall Timeout' }],
@@ -295,7 +295,7 @@ test('resolveMallContext: XHR timeout falls through to dom', async () => {
   assert.equal(page.onResponseCalls, 1);
   assert.equal(page.offResponseCalls, 1);
   assert.equal(page.listenerCount('response'), 0);
-}, { timeout: 10000 });
+});
 
 test('resolveMallContext: upstream hit does not attach XHR listener', async () => {
   delete process.env.PDD_TEST_ADAPTER;

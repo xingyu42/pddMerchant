@@ -1,6 +1,6 @@
 // E2E · goods domain
 // 覆盖：list / stock（低库存筛选）
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { runPdd, assertOkEnvelope } from './_helpers.js';
 

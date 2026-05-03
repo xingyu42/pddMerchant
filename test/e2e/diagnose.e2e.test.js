@@ -1,6 +1,6 @@
 // E2E · diagnose domain
 // 覆盖：shop（4 维加权）/ orders / inventory / promo / funnel
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { runPdd, assertOkEnvelope } from './_helpers.js';
 

@@ -1,7 +1,7 @@
 // E2E · promo domain
 // 覆盖：search / scene（按 scenesType 过滤）
 // 注：V0.2 移除 ddk 子命令（详见 openspec/changes/archive/*-remove-promo-ddk）
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { runPdd, assertOkEnvelope } from './_helpers.js';
 

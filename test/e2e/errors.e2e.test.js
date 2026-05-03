@@ -1,6 +1,6 @@
 // E2E · error-path coverage
 // 覆盖：登录失效（AUTH=3）/ fixture 缺失（GENERAL=1）
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { runPdd, assertFailEnvelope, PROJECT_ROOT } from './_helpers.js';

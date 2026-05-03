@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { collectAllGoods } from '../src/services/diagnose/goods-collector.js';
 import { PddCliError, ExitCodes } from '../src/infra/errors.js';

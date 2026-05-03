@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { resolveMallContext, readActiveIdFromXhr } from '../../src/adapter/mall-switcher.js';
 import { property, gen, mulberry32 } from './_harness.js';
