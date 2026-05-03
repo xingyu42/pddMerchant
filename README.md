@@ -141,8 +141,9 @@ Envelope 结构：
 ## 测试
 
 ```bash
-npm test                              # 运行全部 50+ 测试（node:test）
-node --test test/<file>.test.js       # 运行单个测试文件
+npm test                              # 运行全部 427 测试（vitest）
+npx vitest run test/<file>.test.js    # 运行单个测试文件
+npx vitest                            # watch 模式
 ```
 
 测试分层：
