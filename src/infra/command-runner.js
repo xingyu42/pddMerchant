@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { withBrowser } from '../adapter/browser.js';
-import { isAuthValid, loadAuthState, migrateLegacyAuthStateIfNeeded } from '../adapter/auth-state.js';
-import { currentMall, resolveMallContext } from '../adapter/mall-reader.js';
+import { isAuthValid, migrateLegacyAuthStateIfNeeded } from '../adapter/auth-state.js';
+import { resolveMallContext } from '../adapter/mall-reader.js';
 import { switchTo } from '../adapter/mall-writer.js';
 import { FixtureEndpointClient, mockCurrentMall, mockListMalls } from '../adapter/mock-dispatcher.js';
 import { getSharedClient } from '../adapter/rate-limiter-singleton.js';
 import { createPageSession } from '../adapter/page-session.js';
-import { createLogger, getLogger } from '../infra/logger.js';
+import { getLogger } from '../infra/logger.js';
 import { emit, buildEnvelope, buildBatchEnvelope, batchRenderer } from '../infra/output.js';
 import { PddCliError, ExitCodes, errorToEnvelope, batchExitCode } from '../infra/errors.js';
 import { AUTH_STATE_PATH } from '../infra/paths.js';

@@ -117,15 +117,6 @@ export function batchExitCode(accountResults) {
   return failCodes[0];
 }
 
-export function batchAllFailed(detail) {
-  return new PddCliError({
-    code: 'E_BATCH_ALL_FAILED',
-    message: 'all accounts failed',
-    detail,
-    exitCode: ExitCodes.GENERAL,
-  });
-}
-
 export function isSuccessResponse(raw) {
   if (!raw || typeof raw !== 'object') return false;
   if (raw.success === true) return true;
