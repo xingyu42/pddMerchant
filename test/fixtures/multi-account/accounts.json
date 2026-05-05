@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "defaultAccount": "shop-a",
+  "updatedAt": "2026-05-05T00:00:00.000Z",
+  "accounts": {
+    "shop-a": {
+      "slug": "shop-a",
+      "displayName": "店铺A",
+      "mallId": "100001",
+      "credential": null,
+      "createdAt": "2026-05-01T00:00:00.000Z",
+      "updatedAt": "2026-05-05T00:00:00.000Z",
+      "lastLoginAt": "2026-05-05T08:00:00.000Z",
+      "lastRefreshAt": "2026-05-05T10:00:00.000Z",
+      "disabled": false,
+      "migratedFrom": null
+    },
+    "shop-b": {
+      "slug": "shop-b",
+      "displayName": "店铺B",
+      "mallId": "100002",
+      "credential": null,
+      "createdAt": "2026-05-01T00:00:00.000Z",
+      "updatedAt": "2026-05-05T00:00:00.000Z",
+      "lastLoginAt": "2026-05-05T08:00:00.000Z",
+      "lastRefreshAt": "2026-05-05T10:00:00.000Z",
+      "disabled": false,
+      "migratedFrom": null
+    },
+    "shop-c": {
+      "slug": "shop-c",
+      "displayName": "店铺C(已停用)",
+      "mallId": "100003",
+      "credential": null,
+      "createdAt": "2026-05-01T00:00:00.000Z",
+      "updatedAt": "2026-05-05T00:00:00.000Z",
+      "lastLoginAt": null,
+      "lastRefreshAt": null,
+      "disabled": true,
+      "migratedFrom": null
+    }
+  }
+}

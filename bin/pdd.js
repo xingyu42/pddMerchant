@@ -75,6 +75,7 @@ program
   .option('--headed', '以有头浏览器运行（调试）')
   .option('--verbose', '启用 debug 日志')
   .option('--account <slug>', '指定账号（多账号模式）')
+  .option('--all-accounts', '对所有注册账号执行命令')
   .showHelpAfterError(false);
 
 program.exitOverride((err) => {
@@ -106,6 +107,7 @@ function mergeOptions(commanderCmd) {
     verbose = false,
     qr = false,
     account,
+    allAccounts = false,
     ...rest
   } = merged;
   return {
@@ -120,6 +122,7 @@ function mergeOptions(commanderCmd) {
     verbose: Boolean(verbose),
     qr: Boolean(qr),
     account: account || undefined,
+    allAccounts: Boolean(allAccounts),
   };
 }
 
@@ -129,7 +132,9 @@ function wireAction(cmd, commandName, runFn) {
     createLogger({ verbose: opts.verbose });
     try {
       const envelope = await runFn(opts);
-      if (envelope && envelope.ok === false) {
+      if (process.exitCode === 130) {
+        // SIGINT already set by batch handler — preserve it
+      } else if (envelope && envelope.ok === false) {
         const exitCode = envelope.meta?.exit_code
           ?? (envelope.error?.code ? mapErrorToExit({ code: envelope.error.code }) : ExitCodes.GENERAL);
         process.exitCode = exitCode;

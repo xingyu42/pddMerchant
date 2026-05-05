@@ -100,6 +100,32 @@ export function passwordLoginFormChanged(detail) {
   });
 }
 
+const SEVERITY = { 3: 6, 4: 5, 5: 4, 6: 3, 1: 2, 2: 1, 0: 0, 7: 7 };
+
+export function batchExitCode(accountResults) {
+  const entries = Object.values(accountResults);
+  const failCodes = entries
+    .filter((r) => !r.ok)
+    .map((r) => r.exit_code ?? ExitCodes.GENERAL);
+
+  if (failCodes.length === 0) return ExitCodes.OK;
+
+  const anySucceeded = entries.some((r) => r.ok);
+  if (anySucceeded) return ExitCodes.PARTIAL;
+
+  failCodes.sort((a, b) => (SEVERITY[b] ?? 0) - (SEVERITY[a] ?? 0));
+  return failCodes[0];
+}
+
+export function batchAllFailed(detail) {
+  return new PddCliError({
+    code: 'E_BATCH_ALL_FAILED',
+    message: 'all accounts failed',
+    detail,
+    exitCode: ExitCodes.GENERAL,
+  });
+}
+
 export function isSuccessResponse(raw) {
   if (!raw || typeof raw !== 'object') return false;
   if (raw.success === true) return true;
