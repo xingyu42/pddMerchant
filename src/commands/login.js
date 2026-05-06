@@ -1,7 +1,7 @@
 import { runInteractiveLogin } from './init.js';
 import { loginWithPassword } from '../adapter/password-login.js';
 import { resolveAccountContext } from '../infra/account-resolver.js';
-import { accountAuthStatePath, AUTH_STATE_PATH } from '../infra/paths.js';
+import { AUTH_STATE_PATH } from '../infra/paths.js';
 import { emit } from '../infra/output.js';
 import { errorToEnvelope } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
@@ -22,7 +22,8 @@ async function resolveAuthPath(opts) {
     const ctx = await resolveAccountContext({ account: opts.account });
     return ctx.authPath;
   }
-  return undefined;
+  const ctx = await resolveAccountContext({});
+  return ctx.authPath;
 }
 
 async function runPasswordLogin(opts) {
