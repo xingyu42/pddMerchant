@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import Table from 'cli-table3';
+import { redactRecursive } from './logger.js';
 
 function shouldUseColor({ tty, noColor }) {
   if (process.env.FORCE_COLOR === '1') return true;
@@ -99,7 +100,12 @@ export function emit(envelopeInput, options = {}) {
   const renderer = options.renderer;
 
   if (json) {
-    process.stdout.write(JSON.stringify(envelope) + '\n');
+    const safeEnvelope = {
+      ...envelope,
+      ...(envelope.data ? { data: redactRecursive(envelope.data) } : {}),
+      ...(envelope.error ? { error: redactRecursive(envelope.error) } : {}),
+    };
+    process.stdout.write(JSON.stringify(safeEnvelope) + '\n');
     if (envelope.error) {
       const errLine = renderError(envelope, { useColor: false });
       if (errLine) process.stderr.write(errLine + '\n');

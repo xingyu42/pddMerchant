@@ -28,6 +28,8 @@ const REDACT_KEYS = [
   'mobile',
   'masterPassword',
   'ciphertext',
+  'qrContent',
+  'qr_content',
 ];
 
 const REDACT_KEY_SET = new Set(REDACT_KEYS);

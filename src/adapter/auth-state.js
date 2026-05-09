@@ -1,19 +1,19 @@
 import { chmod, copyFile, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import { platform } from 'node:os';
 import { getLogger } from '../infra/logger.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { isMockEnabled, mockIsAuthValid } from './mock-dispatcher.js';
 import { acquireLock, releaseLock } from './auth-lock.js';
-import { DATA_DIR } from '../infra/paths.js';
+import { LEGACY_AUTH_STATE_PATH } from '../infra/paths.js';
 
 const PDD_HOME = 'https://mms.pinduoduo.com';
 
 let _tmpSeq = 0;
 
 function legacyAuthStatePath() {
-  return join(DATA_DIR, 'auth-state.json');
+  return LEGACY_AUTH_STATE_PATH;
 }
 
 function validateShape(state) {

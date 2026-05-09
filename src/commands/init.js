@@ -96,21 +96,15 @@ async function runQrLogin({ command, authStatePath, timeoutMs, json, startedAt, 
     }
 
     if (json) {
-      const truncatedQr = qrContent && qrContent.length > 16384
-        ? qrContent.slice(0, 16384)
-        : qrContent;
-      const intermediateWarnings = [];
-      if (truncatedQr !== qrContent) intermediateWarnings.push('qr_content_truncated');
-      intermediateWarnings.push('qr_pending');
       emit(
         {
           ok: true,
           command: `${command}.qr_pending`,
           data: {
             qr_image_path: imagePath,
-            qr_content: truncatedQr || null,
+            qr_content_present: Boolean(qrContent),
           },
-          meta: { warnings: intermediateWarnings },
+          meta: { warnings: ['qr_pending'] },
         },
         { json: true }
       );
@@ -122,7 +116,7 @@ async function runQrLogin({ command, authStatePath, timeoutMs, json, startedAt, 
         code: 'E_AUTH_TIMEOUT',
         message: `登录超时：${Math.round(timeoutMs / 1000)}s 内未检测到登录成功`,
         hint: `QR 可能已过期，重新执行 pdd ${command} --qr；或查看 ${imagePath}`,
-        detail: { imagePath, qrContent },
+        detail: { imagePath, qr_content_present: Boolean(qrContent) },
         exitCode: ExitCodes.AUTH,
       });
     }
@@ -137,7 +131,7 @@ async function runQrLogin({ command, authStatePath, timeoutMs, json, startedAt, 
           url: result.url,
           mode: 'qr',
           qrImagePath: imagePath,
-          qrContent: qrContent || null,
+          qrContentPresent: Boolean(qrContent),
           message: '授权成功，试试 pdd orders list',
         },
         meta: { latency_ms: Date.now() - startedAt },

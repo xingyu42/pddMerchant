@@ -31,7 +31,7 @@ const accountStates = {};
 async function writeDaemonState(extra = {}) {
   const state = {
     pid: process.pid,
-    token,
+    tokenFingerprint,
     startedAt: startedAt.toISOString(),
     status: 'running',
     lastRefreshAt: null,
@@ -220,7 +220,7 @@ async function gracefulShutdown(sig) {
 
   try {
     const state = await readDaemonState();
-    if (state && state.token === token) {
+    if (state && state.tokenFingerprint === tokenFingerprint) {
       await writeDaemonState({
         status: 'stopped',
         lastRefreshAt: state.lastRefreshAt,

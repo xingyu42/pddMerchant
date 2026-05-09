@@ -12,3 +12,4 @@ coverage/
 AGENTS.md
 CLAUDE.md
 openspec/
+.context/

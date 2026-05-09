@@ -1,4 +1,4 @@
-import { createInterface } from 'node:readline';
+import { promptText, promptPassword } from '../infra/prompts.js';
 import { emit } from '../infra/output.js';
 import { getLogger } from '../infra/logger.js';
 import { PddCliError, ExitCodes, errorToEnvelope } from '../infra/errors.js';
@@ -14,19 +14,13 @@ import { encryptCredential, resolveMasterPassword } from '../infra/credential-va
 import { loginWithPassword } from '../adapter/password-login.js';
 import { accountAuthStatePath } from '../infra/paths.js';
 
-function prompt(rl, question) {
-  return new Promise((resolve) => rl.question(question, resolve));
-}
-
 export async function add(opts = {}) {
   const startedAt = Date.now();
   const log = getLogger();
 
-  const rl = createInterface({ input: process.stdin, output: process.stderr });
   try {
-    const mobile = await prompt(rl, '手机号: ');
-    const password = await prompt(rl, '密码: ');
-    rl.close();
+    const mobile = await promptText('手机号');
+    const password = await promptPassword('密码');
 
     if (!mobile || !password) {
       throw new PddCliError({
@@ -97,7 +91,6 @@ export async function add(opts = {}) {
     emit(envelope, { json: opts.json, noColor: opts.noColor });
     return envelope;
   } catch (err) {
-    rl.close();
     const envelope = errorToEnvelope('account.add', err, { latency_ms: Date.now() - startedAt });
     emit(envelope, { json: opts.json, noColor: opts.noColor });
     return envelope;

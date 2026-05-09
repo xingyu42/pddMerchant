@@ -4,7 +4,7 @@ import { resolveAccountContext } from '../infra/account-resolver.js';
 import { emit } from '../infra/output.js';
 import { errorToEnvelope } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
-import { createInterface } from 'node:readline';
+import { promptText, promptPassword } from '../infra/prompts.js';
 
 export async function run(options = {}) {
   if (options.password) {
@@ -27,10 +27,8 @@ async function runPasswordLogin(opts) {
 
   try {
     const authPath = await resolveAuthPath(opts);
-    const rl = createInterface({ input: process.stdin, output: process.stderr });
-    const mobile = await new Promise((r) => rl.question('手机号: ', r));
-    const password = await new Promise((r) => rl.question('密码: ', r));
-    rl.close();
+    const mobile = await promptText('手机号');
+    const password = await promptPassword('密码');
 
     const result = await loginWithPassword({
       mobile,

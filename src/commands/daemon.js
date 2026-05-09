@@ -77,7 +77,7 @@ export async function stop(opts = {}) {
 
   const pid = state.pid;
 
-  if (!state.token) {
+  if (!state.tokenFingerprint && !state.token) {
     await cleanStaleState();
     const envelope = buildEnvelope({
       ok: true,
@@ -115,8 +115,10 @@ export async function stop(opts = {}) {
     } catch { /* best effort */ }
   }
 
+  const stateId = state.tokenFingerprint || state.token;
   const freshState = await readState();
-  if (freshState && freshState.token === state.token) {
+  const freshId = freshState?.tokenFingerprint || freshState?.token;
+  if (freshState && freshId === stateId) {
     await cleanStaleState();
   }
 

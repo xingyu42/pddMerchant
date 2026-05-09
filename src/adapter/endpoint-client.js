@@ -248,6 +248,23 @@ export class PlaywrightEndpointClient {
     }
   }
 
+  async _runTrigger(meta, page, params, ctx, log, collector) {
+    if (typeof meta.trigger !== 'function') return;
+    try {
+      await meta.trigger(page, params, ctx);
+    } catch (err) {
+      if (meta.requiredTrigger) {
+        collector?.dispose();
+        throw new PddCliError({
+          code: 'E_GENERAL',
+          message: `${meta.name}: required trigger failed: ${err?.message}`,
+          exitCode: ExitCodes.GENERAL,
+        });
+      }
+      log.debug({ endpoint: meta.name, err: err?.message }, 'trigger failed, relying on auto-load XHR');
+    }
+  }
+
   async _attemptOnce(page, meta, params, ctx, log, navUrl) {
     const hasFetchPath = typeof meta.buildPayload === 'function' && meta.apiUrl;
     if (hasFetchPath) {
@@ -303,6 +320,8 @@ export class PlaywrightEndpointClient {
           log.debug({ endpoint: meta.name, readyEl: meta.nav.readyEl }, 'readyEl not found, continuing');
         }
       }
+
+      await this._runTrigger(meta, page, params, ctx, log, collector);
 
       const responses = await collector.waitFor();
       return responses[0];
@@ -363,21 +382,7 @@ export class PlaywrightEndpointClient {
         }
       }
 
-      if (typeof meta.trigger === 'function') {
-        try {
-          await meta.trigger(page, params, ctx);
-        } catch (err) {
-          if (meta.requiredTrigger) {
-            collector.dispose();
-            throw new PddCliError({
-              code: 'E_GENERAL',
-              message: `${meta.name}: required trigger failed: ${err?.message}`,
-              exitCode: ExitCodes.GENERAL,
-            });
-          }
-          log.debug({ endpoint: meta.name, err: err?.message }, 'trigger failed, relying on auto-load XHR');
-        }
-      }
+      await this._runTrigger(meta, page, params, ctx, log, collector);
     } catch (err) {
       collector.dispose();
       if (err instanceof PddCliError) throw err;

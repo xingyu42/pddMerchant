@@ -1,4 +1,5 @@
-import { readFile, writeFile, rename, cp, rm, mkdir, access } from 'node:fs/promises';
+import { readFile, writeFile, rename, cp, rm, mkdir, access, chmod } from 'node:fs/promises';
+import { platform } from 'node:os';
 import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -46,7 +47,10 @@ export async function loadAccountRegistry({ path = ACCOUNT_REGISTRY_PATH, create
       if (createIfMissing) {
         const reg = emptyRegistry();
         await ensureDir(dirname(path));
-        await writeFile(path, JSON.stringify(reg, null, 2), 'utf8');
+        await writeFile(path, JSON.stringify(reg, null, 2), { encoding: 'utf8', mode: 0o600 });
+        if (platform() !== 'win32') {
+          await chmod(path, 0o600).catch(() => {});
+        }
         return reg;
       }
       return null;
@@ -72,8 +76,11 @@ export async function saveAccountRegistry(registry, { path = ACCOUNT_REGISTRY_PA
   registry.updatedAt = new Date().toISOString();
   const tmp = `${path}.tmp-${randomUUID().slice(0, 8)}`;
   await ensureDir(dirname(path));
-  await writeFile(tmp, JSON.stringify(registry, null, 2), 'utf8');
+  await writeFile(tmp, JSON.stringify(registry, null, 2), { encoding: 'utf8', mode: 0o600 });
   await rename(tmp, path);
+  if (platform() !== 'win32') {
+    await chmod(path, 0o600).catch(() => {});
+  }
 }
 
 async function withRegistryLock(fn, { path = ACCOUNT_REGISTRY_PATH } = {}) {

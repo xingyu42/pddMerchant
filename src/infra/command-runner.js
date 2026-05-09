@@ -17,6 +17,19 @@ import { ensureDaemonRunning } from '../infra/daemon-launcher.js';
 import { listAccounts } from '../infra/account-registry.js';
 import { accountAuthStatePath } from '../infra/paths.js';
 
+function anySignal(signals) {
+  const filtered = signals.filter(Boolean);
+  if (filtered.length === 0) return null;
+  if (filtered.length === 1) return filtered[0];
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any(filtered);
+  const controller = new AbortController();
+  for (const s of filtered) {
+    if (s.aborted) { controller.abort(s.reason); return controller.signal; }
+    s.addEventListener('abort', () => controller.abort(s.reason), { once: true });
+  }
+  return controller.signal;
+}
+
 function normalizeRunResult(result) {
   if (result == null) return { data: null };
   if (typeof result !== 'object' || Array.isArray(result)) return { data: result };
@@ -64,7 +77,7 @@ export async function executeSingle(spec, opts = {}, { emitResult = true, skipDa
     abortController = new AbortController();
     deadlineTimer = setTimeout(() => abortController.abort(), opts.timeoutMs);
   }
-  const signal = parentSignal ?? abortController?.signal ?? null;
+  const signal = anySignal([parentSignal, abortController?.signal]);
   const deadlineAt = signal ? startedAt + (opts.timeoutMs ?? Infinity) : null;
 
   try {

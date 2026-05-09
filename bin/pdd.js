@@ -144,7 +144,10 @@ function wireAction(cmd, commandName, runFn) {
           ?? (envelope.error?.code ? mapErrorToExit({ code: envelope.error.code }) : ExitCodes.GENERAL);
         process.exitCode = exitCode;
       } else {
-        process.exitCode = ExitCodes.OK;
+        const metaExit = envelope?.meta?.exit_code;
+        process.exitCode = (typeof metaExit === 'number' && metaExit !== 0)
+          ? metaExit
+          : ExitCodes.OK;
       }
     } catch (err) {
       const envelope = errorToEnvelope(commandName, err);

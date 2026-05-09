@@ -8,10 +8,18 @@ export const PROJECT_ROOT = join(__dirname, '..', '..');
 export const DATA_DIR = join(PROJECT_ROOT, 'data');
 export const CONFIG_DIR = join(PROJECT_ROOT, 'config');
 
+export const LEGACY_AUTH_STATE_PATH = join(DATA_DIR, 'auth-state.json');
+
 function resolveDefaultAuthStatePath() {
   const authEnv = process.env.PDD_AUTH_STATE_PATH;
   if (authEnv && authEnv.length > 0) return authEnv;
-  return join(DATA_DIR, 'auth-state.json');
+  if (process.platform === 'win32') {
+    const appData = process.env.APPDATA
+      || join(process.env.USERPROFILE || '', 'AppData', 'Roaming');
+    return join(appData, 'pdd-cli', 'auth-state.json');
+  }
+  const home = process.env.HOME || '';
+  return join(home, '.pdd-cli', 'auth-state.json');
 }
 
 export const AUTH_STATE_PATH = resolveDefaultAuthStatePath();
