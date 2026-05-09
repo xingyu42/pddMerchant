@@ -406,11 +406,20 @@ export function withCommand({
   name,
   needsAuth = true,
   needsMall = 'current',
+  allowAllAccounts = true,
   run,
   render,
 }) {
   const spec = { name, needsAuth, needsMall, run, render };
   return function executeCommand(opts = {}) {
+    if (opts.allAccounts && !allowAllAccounts) {
+      throw new PddCliError({
+        code: 'E_USAGE',
+        message: `${name} does not support --all-accounts`,
+        hint: '写操作不支持批量账号执行，请指定单一账号',
+        exitCode: ExitCodes.USAGE,
+      });
+    }
     if (opts.allAccounts && needsAuth) {
       return executeBatch(spec, opts);
     }

@@ -1,0 +1,9 @@
+{
+  "success": true,
+  "errorCode": 0,
+  "errorMsg": null,
+  "result": {
+    "goods_id": 1001,
+    "goods_name": "新标题测试商品"
+  }
+}

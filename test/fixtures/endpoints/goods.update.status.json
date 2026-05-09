@@ -1,0 +1,9 @@
+{
+  "success": true,
+  "errorCode": 0,
+  "errorMsg": null,
+  "result": {
+    "goods_id": 1001,
+    "is_onsale": 1
+  }
+}

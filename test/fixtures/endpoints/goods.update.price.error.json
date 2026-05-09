@@ -1,0 +1,9 @@
+{
+  "__throws": true,
+  "__error": {
+    "code": "E_BUSINESS",
+    "message": "价格不能低于平台最低限价",
+    "hint": "请检查价格是否符合平台规则",
+    "exitCode": 6
+  }
+}

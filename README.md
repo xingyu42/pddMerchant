@@ -54,6 +54,7 @@ src/infra/          横切关注: envelope, errors, logger, timeouts, abort
 |------|------|------|
 | orders | `list` / `detail` / `stats` | 订单列表、详情、统计 |
 | goods | `list` / `stock` / `segment` | 商品列表、库存告警、SKU 分层 |
+| goods update | `status` / `price` / `stock` / `title` / `batch` | 商品写操作（需 `--confirm`） |
 | promo | `search` / `scene` / `roi` | 搜索 / 场景推广报表、ROI 诊断 |
 | diagnose | `shop` / `orders` / `inventory` / `promo` / `funnel` | 健康评分（shop 支持 `--compare`） |
 | action | `plan` | 一键运营动作清单 |
@@ -85,6 +86,11 @@ src/infra/          横切关注: envelope, errors, logger, timeouts, abort
 | `promo search/scene` | `--since` `--page` `--size` | 日期与分页 |
 | `promo roi` | `--by` `--break-even` `--include-inactive` | ROI 分组/保本线/含已删除 |
 | `goods segment` | `--days` `--break-even` `--no-promo` | SKU 分层窗口/保本线 |
+| `goods update status` | `--goods-id` `--status` `--confirm` | 上下架（onsale/offline） |
+| `goods update price` | `--goods-id` `--price` `--sku-id` `--confirm` | 改价（分） |
+| `goods update stock` | `--goods-id` `--quantity` `--sku-id` `--confirm` | 改库存 |
+| `goods update title` | `--goods-id` `--title` `--confirm` | 改标题 |
+| `goods update batch` | `--changes <json>` `--confirm` | 批量编辑 |
 | `diagnose shop` | `--compare` `--days` | 环比对比/窗口天数 |
 | `action plan` | `--limit` `--compare` `--break-even` `--no-promo` `--no-segment` | 动作数/趋势/保本线 |
 | `doctor` | `--probe <mode>` | mall context 探测策略 |

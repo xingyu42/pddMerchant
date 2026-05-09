@@ -1,0 +1,9 @@
+{
+  "__throws": true,
+  "__error": {
+    "code": "E_BUSINESS",
+    "message": "商品不存在或已删除",
+    "hint": "检查 goods_id 是否正确",
+    "exitCode": 6
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "__throws": true,
+  "__error": {
+    "code": "E_BUSINESS",
+    "message": "商品标题包含违禁词",
+    "hint": "请检查标题内容是否合规",
+    "exitCode": 6
+  }
+}

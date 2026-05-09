@@ -11,6 +11,11 @@ import * as ordersStats from '../src/commands/orders/stats.js';
 import * as goodsListCmd from '../src/commands/goods/list.js';
 import * as goodsStock from '../src/commands/goods/stock.js';
 import * as goodsSegment from '../src/commands/goods/segment.js';
+import * as goodsUpdateStatus from '../src/commands/goods/update/status.js';
+import * as goodsUpdatePrice from '../src/commands/goods/update/price.js';
+import * as goodsUpdateStock from '../src/commands/goods/update/stock.js';
+import * as goodsUpdateTitle from '../src/commands/goods/update/title.js';
+import * as goodsUpdateBatch from '../src/commands/goods/update/batch.js';
 import * as promoSearch from '../src/commands/promo/search.js';
 import * as promoScene from '../src/commands/promo/scene.js';
 import * as promoRoi from '../src/commands/promo/roi.js';
@@ -254,6 +259,60 @@ wireAction(
     .option('--no-promo', '跳过推广 ROI 数据'),
   'goods.segment',
   goodsSegment.run
+);
+
+// 🛍️ Goods Update (write ops)
+const goodsUpdate = goods.command('update').description('商品编辑（写操作，需 --confirm 确认）');
+wireAction(
+  goodsUpdate
+    .command('status')
+    .description('上下架')
+    .requiredOption('--goods-id <id>', '商品 ID', (v) => Number(v))
+    .requiredOption('--status <s>', '目标状态: onsale | offline')
+    .option('--confirm', '确认执行（默认 dry-run）'),
+  'goods.update.status',
+  goodsUpdateStatus.run
+);
+wireAction(
+  goodsUpdate
+    .command('price')
+    .description('修改价格')
+    .requiredOption('--goods-id <id>', '商品 ID', (v) => Number(v))
+    .requiredOption('--price <cents>', '价格（分）', (v) => Number(v))
+    .option('--sku-id <id>', 'SKU ID（可选）')
+    .option('--confirm', '确认执行（默认 dry-run）'),
+  'goods.update.price',
+  goodsUpdatePrice.run
+);
+wireAction(
+  goodsUpdate
+    .command('stock')
+    .description('修改库存')
+    .requiredOption('--goods-id <id>', '商品 ID', (v) => Number(v))
+    .requiredOption('--quantity <n>', '库存数量', (v) => Number(v))
+    .option('--sku-id <id>', 'SKU ID（可选）')
+    .option('--confirm', '确认执行（默认 dry-run）'),
+  'goods.update.stock',
+  goodsUpdateStock.run
+);
+wireAction(
+  goodsUpdate
+    .command('title')
+    .description('修改标题')
+    .requiredOption('--goods-id <id>', '商品 ID', (v) => Number(v))
+    .requiredOption('--title <text>', '新标题')
+    .option('--confirm', '确认执行（默认 dry-run）'),
+  'goods.update.title',
+  goodsUpdateTitle.run
+);
+wireAction(
+  goodsUpdate
+    .command('batch')
+    .description('批量编辑（JSON 输入）')
+    .requiredOption('--changes <json>', '变更列表 JSON: [{"goods_id":1001,"field":"price","value":2999}]')
+    .option('--confirm', '确认执行（默认 dry-run）'),
+  'goods.update.batch',
+  goodsUpdateBatch.run
 );
 
 // 🚀 Promo
