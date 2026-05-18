@@ -1,0 +1,90 @@
+import { PddCliError, ExitCodes } from '../../infra/errors.js';
+
+const MAX_SKU_COUNT = 600;
+
+function priceToCents(priceStr) {
+  const n = parseFloat(String(priceStr ?? ''));
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100);
+}
+
+function defaultSku(price) {
+  const cents = priceToCents(price);
+  return {
+    skus: [{
+      id: 0,
+      is_onsale: 1,
+      multi_price: cents,
+      price: cents,
+      quantity_delta: 999,
+      thumb_url: '',
+      spec: '',
+      weight: 0,
+    }],
+    groups: {
+      single_price: cents,
+      group_price: cents,
+      customer_num: 2,
+      buy_limit: 999999,
+    },
+  };
+}
+
+function cartesian(arrays) {
+  return arrays.reduce(
+    (acc, arr) => acc.flatMap(combo => arr.map(val => [...combo, val])),
+    [[]],
+  );
+}
+
+function formatSpecText(dims, combo) {
+  return dims.map((d, i) => `${d.name}:${combo[i]}`).join(' ');
+}
+
+export function mapSourceSkus(skuSpecs, price) {
+  const cents = priceToCents(price);
+
+  if (!Array.isArray(skuSpecs) || skuSpecs.length === 0) {
+    return defaultSku(price);
+  }
+
+  const valueArrays = skuSpecs.map(d => d.values).filter(a => a.length > 0);
+  if (valueArrays.length === 0) return defaultSku(price);
+
+  const total = valueArrays.reduce((n, a) => n * a.length, 1);
+  if (total > MAX_SKU_COUNT) {
+    throw new PddCliError({
+      code: 'E_BUSINESS',
+      message: `SKU 组合数 ${total} 超过上限 ${MAX_SKU_COUNT}`,
+      hint: '检查商品规格维度是否正常',
+      exitCode: ExitCodes.BUSINESS,
+    });
+  }
+
+  const combos = cartesian(valueArrays);
+
+  if (combos.length <= 1 && skuSpecs.length === 1 && skuSpecs[0].values.length <= 1) {
+    return defaultSku(price);
+  }
+
+  const skus = combos.map((combo, idx) => ({
+    id: idx,
+    is_onsale: 1,
+    multi_price: cents,
+    price: cents,
+    quantity_delta: 999,
+    thumb_url: '',
+    spec: formatSpecText(skuSpecs, combo),
+    weight: 0,
+  }));
+
+  return {
+    skus,
+    groups: {
+      single_price: cents,
+      group_price: cents,
+      customer_num: 2,
+      buy_limit: 999999,
+    },
+  };
+}

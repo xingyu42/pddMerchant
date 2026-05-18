@@ -1,0 +1,54 @@
+{
+  "modules": [{
+    "id": 72984,
+    "propertys": [
+      {
+        "id": 471216,
+        "template_pid": 471216,
+        "name": "品牌",
+        "name_alias": "品牌",
+        "pid": 5,
+        "ref_pid": 310,
+        "required": true,
+        "values": {
+          "content": [
+            {"vid": 4643510, "value": "无品牌/无注册商标"},
+            {"vid": 4643511, "value": "其他品牌"}
+          ]
+        }
+      },
+      {
+        "id": 471217,
+        "template_pid": 471217,
+        "name": "重要面料俗称",
+        "name_alias": "重要面料俗称",
+        "pid": 7,
+        "ref_pid": 340,
+        "required": true,
+        "values": {
+          "content": [
+            {"vid": 100, "value": "棉"},
+            {"vid": 101, "value": "聚酯纤维"},
+            {"vid": 102, "value": "涤纶"}
+          ]
+        }
+      },
+      {
+        "id": 471218,
+        "template_pid": 471218,
+        "name": "风格",
+        "name_alias": "风格",
+        "pid": 8,
+        "ref_pid": 396,
+        "required": false,
+        "values": {
+          "content": [
+            {"vid": 200, "value": "卡通"},
+            {"vid": 201, "value": "简约"},
+            {"vid": 202, "value": "韩版"}
+          ]
+        }
+      }
+    ]
+  }]
+}

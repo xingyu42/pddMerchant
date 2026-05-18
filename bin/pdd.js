@@ -16,6 +16,8 @@ import * as goodsUpdatePrice from '../src/commands/goods/update/price.js';
 import * as goodsUpdateStock from '../src/commands/goods/update/stock.js';
 import * as goodsUpdateTitle from '../src/commands/goods/update/title.js';
 import * as goodsUpdateBatch from '../src/commands/goods/update/batch.js';
+import * as goodsPublish from '../src/commands/goods/publish.js';
+import * as goodsTemplates from '../src/commands/goods/templates.js';
 import * as promoSearch from '../src/commands/promo/search.js';
 import * as promoScene from '../src/commands/promo/scene.js';
 import * as promoRoi from '../src/commands/promo/roi.js';
@@ -319,6 +321,25 @@ wireAction(
     .option('--confirm', '确认执行（默认 dry-run）'),
   'goods.update.batch',
   goodsUpdateBatch.run
+);
+
+wireAction(
+  goods
+    .command('publish')
+    .description('从 PDD 商品链接上货（默认创建草稿，--confirm 提交发布）')
+    .requiredOption('--url <url>', '源商品链接或纯数字 goods_id')
+    .option('--confirm', '直接提交发布（默认仅创建草稿）')
+    .option('--cost-template <id>', '运费模板 ID（默认取第一个）'),
+  'goods.publish',
+  goodsPublish.run
+);
+
+wireAction(
+  goods
+    .command('templates')
+    .description('查看可用运费模板（获取 ID 用于 --cost-template）'),
+  'goods.templates',
+  goodsTemplates.run
 );
 
 // 🚀 Promo

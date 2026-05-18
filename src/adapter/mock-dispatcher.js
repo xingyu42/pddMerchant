@@ -210,3 +210,18 @@ export function mockPasswordLogin({ mobile, authStatePath } = {}) {
     };
   }
 }
+
+// ---------- goods-publish.js (service) ----------
+export function mockPublishGoods() {
+  return loadFixture('goods-publish/publish-result.json');
+}
+
+// ---------- source-scraper.js ----------
+export function mockScrapeSourceGoods() {
+  return loadFixture('goods-publish/source.json');
+}
+
+// ---------- category-resolver.js ----------
+export function mockResolvePddCategory() {
+  return loadFixture('goods-publish/category.json');
+}
