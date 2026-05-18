@@ -13,13 +13,7 @@ export const LEGACY_AUTH_STATE_PATH = join(DATA_DIR, 'auth-state.json');
 function resolveDefaultAuthStatePath() {
   const authEnv = process.env.PDD_AUTH_STATE_PATH;
   if (authEnv && authEnv.length > 0) return authEnv;
-  if (process.platform === 'win32') {
-    const appData = process.env.APPDATA
-      || join(process.env.USERPROFILE || '', 'AppData', 'Roaming');
-    return join(appData, 'pdd-cli', 'auth-state.json');
-  }
-  const home = process.env.HOME || '';
-  return join(home, '.pdd-cli', 'auth-state.json');
+  return join(DATA_DIR, 'auth-state.json');
 }
 
 export const AUTH_STATE_PATH = resolveDefaultAuthStatePath();
@@ -57,3 +51,11 @@ export async function ensureDir(path) {
   await mkdir(path, { recursive: true });
   return path;
 }
+
+function resolveDefaultConsumerAuthStatePath() {
+  const authEnv = process.env.PDD_CONSUMER_AUTH_STATE_PATH;
+  if (authEnv && authEnv.length > 0) return authEnv;
+  return join(DATA_DIR, 'consumer-auth-state.json');
+}
+
+export const CONSUMER_AUTH_STATE_PATH = resolveDefaultConsumerAuthStatePath();

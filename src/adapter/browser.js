@@ -147,4 +147,33 @@ export async function withBrowser(options, fn) {
   }
 }
 
-export { DEFAULT_VIEWPORT, DEFAULT_USER_AGENT };
+const MOBILE_VIEWPORT = { width: 375, height: 812 };
+const MOBILE_USER_AGENT =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/130.0.0.0 Mobile/15E148 Safari/604.1';
+
+export async function createConsumerContext(browser, { storageStatePath, viewport = MOBILE_VIEWPORT, userAgent = MOBILE_USER_AGENT } = {}) {
+  const contextOptions = {
+    viewport,
+    userAgent,
+    locale: 'zh-CN',
+    timezoneId: 'Asia/Shanghai',
+    deviceScaleFactor: 2,
+  };
+  if (storageStatePath && existsSync(storageStatePath)) {
+    contextOptions.storageState = storageStatePath;
+  }
+  const context = await browser.newContext(contextOptions);
+  await context.addInitScript(STEALTH_SCRIPT);
+  const page = await context.newPage();
+
+  return {
+    context,
+    page,
+    async close() {
+      try { await page.close(); } catch { /* ignore */ }
+      try { await context.close(); } catch { /* ignore */ }
+    },
+  };
+}
+
+export { DEFAULT_VIEWPORT, DEFAULT_USER_AGENT, MOBILE_VIEWPORT, MOBILE_USER_AGENT };

@@ -113,6 +113,7 @@ function mergeOptions(commanderCmd) {
     qr = false,
     account,
     allAccounts = false,
+    consumer = false,
     ...rest
   } = merged;
   return {
@@ -128,6 +129,7 @@ function mergeOptions(commanderCmd) {
     qr: Boolean(qr),
     account: account || undefined,
     allAccounts: Boolean(allAccounts),
+    consumer: Boolean(consumer),
   };
 }
 
@@ -172,7 +174,8 @@ wireAction(
     .command('login')
     .description('⚙️ 重新登录（刷新 auth-state）')
     .option('--qr', '无头模式：终端渲染二维码 + 保存 PNG 到 data/')
-    .option('--password', '��码登录模式（交互式输入手机号+密码）'),
+    .option('--password', '密码登录模式（交互式输入手机号+密码）')
+    .option('--consumer', '消费端登录（mobile.yangkeduo.com）'),
   'login',
   login.run
 );

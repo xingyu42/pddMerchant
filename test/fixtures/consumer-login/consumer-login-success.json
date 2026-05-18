@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "command": "login.consumer",
+  "data": {
+    "path": "data/consumer-auth-state.json",
+    "url": "https://mobile.yangkeduo.com/",
+    "mode": "qr",
+    "message": "消费端授权成功"
+  },
+  "meta": {
+    "v": 1,
+    "exit_code": 0,
+    "latency_ms": 1234,
+    "warnings": []
+  }
+}

@@ -11,6 +11,7 @@ import { PROJECT_ROOT } from '../infra/paths.js';
 const ENV_ENABLED = 'PDD_TEST_ADAPTER';
 const ENV_FIXTURE_DIR = 'PDD_TEST_FIXTURE_DIR';
 const ENV_AUTH_INVALID = 'PDD_TEST_AUTH_INVALID';
+const ENV_CONSUMER_AUTH_INVALID = 'PDD_TEST_CONSUMER_AUTH_INVALID';
 
 export function isMockEnabled() {
   return process.env[ENV_ENABLED] === 'fixture';
@@ -62,6 +63,11 @@ export async function mockCloseBrowser() {
 // ---------- auth-state.js ----------
 export function mockIsAuthValid() {
   return process.env[ENV_AUTH_INVALID] !== '1';
+}
+
+// ---------- auth-state.js (consumer) ----------
+export function mockIsConsumerAuthValid() {
+  return process.env[ENV_CONSUMER_AUTH_INVALID] !== '1';
 }
 
 // ---------- mall-switcher.js ----------

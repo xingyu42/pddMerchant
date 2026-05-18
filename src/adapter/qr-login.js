@@ -9,7 +9,7 @@ import { PDD_HOME } from './auth-state.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 import { getLogger } from '../infra/logger.js';
 
-export { DEFAULT_QR_DIR };
+export { DEFAULT_QR_DIR, QR_SELECTORS, QR_TAB_SELECTORS };
 
 export const QR_LOGIN_URL = 'https://mms.pinduoduo.com/login/?login_tab=qrcode';
 
@@ -46,8 +46,8 @@ const QR_TAB_SELECTORS = [
   '[data-test="qrcode-tab"]',
 ];
 
-async function ensureQrTab(page) {
-  for (const sel of QR_TAB_SELECTORS) {
+export async function ensureQrTab(page, { tabSelectors = QR_TAB_SELECTORS } = {}) {
+  for (const sel of tabSelectors) {
     try {
       const el = await page.$(sel);
       if (el) {
@@ -59,7 +59,7 @@ async function ensureQrTab(page) {
   return false;
 }
 
-async function isQrReady(element) {
+export async function isQrReady(element) {
   try {
     const box = await element.boundingBox();
     if (!box) return false;
@@ -103,11 +103,11 @@ async function isQrReady(element) {
   }
 }
 
-async function findQrElement(page, { timeoutMs = 0, pollIntervalMs = 500 } = {}) {
+export async function findQrElement(page, { timeoutMs = 0, pollIntervalMs = 500, selectors = QR_SELECTORS } = {}) {
   const deadline = Date.now() + Math.max(0, timeoutMs);
   const log = getLogger();
   do {
-    for (const sel of QR_SELECTORS) {
+    for (const sel of selectors) {
       try {
         const el = await page.$(sel);
         if (el && await isQrReady(el)) {
@@ -131,7 +131,7 @@ function upgradeQrImageUrl(url) {
     .replace(/\/q\/\d+/, '/q/100');
 }
 
-async function extractElementImage(page, element) {
+export async function extractElementImage(page, element) {
   const info = await element.evaluate(el => {
     if (el.tagName === 'CANVAS') {
       try { return { type: 'dataUrl', data: el.toDataURL('image/png') }; }
@@ -169,7 +169,7 @@ async function extractElementImage(page, element) {
   return element.screenshot({ type: 'png' });
 }
 
-async function dismissModalOverlay(page) {
+export async function dismissModalOverlay(page) {
   const removed = await page.evaluate(() => {
     let count = 0;
     document.querySelectorAll('[data-testid="beast-core-modal"]').forEach(el => { el.remove(); count++; });

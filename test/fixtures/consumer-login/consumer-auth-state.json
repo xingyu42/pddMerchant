@@ -1,0 +1,20 @@
+{
+  "cookies": [
+    {
+      "name": "PDDAccessToken",
+      "value": "mock-consumer-token-abc123",
+      "domain": ".yangkeduo.com",
+      "path": "/",
+      "expires": 1768435200,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "https://mobile.yangkeduo.com",
+      "localStorage": []
+    }
+  ]
+}

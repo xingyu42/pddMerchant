@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 import { platform } from 'node:os';
 import { getLogger } from '../infra/logger.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
-import { isMockEnabled, mockIsAuthValid } from './mock-dispatcher.js';
+import { isMockEnabled, mockIsAuthValid, mockIsConsumerAuthValid } from './mock-dispatcher.js';
 import { acquireLock, releaseLock } from './auth-lock.js';
 import { LEGACY_AUTH_STATE_PATH } from '../infra/paths.js';
 
@@ -140,3 +140,20 @@ export async function isAuthValid(page, { timeoutMs = 15000, maxAttempts = 2 } =
 }
 
 export { PDD_HOME, legacyAuthStatePath, validateShape };
+
+const CONSUMER_HOME = 'https://mobile.yangkeduo.com';
+
+export async function isConsumerAuthValid(page, { timeoutMs = 15000 } = {}) {
+  if (isMockEnabled()) return mockIsConsumerAuthValid();
+  try {
+    await page.goto(CONSUMER_HOME, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+    await page.waitForLoadState('networkidle', { timeout: timeoutMs }).catch(() => {});
+    const finalUrl = page.url();
+    return !finalUrl.includes('/login');
+  } catch (err) {
+    getLogger().debug({ err: err?.message }, 'isConsumerAuthValid navigation failed');
+    return false;
+  }
+}
+
+export { CONSUMER_HOME };
