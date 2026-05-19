@@ -1,4 +1,4 @@
-import { withCommand } from '../../infra/command-runner.js';
+import { withCommand } from '../_runner.js';
 import { getPromoRoi } from '../../services/promo-roi.js';
 
 export const run = withCommand({

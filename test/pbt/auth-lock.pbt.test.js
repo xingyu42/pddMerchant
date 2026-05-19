@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { property, gen } from './_harness.js';
-import { acquireLock, releaseLock, isLockStale, lockPath } from '../../src/adapter/auth-lock.js';
+import { acquireLock, releaseLock, isLockStale, lockPath } from '../../src/infra/auth-lock.js';
 
 function tmpAuthPath() {
   return join(tmpdir(), `pbt-auth-lock-${randomUUID()}.json`);

@@ -1,7 +1,7 @@
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
-import { withCommand } from '../../src/infra/command-runner.js';
+import { withCommand } from '../../src/commands/_runner.js';
 
 describe('withCommand PBT', () => {
   it('PROP-WC-1: exactly-once envelope emit regardless of success/throw', async () => {

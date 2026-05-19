@@ -1,8 +1,8 @@
 import { writeFile, readFile, unlink, rename } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
-import { PddCliError, ExitCodes } from '../infra/errors.js';
-import { isPidAlive } from '../infra/process-util.js';
+import { PddCliError, ExitCodes } from './errors.js';
+import { isPidAlive } from './process-util.js';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_STALE_MS = 120_000;

@@ -1,4 +1,4 @@
-import { withCommand } from '../../infra/command-runner.js';
+import { withCommand } from '../_runner.js';
 import { segmentGoods } from '../../services/goods-segmentation.js';
 import { collectAllGoods } from '../../services/diagnose/goods-collector.js';
 import { collectOrdersForStaleAnalysis } from '../../services/diagnose/orders-collector.js';

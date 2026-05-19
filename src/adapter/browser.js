@@ -40,6 +40,7 @@ if (originalQuery) {
 
 // --- Browser Lifecycle Registry ---
 const activeBrowsers = new Set();
+const closingBrowsers = new WeakSet();
 let closeAllPromise = null;
 
 export function registerBrowser(browser) {
@@ -109,6 +110,8 @@ export async function launchBrowser({
 export async function closeBrowser(browser) {
   if (isMockEnabled()) return mockCloseBrowser(browser);
   if (!browser) return;
+  if (closingBrowsers.has(browser)) return;
+  closingBrowsers.add(browser);
   try {
     const contexts = browser.contexts();
     for (const ctx of contexts) {

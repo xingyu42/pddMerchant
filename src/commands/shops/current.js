@@ -1,4 +1,4 @@
-import { withCommand } from '../../infra/command-runner.js';
+import { withCommand } from '../_runner.js';
 
 export const run = withCommand({
   name: 'shops.current',

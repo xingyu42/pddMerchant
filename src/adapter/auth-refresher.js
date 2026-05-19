@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { withBrowser } from './browser.js';
 import { isAuthValid, saveAuthState } from './auth-state.js';
 import { captureQrElement, saveQrPng } from './qr-login.js';
-import { acquireLock, releaseLock } from './auth-lock.js';
+import { acquireLock, releaseLock } from '../infra/auth-lock.js';
 import { isMockEnabled } from './mock-dispatcher.js';
 import { getLogger } from '../infra/logger.js';
 import { TIMEOUTS } from '../infra/timeouts.js';

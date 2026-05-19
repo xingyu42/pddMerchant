@@ -1,4 +1,4 @@
-import { withCommand } from '../../infra/command-runner.js';
+import { withCommand } from '../_runner.js';
 import { generateActionPlan } from '../../services/action-plan.js';
 import { diagnoseShop } from '../../services/diagnose/index.js';
 import { analyzePromoRoi } from '../../services/promo-roi.js';

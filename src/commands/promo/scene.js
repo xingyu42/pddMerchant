@@ -1,4 +1,4 @@
-import { withCommand } from '../../infra/command-runner.js';
+import { withCommand } from '../_runner.js';
 import { getScenePromo } from '../../services/promo.js';
 
 export const run = withCommand({

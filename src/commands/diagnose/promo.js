@@ -1,4 +1,4 @@
-import { withCommand } from '../../infra/command-runner.js';
+import { withCommand } from '../_runner.js';
 import { collectPromoInput, renderSingleDashboard } from './shop.js';
 import { scorePromoHealth } from '../../services/diagnose/index.js';
 

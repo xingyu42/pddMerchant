@@ -11,7 +11,7 @@ import {
   slugifyAccountName,
 } from '../infra/account-registry.js';
 import { encryptCredential, resolveMasterPassword } from '../infra/credential-vault.js';
-import { loginWithPassword } from '../adapter/password-login.js';
+import { performPasswordLogin } from '../services/auth.js';
 import { accountAuthStatePath } from '../infra/paths.js';
 
 export async function add(opts = {}) {
@@ -36,7 +36,7 @@ export async function add(opts = {}) {
     const authPath = accountAuthStatePath(tempSlug);
 
     log.info('正在登录...');
-    const loginResult = await loginWithPassword({
+    const loginResult = await performPasswordLogin({
       mobile,
       password,
       authStatePath: authPath,

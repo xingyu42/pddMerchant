@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, join, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PddCliError, ExitCodes } from './errors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -28,12 +29,21 @@ const SAFE_SLUG_RE = /^[a-z0-9一-鿿_-]{1,32}$/;
 
 function assertSafeSlug(slug) {
   if (!slug || !SAFE_SLUG_RE.test(slug)) {
-    throw new Error(`Invalid account slug: "${slug}"`);
+    throw new PddCliError({
+      code: 'E_USAGE',
+      message: `Invalid account slug: "${slug}"`,
+      hint: 'Slug must match /^[a-z0-9一-鿿_-]{1,32}$/',
+      exitCode: ExitCodes.USAGE,
+    });
   }
   const resolved = resolve(ACCOUNTS_DIR, slug);
   const rel = relative(ACCOUNTS_DIR, resolved);
   if (rel.startsWith('..') || rel.includes('..')) {
-    throw new Error(`Account slug escapes accounts directory: "${slug}"`);
+    throw new PddCliError({
+      code: 'E_USAGE',
+      message: `Account slug escapes accounts directory: "${slug}"`,
+      exitCode: ExitCodes.USAGE,
+    });
   }
 }
 

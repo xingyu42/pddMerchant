@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import Table from 'cli-table3';
-import { withCommand } from '../../infra/command-runner.js';
+import { withCommand } from '../_runner.js';
 import { listOrders, getOrderStats, computeOrderStats } from '../../services/orders.js';
 import { getPromoReport } from '../../services/promo.js';
 import { diagnoseShop } from '../../services/diagnose/index.js';

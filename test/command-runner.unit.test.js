@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from 'vitest';
 import assert from 'node:assert/strict';
-import { withCommand } from '../src/infra/command-runner.js';
+import { withCommand } from '../src/commands/_runner.js';
 
 describe('withCommand allowAllAccounts', () => {
   let savedAdapter;

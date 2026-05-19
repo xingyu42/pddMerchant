@@ -5,7 +5,7 @@ import { platform } from 'node:os';
 import { getLogger } from '../infra/logger.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { isMockEnabled, mockIsAuthValid, mockIsConsumerAuthValid } from './mock-dispatcher.js';
-import { acquireLock, releaseLock } from './auth-lock.js';
+import { acquireLock, releaseLock } from '../infra/auth-lock.js';
 import { LEGACY_AUTH_STATE_PATH } from '../infra/paths.js';
 
 const PDD_HOME = 'https://mms.pinduoduo.com';

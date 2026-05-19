@@ -1,4 +1,4 @@
-import { withCommand } from '../../../infra/command-runner.js';
+import { withCommand } from '../../_runner.js';
 import { PddCliError, ExitCodes } from '../../../infra/errors.js';
 import {
   validateGoodsId,

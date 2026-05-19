@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-import { withCommand } from '../infra/command-runner.js';
+import { withCommand } from './_runner.js';
 import { launchBrowser, closeBrowser } from '../adapter/browser.js';
 import { loadAuthState, isAuthValid } from '../adapter/auth-state.js';
 import { resolveMallContext } from '../adapter/mall-reader.js';

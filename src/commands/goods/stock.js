@@ -1,4 +1,4 @@
-import { withCommand } from '../../infra/command-runner.js';
+import { withCommand } from '../_runner.js';
 import { getGoodsStock, DEFAULT_LOW_STOCK_THRESHOLD } from '../../services/goods.js';
 
 export const run = withCommand({

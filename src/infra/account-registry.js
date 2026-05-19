@@ -5,7 +5,7 @@ import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ACCOUNT_REGISTRY_PATH, ACCOUNTS_DIR, accountDir, accountAuthStatePath, AUTH_STATE_PATH, ensureDir } from './paths.js';
 import { accountNotFound, accountAmbiguous, accountRegistryCorrupt } from './errors.js';
-import { acquireLock, releaseLock } from '../adapter/auth-lock.js';
+import { acquireLock, releaseLock } from './auth-lock.js';
 
 const WINDOWS_RESERVED = new Set([
   'con', 'prn', 'aux', 'nul',
@@ -58,18 +58,19 @@ export async function loadAccountRegistry({ path = ACCOUNT_REGISTRY_PATH, create
     throw err;
   }
 
+  let parsed;
   try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || parsed.version !== 1) {
-      throw new Error('schema mismatch');
-    }
-    if (!parsed.accounts || typeof parsed.accounts !== 'object') {
-      parsed.accounts = {};
-    }
-    return parsed;
+    parsed = JSON.parse(raw);
   } catch (e) {
     throw accountRegistryCorrupt(e.message);
   }
+  if (!parsed || typeof parsed !== 'object' || parsed.version !== 1) {
+    throw accountRegistryCorrupt('schema mismatch');
+  }
+  if (!parsed.accounts || typeof parsed.accounts !== 'object') {
+    parsed.accounts = {};
+  }
+  return parsed;
 }
 
 export async function saveAccountRegistry(registry, { path = ACCOUNT_REGISTRY_PATH } = {}) {

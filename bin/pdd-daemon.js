@@ -263,6 +263,9 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('daemon fatal:', err?.message ?? err);
+  if (log) {
+    log.fatal({ err: err?.message ?? err }, 'daemon fatal');
+  }
+  process.stderr.write(`daemon fatal: ${err?.message ?? err}\n`);
   process.exit(1);
 });

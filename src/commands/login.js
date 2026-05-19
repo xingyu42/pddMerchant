@@ -1,15 +1,10 @@
 import { runInteractiveLogin } from './init.js';
-import { loginWithPassword } from '../adapter/password-login.js';
-import { launchBrowser, closeBrowser, createConsumerContext } from '../adapter/browser.js';
 import {
-  captureConsumerQr,
-  waitForConsumerLogin,
-  saveQrPng,
-  decodeQrContent,
+  performPasswordLogin,
+  performConsumerQrLogin,
+  performConsumerHeadedLogin,
   renderQrToStream,
-  CONSUMER_LOGIN_URL,
-} from '../adapter/consumer-qr-login.js';
-import { saveAuthState } from '../adapter/auth-state.js';
+} from '../services/auth.js';
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
 import { CONSUMER_AUTH_STATE_PATH } from '../infra/paths.js';
 import { resolveAccountContext } from '../infra/account-resolver.js';
@@ -46,7 +41,7 @@ async function runPasswordLogin(opts) {
     const mobile = await promptText('手机号');
     const password = await promptPassword('密码');
 
-    const result = await loginWithPassword({
+    const result = await performPasswordLogin({
       mobile,
       password,
       authStatePath: authPath,
@@ -74,7 +69,6 @@ export default run;
 async function runConsumerLogin(opts) {
   const command = 'login.consumer';
   const startedAt = Date.now();
-  const log = getLogger();
 
   if (opts.password) {
     const envelope = errorToEnvelope(command, new PddCliError({
@@ -105,90 +99,31 @@ async function runConsumerLogin(opts) {
   }
 
   try {
+    let result;
     if (qr) {
-      return await runConsumerQrLogin({ command, authStatePath, timeoutMs, headed, startedAt, json: opts.json, noColor: opts.noColor, log });
+      result = await performConsumerQrLogin({
+        authStatePath,
+        timeoutMs,
+        headed,
+        onQrCaptured: async ({ imagePath, qrContent }) => {
+          if (qrContent) await renderQrToStream(qrContent);
+        },
+      });
+    } else {
+      result = await performConsumerHeadedLogin({ authStatePath, timeoutMs });
     }
-    return await runConsumerHeadedLogin({ command, authStatePath, timeoutMs, startedAt, json: opts.json, noColor: opts.noColor, log });
+
+    const envelope = {
+      ok: true,
+      command,
+      data: { path: result.path, url: result.url, mode: result.mode, ...(result.qrImagePath ? { qrImagePath: result.qrImagePath } : {}), message: '消费端授权成功' },
+      meta: { latency_ms: Date.now() - startedAt, warnings: [] },
+    };
+    emit(envelope, { json: opts.json, noColor: opts.noColor });
+    return envelope;
   } catch (err) {
     const envelope = errorToEnvelope(command, err, { latency_ms: Date.now() - startedAt });
     emit(envelope, { json: opts.json, noColor: opts.noColor });
     return envelope;
-  }
-}
-
-async function runConsumerQrLogin({ command, authStatePath, timeoutMs, headed, startedAt, json, noColor, log }) {
-  let browser = null;
-  try {
-    const launched = await launchBrowser({ headed });
-    browser = launched.browser;
-    const consumer = await createConsumerContext(browser);
-
-    log.info({ command, headed }, '消费端：抓取登录二维码中');
-    const pngBuffer = await captureConsumerQr(consumer.page);
-    const imagePath = await saveQrPng(pngBuffer);
-    const qrContent = decodeQrContent(pngBuffer);
-
-    if (qrContent) {
-      await renderQrToStream(qrContent);
-    }
-    log.info({ command, imagePath, qrContentPresent: Boolean(qrContent) }, '消费端 QR 已就绪，等待扫码');
-
-    const result = await waitForConsumerLogin(consumer.page, { timeoutMs });
-    if (!result.success) {
-      throw new PddCliError({
-        code: 'E_AUTH_TIMEOUT',
-        message: `消费端登录超时：${Math.round(timeoutMs / 1000)}s 内未检测到登录成功`,
-        hint: `QR 可能已过期，重新执行 pdd login --consumer --qr；或查看 ${imagePath}`,
-        detail: { imagePath, qr_content_present: Boolean(qrContent) },
-        exitCode: ExitCodes.AUTH,
-      });
-    }
-
-    const savedPath = await saveAuthState(consumer.context, authStatePath);
-    const envelope = {
-      ok: true,
-      command,
-      data: { path: savedPath, url: result.url, mode: 'qr', qrImagePath: imagePath, message: '消费端授权成功' },
-      meta: { latency_ms: Date.now() - startedAt, warnings: [] },
-    };
-    emit(envelope, { json, noColor });
-    return envelope;
-  } finally {
-    await closeBrowser(browser);
-  }
-}
-
-async function runConsumerHeadedLogin({ command, authStatePath, timeoutMs, startedAt, json, noColor, log }) {
-  let browser = null;
-  try {
-    const launched = await launchBrowser({ headed: true, storageStatePath: null });
-    browser = launched.browser;
-    const { context, page } = launched;
-
-    const loginUrl = CONSUMER_LOGIN_URL;
-    await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.NAV });
-    log.info({ command }, `消费端：等待手动登录（最长 ${Math.round(timeoutMs / 60000)} 分钟）`);
-
-    const result = await waitForConsumerLogin(page, { timeoutMs });
-    if (!result.success) {
-      throw new PddCliError({
-        code: 'E_AUTH_TIMEOUT',
-        message: `消费端登录超时：${Math.round(timeoutMs / 1000)}s 内未检测到登录成功`,
-        hint: '重新执行 pdd login --consumer',
-        exitCode: ExitCodes.AUTH,
-      });
-    }
-
-    const savedPath = await saveAuthState(context, authStatePath);
-    const envelope = {
-      ok: true,
-      command,
-      data: { path: savedPath, url: result.url, mode: 'headed', message: '消费端授权成功' },
-      meta: { latency_ms: Date.now() - startedAt, warnings: [] },
-    };
-    emit(envelope, { json, noColor });
-    return envelope;
-  } finally {
-    await closeBrowser(browser);
   }
 }
