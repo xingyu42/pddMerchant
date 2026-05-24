@@ -88,7 +88,7 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
 
   await page.waitForSelector('[class*="sku"]', { timeout: 10000 }).catch(() => null);
 
-  const data = await page.evaluate(() => {
+  const data = await page.evaluate((nodeGoodsId) => {
     function extractFromFiber() {
       const roots = [document.getElementById('main'), document.getElementById('app'), document.getElementById('root')];
       for (const el of roots) {
@@ -127,7 +127,7 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
     const metaTitle = document.querySelector('meta[property="og:title"]')?.content || '';
 
     return {
-      goodsID: get('goodsID') || String(goodsId),
+      goodsID: get('goodsID') || String(nodeGoodsId),
       goodsName: fiberName || domTitle || metaTitle || '',
       catID: get('catID'),
       catID1: get('catID1'),
@@ -146,7 +146,7 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
       )],
       _fiberFound: fiberStr.length > 0,
     };
-  });
+  }, goodsId);
 
   validateScrapedData(data);
   return data;

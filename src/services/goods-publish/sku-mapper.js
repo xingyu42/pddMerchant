@@ -48,7 +48,8 @@ export function mapSourceSkus(skuSpecs, price) {
     return defaultSku(price);
   }
 
-  const valueArrays = skuSpecs.map(d => d.values).filter(a => a.length > 0);
+  const activeDims = skuSpecs.filter(d => d.values.length > 0);
+  const valueArrays = activeDims.map(d => d.values);
   if (valueArrays.length === 0) return defaultSku(price);
 
   const total = valueArrays.reduce((n, a) => n * a.length, 1);
@@ -63,7 +64,7 @@ export function mapSourceSkus(skuSpecs, price) {
 
   const combos = cartesian(valueArrays);
 
-  if (combos.length <= 1 && skuSpecs.length === 1 && skuSpecs[0].values.length <= 1) {
+  if (combos.length <= 1 && activeDims.length === 1 && activeDims[0].values.length <= 1) {
     return defaultSku(price);
   }
 
@@ -74,7 +75,7 @@ export function mapSourceSkus(skuSpecs, price) {
     price: cents,
     quantity_delta: 999,
     thumb_url: '',
-    spec: formatSpecText(skuSpecs, combo),
+    spec: formatSpecText(activeDims, combo),
     weight: 0,
   }));
 

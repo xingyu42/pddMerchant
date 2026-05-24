@@ -9,6 +9,10 @@ import { isMockEnabled, loadFixture } from '../adapter/mock-dispatcher.js';
 import { runEndpoint } from '../adapter/run-endpoint.js';
 import { GOODS_PUBLISH_COST_TEMPLATE_LIST } from '../adapter/endpoints/goods-publish.js';
 
+// NOTE: Sub-modules in ./goods-publish/ (payload-builder, property-matcher, sku-mapper)
+// are Phase 2 (API-based publish path). Currently unused — the active path uses UI automation.
+// Do NOT remove: they have test coverage and will be integrated when PDD exposes a stable API.
+
 export async function listCostTemplates(ctx) {
   const result = await runEndpoint(ctx.page, GOODS_PUBLISH_COST_TEMPLATE_LIST, {}, ctx);
   const templates = result.templates ?? [];
@@ -21,9 +25,19 @@ export async function listCostTemplates(ctx) {
 
 export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
   const goodsId = parseGoodsUrl(goodsUrl);
+  const draftOnly = opts.draftOnly ?? true;
+
+  if (!draftOnly) {
+    throw new PddCliError({
+      code: 'E_USAGE',
+      message: '--confirm (自动提交) 暂未实现，当前仅支持创建草稿',
+      hint: '去除 --confirm 参数，商品将保存为草稿状态',
+      exitCode: ExitCodes.USAGE,
+    });
+  }
+
   if (isMockEnabled()) return loadFixture('goods-publish/publish-result.json');
   const log = ctx.log;
-  const draftOnly = opts.draftOnly ?? true;
   const warnings = [];
   const breaker = getSharedBreaker();
 
@@ -68,7 +82,7 @@ export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
   return {
     goods_id: draft.goodsId,
     goods_commit_id: draft.goodsCommitId,
-    status: draftOnly ? 'draft' : 'submitted',
+    status: 'draft',
     source_title: source.goodsName,
     category_path: categorySearchText,
     warnings,

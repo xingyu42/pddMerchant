@@ -33,6 +33,9 @@ async function fetchCategoryWithRetry(catId3, log) {
 
     try {
       const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
       const body = await response.json();
       consecutiveFailures = 0;
       return body;

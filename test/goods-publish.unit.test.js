@@ -1,4 +1,4 @@
-import { describe, it } from 'vitest';
+import { vi, describe, it, beforeEach, afterEach } from 'vitest';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -444,5 +444,146 @@ describe('mapPublishBusinessError', () => {
 
   it('returns null for error_code 1000000', () => {
     assert.equal(mapPublishBusinessError({ error_code: 1000000 }), null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// publishGoodsFromLink: save_draft_failed warning path
+// ---------------------------------------------------------------------------
+vi.mock('../src/adapter/mock-dispatcher.js', () => ({
+  isMockEnabled: () => false,
+  loadFixture: () => ({}),
+  mockLaunchBrowser: vi.fn(),
+  mockCloseBrowser: vi.fn(),
+}));
+
+vi.mock('../src/adapter/browser.js', () => ({
+  createConsumerContext: vi.fn(async () => ({
+    page: {},
+    context: {},
+    close: async () => {},
+  })),
+  launchBrowser: vi.fn(async () => ({
+    browser: { close: async () => {} },
+    context: {},
+    page: {},
+  })),
+  closeBrowser: vi.fn(async () => {}),
+}));
+
+vi.mock('../src/adapter/goods-publish/source-scraper.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    scrapeSourceGoods: vi.fn(async () => ({
+      goodsName: '测试商品',
+      catID3: '15000',
+      catID1: '100',
+      catID2: '200',
+      carousel: ['https://img.pddpic.com/test.jpg'],
+      price: '8.22',
+      properties: '品牌: 无品牌',
+      detailImages: [],
+    })),
+  };
+});
+
+vi.mock('../src/adapter/goods-publish/category-resolver.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    resolvePddCategory: vi.fn(async () => ({
+      root: '服饰',
+      cates: ['服饰', '童装', '上衣'],
+      cat_id: 15000,
+      cat_ids: [100, 200, 15000, null],
+      cats: ['服饰', '童装', '上衣', null],
+    })),
+    buildCategorySearchText: vi.fn(() => '服饰 > 童装 > 上衣'),
+  };
+});
+
+vi.mock('../src/adapter/goods-publish/form-filler.js', () => ({
+  selectCategory: vi.fn(async () => ({ goodsId: '123456', goodsCommitId: 'abc789' })),
+  fillGoodsForm: vi.fn(async () => {}),
+  clickSaveDraft: vi.fn(async () => { throw new Error('保存草稿按钮超时'); }),
+}));
+
+vi.mock('../src/infra/circuit-breaker.js', () => ({
+  getSharedBreaker: () => ({
+    wrap: (name, fn) => fn(),
+  }),
+  CircuitBreaker: class { wrap(name, fn) { return fn(); } },
+  _resetSharedBreaker: () => {},
+}));
+
+vi.mock('../src/adapter/run-endpoint.js', () => ({
+  runEndpoint: vi.fn(async () => ({ templates: [] })),
+}));
+
+describe('publishGoodsFromLink: save_draft_failed warning', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns result with goods_id and save_draft_failed warning when clickSaveDraft throws', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    const mockCtx = {
+      page: {},
+      context: { browser: () => ({}) },
+      log: {
+        info: () => {},
+        warn: () => {},
+        debug: () => {},
+      },
+    };
+
+    const result = await publishGoodsFromLink(mockCtx, '918867803697', { draftOnly: true });
+
+    assert.equal(result.goods_id, '123456');
+    assert.equal(result.goods_commit_id, 'abc789');
+    assert.equal(result.status, 'draft');
+    assert.ok(result.warnings.includes('save_draft_failed'), `warnings should include save_draft_failed, got: ${result.warnings}`);
+  });
+
+  it('result still contains source_title and category_path', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    const mockCtx = {
+      page: {},
+      context: { browser: () => ({}) },
+      log: { info: () => {}, warn: () => {}, debug: () => {} },
+    };
+
+    const result = await publishGoodsFromLink(mockCtx, '918867803697');
+
+    assert.equal(result.source_title, '测试商品');
+    assert.equal(result.category_path, '服饰 > 童装 > 上衣');
+  });
+});
+
+describe('publishGoodsFromLink: --confirm (draftOnly=false) early rejection', () => {
+  it('throws E_USAGE immediately without calling any adapter functions', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    const adapterCalls = [];
+    const mockCtx = {
+      page: {},
+      context: { browser: () => ({}) },
+      log: { info: () => adapterCalls.push('log'), warn: () => {}, debug: () => {} },
+    };
+
+    await assert.rejects(
+      () => publishGoodsFromLink(mockCtx, '918867803697', { draftOnly: false }),
+      (err) => {
+        assert.equal(err.code, 'E_USAGE');
+        assert.equal(err.exitCode, 2);
+        assert.ok(err.message.includes('--confirm'));
+        return true;
+      },
+    );
+    assert.equal(adapterCalls.length, 0, 'no adapter calls should be made before E_USAGE');
   });
 });
