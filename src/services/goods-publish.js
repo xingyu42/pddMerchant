@@ -8,6 +8,10 @@ import { selectCategory, fillGoodsForm, clickSaveDraft } from '../adapter/goods-
 import { isMockEnabled, loadFixture } from '../adapter/mock-dispatcher.js';
 import { runEndpoint } from '../adapter/run-endpoint.js';
 import { GOODS_PUBLISH_COST_TEMPLATE_LIST } from '../adapter/endpoints/goods-publish.js';
+import { withWriteRateControl } from '../infra/rate-control.js';
+import { assertNoRiskControl } from '../adapter/goods-publish/risk-detector.js';
+import { rewriteTitle } from './title-rewriter.js';
+import { transformImages } from './image-transform.js';
 
 // NOTE: Sub-modules in ./goods-publish/ (payload-builder, property-matcher, sku-mapper)
 // are Phase 2 (API-based publish path). Currently unused — the active path uses UI automation.
@@ -61,20 +65,49 @@ export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
   });
   log.info({ categorySearchText }, 'goods-publish: category search text');
 
-  const draft = await breaker.wrap('create_draft', async () => {
-    log.info('goods-publish: Phase C — UI category selection + draft creation');
-    return await selectCategory(ctx.page, categorySearchText);
-  });
+  // Phase B+ — title rewrite
+  let sourceForForm = source;
+  if (process.env.PDD_TITLE_REWRITE !== '0') {
+    const rewritten = await rewriteTitle(source, {
+      categoryPath: categorySearchText,
+      log,
+    });
+    if (rewritten?.changed) {
+      log.info({ original: source.goodsName, rewritten: rewritten.title, method: rewritten.method },
+        'goods-publish: title rewritten');
+      warnings.push(...(rewritten.warnings || []));
+    }
+    sourceForForm = { ...source, goodsName: rewritten?.title || source.goodsName };
+  }
 
-  await breaker.wrap('fill_form', async () => {
-    log.info({ ...draft }, 'goods-publish: Phase D — filling form');
-    await fillGoodsForm(ctx.page, source, warnings);
-  });
+  // NOTE: Image transform integration point (Phase C+).
+  // transformImages() is available when PDD_IMAGE_TRANSFORM=1.
+  // Full integration requires form-filler to accept pre-transformed file paths via sourceForForm.carouselFiles.
 
-  await breaker.wrap('save_draft', async () => {
-    log.info('goods-publish: Phase E — saving draft');
-    await clickSaveDraft(ctx.page, draft.goodsCommitId);
-  }).catch(err => {
+  const draft = await withWriteRateControl('publish.create_draft', () =>
+    breaker.wrap('create_draft', async () => {
+      log.info('goods-publish: Phase C — UI category selection + draft creation');
+      const result = await selectCategory(ctx.page, categorySearchText);
+      await assertNoRiskControl(ctx.page, { phase: 'category' });
+      return result;
+    })
+  );
+
+  await withWriteRateControl('publish.fill_form', () =>
+    breaker.wrap('fill_form', async () => {
+      log.info({ ...draft }, 'goods-publish: Phase D — filling form');
+      await fillGoodsForm(ctx.page, sourceForForm, warnings);
+      await assertNoRiskControl(ctx.page, { phase: 'form' });
+    })
+  );
+
+  await withWriteRateControl('publish.save_draft', () =>
+    breaker.wrap('save_draft', async () => {
+      log.info('goods-publish: Phase E — saving draft');
+      await clickSaveDraft(ctx.page, draft.goodsCommitId);
+    })
+  ).catch(err => {
+    if (err?.exitCode === ExitCodes.RATE_LIMIT || err?.exitCode === ExitCodes.AUTH) throw err;
     log.warn({ err: err?.message }, 'goods-publish: save draft failed');
     warnings.push('save_draft_failed');
   });
@@ -85,6 +118,8 @@ export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
     status: 'draft',
     source_title: source.goodsName,
     category_path: categorySearchText,
+    rewritten_title: sourceForForm.goodsName !== source.goodsName ? sourceForForm.goodsName : undefined,
+    image_transform: process.env.PDD_IMAGE_TRANSFORM === '1' ? 'enabled' : 'disabled',
     warnings,
   };
 }

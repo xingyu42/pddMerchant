@@ -2,41 +2,11 @@ import { existsSync } from 'node:fs';
 import { chromium } from 'playwright';
 import { isMockEnabled, mockLaunchBrowser, mockCloseBrowser } from './mock-dispatcher.js';
 import { getLogger } from '../infra/logger.js';
+import { buildStealthScript, DEFAULT_FINGERPRINT_PROFILE } from '../infra/stealth-scripts.js';
 
 const DEFAULT_VIEWPORT = { width: 1920, height: 1080 };
 const DEFAULT_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
-
-const STEALTH_SCRIPT = `
-Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] });
-Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-window.chrome = window.chrome || { runtime: {} };
-if (!navigator.userAgentData || !navigator.userAgentData.brands ||
-    !navigator.userAgentData.brands.some(b => b.brand === 'Google Chrome')) {
-  Object.defineProperty(navigator, 'userAgentData', { get: () => ({
-    brands: [
-      { brand: 'Google Chrome', version: '130' },
-      { brand: 'Chromium', version: '130' },
-      { brand: 'Not?A_Brand', version: '99' },
-    ],
-    mobile: false,
-    platform: 'Windows',
-    getHighEntropyValues: () => Promise.resolve({
-      brands: [{ brand: 'Google Chrome', version: '130.0.0.0' }],
-      platform: 'Windows', platformVersion: '15.0.0',
-      architecture: 'x86', model: '', uaFullVersion: '130.0.0.0',
-    }),
-  })});
-}
-const originalQuery = window.navigator.permissions && window.navigator.permissions.query;
-if (originalQuery) {
-  window.navigator.permissions.query = (parameters) =>
-    parameters.name === 'notifications'
-      ? Promise.resolve({ state: Notification.permission })
-      : originalQuery(parameters);
-}
-`;
 
 // --- Browser Lifecycle Registry ---
 const activeBrowsers = new Set();
@@ -97,7 +67,7 @@ export async function launchBrowser({
     }
 
     const context = await browser.newContext(contextOptions);
-    await context.addInitScript(STEALTH_SCRIPT);
+    await context.addInitScript(buildStealthScript(DEFAULT_FINGERPRINT_PROFILE));
     const page = await context.newPage();
 
     return { browser, context, page };
@@ -166,7 +136,7 @@ export async function createConsumerContext(browser, { storageStatePath, viewpor
     contextOptions.storageState = storageStatePath;
   }
   const context = await browser.newContext(contextOptions);
-  await context.addInitScript(STEALTH_SCRIPT);
+  await context.addInitScript(buildStealthScript(DEFAULT_FINGERPRINT_PROFILE));
   const page = await context.newPage();
 
   return {

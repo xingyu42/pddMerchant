@@ -100,6 +100,36 @@ export function passwordLoginFormChanged(detail) {
   });
 }
 
+export function riskControlDetected(detail) {
+  return new PddCliError({
+    code: 'E_RISK_CONTROL',
+    message: '拼多多风控挑战已触发',
+    detail,
+    hint: '停止自动化操作，等待冷却后重试或手动完成验证',
+    exitCode: ExitCodes.RATE_LIMIT,
+  });
+}
+
+export function captchaDetected(detail) {
+  return new PddCliError({
+    code: 'E_CAPTCHA_DOM',
+    message: '检测到验证码/滑块挑战',
+    detail,
+    hint: '请手动完成验证后重试',
+    exitCode: ExitCodes.RATE_LIMIT,
+  });
+}
+
+export function loginRedirectDetected(detail) {
+  return new PddCliError({
+    code: 'E_AUTH_EXPIRED',
+    message: '操作过程中检测到登录重定向',
+    detail,
+    hint: '请重新运行 pdd login',
+    exitCode: ExitCodes.AUTH,
+  });
+}
+
 const SEVERITY = { 3: 6, 4: 5, 5: 4, 6: 3, 1: 2, 2: 1, 0: 0, 7: 7 };
 
 export function batchExitCode(accountResults) {

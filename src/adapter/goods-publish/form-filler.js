@@ -1,6 +1,7 @@
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { getLogger } from '../../infra/logger.js';
 import { downloadImagesToTemp } from './image-handler.js';
+import { buildPricingPlan, validatePricingPlan } from '../../services/pricing-validator.js';
 
 const CATEGORY_URL = 'https://mms.pinduoduo.com/goods/category?msfrom=mms_sidenav';
 
@@ -126,16 +127,27 @@ export async function fillGoodsForm(page, source, warnings) {
     }
   }
 
-  await fillPrices(page, source.price, log);
+  await fillPrices(page, source, warnings, log);
 }
 
-async function fillPrices(page, priceStr, log) {
-  const price = parseFloat(priceStr || '0');
-  if (!price || price <= 0) return;
+async function fillPrices(page, source, warnings, log) {
+  const pricingPlan = buildPricingPlan(source);
+  const pricingValidation = validatePricingPlan(pricingPlan);
 
-  const groupPrice = price.toFixed(2);
-  const singlePrice = (price * 1.5).toFixed(2);
-  const marketPrice = (price * 2).toFixed(2);
+  if (pricingValidation.warnings.length > 0) {
+    warnings.push(...pricingValidation.warnings);
+  }
+
+  if (process.env.PDD_PRICING_STRICT === '1' && !pricingValidation.ok) {
+    throw new PddCliError({
+      code: 'E_BUSINESS',
+      message: `定价验证失败: ${pricingValidation.errors.join('; ')}`,
+      exitCode: ExitCodes.BUSINESS,
+    });
+  }
+
+  const { groupPrice, singlePrice, marketPrice } = pricingPlan;
+  if (!groupPrice || groupPrice === '0.00') return;
 
   const priceInputs = await page.$$('input[placeholder*="请输入"]');
   const marketInput = await findFirst(page, SELECTORS.marketPrice);

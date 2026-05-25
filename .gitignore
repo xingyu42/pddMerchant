@@ -2,7 +2,9 @@
 .jshook-profile/
 node_modules/
 .pdd-cli/
-data/
+data/*
+!data/forbidden-words.json
+!data/synonyms.json
 config/
 coverage/
 *.log
