@@ -1,0 +1,6 @@
+{"_example": "Fill with {\"file\": \"path\", \"reason\": \"why\"}. Seed rows are skipped."}
+{"file": "src/services/goods-publish/sku-mapper.js", "reason": "P0: index misalignment in formatSpecText — undefined in SKU spec strings"}
+{"file": "src/services/goods-publish.js", "reason": "P0: --confirm reports submitted but never calls submit endpoint"}
+{"file": "src/adapter/goods-publish/category-resolver.js", "reason": "P1: HTTP error response resets failure counter, breaker never trips"}
+{"file": "src/adapter/goods-publish/source-scraper.js", "reason": "P1: page.evaluate closure cannot access Node.js goodsId variable"}
+{"file": "src/services/goods-publish/", "reason": "P1: dead code sub-modules (payload-builder, property-matcher, sku-mapper) never imported"}
