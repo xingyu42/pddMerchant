@@ -22,8 +22,20 @@ export const CONFIG_PATH = join(CONFIG_DIR, 'config.json');
 export const DAEMON_STATE_PATH = join(DATA_DIR, 'daemon-state.json');
 export const DAEMON_LOG_PATH = join(DATA_DIR, 'daemon.log');
 
-export const ACCOUNTS_DIR = join(DATA_DIR, 'accounts');
-export const ACCOUNT_REGISTRY_PATH = join(DATA_DIR, 'accounts.json');
+function resolveDefaultAccountsDir() {
+  const accountsDirEnv = process.env.PDD_ACCOUNTS_DIR;
+  if (accountsDirEnv && accountsDirEnv.length > 0) return resolve(accountsDirEnv);
+  return join(DATA_DIR, 'accounts');
+}
+
+function resolveDefaultAccountRegistryPath() {
+  const registryEnv = process.env.PDD_ACCOUNT_REGISTRY_PATH;
+  if (registryEnv && registryEnv.length > 0) return resolve(registryEnv);
+  return join(DATA_DIR, 'accounts.json');
+}
+
+export const ACCOUNTS_DIR = resolveDefaultAccountsDir();
+export const ACCOUNT_REGISTRY_PATH = resolveDefaultAccountRegistryPath();
 
 const SAFE_SLUG_RE = /^[a-z0-9一-鿿_-]{1,32}$/;
 

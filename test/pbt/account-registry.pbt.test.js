@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile, readFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { property, gen } from './_harness.js';
 import {
   slugifyAccountName,
@@ -17,6 +18,19 @@ import {
 } from '../../src/infra/account-registry.js';
 
 const SLUG_RE = /^[a-z0-9一-鿿_-]{1,32}$/;
+
+async function removeTempDir(path) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      await rm(path, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      if (err?.code !== 'ENOTEMPTY' && err?.code !== 'EBUSY') throw err;
+      await sleep(25 * (attempt + 1));
+    }
+  }
+  await rm(path, { recursive: true, force: true });
+}
 
 describe('slugifyAccountName PBT', () => {
   it('determinism: same input → same slug', async () => {
@@ -75,7 +89,7 @@ describe('account-registry CRUD', () => {
   });
 
   afterEach(async () => {
-    await rm(tmpDir, { recursive: true, force: true });
+    await removeTempDir(tmpDir);
   });
 
   it('fresh registry creation', async () => {
@@ -171,7 +185,7 @@ describe('migrateLegacyToDefaultAccount', () => {
   });
 
   afterEach(async () => {
-    await rm(tmpDir, { recursive: true, force: true });
+    await removeTempDir(tmpDir);
   });
 
   it('skips when registry already has accounts', async () => {
