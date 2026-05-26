@@ -1,0 +1,17 @@
+{"path":"README.md","reason":"project purpose, command list, env vars, testing layers, envelope and exit codes"}
+{"path":"CLAUDE.md","reason":"existing AI guidance, conventions, gotchas, test and architecture summary"}
+{"path":"AGENTS.md","reason":"target project entry context, preserving OpenSpec managed block"}
+{"path":"package.json","reason":"Node version, ESM, bin mapping, scripts, dependencies"}
+{"path":"vitest.config.js","reason":"current Vitest include pattern, environment, timeouts, pool"}
+{"path":".env.example","reason":"broad env var inventory for local development and integration guidance"}
+{"path":"bin/pdd.js","reason":"CLI entry, command tree, global flags, mergeOptions, wireAction"}
+{"path":"src/commands/_runner.js","reason":"withCommand runtime chain, auth/account/mall/batch/timeout/envelope behavior"}
+{"path":"src/services","reason":"domain logic and reusable service helpers"}
+{"path":"src/adapter","reason":"Playwright, auth, mall, endpoint, mock, and rate-limit integration"}
+{"path":"src/infra","reason":"output, errors, logger, config, paths, daemon, account, locks"}
+{"path":"test","reason":"unit, smoke, e2e, PBT, fixture and helper structure"}
+{"path":"openspec/AGENTS.md","reason":"OpenSpec workflow requirements"}
+{"path":"openspec/project.md","reason":"project conventions, constraints, domain context"}
+{"path":".context/prefs/coding-style.md","reason":"local coding style preferences"}
+{"path":".context/prefs/workflow.md","reason":"local development workflow preferences"}
+{"path":"docs/goods-publish-api-recon.md","reason":"goods publish external integration/recon facts"}

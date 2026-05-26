@@ -1,0 +1,12 @@
+{
+  "id": "ai-project-knowledge-skills",
+  "title": "并行梳理项目知识并完善 AGENTS.md 与 .agents/skills",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "docs",
+  "currentPhase": "completed",
+  "nextAction": "任务已归档",
+  "createdAt": "2026-05-26T19:19:36Z",
+  "branch": "main"
+}
