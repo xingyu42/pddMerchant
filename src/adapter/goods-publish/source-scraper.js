@@ -1,5 +1,8 @@
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { isMockEnabled, loadFixture } from '../mock-dispatcher.js';
+import { simulateHumanBrowsing } from '../behavior-simulator.js';
+import { detectPageRisk } from './risk-detector.js';
+import { getSharedSessionHealth } from '../../infra/session-health.js';
 
 const KNOWN_SPEC_DIMS = new Set([
   '颜色分类', '颜色', '主要颜色', '花色',
@@ -76,18 +79,66 @@ export function validateScrapedData(data) {
   }
 }
 
+function riskToError(signal) {
+  const map = {
+    'login-redirect': { code: 'E_AUTH_EXPIRED', exit: ExitCodes.AUTH },
+    'captcha': { code: 'E_RATE_LIMIT', exit: ExitCodes.RATE_LIMIT },
+    'slider': { code: 'E_RATE_LIMIT', exit: ExitCodes.RATE_LIMIT },
+    'risk-modal': { code: 'E_RATE_LIMIT', exit: ExitCodes.RATE_LIMIT },
+  };
+  const m = map[signal.type] ?? { code: 'E_RATE_LIMIT', exit: ExitCodes.RATE_LIMIT };
+  return new PddCliError({
+    code: m.code,
+    message: `源商品爬取风控拦截: ${signal.type} (phase: ${signal.phase})`,
+    detail: signal,
+    exitCode: m.exit,
+  });
+}
+
 export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
   if (isMockEnabled()) return loadFixture('goods-publish/source.json');
 
+  const health = ctx.sessionHealth ?? getSharedSessionHealth();
+  const simulate = process.env.PDD_SCRAPE_SIMULATE !== '0';
+  const random = ctx.random ?? Math.random;
+
+  // Phase 0: Pre-flight
+  health.check();
+
   const url = `https://mobile.yangkeduo.com/goods.html?goods_id=${goodsId}&refer_page_name=search_result&refer_page_id=10033&refer_page_sn=10033`;
 
+  // Phase 1: Navigate
   const [, ] = await Promise.all([
     page.waitForResponse(r => r.url().includes('oak/integration/render'), { timeout: 15000 }).catch(() => null),
     page.goto(url, { waitUntil: 'domcontentloaded' }),
   ]);
 
+  const navRisk = await detectPageRisk(page, { phase: 'source-navigate' });
+  if (navRisk.detected) {
+    health.recordRisk(navRisk);
+    throw riskToError(navRisk);
+  }
+
+  // Phase 2: Warm-up
+  if (simulate) {
+    await simulateHumanBrowsing(page, {
+      moveCount: 2 + Math.floor(random() * 2),
+      scrollSegments: 2,
+      dwellMs: [800, 2000],
+      noClick: true,
+      random,
+    });
+  }
+
   await page.waitForSelector('[class*="sku"]', { timeout: 10000 }).catch(() => null);
 
+  const warmRisk = await detectPageRisk(page, { phase: 'source-warmup' });
+  if (warmRisk.detected) {
+    health.recordRisk(warmRisk);
+    throw riskToError(warmRisk);
+  }
+
+  // Phase 3: Extract
   const data = await page.evaluate((nodeGoodsId) => {
     function extractFromFiber() {
       const roots = [document.getElementById('main'), document.getElementById('app'), document.getElementById('root')];
@@ -149,5 +200,8 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
   }, goodsId);
 
   validateScrapedData(data);
+
+  // Phase 4: Post-flight
+  health.recordSuccess();
   return data;
 }
