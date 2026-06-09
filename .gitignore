@@ -1,5 +1,6 @@
 .ace-tool/
 .jshook-profile/
+.agents/
 node_modules/
 .pdd-cli/
 data/*
