@@ -1,6 +1,8 @@
 // Fixture-based mock dispatcher for E2E testing.
 // 激活方式：设置 PDD_TEST_ADAPTER=fixture 环境变量。
-// 作用范围：browser/auth-state/mall-switcher/run-endpoint 四个适配器模块在入口处短路到本文件。
+// 作用范围：adapter 各模块（browser/auth-state/mall/run-endpoint/auth-refresher/
+// account-registry/credential-vault/password-login/goods-publish 等）在入口处
+// 通过 isMockEnabled() guard 短路到本文件。
 // 生产环境不受影响（默认返回 false）。
 
 import { existsSync, readFileSync } from 'node:fs';

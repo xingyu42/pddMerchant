@@ -18,10 +18,6 @@ function responseStatus(response) {
   }
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function resolveNavUrl(meta, params, ctx) {
   const raw = meta?.nav?.url;
   if (typeof raw === 'function') return raw(params, ctx);
@@ -77,12 +73,12 @@ export class PlaywrightEndpointClient {
     }
 
     try {
-      const result = await this._executeWithRetry(page, meta, params, ctx, log, startedAt);
+      const { normalized, attempts } = await this._executeWithRetry(page, meta, params, ctx, log, startedAt);
       this._recordSuccess(meta.name);
       return {
-        data: result,
+        data: normalized,
         meta: {
-          attempt: 1,
+          attempt: attempts,
           limiter_wait_ms: limiterWaitMs,
           endpoint: meta.name,
           correlation_id: ctx.correlation_id,
@@ -244,7 +240,7 @@ export class PlaywrightEndpointClient {
         attempts: attempt + 1,
       }, 'endpoint completed');
 
-      return normalized;
+      return { normalized, attempts: attempt + 1 };
     }
   }
 

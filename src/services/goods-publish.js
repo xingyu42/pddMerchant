@@ -12,6 +12,7 @@ import { withWriteRateControl } from '../infra/rate-control.js';
 import { assertNoRiskControl } from '../adapter/goods-publish/risk-detector.js';
 import { rewriteTitle } from './title-rewriter.js';
 import { transformImages } from './image-transform.js';
+import { buildPricingPlan, validatePricingPlan } from './pricing-validator.js';
 
 // NOTE: Sub-modules in ./goods-publish/ (payload-builder, property-matcher, sku-mapper)
 // are Phase 2 (API-based publish path). Currently unused — the active path uses UI automation.
@@ -96,7 +97,9 @@ export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
   await withWriteRateControl('publish.fill_form', () =>
     breaker.wrap('fill_form', async () => {
       log.info({ ...draft }, 'goods-publish: Phase D — filling form');
-      await fillGoodsForm(ctx.page, sourceForForm, warnings);
+      const pricingPlan = buildPricingPlan(sourceForForm);
+      const pricingValidation = validatePricingPlan(pricingPlan);
+      await fillGoodsForm(ctx.page, sourceForForm, warnings, { pricingPlan, pricingValidation });
       await assertNoRiskControl(ctx.page, { phase: 'form' });
     })
   );

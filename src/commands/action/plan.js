@@ -4,7 +4,7 @@ import { diagnoseShop } from '../../services/diagnose/index.js';
 import { analyzePromoRoi } from '../../services/promo-roi.js';
 import { segmentGoods } from '../../services/goods-segmentation.js';
 import { resolveCompareWindows, compareShopDiagnosis } from '../../services/diagnose/trend-compare.js';
-import { collectOrdersInput, collectGoodsInput, collectPromoInput } from '../diagnose/shop.js';
+import { collectOrdersInput, collectGoodsInput, collectPromoInput } from '../../services/diagnose/collectors.js';
 import { collectOrdersForStaleAnalysis } from '../../services/diagnose/orders-collector.js';
 import { getPromoReport } from '../../services/promo.js';
 

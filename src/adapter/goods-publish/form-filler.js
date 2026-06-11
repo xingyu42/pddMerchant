@@ -1,7 +1,6 @@
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { getLogger } from '../../infra/logger.js';
 import { downloadImagesToTemp } from './image-handler.js';
-import { buildPricingPlan, validatePricingPlan } from '../../services/pricing-validator.js';
 
 const CATEGORY_URL = 'https://mms.pinduoduo.com/goods/category?msfrom=mms_sidenav';
 
@@ -106,7 +105,7 @@ export async function dismissOverlays(page) {
   await page.waitForTimeout(500);
 }
 
-export async function fillGoodsForm(page, source, warnings) {
+export async function fillGoodsForm(page, source, warnings, pricing) {
   const log = getLogger();
   await page.waitForTimeout(3000);
   await dismissOverlays(page);
@@ -127,12 +126,15 @@ export async function fillGoodsForm(page, source, warnings) {
     }
   }
 
-  await fillPrices(page, source, warnings, log);
+  await fillPrices(page, pricing, warnings, log);
 }
 
-async function fillPrices(page, source, warnings, log) {
-  const pricingPlan = buildPricingPlan(source);
-  const pricingValidation = validatePricingPlan(pricingPlan);
+async function fillPrices(page, pricing, warnings, log) {
+  const { pricingPlan, pricingValidation } = pricing ?? {};
+  if (!pricingPlan || !pricingValidation) {
+    warnings.push('pricing_plan_missing');
+    return;
+  }
 
   if (pricingValidation.warnings.length > 0) {
     warnings.push(...pricingValidation.warnings);

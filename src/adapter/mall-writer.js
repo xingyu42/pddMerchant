@@ -1,20 +1,9 @@
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
 import { isMockEnabled, mockSwitchTo } from './mock-dispatcher.js';
-import { currentMall } from './mall-reader.js';
+import { currentMall, SWITCHER_TRIGGER_SELECTORS } from './mall-reader.js';
 import { requireMallId } from './mall-id.js';
 import { cssEscape } from './css-escape.js';
-
-const SWITCHER_TRIGGER_SELECTORS = [
-  '[data-testid="mall-switcher"]',
-  '[data-testid="shop-switcher"]',
-  '[data-testid="mall-select"]',
-  '.mall-switcher',
-  '.shop-switcher',
-  '.mall-select',
-  'text=切换店铺',
-  'text=店铺',
-];
 
 export function optionSelectorsFor(mallId) {
   const id = cssEscape(String(mallId));
