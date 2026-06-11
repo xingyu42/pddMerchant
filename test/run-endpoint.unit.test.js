@@ -166,7 +166,8 @@ test('requiredTrigger unset: trigger exception is swallowed, XHR still collected
   const result = await runEndpoint(page, meta, {}, {});
   assert.ok(result, 'runEndpoint must resolve (not reject) when trigger is optional');
   assert.equal(typeof result, 'object', 'result must be an object (XHR collected)');
-  // without normalize fn, runEndpoint wraps as { raw: <body> }
+  // without normalize fn, runEndpoint wraps as { raw: <body> } —
+  // adapter 内部形状刻意保留（design D-1），envelope 边界由 stripRaw 统一剥离
   assert.ok(result.raw, 'result.raw must contain the XHR response body');
   assert.equal(result.raw.success, true, 'collected XHR body must have success field');
 });

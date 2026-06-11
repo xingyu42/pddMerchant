@@ -15,6 +15,7 @@ test('ORDER_DETAIL.normalize: returns { order, raw } with result as order', () =
   const norm = ORDER_DETAIL.normalize(raw);
   assert.equal(norm.order.order_sn, 'X1');
   assert.equal(norm.order.goods_id, 9);
+  // adapter 内部形状刻意保留 raw（design D-1）；envelope 边界由 stripRaw 统一剥离
   assert.equal(norm.raw, raw);
 });
 
