@@ -7,10 +7,11 @@ import { FixtureEndpointClient, mockCurrentMall, mockListMalls } from '../adapte
 import { getSharedClient } from '../adapter/rate-limiter-singleton.js';
 import { createPageSession } from '../adapter/page-session.js';
 import { getLogger } from '../infra/logger.js';
-import { emit, buildEnvelope, buildBatchEnvelope, batchRenderer } from '../infra/output.js';
+import { emit, buildBatchEnvelope, batchRenderer } from '../infra/output.js';
 import { PddCliError, ExitCodes, errorToEnvelope, batchExitCode } from '../infra/errors.js';
 import { AUTH_STATE_PATH } from '../infra/paths.js';
-import { resolveAccountContext, accountMetaForEnvelope } from '../infra/account-resolver.js';
+import { resolveAccountContext } from '../infra/account-resolver.js';
+import { finalizeSuccess, finalizeError } from './runner/envelope-finalizer.js';
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
 import { remainingMs, throwIfAborted, timeoutError, abortableSleep } from '../infra/abort.js';
 import { ensureDaemonRunning } from '../infra/daemon-launcher.js';
@@ -30,23 +31,8 @@ function anySignal(signals) {
   return controller.signal;
 }
 
-function normalizeRunResult(result) {
-  if (result == null) return { data: null };
-  if (typeof result !== 'object' || Array.isArray(result)) return { data: result };
-
-  const hasReservedShape = 'data' in result || 'meta' in result || 'warnings' in result;
-  if (hasReservedShape) {
-    return {
-      data: result.data ?? null,
-      meta: result.meta,
-      warnings: result.warnings,
-    };
-  }
-  return { data: result };
-}
-
 export async function executeSingle(spec, opts = {}, { emitResult = true, skipDaemonStart = false, parentSignal } = {}) {
-  const { name, needsAuth = true, needsMall = 'current', run, render } = spec;
+  const { name, needsAuth = true, needsMall = 'current', run } = spec;
   const startedAt = Date.now();
   const correlationId = opts._correlationId ?? randomUUID();
   const warnings = [];
@@ -80,6 +66,20 @@ export async function executeSingle(spec, opts = {}, { emitResult = true, skipDa
   const signal = anySignal([parentSignal, abortController?.signal]);
   const deadlineAt = signal ? startedAt + (opts.timeoutMs ?? Infinity) : null;
 
+  const runtime = {
+    opts,
+    emitResult,
+    skipDaemonStart,
+    startedAt,
+    correlationId,
+    warnings,
+    log,
+    authPath: resolvedAuthPath,
+    accountCtx,
+    signal,
+    deadlineAt,
+  };
+
   try {
 
   await migrateLegacyAuthStateIfNeeded(resolvedAuthPath, warnings).catch((err) => {
@@ -95,18 +95,12 @@ export async function executeSingle(spec, opts = {}, { emitResult = true, skipDa
 
   if (useFixture) {
     if (needsAuth && process.env.PDD_TEST_AUTH_INVALID === '1') {
-      const envelope = errorToEnvelope(name, new PddCliError({
+      return finalizeError(spec, runtime, new PddCliError({
         code: 'E_AUTH_EXPIRED',
         message: '登录态失效',
         hint: '执行 pdd login 重新登录',
         exitCode: ExitCodes.AUTH,
-      }), {
-        latency_ms: Date.now() - startedAt,
-        warnings,
-        correlation_id: correlationId,
-      });
-      if (emitResult) emit(envelope, { json: opts.json, noColor: opts.noColor });
-      return envelope;
+      }));
     }
 
     const client = new FixtureEndpointClient();
@@ -142,33 +136,9 @@ export async function executeSingle(spec, opts = {}, { emitResult = true, skipDa
     };
 
     try {
-      const result = await run(ctx);
-      const { data, meta: extraMeta, warnings: resultWarnings } = normalizeRunResult(result);
-      const allWarnings = [...warnings, ...(resultWarnings ?? [])];
-
-      const envelope = buildEnvelope({
-        ok: true,
-        command: name,
-        data,
-        meta: {
-          latency_ms: Date.now() - startedAt,
-          warnings: allWarnings,
-          correlation_id: correlationId,
-          exit_code: ExitCodes.OK,
-          ...accountMetaForEnvelope(accountCtx),
-          ...extraMeta,
-        },
-      });
-      if (emitResult) emit(envelope, { json: opts.json, noColor: opts.noColor, renderer: render });
-      return envelope;
+      return finalizeSuccess(spec, runtime, await run(ctx));
     } catch (err) {
-      const envelope = errorToEnvelope(name, err, {
-        latency_ms: Date.now() - startedAt,
-        warnings,
-        correlation_id: correlationId,
-      });
-      if (emitResult) emit(envelope, { json: opts.json, noColor: opts.noColor });
-      return envelope;
+      return finalizeError(spec, runtime, err);
     }
   }
 
@@ -232,35 +202,12 @@ export async function executeSingle(spec, opts = {}, { emitResult = true, skipDa
     };
 
     const result = await run(ctx);
-    const { data, meta: extraMeta, warnings: resultWarnings } = normalizeRunResult(result);
-    const allWarnings = [...warnings, ...(resultWarnings ?? [])];
 
+    // closeAll 留在成功 envelope 构造前（design D-2）：清理失败必须落错误 envelope，禁止 finally 化
     await pageSession.closeAll();
 
-    const envelope = buildEnvelope({
-      ok: true,
-      command: name,
-      data,
-      meta: {
-        latency_ms: Date.now() - startedAt,
-        warnings: allWarnings,
-        correlation_id: correlationId,
-        exit_code: ExitCodes.OK,
-        ...accountMetaForEnvelope(accountCtx),
-        ...extraMeta,
-      },
-    });
-    if (emitResult) emit(envelope, { json: opts.json, noColor: opts.noColor, renderer: render });
-    return envelope;
-  }).catch((err) => {
-    const envelope = errorToEnvelope(name, err, {
-      latency_ms: Date.now() - startedAt,
-      warnings,
-      correlation_id: correlationId,
-    });
-    if (emitResult) emit(envelope, { json: opts.json, noColor: opts.noColor });
-    return envelope;
-  });
+    return finalizeSuccess(spec, runtime, result);
+  }).catch((err) => finalizeError(spec, runtime, err));
 
   } finally {
     if (deadlineTimer) clearTimeout(deadlineTimer);
