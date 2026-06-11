@@ -194,3 +194,43 @@ describe('raw-strip PBT (PROP-RAW-1 — green since task 2.1 stripRaw)', () => {
     });
   });
 });
+
+// 评审修复回归：seen 采用路径栈语义（回溯 delete）——
+// DAG 共享引用必须正常展开，仅真环替换为 '[Circular]'。
+describe('raw-strip DAG / cycle semantics', () => {
+  it('DAG: shared references expand on every path (no false [Circular])', () => {
+    const shared = { keep: 1, raw: { secret: 'S' } };
+    const data = { a: shared, b: shared, list: [shared] };
+    const envelope = buildEnvelope({ ok: true, command: 'raw.dag', data });
+    assert.deepEqual(envelope.data, { a: { keep: 1 }, b: { keep: 1 }, list: [{ keep: 1 }] });
+  });
+
+  it('true cycle: replaced with [Circular] without hanging', () => {
+    const node = { keep: 1 };
+    node.self = node;
+    const envelope = buildEnvelope({ ok: true, command: 'raw.cycle', data: { node } });
+    assert.equal(envelope.data.node.keep, 1);
+    assert.equal(envelope.data.node.self, '[Circular]');
+  });
+
+  // 评审修复回归：剥离面与 JSON.stringify 输出面一致 ——
+  // 类实例的自有可枚举 raw 属性必须被剥离；带 toJSON 的内建（Date）透传。
+  it('non-plain object with enumerable raw key is stripped on the JSON surface', () => {
+    class Carrier {
+      constructor() {
+        this.keep = 1;
+        this.raw = { secret: 'S' };
+      }
+    }
+    const envelope = buildEnvelope({ ok: true, command: 'raw.cls', data: { box: new Carrier() } });
+    assert.deepEqual(envelope.data, { box: { keep: 1 } });
+    assert.equal(JSON.stringify(envelope.data).includes('"raw"'), false);
+  });
+
+  it('Date passes through unchanged (toJSON handles serialization)', () => {
+    const at = new Date(0);
+    const envelope = buildEnvelope({ ok: true, command: 'raw.date', data: { at, keep: 2 } });
+    assert.equal(envelope.data.at, at);
+    assert.equal(envelope.data.keep, 2);
+  });
+});

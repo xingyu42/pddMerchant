@@ -10,31 +10,31 @@ function shouldUseColor({ tty, noColor }) {
   return Boolean(tty ?? process.stdout.isTTY);
 }
 
-function isPlainObject(value) {
-  if (value == null || typeof value !== 'object') return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
+// JSON 序列化等价面：带 toJSON 的对象（如 Date）由 JSON 自行转换，剥离/收集均透传；
+// 其余对象（含类实例）按自有可枚举属性处理 —— 与 JSON.stringify 的输出面严格一致。
+function hasCustomJson(value) {
+  return typeof value?.toJSON === 'function';
 }
 
 // envelope.data 的保留键收口（design D-1）：递归删除键名严格 === 'raw' 的属性。
-// 非变异；rawValue / raw_url 等近似键不受影响；非普通对象（Date/类实例）原样透传。
+// 非变异；rawValue / raw_url 等近似键不受影响。
+// seen 为路径栈语义（回溯时 delete）：真环 → '[Circular]'，DAG 共享引用正常展开。
 function stripRaw(value, seen = new WeakSet()) {
+  if (value == null || typeof value !== 'object' || hasCustomJson(value)) return value;
+  if (seen.has(value)) return '[Circular]';
+  seen.add(value);
+  let out;
   if (Array.isArray(value)) {
-    if (seen.has(value)) return '[Circular]';
-    seen.add(value);
-    return value.map((v) => stripRaw(v, seen));
-  }
-  if (isPlainObject(value)) {
-    if (seen.has(value)) return '[Circular]';
-    seen.add(value);
-    const out = {};
+    out = value.map((v) => stripRaw(v, seen));
+  } else {
+    out = {};
     for (const [k, v] of Object.entries(value)) {
       if (k === 'raw') continue;
       out[k] = stripRaw(v, seen);
     }
-    return out;
   }
-  return value;
+  seen.delete(value);
+  return out;
 }
 
 const RAW_DEBUG_VALUE_MAX_BYTES = 65536;
@@ -69,19 +69,20 @@ function serializeRawValue(value) {
   }
 }
 
+// 剥离前收集 data 下全部 raw 键（与 stripRaw 同遍历面/同路径栈语义：DAG 共享子树每条路径各收集一次）。
 function collectRawEntries(value, path, entries, seen) {
-  if (value == null || typeof value !== 'object' || seen.has(value)) return;
+  if (value == null || typeof value !== 'object' || hasCustomJson(value) || seen.has(value)) return;
   seen.add(value);
   if (Array.isArray(value)) {
     value.forEach((v, i) => collectRawEntries(v, appendRawPath(path, `[${i}]`), entries, seen));
-    return;
+  } else {
+    for (const [k, v] of Object.entries(value)) {
+      const childPath = appendRawPath(path, k);
+      if (k === 'raw') entries.push({ path: childPath, value: v });
+      collectRawEntries(v, childPath, entries, seen);
+    }
   }
-  if (!isPlainObject(value)) return;
-  for (const [k, v] of Object.entries(value)) {
-    const childPath = appendRawPath(path, k);
-    if (k === 'raw') entries.push({ path: childPath, value: v });
-    collectRawEntries(v, childPath, entries, seen);
-  }
+  seen.delete(value);
 }
 
 function toRawDebugEntry({ path, value }) {

@@ -107,6 +107,21 @@ describe('raw-debug PBT (PROP-RAW-2/3 — PDD_DEBUG_RAW stderr channel)', () => 
     });
   });
 
+  it('DAG: shared raw subtree collected once per path', () => {
+    const shared = { raw: { token: 'T' } };
+    const data = { a: shared, b: shared };
+    process.env.PDD_DEBUG_RAW = '1';
+    const captured = captureStreams(() => emit(
+      { ok: true, command: 'raw.dag', data, meta: { correlation_id: 'cid-dag' } },
+      { json: true, noColor: true },
+    ));
+    delete process.env.PDD_DEBUG_RAW;
+    const lines = debugLines(captured.stderr);
+    assert.equal(lines.length, 1);
+    const paths = JSON.parse(lines[0]).raw.map((e) => e.path).sort();
+    assert.deepEqual(paths, ['a.raw', 'b.raw']);
+  });
+
   it('PROP-RAW-3: debug output is redacted and each value is capped at 65536 bytes', async () => {
     const sensitiveGen = (rng) => {
       const tag = Math.floor(rng() * 1e9);
