@@ -11,6 +11,7 @@ const REDACT_KEYS = [
   'localStorage',
   'Anti-Content',
   'anti-content',
+  'anti_content',
   'antiContent',
   'crawlerInfo',
   'crawler_info',

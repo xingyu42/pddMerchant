@@ -37,20 +37,120 @@ function stripRaw(value, seen = new WeakSet()) {
   return value;
 }
 
+const RAW_DEBUG_VALUE_MAX_BYTES = 65536;
+
+function rawDebugEnabled() {
+  return process.env.PDD_DEBUG_RAW === '1';
+}
+
+function appendRawPath(base, key) {
+  if (!base) return key;
+  if (key.startsWith('[')) return `${base}${key}`;
+  return `${base}.${key}`;
+}
+
+function truncateUtf8(str, maxBytes) {
+  if (Buffer.byteLength(str) <= maxBytes) return str;
+  let lo = 0;
+  let hi = str.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (Buffer.byteLength(str.slice(0, mid)) <= maxBytes) lo = mid;
+    else hi = mid - 1;
+  }
+  return str.slice(0, lo);
+}
+
+function serializeRawValue(value) {
+  try {
+    return JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)) ?? 'null';
+  } catch {
+    return JSON.stringify(String(value));
+  }
+}
+
+function collectRawEntries(value, path, entries, seen) {
+  if (value == null || typeof value !== 'object' || seen.has(value)) return;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    value.forEach((v, i) => collectRawEntries(v, appendRawPath(path, `[${i}]`), entries, seen));
+    return;
+  }
+  if (!isPlainObject(value)) return;
+  for (const [k, v] of Object.entries(value)) {
+    const childPath = appendRawPath(path, k);
+    if (k === 'raw') entries.push({ path: childPath, value: v });
+    collectRawEntries(v, childPath, entries, seen);
+  }
+}
+
+function toRawDebugEntry({ path, value }) {
+  const serialized = serializeRawValue(redactRecursive(value));
+  if (Buffer.byteLength(serialized) <= RAW_DEBUG_VALUE_MAX_BYTES) {
+    return { path, value: serialized };
+  }
+  return { path, value: truncateUtf8(serialized, RAW_DEBUG_VALUE_MAX_BYTES), truncated: true };
+}
+
+function writeRawDebug(command, correlationId, entries) {
+  if (entries.length === 0) return;
+  const line = JSON.stringify({
+    type: 'raw_debug',
+    command: command ?? '',
+    correlation_id: correlationId ?? '',
+    raw: entries.map(toRawDebugEntry),
+  });
+  process.stderr.write(line + '\n');
+}
+
+function displayEnvelope(envelope) {
+  return {
+    ...envelope,
+    data: redactRecursive(envelope.data),
+    error: redactRecursive(envelope.error),
+  };
+}
+
+function buildBatchMeta(batchMeta) {
+  return {
+    v: 1,
+    batch: true,
+    latency_ms: batchMeta.latency_ms ?? 0,
+    correlation_id: batchMeta.correlation_id ?? '',
+    exit_code: batchMeta.exit_code ?? 0,
+    warnings: batchMeta.warnings ?? [],
+  };
+}
+
+function collectBatchRawEntries(entries) {
+  const rawEntries = [];
+  for (const [slug, r] of entries) {
+    if (r.ok) collectRawEntries(r.data, `accounts.${slug}`, rawEntries, new WeakSet());
+  }
+  return rawEntries;
+}
+
 function buildEnvelope(input) {
   const { ok, command, data, error, meta } = input ?? {};
+  const finalCommand = command ?? '';
+  const finalMeta = {
+    v: 1,
+    latency_ms: 0,
+    xhr_count: 0,
+    warnings: [],
+    ...(meta ?? {}),
+  };
+  if (rawDebugEnabled()) {
+    const entries = [];
+    collectRawEntries(data, '', entries, new WeakSet());
+    writeRawDebug(finalCommand, finalMeta.correlation_id, entries);
+  }
   return {
     ok: Boolean(ok),
-    command: command ?? '',
+    command: finalCommand,
     data: stripRaw(data) ?? null,
     error: error ?? null,
-    meta: {
-      v: 1,
-      latency_ms: 0,
-      xhr_count: 0,
-      warnings: [],
-      ...(meta ?? {}),
-    },
+    meta: finalMeta,
   };
 }
 
@@ -141,6 +241,7 @@ export function emit(envelopeInput, options = {}) {
   }
 
   const useColor = shouldUseColor({ tty, noColor });
+  const display = displayEnvelope(envelope);
 
   if (raw) {
     process.stdout.write(JSON.stringify(envelope, null, 2) + '\n');
@@ -148,15 +249,15 @@ export function emit(envelopeInput, options = {}) {
   }
 
   if (typeof renderer === 'function') {
-    const rendered = renderer(envelope, { useColor });
+    const rendered = renderer(display, { useColor });
     if (rendered != null) process.stdout.write(String(rendered) + '\n');
   } else {
-    const body = renderTable(envelope, { useColor });
+    const body = renderTable(display, { useColor });
     process.stdout.write(body + '\n');
   }
 
   if (envelope.error) {
-    const errLine = renderError(envelope, { useColor });
+    const errLine = renderError(display, { useColor });
     if (errLine) process.stderr.write(errLine + '\n');
   }
   return envelope;
@@ -166,6 +267,11 @@ function buildBatchEnvelope(name, accountResults, batchMeta = {}) {
   const entries = Object.entries(accountResults);
   const succeeded = entries.filter(([, r]) => r.ok).length;
   const failed = entries.length - succeeded;
+  const meta = buildBatchMeta(batchMeta);
+
+  if (rawDebugEnabled()) {
+    writeRawDebug(name, meta.correlation_id, collectBatchRawEntries(entries));
+  }
 
   const accounts = {};
   for (const [slug, r] of entries) {
@@ -197,20 +303,14 @@ function buildBatchEnvelope(name, accountResults, batchMeta = {}) {
       },
     },
     error,
-    meta: {
-      v: 1,
-      batch: true,
-      latency_ms: batchMeta.latency_ms ?? 0,
-      correlation_id: batchMeta.correlation_id ?? '',
-      exit_code: batchMeta.exit_code ?? 0,
-      warnings: batchMeta.warnings ?? [],
-    },
+    meta,
   };
 }
 
 function batchRenderer(accountEnvelopes, { useColor }) {
+  const safeAccountEnvelopes = redactRecursive(accountEnvelopes);
   const lines = [];
-  for (const [slug, env] of Object.entries(accountEnvelopes)) {
+  for (const [slug, env] of Object.entries(safeAccountEnvelopes)) {
     const separator = `━━━ ${slug} ━━━`;
     lines.push(useColor ? chalk.bold(separator) : separator);
 
