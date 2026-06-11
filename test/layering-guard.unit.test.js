@@ -52,6 +52,13 @@ function isInside(target, dir) {
 }
 
 describe('分层守卫（task 8.1）', () => {
+  it('扫描器非空运行（防御 vacuous pass）', () => {
+    const adapterFiles = walkJsFiles(join(SRC, 'adapter'));
+    assert.ok(adapterFiles.length >= 10, `adapter 文件数异常偏低: ${adapterFiles.length}`);
+    const relImports = adapterFiles.flatMap(resolvedRelativeImports);
+    assert.ok(relImports.length >= 5, `相对 import 提取数异常偏低: ${relImports.length}`);
+  });
+
   it('src/adapter 不得相对 import services/ 或 commands/', () => {
     const violations = [];
     for (const file of walkJsFiles(join(SRC, 'adapter'))) {
