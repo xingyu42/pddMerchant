@@ -28,3 +28,10 @@ test('e2e: mock adapter disabled by default → command fails at launchBrowser (
   });
   assert.notEqual(status, 0, '关闭 mock 后必然失败（无 auth-state 或无法启动 chromium）');
 });
+
+test('e2e: --raw removed (R1 task 2.4) → commander.unknownOption, exit 2 E_USAGE', () => {
+  const { status, envelope } = runPdd(['--raw', 'goods', 'list']);
+  assert.equal(status, 2, `USAGE exit code expected, got ${status}`);
+  assertFailEnvelope(envelope, 'pdd', 'E_USAGE');
+  assert.equal(envelope.error.detail?.commander_code, 'commander.unknownOption');
+});

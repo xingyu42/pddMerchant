@@ -76,7 +76,6 @@ program
   .version('0.1.0')
   .option('--json', 'stdout 输出单行 JSON（便于 AI/脚本消费）')
   .option('--no-color', '禁用彩色输出')
-  .option('--raw', '输出原始接口响应（deprecated, V0.4 移除）')
   .option('--timeout <ms>', '全局超时（毫秒）', (v) => Number(v))
   .option('--mall <id>', '指定店铺 ID（未指定则使用当前）')
   .option('--headed', '以有头浏览器运行（调试）')
@@ -107,7 +106,6 @@ function mergeOptions(commanderCmd) {
   const {
     json = false,
     color = true,
-    raw = false,
     timeout,
     mall,
     headed = false,
@@ -122,7 +120,6 @@ function mergeOptions(commanderCmd) {
     ...rest,
     json: Boolean(json),
     noColor: color === false,
-    raw: Boolean(raw),
     timeout: typeof timeout === 'number' && Number.isFinite(timeout) ? timeout : undefined,
     timeoutMs: typeof timeout === 'number' && Number.isFinite(timeout) ? timeout : undefined,
     mall,

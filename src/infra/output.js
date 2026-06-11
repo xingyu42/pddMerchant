@@ -221,7 +221,6 @@ function renderError(envelope, { useColor }) {
 export function emit(envelopeInput, options = {}) {
   const envelope = buildEnvelope(envelopeInput);
   const json = options.json === true;
-  const raw = options.raw === true;
   const noColor = options.noColor === true;
   const tty = options.tty;
   const renderer = options.renderer;
@@ -242,11 +241,6 @@ export function emit(envelopeInput, options = {}) {
 
   const useColor = shouldUseColor({ tty, noColor });
   const display = displayEnvelope(envelope);
-
-  if (raw) {
-    process.stdout.write(JSON.stringify(envelope, null, 2) + '\n');
-    return envelope;
-  }
 
   if (typeof renderer === 'function') {
     const rendered = renderer(display, { useColor });
