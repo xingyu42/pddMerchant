@@ -3,7 +3,6 @@ import { withBrowser } from '../adapter/browser.js';
 import { isAuthValid, migrateLegacyAuthStateIfNeeded } from '../adapter/auth-state.js';
 import { resolveMallContext } from '../adapter/mall-reader.js';
 import { switchTo } from '../adapter/mall-writer.js';
-import { FixtureEndpointClient, mockCurrentMall, mockListMalls } from '../adapter/mock-dispatcher.js';
 import { getSharedClient } from '../adapter/rate-limiter-singleton.js';
 import { createPageSession } from '../adapter/page-session.js';
 import { getLogger } from '../infra/logger.js';
@@ -12,6 +11,7 @@ import { PddCliError, ExitCodes, errorToEnvelope, batchExitCode } from '../infra
 import { AUTH_STATE_PATH } from '../infra/paths.js';
 import { resolveAccountContext } from '../infra/account-resolver.js';
 import { finalizeSuccess, finalizeError } from './runner/envelope-finalizer.js';
+import { executeFixture } from './runner/fixture-runtime.js';
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
 import { remainingMs, throwIfAborted, timeoutError, abortableSleep } from '../infra/abort.js';
 import { ensureDaemonRunning } from '../infra/daemon-launcher.js';
@@ -32,7 +32,8 @@ function anySignal(signals) {
 }
 
 export async function executeSingle(spec, opts = {}, { emitResult = true, skipDaemonStart = false, parentSignal } = {}) {
-  const { name, needsAuth = true, needsMall = 'current', run } = spec;
+  const { name, needsAuth = true, needsMall = 'current', run, render } = spec;
+  const normSpec = { name, needsAuth, needsMall, run, render };
   const startedAt = Date.now();
   const correlationId = opts._correlationId ?? randomUUID();
   const warnings = [];
@@ -91,56 +92,8 @@ export async function executeSingle(spec, opts = {}, { emitResult = true, skipDa
     warnings.push('unused_flag_mall');
   }
 
-  const useFixture = isMockEnabled();
-
-  if (useFixture) {
-    if (needsAuth && process.env.PDD_TEST_AUTH_INVALID === '1') {
-      return finalizeError(spec, runtime, new PddCliError({
-        code: 'E_AUTH_EXPIRED',
-        message: '登录态失效',
-        hint: '执行 pdd login 重新登录',
-        exitCode: ExitCodes.AUTH,
-      }));
-    }
-
-    const client = new FixtureEndpointClient();
-
-    let mallCtx = null;
-    if (needsMall === 'current' || needsMall === 'switch') {
-      try {
-        const current = await mockCurrentMall();
-        const malls = await mockListMalls();
-        mallCtx = {
-          activeId: current?.id ?? null,
-          activeName: current?.name ?? '',
-          malls: Array.isArray(malls) ? malls : [],
-          source: 'mock',
-        };
-      } catch { /* mall resolution optional in fixture mode */ }
-    }
-
-    const ctx = {
-      client,
-      page: null,
-      mallCtx,
-      mallId: mallCtx?.activeId ?? null,
-      authPath: resolvedAuthPath,
-      account: accountCtx?.account ?? null,
-      accountSlug: accountCtx?.slug ?? null,
-      config: opts,
-      log,
-      correlation_id: correlationId,
-      warnings,
-      signal,
-      deadlineAt,
-    };
-
-    try {
-      return finalizeSuccess(spec, runtime, await run(ctx));
-    } catch (err) {
-      return finalizeError(spec, runtime, err);
-    }
-  }
+  // 原 fixture 块在 try 内完整 await（deadlineTimer 全程武装）—— return await 保持该时序
+  if (isMockEnabled()) return await executeFixture(normSpec, runtime);
 
   return withBrowser({
     headed: opts.headed,
@@ -206,8 +159,8 @@ export async function executeSingle(spec, opts = {}, { emitResult = true, skipDa
     // closeAll 留在成功 envelope 构造前（design D-2）：清理失败必须落错误 envelope，禁止 finally 化
     await pageSession.closeAll();
 
-    return finalizeSuccess(spec, runtime, result);
-  }).catch((err) => finalizeError(spec, runtime, err));
+    return finalizeSuccess(normSpec, runtime, result);
+  }).catch((err) => finalizeError(normSpec, runtime, err));
 
   } finally {
     if (deadlineTimer) clearTimeout(deadlineTimer);
