@@ -32,8 +32,8 @@ function importSpecifiers(source) {
   for (const m of source.matchAll(/(?:^|\n)\s*import\s+['"]([^'"]+)['"]/g)) {
     out.push(m[1]);
   }
-  // 动态 import('...')
-  for (const m of source.matchAll(/import\(\s*['"]([^'"]+)['"]\s*\)/g)) {
+  // 动态 import('...') / import ('...')
+  for (const m of source.matchAll(/import\s*\(\s*['"]([^'"]+)['"]\s*\)/g)) {
     out.push(m[1]);
   }
   return out;
@@ -48,7 +48,8 @@ function resolvedRelativeImports(file) {
 
 function isInside(target, dir) {
   const rel = relative(dir, target);
-  return rel !== '' && !rel.startsWith('..') && !rel.includes(`..${sep}`);
+  // rel === '' 即恰好命中目录本身，同样视为越界
+  return rel === '' || (!rel.startsWith('..') && !rel.includes(`..${sep}`));
 }
 
 describe('分层守卫（task 8.1）', () => {
