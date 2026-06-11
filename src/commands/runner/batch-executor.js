@@ -17,6 +17,30 @@ function batchJitter() {
   return BATCH_JITTER_MIN + Math.floor(Math.random() * (BATCH_JITTER_MAX - BATCH_JITTER_MIN));
 }
 
+const COOLDOWN_INHERITED_PREFIX = 'cooldown_inherited_from:';
+
+function appendAccountWarning(result, warning) {
+  if (Array.isArray(result.meta?.warnings)) {
+    result.meta.warnings.push(warning);
+    return;
+  }
+  result.meta = { ...result.meta, warnings: [warning] };
+}
+
+// R3 cooldown 归因状态机（design D-5）：返回更新后的冷却源 slug，仅批量路径调用。
+// "自身被限流"（E_RATE_LIMIT 且 detail.cooldown_triggered 非真）→ 当前账号成为源（last-wins）；
+// "命中已激活冷却"（cooldown_triggered === true）且源非自身 → 追加继承警告（additive-only，
+// 不触碰 ok/exit_code/data，batchExitCode 语义不变）。
+export function applyCooldownAttribution(result, slug, lastSourceSlug) {
+  if (result?.ok !== false || result.error?.code !== 'E_RATE_LIMIT') return lastSourceSlug;
+  if (result.error.detail?.cooldown_triggered !== true) return slug;
+
+  if (lastSourceSlug && lastSourceSlug !== slug) {
+    appendAccountWarning(result, `${COOLDOWN_INHERITED_PREFIX}${lastSourceSlug}`);
+  }
+  return lastSourceSlug;
+}
+
 function assertBatchUsage(opts) {
   if (opts.account) {
     throw new PddCliError({
@@ -83,6 +107,7 @@ async function runOneAccount(spec, opts, slug, batch) {
 
 async function runAccountLoop(spec, opts, accounts, batch) {
   const accountResults = {};
+  let lastCooldownSourceSlug = null;
   for (let i = 0; i < accounts.length; i++) {
     if (batch.signal.aborted) break;
 
@@ -90,6 +115,8 @@ async function runAccountLoop(spec, opts, accounts, batch) {
     batch.log.info({ slug, index: i, total: accounts.length }, 'batch: executing account');
 
     const result = await runOneAccount(spec, opts, slug, batch);
+    // 归因须先于 warnings 上抛：继承警告借下方既有复制循环进入 batchWarnings。
+    lastCooldownSourceSlug = applyCooldownAttribution(result, slug, lastCooldownSourceSlug);
     accountResults[slug] = result;
 
     if (result.meta?.warnings) {
