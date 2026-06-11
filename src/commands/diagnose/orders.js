@@ -1,6 +1,6 @@
 import { withCommand } from '../_runner.js';
 import { collectOrdersInput } from '../../services/diagnose/collectors.js';
-import { renderSingleDashboard } from './shop.js';
+import { renderSingleDashboard } from './_render.js';
 import { scoreOrdersHealth } from '../../services/diagnose/index.js';
 
 export const run = withCommand({

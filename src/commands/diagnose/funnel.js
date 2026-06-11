@@ -1,5 +1,5 @@
 import { withCommand } from '../_runner.js';
-import { renderSingleDashboard } from './shop.js';
+import { renderSingleDashboard } from './_render.js';
 import { scoreFunnelHealth } from '../../services/diagnose/index.js';
 import { computeOrderStats } from '../../services/orders.js';
 import { collectOrdersForStaleAnalysis, STALE_PAGE_SIZE } from '../../services/diagnose/orders-collector.js';
