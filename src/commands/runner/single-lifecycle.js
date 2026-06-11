@@ -118,7 +118,9 @@ function executeLive(spec, runtime) {
 
     const result = await spec.run(ctx);
 
-    // closeAll 留在成功 envelope 构造前（design D-2）：清理失败必须落错误 envelope，禁止 finally 化
+    // closeAll 留在成功 envelope 构造前（design D-2）：清理失败必须落错误 envelope，禁止 finally 化。
+    // normalize/warnings 快照随 finalizeSuccess 移至 closeAll 之后（Phase-3 审查裁决）：
+    // closeAll 逐页吞错且不持有 warnings 引用，顺序交换无可观察差异。
     await pageSession.closeAll();
 
     return finalizeSuccess(spec, runtime, result);
