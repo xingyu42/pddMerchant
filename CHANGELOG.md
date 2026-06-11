@@ -1,5 +1,30 @@
 # Changelog
 
+## V0.4 Migration Notes
+
+> V0.3 → V0.4 的对外变更清单。若你在 V0.3 下写了自动化脚本，请按此节核对兼容性。
+
+### Breaking：`--raw` 移除
+
+- **全局选项 `--raw` 已删除**（V0.3 已标记 deprecated）：任何携带 `--raw` 的调用现为 unknown option，stdout 输出 `E_USAGE` envelope 并 exit 2。
+- **替代通道**：调试需要原始 XHR 载荷时设 `PDD_DEBUG_RAW=1`，剥离前的 raw 值经脱敏后以单行 JSONL 写 stderr（单值 >64KiB 截断并标记 `truncated`）；stdout envelope 与退出码不受影响。
+
+### Breaking：`raw` 成为 envelope data 保留键
+
+- envelope `data` 下**任意深度**键名严格等于 `raw` 的属性会被递归剥离（含数组内对象）；批量模式逐账号 data 同样适用。
+- 业务字段名不受影响（`rawValue`、`raw_url` 等不剥离）。依赖 `data.*.raw` 的消费脚本请迁移至 `PDD_DEBUG_RAW` stderr 通道。
+
+### 新增（additive）
+
+- **batch 冷却归因 warning**：批量执行中某账号触发全局 rate-limit 冷却后，后续受影响账号的 `meta.warnings` 追加 `cooldown_inherited_from:<slug>`（顶层 batch warnings 去重，per-account 保留）。exit code 语义不变。
+- **human 输出脱敏展示副本**：human 模式全部渲染路径（table / 自定义 renderer / 错误提示 / batch 渲染）以脱敏副本展示，敏感字段不再明文出现；`--json` 输出不变。
+
+### 内部重构（无契约影响）
+
+- `bin/pdd.js` 注册拆分至 `src/commands/registry/`（全部 help 输出与拆分前逐字节一致）；`_runner.js`、`mock-dispatcher.js` 改为 facade + 拆分模块；diagnose 渲染下沉 `src/commands/diagnose/_render.js`。envelope schema 与 8 个 exit code 不变。
+
+---
+
 ## V0.3 Migration Notes
 
 > V0.2 → V0.3 的对外变更清单。若你在 V0.2 下写了自动化脚本，请按此节核对兼容性。
