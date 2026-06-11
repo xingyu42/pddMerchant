@@ -10,12 +10,39 @@ function shouldUseColor({ tty, noColor }) {
   return Boolean(tty ?? process.stdout.isTTY);
 }
 
+function isPlainObject(value) {
+  if (value == null || typeof value !== 'object') return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+// envelope.data 的保留键收口（design D-1）：递归删除键名严格 === 'raw' 的属性。
+// 非变异；rawValue / raw_url 等近似键不受影响；非普通对象（Date/类实例）原样透传。
+function stripRaw(value, seen = new WeakSet()) {
+  if (Array.isArray(value)) {
+    if (seen.has(value)) return '[Circular]';
+    seen.add(value);
+    return value.map((v) => stripRaw(v, seen));
+  }
+  if (isPlainObject(value)) {
+    if (seen.has(value)) return '[Circular]';
+    seen.add(value);
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (k === 'raw') continue;
+      out[k] = stripRaw(v, seen);
+    }
+    return out;
+  }
+  return value;
+}
+
 function buildEnvelope(input) {
   const { ok, command, data, error, meta } = input ?? {};
   return {
     ok: Boolean(ok),
     command: command ?? '',
-    data: data ?? null,
+    data: stripRaw(data) ?? null,
     error: error ?? null,
     meta: {
       v: 1,
@@ -144,7 +171,7 @@ function buildBatchEnvelope(name, accountResults, batchMeta = {}) {
   for (const [slug, r] of entries) {
     accounts[slug] = {
       ok: r.ok,
-      ...(r.ok ? { data: r.data } : { error: r.error }),
+      ...(r.ok ? { data: stripRaw(r.data) } : { error: r.error }),
       latency_ms: r.latency_ms ?? r.meta?.latency_ms ?? 0,
     };
   }

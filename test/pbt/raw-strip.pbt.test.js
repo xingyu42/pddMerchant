@@ -1,9 +1,8 @@
-// PROP-RAW-1（refactor-arch-review-remediation task 1.3）
-// 红灯测试：envelope 三条出口路径（buildEnvelope / executeSingle 返回值 / buildBatchEnvelope）
+// PROP-RAW-1（refactor-arch-review-remediation task 1.3 红灯 → task 2.1 转绿）
+// envelope 三条出口路径（buildEnvelope / executeSingle 返回值 / buildBatchEnvelope）
 // 的 data 下任意深度不得含键名严格 === 'raw' 的属性（design §D-1）。
-// 当前实现为透传 → 断言必然失败，故以 it.fails 标记（套件保持绿）。
-// ⚠ task 2.1（stripRaw 落地）后必须把 it.fails 翻转为 it。
-// PROP-RAW-0 是常绿哨兵：保证探测管线本身健康，防止 it.fails 静默吞掉基建性故障。
+// stripRaw 已于 src/infra/output.js 落地，本属性自 task 2.1 起常绿。
+// PROP-RAW-0 是常绿哨兵：保证探测管线本身健康。
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import { property } from './_harness.js';
@@ -111,7 +110,7 @@ async function runFixtureProbe(data) {
   return executeSingle(spec, {}, { emitResult: false, skipDaemonStart: true });
 }
 
-describe('raw-strip PBT (PROP-RAW-1 — RED until task 2.1; flip it.fails → it when stripRaw lands)', () => {
+describe('raw-strip PBT (PROP-RAW-1 — green since task 2.1 stripRaw)', () => {
   it('PROP-RAW-0 sentinel (stays green): raw-free payload round-trips all three envelope paths', async () => {
     const saved = process.env.PDD_TEST_ADAPTER;
     process.env.PDD_TEST_ADAPTER = 'fixture';
@@ -151,7 +150,7 @@ describe('raw-strip PBT (PROP-RAW-1 — RED until task 2.1; flip it.fails → it
     });
   });
 
-  it.fails('PROP-RAW-1a: buildEnvelope data contains no raw key at any depth', async () => {
+  it('PROP-RAW-1a: buildEnvelope data contains no raw key at any depth', async () => {
     await property('buildEnvelope-strips-raw', rawPayloadGen, (data) => {
       assert.ok(countRaw(data) >= 1, 'precondition: payload must contain planted raw keys');
       const decoys = countDecoys(data);
@@ -162,7 +161,7 @@ describe('raw-strip PBT (PROP-RAW-1 — RED until task 2.1; flip it.fails → it
     });
   });
 
-  it.fails('PROP-RAW-1b: executeSingle returned envelope data contains no raw key', async () => {
+  it('PROP-RAW-1b: executeSingle returned envelope data contains no raw key', async () => {
     const saved = process.env.PDD_TEST_ADAPTER;
     process.env.PDD_TEST_ADAPTER = 'fixture';
     try {
@@ -181,7 +180,7 @@ describe('raw-strip PBT (PROP-RAW-1 — RED until task 2.1; flip it.fails → it
     }
   });
 
-  it.fails('PROP-RAW-1c: buildBatchEnvelope per-account data contains no raw key', async () => {
+  it('PROP-RAW-1c: buildBatchEnvelope per-account data contains no raw key', async () => {
     await property('buildBatchEnvelope-strips-raw', rawPayloadGen, (data) => {
       assert.ok(countRaw(data) >= 1, 'precondition: payload must contain planted raw keys');
       const decoys = countDecoys(data);
