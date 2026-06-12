@@ -54,4 +54,28 @@ describe('Logger redaction PBT', () => {
     const redacted = redactRecursive({ authorization: { token_id: 10n } });
     assert.ok(String(redacted.authorization).startsWith('fp:'));
   });
+
+  // codex R2 终审收口：orders.detail 形状的收件人 PII 别名必须被脱敏（粗粒度地理字段保持可见）
+  it('order-detail receiver PII aliases are redacted', () => {
+    const order = {
+      buyer_address: {
+        receiver_name: '张三',
+        receiver_phone: '13800001111',
+        receiver_address: '幸福街 1 号',
+        receiver_city: '杭州市',
+      },
+      receiverPhone: '13900002222',
+      receiverAddress: 'X 路 2 号',
+    };
+    const redacted = redactRecursive(order);
+    assert.ok(String(redacted.buyer_address.receiver_phone).startsWith('fp:'));
+    assert.ok(String(redacted.buyer_address.receiver_address).startsWith('fp:'));
+    assert.ok(String(redacted.receiverPhone).startsWith('fp:'));
+    assert.ok(String(redacted.receiverAddress).startsWith('fp:'));
+    assert.equal(redacted.buyer_address.receiver_city, '杭州市', 'coarse geo stays visible');
+    const serialized = JSON.stringify(redacted);
+    for (const pii of ['13800001111', '13900002222', '幸福街 1 号', 'X 路 2 号']) {
+      assert.ok(!serialized.includes(pii), `PII must not survive: ${pii}`);
+    }
+  });
 });

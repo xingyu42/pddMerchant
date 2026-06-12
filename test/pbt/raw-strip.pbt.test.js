@@ -273,4 +273,21 @@ describe('raw-strip boundary hardening (dual-review closeout)', () => {
     assert.equal(JSON.stringify(envelope).includes('AC-ERR-SECRET'), false, 'sentinel must not leak');
     assert.equal(envelope.data.accounts['shop-a'].error.code, 'E_GENERAL', 'error shape otherwise intact');
   });
+
+  // codex R2 终审收口：单命令失败面 error.detail.raw 同样在 envelope 边界剥离
+  it('CX-R2: buildEnvelope strips raw from error.detail (single-command failure surface)', () => {
+    const envelope = buildEnvelope({
+      ok: false,
+      command: 'raw.err',
+      error: {
+        code: 'E_BUSINESS',
+        message: 'biz failed',
+        hint: '',
+        detail: { errorCode: 43001, raw: { anti_content: 'AC-ERRPATH-SECRET' } },
+      },
+    });
+    assert.equal(countRaw(envelope.error), 0, 'raw must be stripped from error subtree');
+    assert.equal(envelope.error.detail.errorCode, 43001, 'safe detail fields survive');
+    assert.equal(JSON.stringify(envelope).includes('AC-ERRPATH-SECRET'), false, 'sentinel must not leak');
+  });
 });

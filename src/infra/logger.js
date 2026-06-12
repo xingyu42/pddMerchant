@@ -4,6 +4,7 @@ import pino from 'pino';
 const REDACT_KEYS = [
   'cookies',
   'cookie',
+  'Cookie',
   'auth_token',
   'authToken',
   'session_id',
@@ -23,6 +24,10 @@ const REDACT_KEYS = [
   'phone',
   'addr',
   'receiver_name',
+  'receiver_phone',
+  'receiverPhone',
+  'receiver_address',
+  'receiverAddress',
   'password',
   'credential',
   'credentials',

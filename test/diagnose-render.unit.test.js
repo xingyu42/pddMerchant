@@ -16,6 +16,8 @@ const RENDER_PATH = join(__dirname, '..', 'src', 'commands', 'diagnose', '_rende
 // chalk 着色级别显式固定，防止宿主 TTY/CI 差异影响快照
 const chalk = (await import('chalk')).default;
 chalk.level = 3;
+// chalk 已在 import 时消费 FORCE_COLOR；立即清除，防止泄漏给同 worker 后续文件/子进程
+delete process.env.FORCE_COLOR;
 const render = await import('../src/commands/diagnose/_render.js');
 const { CASES } = await import('./fixtures/diagnose-render/cases.mjs');
 const baseline = JSON.parse(

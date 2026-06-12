@@ -180,13 +180,15 @@ function buildEnvelope(input) {
   if (rawDebugEnabled()) {
     const entries = [];
     collectRawEntries(data, '', entries, new WeakSet());
+    collectRawEntries(error, 'error', entries, new WeakSet());
     writeRawDebug(finalCommand, finalMeta.correlation_id, entries);
   }
   return {
     ok: Boolean(ok),
     command: finalCommand,
     data: stripRaw(data) ?? null,
-    error: error ?? null,
+    // error 子树同样过边界剥离（终审收口）：endpoint-client 会把后端 raw 体挂进 detail
+    error: stripRaw(error) ?? null,
     meta: finalMeta,
   };
 }

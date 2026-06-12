@@ -227,7 +227,7 @@ export class PlaywrightEndpointClient {
           message: businessErr?.message
             ? `${meta.name}: ${businessErr.message}`
             : `${meta.name}: business error`,
-          hint: raw?.errorMsg || raw?.error_msg || '查看 detail.raw 字段',
+          hint: raw?.errorMsg || raw?.error_msg || '设 PDD_DEBUG_RAW=1 查看脱敏后的原始响应',
           detail: { errorCode: raw?.errorCode ?? raw?.error_code, raw },
           exitCode: ExitCodes.BUSINESS,
         });

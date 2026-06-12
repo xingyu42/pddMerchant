@@ -207,4 +207,29 @@ describe('raw-debug PBT (PROP-RAW-2/3 — PDD_DEBUG_RAW stderr channel)', () => 
     const value = JSON.parse(entry.value);
     assert.ok(String(value.anti_content).startsWith('fp:'), 'cyclic sensitive value fingerprinted');
   });
+
+  // codex R2 终审收口：error.detail.raw 改走 stderr debug 通道（路径前缀 error.）
+  it('error.detail.raw routes through the stderr debug channel with error-prefixed path', () => {
+    process.env.PDD_DEBUG_RAW = '1';
+    let captured;
+    try {
+      captured = captureStreams(() => emit({
+        ok: false,
+        command: 'raw.errdbg',
+        error: { code: 'E_BUSINESS', message: 'biz', hint: '', detail: { raw: { anti_content: 'AC-ERRDBG-SECRET' } } },
+        meta: { correlation_id: 'cid-err' },
+      }, { json: true, noColor: true }));
+    } finally {
+      delete process.env.PDD_DEBUG_RAW;
+    }
+
+    assert.ok(!captured.stdout.includes('AC-ERRDBG-SECRET'), 'stdout must not leak error raw');
+    assert.ok(!captured.stdout.includes('"raw"'), 'stdout error must be raw-free');
+    const lines = debugLines(captured.stderr);
+    assert.equal(lines.length, 1);
+    const entry = JSON.parse(lines[0]).raw.find((e) => e.path === 'error.detail.raw');
+    assert.ok(entry, 'error raw entry expected on stderr');
+    assert.ok(entry.value.includes('fp:'), 'error raw value redacted');
+    assert.ok(!captured.stderr.includes('AC-ERRDBG-SECRET'), 'stderr must be redacted');
+  });
 });

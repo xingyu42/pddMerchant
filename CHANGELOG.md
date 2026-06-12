@@ -12,9 +12,12 @@
 ### Breaking：`raw` 成为 envelope data 保留键
 
 - envelope `data` 下**任意深度**键名严格等于 `raw` 的属性会被递归剥离（含数组内对象）；批量模式逐账号 data 同样适用。
-- 业务字段名不受影响（`rawValue`、`raw_url` 等不剥离）。依赖 `data.*.raw` 的消费脚本请迁移至 `PDD_DEBUG_RAW` stderr 通道。
+- **失败面同步剥离**：`error` 子树（含 `error.detail.raw`）同样在 envelope 边界剥离——失败响应的原始报文不再随 `--json` stdout 输出，调试同样走 `PDD_DEBUG_RAW=1`（stderr JSONL 中以 `error.` 路径前缀标记）。
+- 业务字段名不受影响（`rawValue`、`raw_url` 等不剥离）。依赖 `data.*.raw` / `error.detail.raw` 的消费脚本请迁移至 `PDD_DEBUG_RAW` stderr 通道。
 
 ### 新增（additive）
+
+- **REDACT_KEYS 新增收件人 PII 别名**：`receiver_phone`、`receiverPhone`、`receiver_address`、`receiverAddress`、`Cookie` 加入脱敏键集——订单详情类载荷的收件人手机号/详细地址在所有输出面（json/human/debug/日志）以 `fp:` 指纹呈现；省市区等粗粒度地理字段保持可见。
 
 - **batch 冷却归因 warning**：批量执行中某账号触发 rate-limit 冷却后（冷却在进程内按 endpoint 维度共享），后续账号命中**同一 endpoint** 的已激活冷却时，batch envelope 顶层 `meta.warnings` 追加 `cooldown_inherited_from:<slug>`（按字串去重；`<slug>` 为该 endpoint 最近一次触发冷却的账号，来源 endpoint 不明时退化为全局归因）。`data.accounts` 形状与 exit code 语义不变。
 - **human 输出脱敏展示副本**：human 模式全部渲染路径（table / 自定义 renderer / 错误提示 / batch 渲染）以脱敏副本展示，敏感字段不再明文出现；`--json` 输出不变。
