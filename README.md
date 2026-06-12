@@ -124,7 +124,8 @@ Envelope 结构：
 
 | 变量 | 用途 |
 |------|------|
-| `PDD_AUTH_STATE_PATH` | 覆盖 auth state 文件路径（默认 `data/auth-state.json`） |
+| `PDD_AUTH_STATE_PATH` | 覆盖 auth state 文件路径（默认 POSIX: `~/.pdd-cli/auth-state.json`，Windows: `%APPDATA%/pdd-cli/auth-state.json`） |
+| `PDD_DEBUG_RAW` | 设为 `1` 将剥离前的 raw 载荷脱敏后以单行 JSONL 写 stderr（单值 64KiB 截断标 `truncated`）；stdout envelope 与退出码不受影响 |
 | `PDD_LOG_DESTINATION` | 日志输出目标（绝对路径 / 项目相对路径） |
 | `PDD_MALL_ID_STRICT_PARSE` | 设为 `0` 允许 mall ID 至 64 字符（默认严格 1-15 位数字） |
 | `PDD_TEST_ADAPTER` | 设为 `fixture` 启用 mock 模式（跳过真实浏览器） |

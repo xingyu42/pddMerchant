@@ -10,18 +10,45 @@ function shouldUseColor({ tty, noColor }) {
   return Boolean(tty ?? process.stdout.isTTY);
 }
 
-// JSON 序列化等价面：带 toJSON 的对象（如 Date）由 JSON 自行转换，剥离/收集均透传；
+// JSON 序列化等价面：toJSON 返回标量的内建（如 Date）保引用透传；
+// toJSON 返回对象时按 JSON.stringify 的实际输出面物化后继续处理（防 raw 借 toJSON 旁路）；
 // 其余对象（含类实例）按自有可枚举属性处理 —— 与 JSON.stringify 的输出面严格一致。
 function hasCustomJson(value) {
   return typeof value?.toJSON === 'function';
+}
+
+// toJSON 抛错时 JSON.stringify 终将同样抛错；此处返回 null 让调用方按标量面透传原值。
+function materializeJson(value) {
+  try {
+    return value.toJSON();
+  } catch {
+    return null;
+  }
+}
+
+// '__proto__' 走 [[Set]] 会改写原型而非建自有属性；defineProperty 保证逐键拷贝语义。
+function setOwn(target, key, value) {
+  if (key === '__proto__') {
+    Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+    return;
+  }
+  target[key] = value;
 }
 
 // envelope.data 的保留键收口（design D-1）：递归删除键名严格 === 'raw' 的属性。
 // 非变异；rawValue / raw_url 等近似键不受影响。
 // seen 为路径栈语义（回溯时 delete）：真环 → '[Circular]'，DAG 共享引用正常展开。
 function stripRaw(value, seen = new WeakSet()) {
-  if (value == null || typeof value !== 'object' || hasCustomJson(value)) return value;
+  if (value == null || typeof value !== 'object') return value;
   if (seen.has(value)) return '[Circular]';
+  if (hasCustomJson(value)) {
+    const materialized = materializeJson(value);
+    if (materialized == null || typeof materialized !== 'object') return value;
+    seen.add(value);
+    const out = stripRaw(materialized, seen);
+    seen.delete(value);
+    return out;
+  }
   seen.add(value);
   let out;
   if (Array.isArray(value)) {
@@ -30,7 +57,7 @@ function stripRaw(value, seen = new WeakSet()) {
     out = {};
     for (const [k, v] of Object.entries(value)) {
       if (k === 'raw') continue;
-      out[k] = stripRaw(v, seen);
+      setOwn(out, k, stripRaw(v, seen));
     }
   }
   seen.delete(value);
@@ -71,7 +98,15 @@ function serializeRawValue(value) {
 
 // 剥离前收集 data 下全部 raw 键（与 stripRaw 同遍历面/同路径栈语义：DAG 共享子树每条路径各收集一次）。
 function collectRawEntries(value, path, entries, seen) {
-  if (value == null || typeof value !== 'object' || hasCustomJson(value) || seen.has(value)) return;
+  if (value == null || typeof value !== 'object' || seen.has(value)) return;
+  if (hasCustomJson(value)) {
+    const materialized = materializeJson(value);
+    if (materialized == null || typeof materialized !== 'object') return;
+    seen.add(value);
+    collectRawEntries(materialized, path, entries, seen);
+    seen.delete(value);
+    return;
+  }
   seen.add(value);
   if (Array.isArray(value)) {
     value.forEach((v, i) => collectRawEntries(v, appendRawPath(path, `[${i}]`), entries, seen));
@@ -127,6 +162,7 @@ function collectBatchRawEntries(entries) {
   const rawEntries = [];
   for (const [slug, r] of entries) {
     if (r.ok) collectRawEntries(r.data, `accounts.${slug}`, rawEntries, new WeakSet());
+    else collectRawEntries(r.error, `accounts.${slug}.error`, rawEntries, new WeakSet());
   }
   return rawEntries;
 }
@@ -234,7 +270,7 @@ export function emit(envelopeInput, options = {}) {
     };
     process.stdout.write(JSON.stringify(safeEnvelope) + '\n');
     if (envelope.error) {
-      const errLine = renderError(envelope, { useColor: false });
+      const errLine = renderError(safeEnvelope, { useColor: false });
       if (errLine) process.stderr.write(errLine + '\n');
     }
     return envelope;
@@ -272,7 +308,8 @@ function buildBatchEnvelope(name, accountResults, batchMeta = {}) {
   for (const [slug, r] of entries) {
     accounts[slug] = {
       ok: r.ok,
-      ...(r.ok ? { data: stripRaw(r.data) } : { error: r.error }),
+      // 失败侧 error 同样过 stripRaw：本函数返回值即 envelope 边界（emit 的二次剥离只兜底 stdout）
+      ...(r.ok ? { data: stripRaw(r.data) } : { error: stripRaw(r.error) }),
       latency_ms: r.latency_ms ?? r.meta?.latency_ms ?? 0,
     };
   }

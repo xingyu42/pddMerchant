@@ -234,3 +234,43 @@ describe('raw-strip DAG / cycle semantics', () => {
     assert.equal(envelope.data.keep, 2);
   });
 });
+
+// 双审收口回归（review-cx.md CX#1/CX#4 + __proto__ 遍历面加固）
+describe('raw-strip boundary hardening (dual-review closeout)', () => {
+  it('CX#1: object-returning toJSON cannot smuggle raw onto the JSON surface', () => {
+    const data = {
+      wrapped: {
+        toJSON() {
+          return { raw: { anti_content: 'AC-TOJSON-SECRET' }, keep: 1 };
+        },
+      },
+    };
+    const envelope = buildEnvelope({ ok: true, command: 'raw.tojson', data });
+    const json = JSON.stringify(envelope);
+    assert.equal(json.includes('"raw"'), false, 'raw key must not survive via toJSON');
+    assert.equal(json.includes('AC-TOJSON-SECRET'), false, 'sentinel must not leak');
+    assert.equal(JSON.parse(json).data.wrapped.keep, 1, 'non-raw toJSON output survives');
+  });
+
+  it("'__proto__' own key survives as own key without prototype hijack", () => {
+    const data = JSON.parse('{"__proto__":{"keep":1},"plain":2}');
+    const envelope = buildEnvelope({ ok: true, command: 'raw.proto', data });
+    assert.equal(Object.getPrototypeOf(envelope.data), Object.prototype, 'prototype must stay Object.prototype');
+    assert.deepEqual(Object.getOwnPropertyDescriptor(envelope.data, '__proto__')?.value, { keep: 1 });
+    assert.equal(envelope.data.plain, 2);
+    assert.equal(JSON.stringify(envelope.data).includes('__proto__'), true, 'JSON face keeps the own key');
+  });
+
+  it('CX#4: buildBatchEnvelope strips raw from failed-account error too', () => {
+    const envelope = buildBatchEnvelope('raw.batch.err', {
+      'shop-a': {
+        ok: false,
+        error: { code: 'E_GENERAL', message: 'x', detail: { raw: { anti_content: 'AC-ERR-SECRET' } } },
+        latency_ms: 1,
+      },
+    }, { exit_code: 1 });
+    assert.equal(countRaw(envelope.data), 0, 'no raw key anywhere in batch envelope data');
+    assert.equal(JSON.stringify(envelope).includes('AC-ERR-SECRET'), false, 'sentinel must not leak');
+    assert.equal(envelope.data.accounts['shop-a'].error.code, 'E_GENERAL', 'error shape otherwise intact');
+  });
+});

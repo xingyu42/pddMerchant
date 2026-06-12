@@ -35,9 +35,32 @@ const REDACT_KEYS = [
 
 const REDACT_KEY_SET = new Set(REDACT_KEYS);
 
+// 指纹序列化必须不可抛：敏感值可能含环（→'[Circular]'）或 bigint（→string）。
+// 访问集语义：共享引用二次出现记 '[Circular]'——指纹只用于关联比对，无需保真展开。
+function safeStringify(value) {
+  const seen = new WeakSet();
+  return JSON.stringify(value, (_k, v) => {
+    if (typeof v === 'bigint') return v.toString();
+    if (v != null && typeof v === 'object') {
+      if (seen.has(v)) return '[Circular]';
+      seen.add(v);
+    }
+    return v;
+  }) ?? 'null';
+}
+
 function fingerprint(value) {
   if (value == null) return value;
-  const str = typeof value === 'string' ? value : JSON.stringify(value);
+  let str;
+  if (typeof value === 'string') {
+    str = value;
+  } else {
+    try {
+      str = safeStringify(value);
+    } catch {
+      str = String(value);
+    }
+  }
   return 'fp:' + createHash('sha256').update(str).digest('hex').slice(0, 8);
 }
 

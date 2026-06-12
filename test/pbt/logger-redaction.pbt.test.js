@@ -38,4 +38,20 @@ describe('Logger redaction PBT', () => {
       { numRuns: 50 }
     );
   });
+
+  // 双审收口回归（review-cx.md CX#2 根因）：敏感键值的指纹序列化对环/bigint 必须不抛且确定。
+  it('fingerprint: cyclic value under a sensitive key redacts without throwing, deterministically', () => {
+    const cyc = { mobile: '13800001111' };
+    cyc.self = cyc;
+    const redacted = redactRecursive({ anti_content: cyc });
+    assert.ok(String(redacted.anti_content).startsWith('fp:'), 'cyclic sensitive value must fingerprint');
+    const again = redactRecursive({ anti_content: cyc });
+    assert.equal(redacted.anti_content, again.anti_content, 'fingerprint must be deterministic');
+    assert.ok(!JSON.stringify(redacted).includes('13800001111'), 'no plaintext leak');
+  });
+
+  it('fingerprint: bigint inside a sensitive value redacts without throwing', () => {
+    const redacted = redactRecursive({ authorization: { token_id: 10n } });
+    assert.ok(String(redacted.authorization).startsWith('fp:'));
+  });
 });

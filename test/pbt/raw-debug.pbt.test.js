@@ -178,4 +178,33 @@ describe('raw-debug PBT (PROP-RAW-2/3 — PDD_DEBUG_RAW stderr channel)', () => 
       return true;
     });
   });
+
+  // 双审收口回归（review-cx.md CX#2）：敏感键下循环值不得让 debug 开关改变命令结果
+  it('CX#2: cyclic value under a sensitive key — no crash, stdout intact, stderr fingerprinted', () => {
+    const cyc = {};
+    cyc.self = cyc;
+    const data = { raw: { anti_content: cyc }, keep: 1 };
+    process.env.PDD_DEBUG_RAW = '1';
+    let captured;
+    try {
+      captured = captureStreams(() => emit(
+        { ok: true, command: 'raw.cyclic', data, meta: { correlation_id: 'cid-cyc' } },
+        { json: true, noColor: true },
+      ));
+    } finally {
+      delete process.env.PDD_DEBUG_RAW;
+    }
+
+    const envelope = JSON.parse(captured.stdout.trim());
+    assert.equal(envelope.ok, true, 'debug channel must not flip a successful command');
+    assert.equal(envelope.data.keep, 1);
+    assert.equal(JSON.stringify(envelope.data).includes('"raw"'), false);
+
+    const lines = debugLines(captured.stderr);
+    assert.equal(lines.length, 1);
+    const entry = JSON.parse(lines[0]).raw.find((e) => e.path === 'raw');
+    assert.ok(entry, 'raw entry present on stderr');
+    const value = JSON.parse(entry.value);
+    assert.ok(String(value.anti_content).startsWith('fp:'), 'cyclic sensitive value fingerprinted');
+  });
 });
