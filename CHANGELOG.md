@@ -23,6 +23,10 @@
 
 - `bin/pdd.js` 注册拆分至 `src/commands/registry/`（全部 help 输出与拆分前逐字节一致）；`_runner.js`、`mock-dispatcher.js` 改为 facade + 拆分模块；diagnose 渲染下沉 `src/commands/diagnose/_render.js`。envelope schema 与 8 个 exit code 不变。
 
+### 勘误（docs）
+
+- **auth-state 默认路径**：V0.3 笔记所述"默认位置移至 OS 用户目录"已于后续提交（c8c0d9e）回退——当前默认始终为项目内 `data/auth-state.json`，`PDD_AUTH_STATE_PATH` 覆盖语义不变。请勿按 V0.3 笔记寻找 `~/.pdd-cli/`。
+
 ---
 
 ## V0.3 Migration Notes
