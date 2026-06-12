@@ -16,7 +16,7 @@
 
 ### 新增（additive）
 
-- **batch 冷却归因 warning**：批量执行中某账号触发全局 rate-limit 冷却后，batch envelope 顶层 `meta.warnings` 追加 `cooldown_inherited_from:<slug>`（按字串去重；`<slug>` 为触发冷却的账号）。`data.accounts` 形状与 exit code 语义不变。
+- **batch 冷却归因 warning**：批量执行中某账号触发 rate-limit 冷却后（冷却在进程内按 endpoint 维度共享），后续账号命中**同一 endpoint** 的已激活冷却时，batch envelope 顶层 `meta.warnings` 追加 `cooldown_inherited_from:<slug>`（按字串去重；`<slug>` 为该 endpoint 最近一次触发冷却的账号，来源 endpoint 不明时退化为全局归因）。`data.accounts` 形状与 exit code 语义不变。
 - **human 输出脱敏展示副本**：human 模式全部渲染路径（table / 自定义 renderer / 错误提示 / batch 渲染）以脱敏副本展示，敏感字段不再明文出现；`--json` 输出不变。
 
 ### 内部重构（无契约影响）

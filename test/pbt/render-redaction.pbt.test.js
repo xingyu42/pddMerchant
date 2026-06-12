@@ -114,4 +114,26 @@ describe('render-redaction PBT (PROP-RAW-4 — human output paths)', () => {
       return true;
     });
   });
+
+  // CX#3 一致性回归（codex 终审建议）：--json 模式 stderr 错误行与 stdout 同源（脱敏副本）。
+  // renderError 仅打印 code/message/hint 字符串；detail 中敏感键值不得借任一流外泄。
+  it('PROP-RAW-4e: json-mode stderr error line renders from the redacted copy', async () => {
+    await property('json-error-stderr-redacted', sensitiveGen, ({ sentinels, data }) => {
+      const captured = captureStreams(() => emit(
+        {
+          ok: false,
+          command: 'render.err',
+          data: null,
+          error: { code: 'E_BUSINESS', message: 'op failed', hint: 'retry later', detail: { wrapped: data } },
+          meta: { exit_code: 6 },
+        },
+        { json: true, noColor: true },
+      ));
+      assertNoSentinels(captured, sentinels);
+      assert.ok(captured.stderr.includes('[E_BUSINESS] op failed'), 'stderr error header expected');
+      assert.ok(captured.stderr.includes('hint: retry later'), 'stderr hint line expected');
+      assert.ok(captured.stdout.includes('fp:'), 'stdout error detail must be fingerprinted');
+      return true;
+    });
+  });
 });

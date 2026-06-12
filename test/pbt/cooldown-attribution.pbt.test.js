@@ -82,19 +82,20 @@ function makeResult(kind, warnings = [], index = 0) {
 }
 
 describe('cooldown attribution PBT', () => {
-  it('PROP-COOL-1: inherited warning always names the most recent self-rate-limited slug (last-wins)', async () => {
+  // 本属性事件 detail 缺 endpoint（旧错误形状）→ 全部退化记入 '*'：钉死退化路径的 last-wins 语义
+  it('PROP-COOL-1: inherited warning always names the most recent self-rate-limited slug (last-wins, fallback key)', async () => {
     await property('cooldown-attribution-accuracy', eventSequenceGen, (events) => {
       let expectedSource = null;
-      let actualSource = null;
+      let sources = {};
       for (let i = 0; i < events.length; i += 1) {
         const event = events[i];
         const result = makeResult(event.kind, [], i);
         const sourceBefore = expectedSource;
 
-        actualSource = applyCooldownAttribution(result, event.slug, actualSource);
+        sources = applyCooldownAttribution(result, event.slug, sources);
         if (event.kind === 'self_rate_limited') expectedSource = event.slug;
 
-        assert.equal(actualSource, expectedSource);
+        assert.equal(sources['*'] ?? null, expectedSource);
         const inherited = result.meta.warnings.filter((w) => w.startsWith(COOLDOWN_PREFIX));
         const shouldInherit = event.kind === 'inherited_cooldown'
           && Boolean(sourceBefore)
@@ -116,9 +117,9 @@ describe('cooldown attribution PBT', () => {
       }
       const baseline = structuredClone(results);
 
-      let source = null;
+      let sources = {};
       for (const entry of entries) {
-        source = applyCooldownAttribution(results[entry.slug], entry.slug, source);
+        sources = applyCooldownAttribution(results[entry.slug], entry.slug, sources);
       }
 
       assert.equal(batchExitCode(results), batchExitCode(baseline));
@@ -131,6 +132,54 @@ describe('cooldown attribution PBT', () => {
         assert.strictEqual(after.data, dataRefs[entry.slug]);
         assert.deepEqual(after.meta.warnings.slice(0, entry.warnings.length), entry.warnings);
         assert.ok(after.meta.warnings.length >= before.meta.warnings.length);
+      }
+      return true;
+    });
+  });
+
+  // PROP-COOL-4（R3.1，codex 终审建议转属性）：归因按 endpoint 隔离——
+  // 继承警告只归因同 endpoint 的最近源，跨 endpoint 不串扰；带 endpoint 的事件不得触碰退化键 '*'。
+  it('PROP-COOL-4: attribution is endpoint-scoped — no cross-endpoint blame', async () => {
+    const ENDPOINTS = ['ep.alpha', 'ep.beta'];
+    const endpointEventSequenceGen = (rng) => {
+      const length = gen.int(1, 24)(rng);
+      const events = [];
+      for (let i = 0; i < length; i += 1) {
+        events.push({
+          slug: slugFrom(gen.int(0, 4)(rng)),
+          kind: gen.oneOf(EVENT_KINDS)(rng),
+          endpoint: gen.oneOf(ENDPOINTS)(rng),
+        });
+      }
+      return events;
+    };
+    const makeEndpointResult = (kind, endpoint, index) => {
+      if (kind === 'success') return makeResult('success', [], index);
+      const detail = kind === 'inherited_cooldown'
+        ? { endpoint, cooldown_remaining_ms: 300000, cooldown_triggered: true }
+        : { endpoint, status: 429 };
+      return failureResult('E_RATE_LIMIT', ExitCodes.RATE_LIMIT, [], index, detail);
+    };
+
+    await property('cooldown-attribution-endpoint-scope', endpointEventSequenceGen, (events) => {
+      const expected = {};
+      let sources = {};
+      for (let i = 0; i < events.length; i += 1) {
+        const event = events[i];
+        const result = makeEndpointResult(event.kind, event.endpoint, i);
+        const sourceBefore = expected[event.endpoint] ?? null;
+
+        sources = applyCooldownAttribution(result, event.slug, sources);
+        if (event.kind === 'self_rate_limited') expected[event.endpoint] = event.slug;
+
+        assert.equal(sources[event.endpoint] ?? null, expected[event.endpoint] ?? null);
+        assert.equal(sources['*'] ?? null, null, 'endpoint-carrying events must never touch the fallback key');
+
+        const inherited = (result.meta?.warnings ?? []).filter((w) => w.startsWith(COOLDOWN_PREFIX));
+        const shouldInherit = event.kind === 'inherited_cooldown'
+          && Boolean(sourceBefore)
+          && sourceBefore !== event.slug;
+        assert.deepEqual(inherited, shouldInherit ? [`${COOLDOWN_PREFIX}${sourceBefore}`] : []);
       }
       return true;
     });

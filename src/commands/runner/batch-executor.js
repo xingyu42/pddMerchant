@@ -18,6 +18,8 @@ function batchJitter() {
 }
 
 const COOLDOWN_INHERITED_PREFIX = 'cooldown_inherited_from:';
+// 来源 endpoint 不明（错误形状缺 detail.endpoint）时的退化归因键
+const COOLDOWN_GLOBAL_KEY = '*';
 
 function appendAccountWarning(result, warning) {
   if (Array.isArray(result.meta?.warnings)) {
@@ -27,18 +29,24 @@ function appendAccountWarning(result, warning) {
   result.meta = { ...result.meta, warnings: [warning] };
 }
 
-// R3 cooldown 归因状态机（design D-5）：返回更新后的冷却源 slug，仅批量路径调用。
-// "自身被限流"（E_RATE_LIMIT 且 detail.cooldown_triggered 非真）→ 当前账号成为源（last-wins）；
-// "命中已激活冷却"（cooldown_triggered === true）且源非自身 → 追加继承警告（additive-only，
-// 不触碰 ok/exit_code/data，batchExitCode 语义不变）。
-export function applyCooldownAttribution(result, slug, lastSourceSlug) {
-  if (result?.ok !== false || result.error?.code !== 'E_RATE_LIMIT') return lastSourceSlug;
-  if (result.error.detail?.cooldown_triggered !== true) return slug;
-
-  if (lastSourceSlug && lastSourceSlug !== slug) {
-    appendAccountWarning(result, `${COOLDOWN_INHERITED_PREFIX}${lastSourceSlug}`);
+// R3 cooldown 归因状态机（design D-5）：返回更新后的「endpoint → 冷却源 slug」映射，仅批量路径调用。
+// 冷却状态在 endpoint-client 按 endpoint 分键（进程内共享），归因同维度展开（codex 终审建议）：
+// "自身被限流"（E_RATE_LIMIT 且 detail.cooldown_triggered 非真）→ 当前账号成为该 endpoint 的源
+//   （last-wins；detail.endpoint 缺失时退化记入 '*'）；
+// "命中已激活冷却"（cooldown_triggered === true）→ 先查同 endpoint 源、缺失退化查 '*'，
+//   源非自身则追加继承警告（additive-only，不触碰 ok/exit_code/data，batchExitCode 语义不变）。
+export function applyCooldownAttribution(result, slug, sourcesByEndpoint) {
+  if (result?.ok !== false || result.error?.code !== 'E_RATE_LIMIT') return sourcesByEndpoint;
+  const endpoint = result.error.detail?.endpoint ?? COOLDOWN_GLOBAL_KEY;
+  if (result.error.detail?.cooldown_triggered !== true) {
+    return { ...sourcesByEndpoint, [endpoint]: slug };
   }
-  return lastSourceSlug;
+
+  const source = sourcesByEndpoint[endpoint] ?? sourcesByEndpoint[COOLDOWN_GLOBAL_KEY];
+  if (source && source !== slug) {
+    appendAccountWarning(result, `${COOLDOWN_INHERITED_PREFIX}${source}`);
+  }
+  return sourcesByEndpoint;
 }
 
 function assertBatchUsage(opts) {
@@ -107,7 +115,7 @@ async function runOneAccount(spec, opts, slug, batch) {
 
 async function runAccountLoop(spec, opts, accounts, batch) {
   const accountResults = {};
-  let lastCooldownSourceSlug = null;
+  let cooldownSources = {};
   for (let i = 0; i < accounts.length; i++) {
     if (batch.signal.aborted) break;
 
@@ -116,7 +124,7 @@ async function runAccountLoop(spec, opts, accounts, batch) {
 
     const result = await runOneAccount(spec, opts, slug, batch);
     // 归因须先于 warnings 上抛：继承警告借下方既有复制循环进入 batchWarnings。
-    lastCooldownSourceSlug = applyCooldownAttribution(result, slug, lastCooldownSourceSlug);
+    cooldownSources = applyCooldownAttribution(result, slug, cooldownSources);
     accountResults[slug] = result;
 
     if (result.meta?.warnings) {

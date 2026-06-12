@@ -29,18 +29,23 @@ function baseMeta(exitCode) {
   return { v: 1, exit_code: exitCode, latency_ms: 1, xhr_count: 0, warnings: [] };
 }
 
+// detail 形状取自 endpoint-client：self 429 路径现含 endpoint（R3.1 endpoint 感知归因）；
+// other_endpoint 变体覆盖跨 endpoint 不串扰。
+const FAILURE_DETAILS = {
+  inherited_cooldown: { endpoint: 'orders.list', cooldown_remaining_ms: 240000, cooldown_triggered: true },
+  inherited_cooldown_other_endpoint: { endpoint: 'goods.list', cooldown_remaining_ms: 240000, cooldown_triggered: true },
+  self_rate_limited: { endpoint: 'orders.list', url: 'https://mms.pinduoduo.com', status: 429 },
+};
+
 function envelopeFor(name, kind) {
   if (kind === 'success') {
     return { ok: true, command: name, data: { value: 1 }, error: null, meta: baseMeta(ExitCodes.OK) };
   }
-  const detail = kind === 'inherited_cooldown'
-    ? { endpoint: 'orders.list', cooldown_remaining_ms: 240000, cooldown_triggered: true }
-    : { url: 'https://mms.pinduoduo.com', status: 429 };
   return {
     ok: false,
     command: name,
     data: null,
-    error: { code: 'E_RATE_LIMIT', message: kind, hint: '', detail },
+    error: { code: 'E_RATE_LIMIT', message: kind, hint: '', detail: FAILURE_DETAILS[kind] },
     meta: baseMeta(ExitCodes.RATE_LIMIT),
   };
 }
@@ -103,5 +108,17 @@ describe('executeBatch cooldown attribution wiring', () => {
 
     assert.equal(envelope.meta.warnings.some((w) => w.startsWith(COOLDOWN_PREFIX)), false);
     assert.equal(envelope.meta.exit_code, ExitCodes.PARTIAL);
+  });
+
+  it('does not attribute a cooldown hit on a different endpoint (R3.1 endpoint-scoped)', async () => {
+    const cmd = arrangeBatch({
+      'shop-a': 'self_rate_limited',
+      'shop-b': 'inherited_cooldown_other_endpoint',
+    });
+
+    const envelope = await cmd({ allAccounts: true, json: true, noColor: true });
+
+    assert.equal(envelope.meta.warnings.some((w) => w.startsWith(COOLDOWN_PREFIX)), false,
+      'goods.list cooldown must not be blamed on the orders.list source');
   });
 });

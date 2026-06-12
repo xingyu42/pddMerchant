@@ -149,7 +149,7 @@ export class PlaywrightEndpointClient {
           code: 'E_RATE_LIMIT',
           message: `${meta.name}: rate limited after ${RETRY_DELAYS_MS.length} retries`,
           hint: '请求过于频繁，请稍后重试',
-          detail: { url: navUrl, status },
+          detail: { endpoint: meta.name, url: navUrl, status },
           exitCode: ExitCodes.RATE_LIMIT,
         });
       }
@@ -202,7 +202,7 @@ export class PlaywrightEndpointClient {
           code: 'E_RATE_LIMIT',
           message: `${meta.name}: rate limit detected (${rateLimitClass})`,
           hint: '请求过于频繁，请稍后重试',
-          detail: { classification: rateLimitClass, raw },
+          detail: { endpoint: meta.name, classification: rateLimitClass, raw },
           exitCode: ExitCodes.RATE_LIMIT,
         });
       }
