@@ -3,8 +3,16 @@ import assert from 'node:assert/strict';
 import { buildStealthScript, DEFAULT_FINGERPRINT_PROFILE } from '../../src/infra/stealth-scripts.js';
 
 describe('stealth-scripts', () => {
-  it('DEFAULT_FINGERPRINT_PROFILE is frozen', () => {
-    assert.throws(() => { DEFAULT_FINGERPRINT_PROFILE.locale = 'en'; });
+  it('DEFAULT_FINGERPRINT_PROFILE has expected structure', () => {
+    // DEFAULT_FINGERPRINT_PROFILE 现在是动态生成的（支持确定性指纹种子）
+    // 验证其包含必需的字段
+    assert.equal(typeof DEFAULT_FINGERPRINT_PROFILE, 'object');
+    assert.ok(DEFAULT_FINGERPRINT_PROFILE.locale);
+    assert.ok(DEFAULT_FINGERPRINT_PROFILE.timezoneId);
+    assert.ok(Array.isArray(DEFAULT_FINGERPRINT_PROFILE.languages));
+    assert.ok(DEFAULT_FINGERPRINT_PROFILE.webglVendor);
+    assert.ok(DEFAULT_FINGERPRINT_PROFILE.webglRenderer);
+    assert.equal(typeof DEFAULT_FINGERPRINT_PROFILE.canvasNoise, 'boolean');
   });
 
   it('buildStealthScript returns a string', () => {

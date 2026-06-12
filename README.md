@@ -128,6 +128,7 @@ Envelope 结构：
 | `PDD_DEBUG_RAW` | 设为 `1` 将剥离前的 raw 载荷脱敏后以单行 JSONL 写 stderr（单值 64KiB 截断标 `truncated`）；stdout envelope 与退出码不受影响 |
 | `PDD_LOG_DESTINATION` | 日志输出目标（绝对路径 / 项目相对路径） |
 | `PDD_MALL_ID_STRICT_PARSE` | 设为 `0` 允许 mall ID 至 64 字符（默认严格 1-15 位数字） |
+| `PDD_FINGERPRINT_SEED` | 确定性指纹种子（留空=随机，建议设置为 mall_id 以模拟回访用户，降低风控分数） |
 | `PDD_TEST_ADAPTER` | 设为 `fixture` 启用 mock 模式（跳过真实浏览器） |
 | `PDD_TEST_FIXTURE_DIR` | 指定 fixture 数据目录 |
 | `PLAYWRIGHT_DOWNLOAD_HOST` | Playwright 浏览器下载镜像 |

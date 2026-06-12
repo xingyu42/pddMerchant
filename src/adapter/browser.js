@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { chromium } from 'playwright';
 import { isMockEnabled, mockLaunchBrowser, mockCloseBrowser } from './mock-dispatcher.js';
 import { getLogger } from '../infra/logger.js';
-import { buildStealthScript, DEFAULT_FINGERPRINT_PROFILE } from '../infra/stealth-scripts.js';
+import { buildStealthScript, generateFingerprintProfile } from '../infra/stealth-scripts.js';
 
 const DEFAULT_VIEWPORT = { width: 1920, height: 1080 };
 const DEFAULT_USER_AGENT =
@@ -67,7 +67,8 @@ export async function launchBrowser({
     }
 
     const context = await browser.newContext(contextOptions);
-    await context.addInitScript(buildStealthScript(DEFAULT_FINGERPRINT_PROFILE));
+    const fingerprint = generateFingerprintProfile();
+    await context.addInitScript(buildStealthScript(fingerprint));
     const page = await context.newPage();
 
     return { browser, context, page };
@@ -136,7 +137,8 @@ export async function createConsumerContext(browser, { storageStatePath, viewpor
     contextOptions.storageState = storageStatePath;
   }
   const context = await browser.newContext(contextOptions);
-  await context.addInitScript(buildStealthScript(DEFAULT_FINGERPRINT_PROFILE));
+  const fingerprint = generateFingerprintProfile();
+  await context.addInitScript(buildStealthScript(fingerprint));
   const page = await context.newPage();
 
   return {
