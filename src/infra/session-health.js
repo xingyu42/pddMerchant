@@ -10,6 +10,7 @@ const SCORE_DELTA = Object.freeze({
   slider: -30,
   'risk-modal': -40,
   'login-redirect': -50,
+  desensitized: -25,
 });
 
 const MULTIPLIER_BANDS = [

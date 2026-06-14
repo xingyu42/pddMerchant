@@ -1,4 +1,4 @@
-import { PddCliError, ExitCodes } from '../../infra/errors.js';
+import { PddCliError, ExitCodes, softRiskControlDetected } from '../../infra/errors.js';
 import { isMockEnabled, loadFixture } from '../mock-dispatcher.js';
 import { simulateHumanBrowsing } from '../behavior-simulator.js';
 import { detectPageRisk } from './risk-detector.js';
@@ -60,6 +60,14 @@ export function parseGoodsUrl(url) {
     hint: '确认链接包含 goods_id 参数，或直接传入数字 ID',
     exitCode: ExitCodes.USAGE,
   });
+}
+
+export function isPriceMasked(price) {
+  if (price === null || price === undefined) return true;
+  const str = String(price).trim();
+  if (str === '') return true;
+  if (!/^\d+(\.\d+)?$/.test(str)) return true;
+  return Number(str) <= 0; // ¥0 / 0.00 视为占位/脱敏，消费端正常商品价格 > 0
 }
 
 export function validateScrapedData(data) {
@@ -196,8 +204,23 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
           .map(i => i.src.split('?')[0])
       )],
       _fiberFound: fiberStr.length > 0,
+      _maskHint: /前往APP查看价格|APP内?查看价格|登录后?查看价格|查看完整价格/i.test(body),
     };
   }, goodsId);
+
+  // Phase 3.5: 软风控脱敏判定（激进：price 缺失/非正数，或出现"前往APP查看价格"类价格占位即拦截）
+  if (isPriceMasked(data.price) || data._maskHint) {
+    const signal = {
+      type: 'desensitized',
+      phase: 'source-extract',
+      reason: data._maskHint ? 'app_redirect_placeholder' : 'price_masked',
+      priceRaw: data.price ?? null,
+      skuEmpty: !data.skuText,
+      url: page.url(),
+    };
+    health.recordRisk(signal);
+    throw softRiskControlDetected(signal);
+  }
 
   validateScrapedData(data);
 

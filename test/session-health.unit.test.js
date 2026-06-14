@@ -34,6 +34,11 @@ describe('createSessionHealth', () => {
     assert.equal(health.score(), 80);
   });
 
+  it('recordRisk reduces score by 25 for desensitized (soft risk)', () => {
+    health.recordRisk({ type: 'desensitized' });
+    assert.equal(health.score(), 75);
+  });
+
   it('score clamps to 0', () => {
     health.recordRisk({ type: 'login-redirect' });
     health.recordRisk({ type: 'login-redirect' });

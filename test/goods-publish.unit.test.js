@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { parseGoodsUrl, validateScrapedData, parseSkuText } from '../src/adapter/goods-publish/source-scraper.js';
+import { parseGoodsUrl, validateScrapedData, parseSkuText, isPriceMasked } from '../src/adapter/goods-publish/source-scraper.js';
 import {
   normalizePropertyText,
   parsePropertiesText,
@@ -115,6 +115,41 @@ describe('validateScrapedData', () => {
       () => validateScrapedData({ ...validData, carousel: null }),
       (e) => e.code === 'E_BUSINESS'
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isPriceMasked (软风控脱敏判定)
+// ---------------------------------------------------------------------------
+describe('isPriceMasked', () => {
+  it('treats null as masked', () => {
+    assert.equal(isPriceMasked(null), true);
+  });
+
+  it('treats undefined as masked', () => {
+    assert.equal(isPriceMasked(undefined), true);
+  });
+
+  it('treats empty / whitespace string as masked', () => {
+    assert.equal(isPriceMasked(''), true);
+    assert.equal(isPriceMasked('   '), true);
+  });
+
+  it('treats non-numeric placeholder as masked', () => {
+    assert.equal(isPriceMasked('--'), true);
+    assert.equal(isPriceMasked('¥**'), true);
+    assert.equal(isPriceMasked('打开App查看'), true);
+  });
+
+  it('treats zero / non-positive price as masked (¥0 占位)', () => {
+    assert.equal(isPriceMasked('0'), true);
+    assert.equal(isPriceMasked('0.00'), true);
+  });
+
+  it('accepts valid positive numeric price strings', () => {
+    assert.equal(isPriceMasked('8.22'), false);
+    assert.equal(isPriceMasked('10'), false);
+    assert.equal(isPriceMasked('0.01'), false);
   });
 });
 

@@ -110,6 +110,16 @@ export function riskControlDetected(detail) {
   });
 }
 
+export function softRiskControlDetected(detail) {
+  return new PddCliError({
+    code: 'E_RISK_CONTROL_SOFT',
+    message: '检测到软风控脱敏：商品价格/SKU 不可见',
+    detail,
+    hint: '降低抓取频率、更换或养号消费者登录态，冷却后重试',
+    exitCode: ExitCodes.RATE_LIMIT,
+  });
+}
+
 export function captchaDetected(detail) {
   return new PddCliError({
     code: 'E_CAPTCHA_DOM',
