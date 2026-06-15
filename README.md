@@ -129,6 +129,8 @@ Envelope 结构：
 | `PDD_LOG_DESTINATION` | 日志输出目标（绝对路径 / 项目相对路径） |
 | `PDD_MALL_ID_STRICT_PARSE` | 设为 `0` 允许 mall ID 至 64 字符（默认严格 1-15 位数字） |
 | `PDD_FINGERPRINT_SEED` | 确定性指纹种子（留空=随机，建议设置为 mall_id 以模拟回访用户，降低风控分数） |
+| `PDD_SCRAPE_SOFTBLOCK_THRESHOLD` | 选品抓取连续命中 IP 软封多少次后进入冷却退避（默认 `2`） |
+| `PDD_SCRAPE_SOFTBLOCK_COOLDOWN_MS` | IP 软封冷却时长（毫秒，默认 `7200000` = 2 小时）；冷却期内 `goods publish` 抓取在发请求前直接短路退避 |
 | `PDD_TEST_ADAPTER` | 设为 `fixture` 启用 mock 模式（跳过真实浏览器） |
 | `PDD_TEST_FIXTURE_DIR` | 指定 fixture 数据目录 |
 | `PLAYWRIGHT_DOWNLOAD_HOST` | Playwright 浏览器下载镜像 |

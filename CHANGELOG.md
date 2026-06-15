@@ -21,6 +21,7 @@
 
 - **batch 冷却归因 warning**：批量执行中某账号触发 rate-limit 冷却后（冷却在进程内按 endpoint 维度共享），后续账号命中**同一 endpoint** 的已激活冷却时，batch envelope 顶层 `meta.warnings` 追加 `cooldown_inherited_from:<slug>`（按字串去重；`<slug>` 为该 endpoint 最近一次触发冷却的账号，来源 endpoint 不明时退化为全局归因）。`data.accounts` 形状与 exit code 语义不变。
 - **human 输出脱敏展示副本**：human 模式全部渲染路径（table / 自定义 renderer / 错误提示 / batch 渲染）以脱敏副本展示，敏感字段不再明文出现；`--json` 输出不变。
+- **IP 软封退避 + 持久长冷却**：选品抓取（`goods publish` Phase A）以**价格脱敏**（DOM `isPriceMasked`：价格 null/0/非法占位如"¥7.??"）作为 IP/会话软封信号；连续软封达 `PDD_SCRAPE_SOFTBLOCK_THRESHOLD`（默认 2）后进入持久冷却（`PDD_SCRAPE_SOFTBLOCK_COOLDOWN_MS`，默认 2h，落盘 `data/scrape-cooldown.json` 跨 CLI 调用生效），冷却期内抓取在发请求前短路退避（`E_RATE_LIMIT`，`detail.reason='ip_soft_block'`），避免反复重试持续烧 IP。纯 `_maskHint`（价格仍可解析）视为单品门控不计冷却。（不依赖 SSR 字段：登录态 `window.rawData` 有值，但其 `goods.enableSkuMask` 在正常商品上亦恒为 true，非软封判据。）纯防御退避，不绕过风控。
 
 ### 内部重构（无契约影响）
 

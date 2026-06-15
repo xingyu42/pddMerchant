@@ -21,6 +21,7 @@ export const AUTH_STATE_PATH = resolveDefaultAuthStatePath();
 export const CONFIG_PATH = join(CONFIG_DIR, 'config.json');
 export const DAEMON_STATE_PATH = join(DATA_DIR, 'daemon-state.json');
 export const DAEMON_LOG_PATH = join(DATA_DIR, 'daemon.log');
+export const SCRAPE_COOLDOWN_PATH = join(DATA_DIR, 'scrape-cooldown.json');
 
 function resolveDefaultAccountsDir() {
   const accountsDirEnv = process.env.PDD_ACCOUNTS_DIR;

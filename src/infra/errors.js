@@ -120,6 +120,18 @@ export function softRiskControlDetected(detail) {
   });
 }
 
+// IP/会话级软封冷却短路：连续脱敏达阈值后进入持久长冷却，期间直接退避不再发请求。
+export function scrapeCooldownActive(remainingMs, extra = {}) {
+  const remaining = Math.max(0, Math.ceil(Number(remainingMs) || 0));
+  return new PddCliError({
+    code: 'E_RATE_LIMIT',
+    message: `IP 软风控冷却中，约 ${Math.ceil(remaining / 1000)}s 后再尝试抓取`,
+    detail: { reason: 'ip_soft_block', cooldown_triggered: true, cooldown_remaining_ms: remaining, ...extra },
+    hint: 'PDD 对当前出口 IP/会话软封中，停止抓取等待自然恢复（通常数小时），勿换 IP 绕过',
+    exitCode: ExitCodes.RATE_LIMIT,
+  });
+}
+
 export function captchaDetected(detail) {
   return new PddCliError({
     code: 'E_CAPTCHA_DOM',

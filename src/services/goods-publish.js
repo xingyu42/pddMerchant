@@ -2,6 +2,7 @@ import { createConsumerContext } from '../adapter/browser.js';
 import { CONSUMER_AUTH_STATE_PATH } from '../infra/paths.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getSharedBreaker } from '../infra/circuit-breaker.js';
+import { getSharedScrapeCooldown } from '../infra/scrape-cooldown.js';
 import { parseGoodsUrl, scrapeSourceGoods } from '../adapter/goods-publish/source-scraper.js';
 import { resolvePddCategory, buildCategorySearchText } from '../adapter/goods-publish/category-resolver.js';
 import { selectCategory, fillGoodsForm, clickSaveDraft } from '../adapter/goods-publish/form-filler.js';
@@ -45,6 +46,11 @@ export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
   const log = ctx.log;
   const warnings = [];
   const breaker = getSharedBreaker();
+
+  // IP 软封冷却期内：在开浏览器上下文前就短路退避（省资源、不再烧 IP）。
+  // 放在 breaker.wrap 之外，避免把"主动退避"误记为 scrape 阶段失败而触发熔断。
+  // 与 scrapeSourceGoods 一致走 ctx 注入 seam（便于测试注入）。
+  (ctx.scrapeCooldown ?? getSharedScrapeCooldown()).check();
 
   const source = await breaker.wrap('scrape', async () => {
     log.info({ goodsId }, 'goods-publish: Phase A — scraping source');

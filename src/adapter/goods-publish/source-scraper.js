@@ -3,6 +3,7 @@ import { isMockEnabled, loadFixture } from '../mock-dispatcher.js';
 import { simulateHumanBrowsing } from '../behavior-simulator.js';
 import { detectPageRisk } from './risk-detector.js';
 import { getSharedSessionHealth } from '../../infra/session-health.js';
+import { getSharedScrapeCooldown } from '../../infra/scrape-cooldown.js';
 
 const KNOWN_SPEC_DIMS = new Set([
   '颜色分类', '颜色', '主要颜色', '花色',
@@ -107,10 +108,12 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
   if (isMockEnabled()) return loadFixture('goods-publish/source.json');
 
   const health = ctx.sessionHealth ?? getSharedSessionHealth();
+  const cooldown = ctx.scrapeCooldown ?? getSharedScrapeCooldown();
   const simulate = process.env.PDD_SCRAPE_SIMULATE !== '0';
   const random = ctx.random ?? Math.random;
 
-  // Phase 0: Pre-flight
+  // Phase 0: Pre-flight — IP 软封冷却期内直接短路退避（不 page.goto，避免继续烧 IP）
+  cooldown.check();
   health.check();
 
   const url = `https://mobile.yangkeduo.com/goods.html?goods_id=${goodsId}&refer_page_name=search_result&refer_page_id=10033&refer_page_sn=10033`;
@@ -210,6 +213,13 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
 
   // Phase 3.5: 软风控脱敏判定（激进：price 缺失/非正数，或出现"前往APP查看价格"类价格占位即拦截）
   if (isPriceMasked(data.price) || data._maskHint) {
+    // 跨进程退避信号：以 price 脱敏为软封签名（isPriceMasked：null/0/非法占位如"7."→脱敏；正常
+    // 商品价格 >0 故不进此门）。连续多个商品价格被抹 = 出口 IP/会话被 PDD 降级，应退避。纯
+    // _maskHint（价格能解析、单品促销占位）视为单品门控，不计入冷却。
+    // 为何不用 rawData 字段：登录态 window.rawData 有值，但 goods.enableSkuMask 在正常商品上也恒
+    // 为 true（2026-06-15 实测 708860729188 价 13.09/28 SKU 仍 true），非软封判据；软封态 rawData
+    // 签名又无可靠抓包。故只信可观测的 DOM 价格脱敏信号。
+    const isSoftBlock = isPriceMasked(data.price);
     const signal = {
       type: 'desensitized',
       phase: 'source-extract',
@@ -219,6 +229,11 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
       url: page.url(),
     };
     health.recordRisk(signal);
+    if (isSoftBlock) {
+      const cd = cooldown.recordSoftBlock(signal);
+      signal.cooldown_triggered = cd.cooldownTriggered;
+      signal.cooldown_remaining_ms = cd.cooldownRemainingMs;
+    }
     throw softRiskControlDetected(signal);
   }
 
@@ -226,5 +241,6 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
 
   // Phase 4: Post-flight
   health.recordSuccess();
+  cooldown.recordSuccess();
   return data;
 }

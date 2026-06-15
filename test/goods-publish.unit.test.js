@@ -552,6 +552,18 @@ vi.mock('../src/infra/circuit-breaker.js', () => ({
   _resetSharedBreaker: () => {},
 }));
 
+// scrape-cooldown 在服务层早短路被调用（getSharedScrapeCooldown().check()）；
+// 单测里 stub 为 no-op，隔离磁盘状态，避免真实冷却态导致偶发失败。
+vi.mock('../src/infra/scrape-cooldown.js', () => ({
+  getSharedScrapeCooldown: () => ({
+    check() {},
+    recordSoftBlock: () => ({ cooldownTriggered: false, cooldownRemainingMs: 0 }),
+    recordSuccess() {},
+  }),
+  createScrapeCooldown: () => ({ check() {}, recordSoftBlock: () => ({}), recordSuccess() {} }),
+  _resetSharedScrapeCooldown: () => {},
+}));
+
 vi.mock('../src/adapter/run-endpoint.js', () => ({
   runEndpoint: vi.fn(async () => ({ templates: [] })),
 }));
@@ -597,6 +609,38 @@ describe('publishGoodsFromLink: save_draft_failed warning', () => {
 
     assert.equal(result.source_title, '测试商品');
     assert.equal(result.category_path, '服饰 > 童装 > 上衣');
+  });
+});
+
+describe('publishGoodsFromLink: IP 软封早短路', () => {
+  it('cooldown active → 抛 E_RATE_LIMIT(ip_soft_block) 且在开浏览器前短路（注入 ctx.scrapeCooldown）', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    let browserCalls = 0;
+    const mockCtx = {
+      page: {},
+      context: { browser: () => { browserCalls += 1; return {}; } },
+      log: { info: () => {}, warn: () => {}, debug: () => {} },
+      scrapeCooldown: {
+        check() {
+          const err = new Error('IP 软风控冷却中');
+          err.code = 'E_RATE_LIMIT';
+          err.exitCode = 4;
+          err.detail = { reason: 'ip_soft_block', cooldown_triggered: true };
+          throw err;
+        },
+        recordSoftBlock: () => ({}),
+        recordSuccess: () => {},
+      },
+    };
+    await assert.rejects(
+      () => publishGoodsFromLink(mockCtx, '918867803697', { draftOnly: true }),
+      (err) => {
+        assert.equal(err.code, 'E_RATE_LIMIT');
+        assert.equal(err.detail.reason, 'ip_soft_block');
+        return true;
+      },
+    );
+    assert.equal(browserCalls, 0, 'cooldown gate MUST short-circuit before opening browser/context');
   });
 });
 
