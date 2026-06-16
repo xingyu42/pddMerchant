@@ -74,10 +74,6 @@ export function pickCategoryOptionIndex(itemTexts, searchText) {
   return suffixMatches.length === 1 ? suffixMatches[0] : -1;
 }
 
-async function readOptionTexts(page) {
-  return page.locator('li[class*="searchItem"]').allInnerTexts();
-}
-
 // 校验"已选分类"容器在超时内可见且包含所选类目的"完整路径"（非仅叶子词），
 // 把合成事件/选错项导致的静默失败转成显式错误。
 async function assertCategorySelected(page, pickedText) {
@@ -124,7 +120,7 @@ export async function selectCategory(page, searchText) {
 
   await page.waitForSelector('li[class*="searchItem"]', { timeout: 8000 }).catch(() => null);
 
-  const optionTexts = await readOptionTexts(page);
+  const optionTexts = await page.locator('li[class*="searchItem"]').allInnerTexts();
   const idx = pickCategoryOptionIndex(optionTexts, searchText);
   if (idx < 0) {
     throw new PddCliError({
@@ -251,17 +247,92 @@ async function uploadCarouselViaForm(page, urls, log) {
   }
 }
 
-export async function clickSaveDraft(page, goodsCommitId) {
+const SAVE_DRAFT_PATH = '/glide/mms/goodsCommit/action/edit';
+
+function isSaveDraftUrl(url) {
+  try {
+    const parsed = typeof url === 'string' ? new URL(url) : url;
+    return parsed.pathname.endsWith(SAVE_DRAFT_PATH);
+  } catch {
+    return String(url ?? '').includes(SAVE_DRAFT_PATH);
+  }
+}
+
+function costTemplateBodyError(message) {
+  return new PddCliError({
+    code: 'E_BUSINESS',
+    message,
+    hint: '确认草稿保存请求仍为 JSON 格式，并包含可注入的编辑 payload',
+    exitCode: ExitCodes.BUSINESS,
+  });
+}
+
+export function injectCostTemplateIntoEditBody(postData, costTemplateId) {
+  if (!postData) throw costTemplateBodyError('保存草稿请求体为空，无法写入运费模板');
+  let body;
+  try {
+    body = JSON.parse(postData);
+  } catch {
+    throw costTemplateBodyError('保存草稿请求体不是 JSON，无法写入运费模板');
+  }
+  body.cost_template_id = costTemplateId;
+  return JSON.stringify(body);
+}
+
+async function routeSaveDraftWithCostTemplate(page, costTemplateId, run) {
+  if (costTemplateId == null || String(costTemplateId).trim() === '') return run();
+  let injected = false;
+  let routeError = null;
+  let rejectRouteFailure;
+  const routeFailure = new Promise((_, reject) => {
+    rejectRouteFailure = reject;
+  });
+  const handler = async (route) => {
+    try {
+      const postData = route.request().postData();
+      const nextPostData = injectCostTemplateIntoEditBody(postData, costTemplateId);
+      injected = true;
+      await route.continue({ postData: nextPostData });
+    } catch (err) {
+      routeError = err instanceof PddCliError
+        ? err
+        : costTemplateBodyError(err?.message || '保存草稿请求注入失败');
+      await route.abort('failed').catch(() => {});
+      rejectRouteFailure(routeError);
+    }
+  };
+
+  await page.route(isSaveDraftUrl, handler);
+  try {
+    let result;
+    try {
+      result = await Promise.race([run(), routeFailure]);
+    } catch (err) {
+      if (routeError) throw routeError;
+      if (!injected) throw costTemplateBodyError('未捕获到保存草稿请求，无法写入运费模板');
+      throw err;
+    }
+    if (routeError) throw routeError;
+    if (!injected) throw costTemplateBodyError('未捕获到保存草稿请求，无法写入运费模板');
+    return result;
+  } finally {
+    await page.unroute(isSaveDraftUrl, handler).catch(() => {});
+  }
+}
+
+export async function clickSaveDraft(page, goodsCommitId, options = {}) {
   const log = getLogger();
   const saveBtn = await findFirst(page, SELECTORS.saveDraft, 5000);
   if (!saveBtn) {
     throw new PddCliError({ code: 'E_BUSINESS', message: '"保存草稿"按钮未找到', exitCode: ExitCodes.BUSINESS });
   }
 
-  const [response] = await Promise.all([
-    page.waitForResponse(r => r.url().includes('action/edit'), { timeout: 30000 }),
-    saveBtn.click(),
-  ]);
+  const [response] = await routeSaveDraftWithCostTemplate(page, options.costTemplateId, () =>
+    Promise.all([
+      page.waitForResponse(r => isSaveDraftUrl(r.url()), { timeout: 30000 }),
+      saveBtn.click(),
+    ])
+  );
 
   const result = await response.json();
   const ok = result.success === true || result.error_code === 1000000;
@@ -277,14 +348,42 @@ export async function clickSaveDraft(page, goodsCommitId) {
 
   log.info('goods-publish: draft saved via UI');
 
+  let verification = { ok: true, issues: [], skipped: true };
   if (goodsCommitId) {
-    await verifyDraft(page, goodsCommitId, log);
+    verification = await verifyDraft(page, goodsCommitId, log, {
+      expectedCostTemplateId: options.costTemplateId,
+    });
+    if (options.strictVerify) assertDraftVerification(verification, goodsCommitId);
   }
 
-  return result;
+  return { ...result, verification };
 }
 
-async function verifyDraft(page, goodsCommitId, log) {
+function collectDraftIssues(d, expectedCostTemplateId) {
+  const issues = [];
+  if (!d.goods_name) issues.push('title_empty');
+  const actualTemplateId = d.cost_template_id ?? d.costTemplateId;
+  if (!actualTemplateId) {
+    issues.push('no_cost_template');
+  } else if (expectedCostTemplateId != null && String(actualTemplateId) !== String(expectedCostTemplateId)) {
+    issues.push('cost_template_mismatch');
+  }
+  if (!Array.isArray(d.galleries) || d.galleries.length === 0) issues.push('no_images');
+  return issues;
+}
+
+function assertDraftVerification(verification, goodsCommitId) {
+  if (verification.ok) return;
+  throw new PddCliError({
+    code: 'E_BUSINESS',
+    message: `草稿校验失败: ${verification.issues.join('; ')}`,
+    hint: '保存草稿后关键字段缺失，已阻止继续提交发布',
+    detail: { goods_commit_id: goodsCommitId, issues: verification.issues },
+    exitCode: ExitCodes.BUSINESS,
+  });
+}
+
+async function verifyDraft(page, goodsCommitId, log, options = {}) {
   try {
     const detail = await page.evaluate(async (id) => {
       const r = await fetch('/glide/v2/mms/query/commit/detail', {
@@ -297,19 +396,16 @@ async function verifyDraft(page, goodsCommitId, log) {
     }, goodsCommitId);
 
     const d = detail?.result || detail;
-    const issues = [];
-    if (!d.goods_name) issues.push('title_empty');
-    if (!d.cost_template_id) issues.push('no_cost_template');
-    if (!Array.isArray(d.galleries) || d.galleries.length === 0) issues.push('no_images');
+    const issues = collectDraftIssues(d, options.expectedCostTemplateId);
 
     if (issues.length > 0) {
       log.warn({ issues, goodsCommitId }, 'goods-publish: draft verification found issues');
     } else {
       log.info({ goodsCommitId, title: d.goods_name?.substring(0, 20) }, 'goods-publish: draft verified OK');
     }
-    return issues;
+    return { ok: issues.length === 0, issues, skipped: false };
   } catch (err) {
     log.debug({ err: err?.message }, 'goods-publish: draft verification skipped');
-    return [];
+    return { ok: true, issues: [], skipped: true };
   }
 }

@@ -8,7 +8,7 @@ export const run = withCommand({
   needsMall: 'switch',
   allowAllAccounts: false,
   async run(ctx) {
-    const { url, confirm } = ctx.config;
+    const { url, confirm, costTemplate } = ctx.config;
     const mallId = ctx.mallCtx?.activeId ?? null;
 
     if (!url) {
@@ -20,13 +20,17 @@ export const run = withCommand({
       });
     }
 
-    const result = await publishGoodsFromLink(ctx, url, { draftOnly: !confirm });
+    const result = await publishGoodsFromLink(ctx, url, {
+      draftOnly: !confirm,
+      costTemplateId: costTemplate ?? null,
+    });
     return {
       data: result,
       meta: {
         mall: mallId,
         goods_id: result.goods_id,
         goods_commit_id: result.goods_commit_id,
+        cost_template_id: result.cost_template_id,
         status: result.status,
       },
     };

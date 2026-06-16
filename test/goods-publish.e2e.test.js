@@ -1,6 +1,10 @@
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
-import { runPdd, assertFailEnvelope } from './e2e/_helpers.js';
+import { join } from 'node:path';
+import { PROJECT_ROOT, runPdd, assertOkEnvelope, assertFailEnvelope } from './e2e/_helpers.js';
+
+const EMPTY_TEMPLATE_FIXTURE_DIR = join(PROJECT_ROOT, 'test', 'fixtures', 'goods-publish-empty-template');
+const SUBMIT_ERROR_FIXTURE_DIR = join(PROJECT_ROOT, 'test', 'fixtures', 'goods-publish-submit-error');
 
 // E2E tests for `goods publish` command.
 // Fixture adapter is used (PDD_TEST_ADAPTER=fixture) via runPdd().
@@ -14,10 +18,11 @@ describe('goods publish — CLI argument validation', () => {
     assert.notEqual(status, 0, 'should fail without --url');
   });
 
-  it('--help output includes --url and --confirm', () => {
+  it('--help output includes --url, --confirm, and --cost-template', () => {
     const { stdout } = runPdd(['goods', 'publish', '--help']);
     assert.ok(stdout.includes('--url'), '--help should mention --url');
     assert.ok(stdout.includes('--confirm'), '--help should mention --confirm');
+    assert.ok(stdout.includes('--cost-template'), '--help should mention --cost-template');
   });
 
   it('invalid URL value exits non-zero', () => {
@@ -39,11 +44,66 @@ describe('goods publish — CLI argument validation', () => {
   });
 
   it('numeric --url creates draft (default mode)', () => {
-    const { status } = runPdd([
+    const { status, envelope } = runPdd([
       'goods', 'publish', '--url', '918867803697', '--json',
     ]);
-    // In fixture mode the browser-dependent flow may throw;
-    // either way there should be no unhandled crash
-    assert.ok(status !== undefined);
+    assert.equal(status, 0);
+    assertOkEnvelope(envelope, 'goods.publish');
+    assert.equal(envelope.data.status, 'draft');
+    assert.equal(envelope.data.cost_template_id, 544142245494784);
+    assert.equal(envelope.meta.cost_template_id, 544142245494784);
+  });
+
+  it('--confirm submits in fixture mode', () => {
+    const { status, envelope } = runPdd([
+      'goods', 'publish', '--url', '918867803697', '--confirm', '--json',
+    ]);
+    assert.equal(status, 0);
+    assertOkEnvelope(envelope, 'goods.publish');
+    assert.equal(envelope.data.status, 'submitted');
+    assert.equal(envelope.meta.status, 'submitted');
+    assert.deepEqual(envelope.data.submit, { success: true });
+  });
+
+  it('--cost-template is accepted and reflected in the envelope', () => {
+    const { status, envelope } = runPdd([
+      'goods', 'publish', '--url', '918867803697', '--cost-template', '544142245494784', '--json',
+    ]);
+    assert.equal(status, 0);
+    assertOkEnvelope(envelope, 'goods.publish');
+    assert.equal(envelope.data.cost_template_id, 544142245494784);
+    assert.equal(envelope.meta.cost_template_id, 544142245494784);
+  });
+
+  it('--all-accounts is rejected for publish writes', () => {
+    const { status, envelope } = runPdd([
+      '--all-accounts', 'goods', 'publish', '--url', '918867803697', '--json',
+    ]);
+    assert.notEqual(status, 0);
+    assertFailEnvelope(envelope, 'goods.publish', 'E_USAGE');
+  });
+
+  it('unavailable --cost-template returns E_USAGE', () => {
+    const { status, envelope } = runPdd([
+      'goods', 'publish', '--url', '918867803697', '--cost-template', '999', '--json',
+    ]);
+    assert.notEqual(status, 0);
+    assertFailEnvelope(envelope, 'goods.publish', 'E_USAGE');
+  });
+
+  it('empty cost-template list returns E_BUSINESS', () => {
+    const { status, envelope } = runPdd([
+      'goods', 'publish', '--url', '918867803697', '--json',
+    ], { PDD_TEST_FIXTURE_DIR: EMPTY_TEMPLATE_FIXTURE_DIR });
+    assert.notEqual(status, 0);
+    assertFailEnvelope(envelope, 'goods.publish', 'E_BUSINESS');
+  });
+
+  it('submit business error returns mapped envelope', () => {
+    const { status, envelope } = runPdd([
+      'goods', 'publish', '--url', '918867803697', '--confirm', '--json',
+    ], { PDD_TEST_FIXTURE_DIR: SUBMIT_ERROR_FIXTURE_DIR });
+    assert.notEqual(status, 0);
+    assertFailEnvelope(envelope, 'goods.publish', 'E_BUSINESS');
   });
 });

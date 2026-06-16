@@ -483,7 +483,7 @@ describe('mapPublishBusinessError', () => {
 });
 
 // ---------------------------------------------------------------------------
-// publishGoodsFromLink: save_draft_failed warning path
+// publishGoodsFromLink: save draft strict failure path
 // ---------------------------------------------------------------------------
 vi.mock('../src/adapter/mock-dispatcher.js', () => ({
   isMockEnabled: () => false,
@@ -538,10 +538,33 @@ vi.mock('../src/adapter/goods-publish/category-resolver.js', async (importOrigin
   };
 });
 
+const formFillerMockState = vi.hoisted(() => ({
+  saveShouldThrow: true,
+  saveVerification: { ok: true, issues: [], skipped: false },
+  saveCalls: [],
+  selectCalls: 0,
+  fillCalls: 0,
+}));
+
 vi.mock('../src/adapter/goods-publish/form-filler.js', () => ({
-  selectCategory: vi.fn(async () => ({ goodsId: '123456', goodsCommitId: 'abc789' })),
-  fillGoodsForm: vi.fn(async () => {}),
-  clickSaveDraft: vi.fn(async () => { throw new Error('保存草稿按钮超时'); }),
+  selectCategory: vi.fn(async () => {
+    formFillerMockState.selectCalls += 1;
+    return { goodsId: '123456', goodsCommitId: 'abc789' };
+  }),
+  fillGoodsForm: vi.fn(async () => {
+    formFillerMockState.fillCalls += 1;
+  }),
+  clickSaveDraft: vi.fn(async (_page, _goodsCommitId, options = {}) => {
+    formFillerMockState.saveCalls.push(options);
+    if (formFillerMockState.saveShouldThrow) throw new Error('保存草稿按钮超时');
+    if (options.strictVerify && formFillerMockState.saveVerification.ok === false) {
+      const err = new Error('草稿校验失败');
+      err.code = 'E_BUSINESS';
+      err.exitCode = 6;
+      throw err;
+    }
+    return { success: true, verification: formFillerMockState.saveVerification };
+  }),
 }));
 
 vi.mock('../src/infra/circuit-breaker.js', () => ({
@@ -564,20 +587,266 @@ vi.mock('../src/infra/scrape-cooldown.js', () => ({
   _resetSharedScrapeCooldown: () => {},
 }));
 
-vi.mock('../src/adapter/run-endpoint.js', () => ({
-  runEndpoint: vi.fn(async () => ({ templates: [] })),
+const endpointMockState = vi.hoisted(() => ({
+  response: {
+    templates: [{ id: 544142245494784, name: '全国包邮', free_province_need: 0 }],
+  },
+  calls: [],
 }));
 
-describe('publishGoodsFromLink: save_draft_failed warning', () => {
+vi.mock('../src/adapter/run-endpoint.js', () => ({
+  runEndpoint: vi.fn(async (_page, meta) => {
+    endpointMockState.calls.push(meta?.name);
+    if (meta?.name === 'goods.publish.submit') return { success: true };
+    return endpointMockState.response;
+  }),
+}));
+
+function resetEndpointMock() {
+  endpointMockState.response = {
+    templates: [{ id: 544142245494784, name: '全国包邮', free_province_need: 0 }],
+  };
+  endpointMockState.calls = [];
+}
+
+function resetFormFillerMock() {
+  formFillerMockState.saveShouldThrow = true;
+  formFillerMockState.saveVerification = { ok: true, issues: [], skipped: false };
+  formFillerMockState.saveCalls = [];
+  formFillerMockState.selectCalls = 0;
+  formFillerMockState.fillCalls = 0;
+}
+
+describe('resolvePublishCostTemplate', () => {
+  beforeEach(() => {
+    resetEndpointMock();
+  });
+
+  it('selects the first template when no explicit id is provided', async () => {
+    const { resolvePublishCostTemplate } = await import('../src/services/goods-publish.js');
+    endpointMockState.response = {
+      templates: [
+        { id: 1001, name: '默认模板' },
+        { id: 1002, name: '备用模板' },
+      ],
+    };
+
+    const selected = await resolvePublishCostTemplate({ page: {} });
+
+    assert.equal(selected.id, 1001);
+  });
+
+  it('matches explicit template ids across number and string inputs', async () => {
+    const { resolvePublishCostTemplate } = await import('../src/services/goods-publish.js');
+    endpointMockState.response = {
+      templates: [{ id: 544142245494784, name: '全国包邮' }],
+    };
+
+    const selected = await resolvePublishCostTemplate({ page: {} }, '544142245494784');
+
+    assert.equal(selected.id, 544142245494784);
+  });
+
+  it('throws E_USAGE when explicit template is unavailable', async () => {
+    const { resolvePublishCostTemplate } = await import('../src/services/goods-publish.js');
+
+    await assert.rejects(
+      () => resolvePublishCostTemplate({ page: {} }, '999'),
+      (err) => {
+        assert.equal(err.code, 'E_USAGE');
+        assert.equal(err.exitCode, 2);
+        return true;
+      },
+    );
+  });
+
+  it('throws E_BUSINESS when no templates are available', async () => {
+    const { resolvePublishCostTemplate } = await import('../src/services/goods-publish.js');
+    endpointMockState.response = { templates: [] };
+
+    await assert.rejects(
+      () => resolvePublishCostTemplate({ page: {} }),
+      (err) => {
+        assert.equal(err.code, 'E_BUSINESS');
+        assert.equal(err.exitCode, 6);
+        return true;
+      },
+    );
+  });
+});
+
+describe('save draft cost template injection', () => {
+  it('writes cost_template_id into the edit request body', async () => {
+    const { injectCostTemplateIntoEditBody } = await vi.importActual('../src/adapter/goods-publish/form-filler.js');
+    const injected = JSON.parse(injectCostTemplateIntoEditBody('{"goods_id":123}', 544142245494784));
+
+    assert.equal(injected.goods_id, 123);
+    assert.equal(injected.cost_template_id, 544142245494784);
+  });
+
+  it('fails structurally when the edit request body is missing', async () => {
+    const { injectCostTemplateIntoEditBody } = await vi.importActual('../src/adapter/goods-publish/form-filler.js');
+
+    assert.throws(
+      () => injectCostTemplateIntoEditBody('', 544142245494784),
+      (err) => err.code === 'E_BUSINESS',
+    );
+  });
+
+  it('cleans up the route handler after save injection', async () => {
+    const { clickSaveDraft } = await vi.importActual('../src/adapter/goods-publish/form-filler.js');
+    const routed = [];
+    let continued = null;
+    let unrouted = false;
+    const page = {
+      waitForSelector: async () => ({
+        click: async () => {
+          await routed[0].handler({
+            request: () => ({ postData: () => '{"goods_id":123}' }),
+            continue: async (options) => { continued = options; },
+            abort: async () => {},
+          });
+        },
+      }),
+      $: async () => null,
+      route: async (pattern, handler) => { routed.push({ pattern, handler }); },
+      unroute: async (_pattern, handler) => {
+        unrouted = routed.some(item => item.handler === handler);
+      },
+      waitForResponse: async (predicate) => {
+        assert.equal(predicate({ url: () => 'https://mms.pinduoduo.com/foo/action/edit' }), false);
+        assert.equal(
+          predicate({ url: () => 'https://mms.pinduoduo.com/glide/mms/goodsCommit/action/edit' }),
+          true,
+        );
+        return { json: async () => ({ success: true }) };
+      },
+      evaluate: async () => ({ result: { goods_name: '测试商品', cost_template_id: 544142245494784, galleries: ['x'] } }),
+    };
+
+    await clickSaveDraft(page, 'abc789', { costTemplateId: 544142245494784 });
+
+    assert.equal(JSON.parse(continued.postData).cost_template_id, 544142245494784);
+    assert.equal(unrouted, true);
+  });
+
+  it('fails when save response arrives but template injection never happens', async () => {
+    const { clickSaveDraft } = await vi.importActual('../src/adapter/goods-publish/form-filler.js');
+    let unrouted = false;
+    const page = {
+      waitForSelector: async () => ({ click: async () => {} }),
+      $: async () => null,
+      route: async () => {},
+      unroute: async () => { unrouted = true; },
+      waitForResponse: async () => ({ json: async () => ({ success: true }) }),
+      evaluate: async () => ({ result: { goods_name: '测试商品', cost_template_id: 544142245494784, galleries: ['x'] } }),
+    };
+
+    await assert.rejects(
+      () => clickSaveDraft(page, 'abc789', { costTemplateId: 544142245494784 }),
+      (err) => err.code === 'E_BUSINESS',
+    );
+    assert.equal(unrouted, true);
+  });
+
+  it('maps save action failures without injection to E_BUSINESS', async () => {
+    const { clickSaveDraft } = await vi.importActual('../src/adapter/goods-publish/form-filler.js');
+    let unrouted = false;
+    const page = {
+      waitForSelector: async () => ({ click: async () => {} }),
+      $: async () => null,
+      route: async () => {},
+      unroute: async () => { unrouted = true; },
+      waitForResponse: async () => { throw new Error('timeout waiting for save'); },
+      evaluate: async () => ({ result: { goods_name: '测试商品', cost_template_id: 544142245494784, galleries: ['x'] } }),
+    };
+
+    await assert.rejects(
+      () => clickSaveDraft(page, 'abc789', { costTemplateId: 544142245494784 }),
+      (err) => {
+        assert.equal(err.code, 'E_BUSINESS');
+        assert.match(err.message, /未捕获到保存草稿请求/);
+        return true;
+      },
+    );
+    assert.equal(unrouted, true);
+  });
+
+  it('cleans up the route handler when body injection fails', async () => {
+    const { clickSaveDraft } = await vi.importActual('../src/adapter/goods-publish/form-filler.js');
+    const routed = [];
+    let aborted = false;
+    let unrouted = false;
+    const page = {
+      waitForSelector: async () => ({
+        click: async () => {
+          await routed[0].handler({
+            request: () => ({ postData: () => '' }),
+            continue: async () => {},
+            abort: async () => { aborted = true; },
+          });
+        },
+      }),
+      $: async () => null,
+      route: async (pattern, handler) => { routed.push({ pattern, handler }); },
+      unroute: async (_pattern, handler) => {
+        unrouted = routed.some(item => item.handler === handler);
+      },
+      waitForResponse: async () => new Promise(() => {}),
+      evaluate: async () => ({ result: { goods_name: '测试商品', cost_template_id: 544142245494784, galleries: ['x'] } }),
+    };
+
+    await assert.rejects(
+      () => clickSaveDraft(page, 'abc789', { costTemplateId: 544142245494784 }),
+      (err) => err.code === 'E_BUSINESS',
+    );
+    assert.equal(aborted, true);
+    assert.equal(unrouted, true);
+  });
+
+  it('strict verification fails when saved draft misses required fields', async () => {
+    const { clickSaveDraft } = await vi.importActual('../src/adapter/goods-publish/form-filler.js');
+    const routed = [];
+    const page = {
+      waitForSelector: async () => ({
+        click: async () => {
+          await routed[0].handler({
+            request: () => ({ postData: () => '{"goods_id":123}' }),
+            continue: async () => {},
+            abort: async () => {},
+          });
+        },
+      }),
+      $: async () => null,
+      route: async (pattern, handler) => { routed.push({ pattern, handler }); },
+      unroute: async () => {},
+      waitForResponse: async () => ({ json: async () => ({ success: true }) }),
+      evaluate: async () => ({ result: { goods_name: '测试商品', galleries: ['x'] } }),
+    };
+
+    await assert.rejects(
+      () => clickSaveDraft(page, 'abc789', { costTemplateId: 544142245494784, strictVerify: true }),
+      (err) => {
+        assert.equal(err.code, 'E_BUSINESS');
+        assert.ok(err.detail.issues.includes('no_cost_template'));
+        return true;
+      },
+    );
+  });
+});
+
+describe('publishGoodsFromLink: save draft failure handling', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetEndpointMock();
+    resetFormFillerMock();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('returns result with goods_id and save_draft_failed warning when clickSaveDraft throws', async () => {
+  it('rejects when clickSaveDraft throws in draft-only mode', async () => {
     const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
     const mockCtx = {
       page: {},
@@ -589,16 +858,19 @@ describe('publishGoodsFromLink: save_draft_failed warning', () => {
       },
     };
 
-    const result = await publishGoodsFromLink(mockCtx, '918867803697', { draftOnly: true });
-
-    assert.equal(result.goods_id, '123456');
-    assert.equal(result.goods_commit_id, 'abc789');
-    assert.equal(result.status, 'draft');
-    assert.ok(result.warnings.includes('save_draft_failed'), `warnings should include save_draft_failed, got: ${result.warnings}`);
+    await assert.rejects(
+      () => publishGoodsFromLink(mockCtx, '918867803697', { draftOnly: true }),
+      (err) => {
+        assert.equal(err.code, 'E_BUSINESS');
+        assert.equal(err.exitCode, 6);
+        return true;
+      },
+    );
   });
 
   it('result still contains source_title and category_path', async () => {
     const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    formFillerMockState.saveShouldThrow = false;
     const mockCtx = {
       page: {},
       context: { browser: () => ({}) },
@@ -609,12 +881,14 @@ describe('publishGoodsFromLink: save_draft_failed warning', () => {
 
     assert.equal(result.source_title, '测试商品');
     assert.equal(result.category_path, '服饰 > 童装 > 上衣');
+    assert.equal(formFillerMockState.saveCalls[0].strictVerify, true);
   });
 });
 
 describe('publishGoodsFromLink: IP 软封早短路', () => {
   it('cooldown active → 抛 E_RATE_LIMIT(ip_soft_block) 且在开浏览器前短路（注入 ctx.scrapeCooldown）', async () => {
     const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    resetEndpointMock();
     let browserCalls = 0;
     const mockCtx = {
       page: {},
@@ -641,28 +915,64 @@ describe('publishGoodsFromLink: IP 软封早短路', () => {
       },
     );
     assert.equal(browserCalls, 0, 'cooldown gate MUST short-circuit before opening browser/context');
+    assert.equal(endpointMockState.calls.length, 0, 'cooldown gate MUST short-circuit before cost-template endpoint calls');
   });
 });
 
-describe('publishGoodsFromLink: --confirm (draftOnly=false) early rejection', () => {
-  it('throws E_USAGE immediately without calling any adapter functions', async () => {
+describe('publishGoodsFromLink: confirmed submit path', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetEndpointMock();
+    resetFormFillerMock();
+  });
+
+  it('submits after a successful draft save', async () => {
     const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
-    const adapterCalls = [];
+    formFillerMockState.saveShouldThrow = false;
     const mockCtx = {
       page: {},
       context: { browser: () => ({}) },
-      log: { info: () => adapterCalls.push('log'), warn: () => {}, debug: () => {} },
+      log: { info: () => {}, warn: () => {}, debug: () => {} },
+    };
+
+    const result = await publishGoodsFromLink(mockCtx, '918867803697', { draftOnly: false });
+
+    assert.equal(result.status, 'submitted');
+    assert.equal(result.cost_template_id, 544142245494784);
+    assert.deepEqual(result.submit, { success: true });
+    assert.ok(endpointMockState.calls.includes('goods.publish.submit'));
+    assert.equal(formFillerMockState.saveCalls[0].strictVerify, true);
+  });
+
+  it('does not call submit when strict draft verification fails', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    formFillerMockState.saveShouldThrow = false;
+    formFillerMockState.saveVerification = { ok: false, issues: ['no_cost_template'], skipped: false };
+    const mockCtx = {
+      page: {},
+      context: { browser: () => ({}) },
+      log: { info: () => {}, warn: () => {}, debug: () => {} },
     };
 
     await assert.rejects(
       () => publishGoodsFromLink(mockCtx, '918867803697', { draftOnly: false }),
-      (err) => {
-        assert.equal(err.code, 'E_USAGE');
-        assert.equal(err.exitCode, 2);
-        assert.ok(err.message.includes('--confirm'));
-        return true;
-      },
+      (err) => err.code === 'E_BUSINESS',
     );
-    assert.equal(adapterCalls.length, 0, 'no adapter calls should be made before E_USAGE');
+    assert.equal(endpointMockState.calls.includes('goods.publish.submit'), false);
+  });
+
+  it('does not call submit when confirmed draft save fails', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    const mockCtx = {
+      page: {},
+      context: { browser: () => ({}) },
+      log: { info: () => {}, warn: () => {}, debug: () => {} },
+    };
+
+    await assert.rejects(
+      () => publishGoodsFromLink(mockCtx, '918867803697', { draftOnly: false }),
+      (err) => err.code === 'E_BUSINESS',
+    );
+    assert.equal(endpointMockState.calls.includes('goods.publish.submit'), false);
   });
 });

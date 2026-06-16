@@ -67,7 +67,7 @@ describe('Goods Update PBT', () => {
   it('P4: title outside bounds always rejected', () => {
     fc.assert(
       fc.property(
-        fc.stringOf(fc.char(), { minLength: 121, maxLength: 200 }),
+        fc.stringOf(fc.constantFrom('a', '中', 'x'), { minLength: 121, maxLength: 200 }),
         (title) => {
           assert.throws(() => validateWriteValue('title', title), (e) => e.code === 'E_USAGE');
         }

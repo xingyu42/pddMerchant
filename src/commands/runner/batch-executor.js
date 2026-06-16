@@ -13,21 +13,10 @@ import { executeSingle } from './single-lifecycle.js';
 
 const BATCH_JITTER_MIN = 2000;
 const BATCH_JITTER_MAX = 5000;
-function batchJitter() {
-  return BATCH_JITTER_MIN + Math.floor(Math.random() * (BATCH_JITTER_MAX - BATCH_JITTER_MIN));
-}
 
 const COOLDOWN_INHERITED_PREFIX = 'cooldown_inherited_from:';
 // 来源 endpoint 不明（错误形状缺 detail.endpoint）时的退化归因键
 const COOLDOWN_GLOBAL_KEY = '*';
-
-function appendAccountWarning(result, warning) {
-  if (Array.isArray(result.meta?.warnings)) {
-    result.meta.warnings.push(warning);
-    return;
-  }
-  result.meta = { ...result.meta, warnings: [warning] };
-}
 
 // R3 cooldown 归因状态机（design D-5）：返回更新后的「endpoint → 冷却源 slug」映射，仅批量路径调用。
 // 冷却状态在 endpoint-client 按 endpoint 分键（进程内共享），归因同维度展开（codex 终审建议）：
@@ -44,28 +33,14 @@ export function applyCooldownAttribution(result, slug, sourcesByEndpoint) {
 
   const source = sourcesByEndpoint[endpoint] ?? sourcesByEndpoint[COOLDOWN_GLOBAL_KEY];
   if (source && source !== slug) {
-    appendAccountWarning(result, `${COOLDOWN_INHERITED_PREFIX}${source}`);
+    const warning = `${COOLDOWN_INHERITED_PREFIX}${source}`;
+    if (Array.isArray(result.meta?.warnings)) {
+      result.meta.warnings.push(warning);
+    } else {
+      result.meta = { ...result.meta, warnings: [warning] };
+    }
   }
   return sourcesByEndpoint;
-}
-
-function assertBatchUsage(opts) {
-  if (opts.account) {
-    throw new PddCliError({
-      code: 'E_USAGE',
-      message: '--all-accounts and --account are mutually exclusive',
-      hint: 'Use one or the other, not both',
-      exitCode: ExitCodes.USAGE,
-    });
-  }
-  if (opts.authStatePath || process.env.PDD_AUTH_STATE_PATH) {
-    throw new PddCliError({
-      code: 'E_USAGE',
-      message: '--all-accounts and --auth-state-path / PDD_AUTH_STATE_PATH are mutually exclusive',
-      hint: 'Use --all-accounts alone to iterate registered accounts',
-      exitCode: ExitCodes.USAGE,
-    });
-  }
 }
 
 async function listEnabledAccounts() {
@@ -133,7 +108,8 @@ async function runAccountLoop(spec, opts, accounts, batch) {
 
     if (i < accounts.length - 1 && !batch.signal.aborted) {
       try {
-        await abortableSleep(batchJitter(), batch.signal);
+        const jitterMs = BATCH_JITTER_MIN + Math.floor(Math.random() * (BATCH_JITTER_MAX - BATCH_JITTER_MIN));
+        await abortableSleep(jitterMs, batch.signal);
       } catch {
         break;
       }
@@ -177,7 +153,22 @@ async function executeBatch(spec, opts) {
     ? getLogger().withOp({ command: spec.name, correlation_id: correlationId })
     : getLogger();
 
-  assertBatchUsage(opts);
+  if (opts.account) {
+    throw new PddCliError({
+      code: 'E_USAGE',
+      message: '--all-accounts and --account are mutually exclusive',
+      hint: 'Use one or the other, not both',
+      exitCode: ExitCodes.USAGE,
+    });
+  }
+  if (opts.authStatePath || process.env.PDD_AUTH_STATE_PATH) {
+    throw new PddCliError({
+      code: 'E_USAGE',
+      message: '--all-accounts and --auth-state-path / PDD_AUTH_STATE_PATH are mutually exclusive',
+      hint: 'Use --all-accounts alone to iterate registered accounts',
+      exitCode: ExitCodes.USAGE,
+    });
+  }
 
   if (opts.mall) {
     warnings.push('unused_flag_mall_in_batch');
