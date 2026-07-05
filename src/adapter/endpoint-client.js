@@ -33,6 +33,22 @@ export function readBusinessError(raw) {
   return { code: String(code), message: msg == null ? '' : String(msg) };
 }
 
+// 超集合并：保留页面 JS 生成的请求体（含 crawlerInfo / Anti-Content 等风控签名），
+// buildPayload 的业务字段覆盖页面同名字段。非 JSON body（如 multipart）回退到整替模式。
+// 参考 src/adapter/goods-publish/form-filler.js 的已验证模式。
+export function mergePayload(origPostData, payload) {
+  if (!origPostData) return payload;
+  try {
+    const origPayload = JSON.parse(origPostData);
+    if (origPayload && typeof origPayload === 'object' && !Array.isArray(origPayload)) {
+      return { ...origPayload, ...payload };
+    }
+  } catch {
+    // 非 JSON body，维持整替模式
+  }
+  return payload;
+}
+
 export class PlaywrightEndpointClient {
   constructor({ limiter, cooldownState, pageSession } = {}) {
     this._limiter = limiter;
@@ -283,7 +299,9 @@ export class PlaywrightEndpointClient {
 
     const payload = meta.buildPayload(params, ctx);
     const routeHandler = async (route) => {
-      await route.continue({ postData: JSON.stringify(payload) });
+      const origPostData = route.request().postData();
+      const merged = mergePayload(origPostData, payload);
+      await route.continue({ postData: JSON.stringify(merged) });
     };
     await page.route(meta.urlPattern, routeHandler);
 

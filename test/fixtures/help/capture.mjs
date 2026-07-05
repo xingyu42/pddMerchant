@@ -25,7 +25,7 @@ const SUBCOMMANDS = [
   ['goods', 'list'], ['goods', 'stock'], ['goods', 'segment'], ['goods', 'publish'], ['goods', 'templates'],
   ['goods', 'update', 'status'], ['goods', 'update', 'price'], ['goods', 'update', 'stock'],
   ['goods', 'update', 'title'], ['goods', 'update', 'batch'],
-  ['promo', 'search'], ['promo', 'scene'], ['promo', 'roi'],
+  ['promo', 'roi'],
   ['diagnose', 'shop'], ['diagnose', 'orders'], ['diagnose', 'inventory'], ['diagnose', 'promo'], ['diagnose', 'funnel'],
   ['action', 'plan'],
   ['account', 'add'], ['account', 'remove'], ['account', 'list'], ['account', 'default'],

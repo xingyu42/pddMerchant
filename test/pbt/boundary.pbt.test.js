@@ -165,8 +165,6 @@ const COMMANDS = [
   { name: 'orders.stats', args: ['orders', 'stats', '--json'] },
   { name: 'goods.list', args: ['goods', 'list', '--json', '--size', '3'] },
   { name: 'goods.stock', args: ['goods', 'stock', '--json', '--threshold', '10'] },
-  { name: 'promo.search', args: ['promo', 'search', '--json'] },
-  { name: 'promo.scene', args: ['promo', 'scene', '--json'] },
   { name: 'promo.roi', args: ['promo', 'roi', '--json'] },
   { name: 'goods.segment', args: ['goods', 'segment', '--json', '--no-promo'] },
   { name: 'action.plan', args: ['action', 'plan', '--json', '--no-promo', '--no-segment'] },
