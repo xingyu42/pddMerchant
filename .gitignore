@@ -18,3 +18,6 @@ openspec/
 .context/
 .env
 .ccg/
+.codex/
+.cursor/
+.trellis/

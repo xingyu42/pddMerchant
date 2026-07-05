@@ -1,11 +1,8 @@
-# pdd-cli · V0 Playwright 模式
+# pdd-cli
 
-> 拼多多商家后台命令行工具，面向 AI Agent 与人类运营。通过 Playwright 驱动 Chromium 访问 `mms.pinduoduo.com`，复用前端 Anti-Content 风控签名，以 XHR 拦截器捕获业务响应。
+拼多多商家后台命令行工具，面向 AI Agent 与人类运营。Playwright 驱动 Chromium、拦截 XHR 响应，输出统一 envelope JSON。
 
-## 风险声明
-
-- 仅限 **本人店铺** 运营自查与数据导出；滥用可能导致账号被风控/封禁，**后果自负**。
-- 不要将 `data/auth-state.json` 上传到公共仓库或云端。
+**风险声明**：仅限本人店铺运营，滥用可能导致封禁。`data/auth-state.json` 勿上传公共仓库。
 
 ---
 
@@ -13,181 +10,135 @@
 
 ```bash
 npm install && npx playwright install chromium
-
-pdd init            # 首次登录（扫码/账密）
-pdd doctor          # 自检
-pdd orders list --size 20
-pdd orders stats
+pdd init && pdd doctor      # 登录 + 自检
+pdd orders list --json      # AI 消费加 --json
 ```
 
 ---
 
 ## 核心特性
 
-- **AI-friendly envelope**：统一 `{ok, command, data, error, meta}` 输出；`--json` 模式 stdout 单行 JSON。
-- **8 个退出码**：`0 OK / 1 GENERAL / 2 USAGE / 3 AUTH / 4 RATE_LIMIT / 5 NETWORK / 6 BUSINESS / 7 PARTIAL`。
-- **多店铺**：`--mall <id>` 切店铺；`pdd shops list` 查看列表。
-- **店铺健康诊断**：`pdd diagnose shop` 四维加权评分。
-- **Auth 自动续期**：`pdd daemon start` 后台定时刷新 cookie，advisory file lock 防并发。
-- **QR 无头登录**：`pdd init --qr` 终端渲染二维码 + 保存 PNG，无需弹出浏览器。
-- **敏感字段自动脱敏**：日志中 cookies/Anti-Content/authorization 等以 SHA256 指纹替代。
+- **AI-friendly envelope**：`{ok, command, data, error, meta}` + 8 个退出码
+- **多店铺/多账号**：`--mall <id>` / `--account <slug>` / `--all-accounts`
+- **店铺健康诊断**：`diagnose shop` 四维加权 + 运营动作清单
+- **从链接上货**：`goods publish --url <链接>` 一键抓取发布
+- **Auth 自动续期**：`daemon start` 后台刷新，防并发 file lock
+- **无头扫码**：`init --qr` 终端二维码 + PNG
+- **自动脱敏**：敏感字段 SHA256 替代
 
 ---
 
 ## 架构
 
 ```
-bin/pdd.js          CLI 入口 (Commander routing, signal handlers)
-src/commands/       命令处理 — withCommand() 薄封装
-src/services/       领域逻辑 (orders, goods, promo, diagnose)
-src/adapter/        Playwright 集成, XHR 拦截, auth, mall context
-src/infra/          横切关注: envelope, errors, logger, timeouts, abort
+bin/pdd.js           CLI 入口（Commander + 信号处理）
+src/commands/        命令薄层（withCommand 封装）
+src/services/        业务逻辑（orders/goods/promo/diagnose）
+src/adapter/         Playwright + XHR 拦截 + auth
+src/infra/           envelope/errors/logger/timeouts
 ```
 
-依赖单向流动：`commands/ → services/ → adapter/ → infra/`，禁止反向引用。
+依赖单向：`commands/ → services/ → adapter/ → infra/`，层级守卫测试保障。
 
 ---
 
 ## 命令总览
 
-| 分组 | 命令 | 说明 |
-|------|------|------|
-| orders | `list` / `detail` / `stats` | 订单列表、详情、统计 |
-| goods | `list` / `stock` / `segment` | 商品列表、库存告警、SKU 分层 |
-| goods update | `status` / `price` / `stock` / `title` / `batch` | 商品写操作（需 `--confirm`） |
-| promo | `search` / `scene` / `roi` | 搜索 / 场景推广报表、ROI 诊断 |
-| diagnose | `shop` / `orders` / `inventory` / `promo` / `funnel` | 健康评分（shop 支持 `--compare`） |
-| action | `plan` | 一键运营动作清单 |
-| shops | `list` / `current` | 店铺切换 |
-| daemon | `start` / `stop` / `status` | 后台 auth 自动续期 |
-| utility | `init` / `login` / `doctor` | 鉴权与环境 |
-
-### 全局 flags
-
-| Flag | 说明 |
+| 分组 | 命令 |
 |------|------|
-| `--json` | stdout 单行 JSON |
-| `--no-color` | 关闭彩色输出 |
-| `--timeout <ms>` | 全局超时 |
-| `--mall <id>` | 指定店铺 ID |
-| `--headed` | 有头浏览器（调试） |
-| `--verbose` | debug 日志 |
+| **orders** | `list` / `detail` / `stats` |
+| **goods** | `list` / `stock` / `segment` / `publish` / `templates` |
+| **goods update** | `status` / `price` / `stock` / `title` / `batch`（需 `--confirm`） |
+| **promo** | `search` / `scene` / `roi` |
+| **diagnose** | `shop` / `orders` / `inventory` / `promo` / `funnel` |
+| **action** | `plan` |
+| **shops** | `list` / `current` |
+| **account** | `add` / `list` / `default` / `remove` |
+| **daemon** | `start` / `stop` / `status` |
+| **utility** | `init` / `login` / `doctor` |
 
-### 命令特定 flags
+### 全局选项
 
-| 命令 | Flag | 说明 |
-|------|------|------|
-| `init` / `login` | `--qr` | 无头模式：终端渲染二维码 + 保存 PNG |
-| `orders list` | `--page` `--size` `--since` `--until` | 分页与时间范围 |
-| `orders detail` | `--sn <sn>` | 订单号（必填） |
-| `orders stats` | `--size` | 本地聚合样本数 |
-| `goods list` | `--page` `--size` `--status` | 分页与状态筛选（onsale/offline） |
-| `goods stock` | `--threshold` | 低库存阈值（默认 10） |
-| `promo search/scene` | `--since` `--page` `--size` | 日期与分页 |
-| `promo roi` | `--by` `--break-even` `--include-inactive` | ROI 分组/保本线/含已删除 |
-| `goods segment` | `--days` `--break-even` `--no-promo` | SKU 分层窗口/保本线 |
-| `goods update status` | `--goods-id` `--status` `--confirm` | 上下架（onsale/offline） |
-| `goods update price` | `--goods-id` `--price` `--sku-id` `--confirm` | 改价（分） |
-| `goods update stock` | `--goods-id` `--quantity` `--sku-id` `--confirm` | 改库存 |
-| `goods update title` | `--goods-id` `--title` `--confirm` | 改标题 |
-| `goods update batch` | `--changes <json>` `--confirm` | 批量编辑 |
-| `diagnose shop` | `--compare` `--days` | 环比对比/窗口天数 |
-| `action plan` | `--limit` `--compare` `--break-even` `--no-promo` `--no-segment` | 动作数/趋势/保本线 |
-| `doctor` | `--probe <mode>` | mall context 探测策略 |
+`--json` / `--no-color` / `--timeout <ms>` / `--mall <id>` / `--headed` / `--verbose` / `--account <slug>` / `--all-accounts`
+
+详细参数见 `pdd <command> --help` 或 [SKILL.md](skills/pdd-cli/SKILL.md)。
 
 ---
 
-## AI Agent 用法
+## AI Agent / OpenClaw 集成
+
+### OpenClaw Skills 安装
+
+本项目提供 `skills/pdd-cli/SKILL.md`，需手动安装到 OpenClaw：
+
+**推荐方式（本地安装）：**
 
 ```bash
-pdd diagnose shop --json | jq '.data.score, .data.status'
+# 在项目根目录执行
+openclaw skills install ./skills/pdd-cli
 
-# 退出码分支：0=OK / 3=需登录 / 5=网络 / 6=业务错误
-pdd orders stats --json; echo $?
+# 全局安装（所有 agent 可用）
+openclaw skills install ./skills/pdd-cli --global
+
+# 验证安装
+openclaw skills list | grep pdd-cli
+openclaw skills check  # 确认 Node.js 依赖满足
 ```
 
-Envelope 结构：
+**从 ClawHub 安装**（如果已发布）：
+
+```bash
+openclaw skills install @owner/pdd-cli
+```
+
+**手动复制**：
+
+```bash
+# 复制到 OpenClaw workspace
+cp -r skills/pdd-cli <openclaw-workspace>/skills/
+
+# 或复制到全局目录
+cp -r skills/pdd-cli ~/.openclaw/skills/
+```
+
+### Envelope 契约
+
+所有命令加 `--json` 输出单行 JSON：
 
 ```json
-{
-  "ok": true,
-  "command": "orders.stats",
-  "data": { "...": "..." },
-  "error": null,
-  "meta": { "v": 1, "exit_code": 0, "latency_ms": 4321, "xhr_count": 2, "warnings": [] }
-}
+{"ok":true,"command":"orders.stats","data":{...},"error":null,"meta":{...}}
 ```
+
+退出码：`0 OK / 1 GENERAL / 2 USAGE / 3 AUTH / 4 RATE_LIMIT / 5 NETWORK / 6 BUSINESS / 7 PARTIAL`
 
 ---
 
 ## 环境变量
 
-| 变量 | 用途 |
-|------|------|
-| `PDD_AUTH_STATE_PATH` | 覆盖 auth state 文件路径（默认项目内 `data/auth-state.json`） |
-| `PDD_DEBUG_RAW` | 设为 `1` 将剥离前的 raw 载荷脱敏后以单行 JSONL 写 stderr（单值 64KiB 截断标 `truncated`）；stdout envelope 与退出码不受影响 |
-| `PDD_LOG_DESTINATION` | 日志输出目标（绝对路径 / 项目相对路径） |
-| `PDD_MALL_ID_STRICT_PARSE` | 设为 `0` 允许 mall ID 至 64 字符（默认严格 1-15 位数字） |
-| `PDD_FINGERPRINT_SEED` | 确定性指纹种子（留空=随机，建议设置为 mall_id 以模拟回访用户，降低风控分数） |
-| `PDD_SCRAPE_SOFTBLOCK_THRESHOLD` | 选品抓取连续命中 IP 软封多少次后进入冷却退避（默认 `2`） |
-| `PDD_SCRAPE_SOFTBLOCK_COOLDOWN_MS` | IP 软封冷却时长（毫秒，默认 `7200000` = 2 小时）；冷却期内 `goods publish` 抓取在发请求前直接短路退避 |
-| `PDD_TEST_ADAPTER` | 设为 `fixture` 启用 mock 模式（跳过真实浏览器） |
-| `PDD_TEST_FIXTURE_DIR` | 指定 fixture 数据目录 |
-| `PLAYWRIGHT_DOWNLOAD_HOST` | Playwright 浏览器下载镜像 |
+常用：`PDD_AUTH_STATE_PATH` / `PDD_LOG_DESTINATION` / `PDD_FINGERPRINT_SEED` / `PDD_TEST_ADAPTER=fixture`（Mock 模式）
 
 ---
 
 ## 故障排查
 
-| 现象 | 排查 |
-|------|------|
-| `E_AUTH_EXPIRED` | `pdd login` 重新登录 |
-| `E_CHROMIUM_MISSING` | `npx playwright install chromium` |
-| `E_NETWORK` / 超时 | 检查网络；`--headed` 观察页面 |
-| 命令挂起 | 大概率风控拦截；`pdd doctor` → `pdd login` |
+- `E_AUTH_EXPIRED` → `pdd login`
+- `E_CHROMIUM_MISSING` → `npx playwright install chromium`
+- 命令挂起 → 风控拦截，`pdd doctor` 自检后重新登录
 
 ---
 
 ## 测试
 
 ```bash
-npm test                              # 运行全部 427 测试（vitest）
-npx vitest run test/<file>.test.js    # 运行单个测试文件
-npx vitest                            # watch 模式
+npm test                           # 全部测试（vitest，~770 个）
+npx vitest test/<file>.test.js     # 单文件
 ```
 
-测试分层：
-
-- **smoke**：`test/*.smoke.test.js` — 命令级 envelope 契约验证
-- **unit**：`test/*.unit.test.js` — 模块级单元测试
-- **e2e**：`test/e2e/*.e2e.test.js` — 子进程 + fixture adapter 端到端
-- **PBT**：`test/pbt/*.pbt.test.js` — 零依赖 property-based testing（`PBT_SEED=<n>` 复现）
-
-测试 seam：`PDD_TEST_ADAPTER=fixture` 在 4 个 adapter 入口短路到 fixture，无需 DI。
+分层：smoke（契约）/ unit（模块）/ e2e（进程）/ PBT（属性测试，`PBT_SEED=<n>` 复现）
 
 ---
 
-## 退出码
 
-| Code | 含义 | Agent 建议 |
-|------|------|------------|
-| 0 | OK | 继续 |
-| 1 | GENERAL | 检查错误信息 |
-| 2 | USAGE | 看 `--help` |
-| 3 | AUTH | `pdd login` |
-| 4 | RATE_LIMIT | 等待重试 |
-| 5 | NETWORK | 检查网络 |
-| 6 | BUSINESS | 查看 `error.hint` |
-| 7 | PARTIAL | 关注 `meta.warnings` |
+## 许可
 
----
-
-## 更新日志
-
-版本迁移说明见 [CHANGELOG.md](./CHANGELOG.md)。
-
----
-
-## 许可与免责
-
-本仓库不授予任何涉及绕过拼多多平台风控 / 爬取他人数据的使用许可。使用者须对其行为承担全部法律与合规责任。
+本仓库不授予绕过平台风控/爬取他人数据的使用许可。使用者自负法律责任。
