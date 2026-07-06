@@ -27,7 +27,7 @@ test('mergePayload: buildPayload fields override page same-name fields', () => {
   const orig = JSON.stringify({
     crawlerInfo: 'sig',
     startDate: '2026-01-01',  // 页面填的旧日期
-    queryRange: { pageNumber: 1, pageSize: 10 },
+    queryRange: { pageNumber: 1, pageSize: 10, crawlerInfo: 'nested-sig' },
   });
   const payload = {
     startDate: '2026-06-15',  // 业务要的新日期，必须覆盖
@@ -37,7 +37,16 @@ test('mergePayload: buildPayload fields override page same-name fields', () => {
   assert.equal(merged.startDate, '2026-06-15');
   assert.equal(merged.queryRange.pageNumber, 2);
   assert.equal(merged.queryRange.pageSize, 50);
+  assert.equal(merged.queryRange.crawlerInfo, 'nested-sig');
   assert.equal(merged.crawlerInfo, 'sig');
+});
+
+test('mergePayload: nested arrays are replaced instead of merged', () => {
+  const orig = JSON.stringify({ filters: { ids: [1, 2], crawlerInfo: 'sig' } });
+  const payload = { filters: { ids: [3] } };
+  const merged = mergePayload(orig, payload);
+  assert.deepEqual(merged.filters.ids, [3]);
+  assert.equal(merged.filters.crawlerInfo, 'sig');
 });
 
 test('mergePayload: null/empty origPostData → payload as-is', () => {

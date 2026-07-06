@@ -110,6 +110,8 @@ test('PROMO_ENTITY_REPORT.normalize: MoneyVO totals → flat numbers', () => {
   assert.equal(n.impression, 10000);
   assert.equal(n.click, 300);
   assert.equal(n.gmv, 35000);
+  assert.equal(n.spend, 1300);
+  assert.equal(n.cost, 1300);
   assert.equal(n.totals.spend, 1300);
   assert.equal(n.totals.cost, 1300);
   assert.equal(n.netGmv, 32000);
@@ -147,14 +149,19 @@ test('PROMO_ENTITY_REPORT.normalize: empty result → zeros', () => {
   const n = PROMO_ENTITY_REPORT.normalize({ result: {} });
   assert.equal(n.impression, 0);
   assert.equal(n.gmv, 0);
-  assert.equal(n.spend, undefined); // totals empty, no spend field
+  assert.equal(n.spend, 0);
+  assert.equal(n.cost, 0);
   assert.deepEqual(n.entities, []);
 });
 
-test('PROMO_ENTITY_REPORT.isSuccess: result present → true', () => {
+test('PROMO_ENTITY_REPORT.isSuccess: result present and not explicitly failed → true', () => {
   assert.equal(PROMO_ENTITY_REPORT.isSuccess({ result: {} }), true);
   assert.equal(PROMO_ENTITY_REPORT.isSuccess({ success: true, errorCode: 1000, result: {} }), true);
   assert.equal(PROMO_ENTITY_REPORT.isSuccess({}), false);
+});
+
+test('PROMO_ENTITY_REPORT.isSuccess: success false with result → false', () => {
+  assert.equal(PROMO_ENTITY_REPORT.isSuccess({ success: false, errorCode: 500, result: {} }), false);
 });
 
 // ---------- PROMO_HOURLY_REPORT.normalize ----------
@@ -177,6 +184,10 @@ test('PROMO_HOURLY_REPORT.normalize: sumReport MoneyVO flattened', () => {
   assert.equal(n.totals.spend, 450);
   assert.equal(n.hourlyPoints.length, 1);
   assert.deepEqual(n.anchorPoints, { start: '2026-06-01' });
+});
+
+test('PROMO_HOURLY_REPORT.isSuccess: success false with result → false', () => {
+  assert.equal(PROMO_HOURLY_REPORT.isSuccess({ success: false, errorCode: 500, result: {} }), false);
 });
 
 // ---------- endpoint urlPattern (regression guard against apollo→poseidon fix) ----------

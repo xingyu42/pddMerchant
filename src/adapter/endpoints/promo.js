@@ -82,6 +82,11 @@ function flattenTotals(totals) {
   };
 }
 
+function hasSuccessfulResult(raw) {
+  if (raw?.success === false) return false;
+  return raw?.result !== undefined;
+}
+
 export const PROMO_ENTITY_REPORT = {
   name: 'promo.entityReport',
   urlPattern: /mms-gateway\/poseidon\/api\/report\/queryEntityReport/,
@@ -123,12 +128,14 @@ export const PROMO_ENTITY_REPORT = {
       click: totals.click ?? 0,
       ctr: totals.ctr ?? 0,
       gmv: totals.gmv ?? 0,
+      spend: totals.spend ?? 0,
+      cost: totals.cost ?? 0,
       netGmv: totals.netGmv ?? 0,
       costPerOrder: totals.costPerOrder ?? 0,
       raw,
     };
   },
-  isSuccess: (raw) => raw?.result !== undefined,
+  isSuccess: hasSuccessfulResult,
 };
 
 export const PROMO_HOURLY_REPORT = {
@@ -160,5 +167,5 @@ export const PROMO_HOURLY_REPORT = {
     anchorPoints: raw?.result?.anchorPoints ?? {},
     raw,
   }),
-  isSuccess: (raw) => raw?.result !== undefined,
+  isSuccess: hasSuccessfulResult,
 };
