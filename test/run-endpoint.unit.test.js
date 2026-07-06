@@ -381,3 +381,22 @@ test('V0.2 #7 cooldown: expired cooldown auto-clears state and allows new call',
     _resetRateLimitState();
   }
 });
+
+// INV-012: Empty/unparsable body handling
+// Contract: If XHR response body parses to null (via parseBody),
+// runEndpoint rejects with E_NETWORK and a hint about anti-fraud blocking.
+test('null body rejects with E_NETWORK', async () => {
+  const page = createFakePage({
+    respondBy: () => ({ status: 200, body: null }),
+  });
+  const meta = {
+    name: 'test.nullBody',
+    urlPattern: PATTERN,
+    nav: { url: 'http://host/fake/endpoint' },
+    isSuccess: () => true,
+  };
+  await assert.rejects(
+    () => runEndpoint(page, meta, {}, {}),
+    (err) => err.code === 'E_NETWORK' && err.message.includes('empty or unparsable'),
+  );
+});

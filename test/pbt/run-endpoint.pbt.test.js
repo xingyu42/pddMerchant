@@ -236,3 +236,89 @@ test('pbt: rate_limit_cooldown_expiry_auto_clears_state', async () => {
     _resetRateLimitState();
   }
 });
+
+// INV-007: Pre-aborted signal causes immediate E_TIMEOUT rejection regardless of
+// endpoint configuration or page response. Validates that throwIfAborted at the
+// top of the retry loop short-circuits before any I/O.
+test('pbt: abort_signal_respected_before_navigation', async () => {
+  await property(
+    'abort_signal_preaborted',
+    gen.record({
+      statusCode: gen.oneOf([200, 429, 401, 500]),
+      hasNavFn: gen.bool(),
+    }),
+    async ({ statusCode, hasNavFn }) => {
+      let gotoCalled = false;
+      const page = createEndpointPage({
+        respondBy: () => {
+          gotoCalled = true;
+          return { status: statusCode, body: { success: true, errorCode: 0, result: {} } };
+        },
+      });
+      const controller = new AbortController();
+      controller.abort();
+
+      const meta = {
+        name: 'pbt.abort',
+        urlPattern: PATTERN,
+        nav: hasNavFn
+          ? { url: () => 'http://host/fake/endpoint' }
+          : { url: 'http://host/fake/endpoint' },
+        isSuccess: (raw) => raw?.success === true,
+      };
+
+      try {
+        await runEndpoint(page, meta, {}, { signal: controller.signal });
+        return false;
+      } catch (err) {
+        return err?.code === 'E_TIMEOUT' && !gotoCalled;
+      }
+    },
+    { runs: 20 },
+  );
+});
+
+// INV-008: When ctx.deadlineAt is set close to now, endpoint execution finishes
+// within the deadline window (not the full spec timeout). Uses a non-matching
+// urlPattern so the collector times out — the key property is that the timeout
+// is clamped to remainingMs rather than the large spec timeout.
+test('pbt: timeout_clamped_to_context_deadline', async () => {
+  await property(
+    'deadline_clamps_timeout',
+    gen.record({
+      deadlineOffsetMs: gen.int(20, 80),
+      specTimeout: gen.int(10000, 30000),
+    }),
+    async ({ deadlineOffsetMs, specTimeout }) => {
+      _resetRateLimitState();
+      const page = createEndpointPage({
+        respondBy: (url) => {
+          return { status: 200, body: { success: true, errorCode: 0, result: {} } };
+        },
+      });
+
+      const meta = {
+        name: `pbt.deadline.${deadlineOffsetMs}`,
+        urlPattern: /\/no-match-pattern-xyzzy\//,
+        nav: { url: 'http://host/fake/endpoint' },
+        collectorTimeout: specTimeout,
+        navTimeout: specTimeout,
+        isSuccess: (raw) => raw?.success === true,
+      };
+
+      const t0 = Date.now();
+      const ctx = { deadlineAt: Date.now() + deadlineOffsetMs };
+      try {
+        await runEndpoint(page, meta, {}, ctx);
+        return false;
+      } catch (err) {
+        const elapsed = Date.now() - t0;
+        const isTimelyRejection = elapsed < deadlineOffsetMs + 500;
+        const isExpectedError = err?.code === 'E_NETWORK' || err?.code === 'E_TIMEOUT';
+        _resetRateLimitState();
+        return isTimelyRejection && isExpectedError;
+      }
+    },
+    { runs: 20 },
+  );
+});
