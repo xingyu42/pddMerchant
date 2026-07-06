@@ -34,6 +34,8 @@
  * - INVALID_READY_EL      [warning] `nav.readyEl` should be a CSS selector string.
  */
 
+import { resolveEndpointStrategy } from './endpoint-strategy-resolver.js';
+
 /**
  * @param {object} spec       Endpoint spec object (e.g. GOODS_LIST)
  * @param {object} [options]  Reserved for future flags
@@ -97,28 +99,29 @@ function validateRequiredFields(spec, warnings) {
 // --------------- R2: Transport Strategy ---------------
 
 function validateTransportStrategy(spec, warnings) {
-  if (!spec || typeof spec !== 'object') return 'ambiguous';
+  const { strategy, ambiguous } = resolveEndpointStrategy(spec);
 
-  const hasBuildPayload = typeof spec.buildPayload === 'function';
-  const hasApiUrl = typeof spec.apiUrl === 'string' && spec.apiUrl.length > 0;
+  if (ambiguous) {
+    if (spec && typeof spec === 'object') {
+      const hasBuildPayload = typeof spec.buildPayload === 'function';
+      const present = hasBuildPayload ? 'buildPayload' : 'apiUrl';
+      const missing = hasBuildPayload ? 'apiUrl' : 'buildPayload';
 
-  if (hasBuildPayload && hasApiUrl) return 'fetch';
-  if (!hasBuildPayload && !hasApiUrl) return 'legacy';
+      warnings.push({
+        code: 'AMBIGUOUS_TRANSPORT',
+        severity: 'warning',
+        message: `Endpoint has ${present} but not ${missing}`,
+        field: missing,
+        suggestion: hasBuildPayload
+          ? 'Add apiUrl: "/path/to/api" for fetch mode'
+          : 'Add buildPayload: (params, ctx) => ({...}) for fetch mode, or remove apiUrl for legacy mode',
+      });
+    }
 
-  const present = hasBuildPayload ? 'buildPayload' : 'apiUrl';
-  const missing = hasBuildPayload ? 'apiUrl' : 'buildPayload';
+    return 'ambiguous';
+  }
 
-  warnings.push({
-    code: 'AMBIGUOUS_TRANSPORT',
-    severity: 'warning',
-    message: `Endpoint has ${present} but not ${missing}`,
-    field: missing,
-    suggestion: hasBuildPayload
-      ? 'Add apiUrl: "/path/to/api" for fetch mode'
-      : 'Add buildPayload: (params, ctx) => ({...}) for fetch mode, or remove apiUrl for legacy mode',
-  });
-
-  return 'ambiguous';
+  return strategy;
 }
 
 // --------------- R3: Fetch Mode ---------------

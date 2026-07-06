@@ -4,6 +4,7 @@ import { getLogger } from '../infra/logger.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 import { classifyRateLimit } from './classify-rate-limit.js';
 import { throwIfAborted, remainingMs, abortableSleep } from '../infra/abort.js';
+import { resolveEndpointStrategy } from './endpoint-strategy-resolver.js';
 
 const RETRY_DELAYS_MS = [1000, 2000, 4000];
 export const SUCCESS_BUSINESS_CODES = new Set([0, 1000000]);
@@ -295,8 +296,8 @@ export class PlaywrightEndpointClient {
   }
 
   async _attemptOnce(page, meta, params, ctx, log, navUrl) {
-    const hasFetchPath = typeof meta.buildPayload === 'function' && meta.apiUrl;
-    if (hasFetchPath) {
+    const { strategy } = resolveEndpointStrategy(meta);
+    if (strategy === 'fetch') {
       return this._attemptFetch(page, meta, params, ctx, log, navUrl);
     }
     return this._attemptLegacy(page, meta, params, ctx, log, navUrl);
