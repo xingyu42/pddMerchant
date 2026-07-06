@@ -1,10 +1,10 @@
-import { createCollector, parseBody } from './xhr-collector.js';
+import { parseBody } from './xhr-collector.js';
 import { PddCliError, ExitCodes, mapErrorToExit } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
-import { TIMEOUTS } from '../infra/timeouts.js';
 import { classifyRateLimit } from './classify-rate-limit.js';
-import { throwIfAborted, remainingMs, abortableSleep } from '../infra/abort.js';
+import { throwIfAborted, abortableSleep } from '../infra/abort.js';
 import { resolveEndpointStrategy } from './endpoint-strategy-resolver.js';
+import { executeAttempt } from './endpoint-attempt.js';
 
 const RETRY_DELAYS_MS = [1000, 2000, 4000];
 export const SUCCESS_BUSINESS_CODES = new Set([0, 1000000]);
@@ -304,130 +304,46 @@ export class PlaywrightEndpointClient {
   }
 
   async _attemptFetch(page, meta, params, ctx, log, navUrl) {
-    throwIfAborted(ctx.signal);
-    const remaining = remainingMs(ctx);
-    const navTimeout = Math.min(
-      meta.navTimeout ?? TIMEOUTS.QUICK_NAV,
-      remaining === 0 ? 1 : (remaining || Infinity),
-    );
-    const collectorTimeout = Math.min(
-      meta.collectorTimeout ?? TIMEOUTS.XHR_COLLECTOR,
-      remaining === 0 ? 1 : (remaining || Infinity),
-    );
-
     const payload = meta.buildPayload(params, ctx);
-    const routeHandler = async (route) => {
-      const origPostData = route.request().postData();
-      const merged = mergePayload(origPostData, payload);
-      await route.continue({ postData: JSON.stringify(merged) });
-    };
-    await page.route(meta.urlPattern, routeHandler);
+    let routeHandler;
 
-    const collector = createCollector(page, {
-      pattern: meta.urlPattern,
-      timeout: collectorTimeout,
-      signal: ctx.signal,
+    return executeAttempt({
+      page,
+      meta,
+      params,
+      ctx,
+      log,
+      navUrl,
+      pageSession: ctx.pageSession ?? this._pageSession,
+      prepareTransport: async (pg) => {
+        routeHandler = async (route) => {
+          const origPostData = route.request().postData();
+          const merged = mergePayload(origPostData, payload);
+          await route.continue({ postData: JSON.stringify(merged) });
+        };
+        await pg.route(meta.urlPattern, routeHandler);
+      },
+      cleanupTransport: async (pg) => {
+        if (routeHandler) {
+          await pg.unroute(meta.urlPattern, routeHandler).catch(() => {});
+        }
+      },
+      runTrigger: this._runTrigger.bind(this),
     });
-
-    try {
-      if (navUrl) {
-        const pageSession = ctx.pageSession ?? this._pageSession;
-        if (pageSession) {
-          await pageSession.goto(page, navUrl, {
-            waitUntil: meta.nav?.waitUntil ?? 'domcontentloaded',
-            timeout: navTimeout,
-          });
-        } else {
-          await page.goto(navUrl, {
-            waitUntil: meta.nav?.waitUntil ?? 'domcontentloaded',
-            timeout: navTimeout,
-          });
-        }
-      }
-
-      if (meta.nav?.readyEl) {
-        try {
-          await page.waitForSelector(meta.nav.readyEl, { timeout: TIMEOUTS.ELEMENT_READY });
-        } catch {
-          log.debug({ endpoint: meta.name, readyEl: meta.nav.readyEl }, 'readyEl not found, continuing');
-        }
-      }
-
-      await this._runTrigger(meta, page, params, ctx, log, collector);
-
-      const responses = await collector.waitFor();
-      return responses[0];
-    } catch (err) {
-      collector.dispose();
-      if (err instanceof PddCliError) throw err;
-      throw new PddCliError({
-        code: 'E_NETWORK',
-        message: `${meta.name}: navigation failed: ${err?.message}`,
-        hint: '检查网络连通性或登录态',
-        detail: { url: navUrl },
-        exitCode: ExitCodes.NETWORK,
-      });
-    } finally {
-      await page.unroute(meta.urlPattern, routeHandler).catch(() => {});
-    }
   }
 
   async _attemptLegacy(page, meta, params, ctx, log, navUrl) {
-    throwIfAborted(ctx.signal);
-    const remaining = remainingMs(ctx);
-    const collectorTimeout = Math.min(
-      meta.collectorTimeout ?? TIMEOUTS.XHR_COLLECTOR,
-      remaining === 0 ? 1 : (remaining || Infinity),
-    );
-    const collector = createCollector(page, {
-      pattern: meta.urlPattern,
-      timeout: collectorTimeout,
-      signal: ctx.signal,
+    return executeAttempt({
+      page,
+      meta,
+      params,
+      ctx,
+      log,
+      navUrl,
+      pageSession: ctx.pageSession ?? this._pageSession,
+      prepareTransport: async () => {},
+      cleanupTransport: async () => {},
+      runTrigger: this._runTrigger.bind(this),
     });
-
-    const pageSession = ctx.pageSession ?? this._pageSession;
-    const navTimeout = Math.min(
-      meta.navTimeout ?? TIMEOUTS.QUICK_NAV,
-      remaining === 0 ? 1 : (remaining || Infinity),
-    );
-
-    try {
-      if (navUrl) {
-        if (pageSession) {
-          await pageSession.goto(page, navUrl, {
-            waitUntil: meta.nav?.waitUntil ?? 'domcontentloaded',
-            timeout: navTimeout,
-          });
-        } else {
-          await page.goto(navUrl, {
-            waitUntil: meta.nav?.waitUntil ?? 'domcontentloaded',
-            timeout: navTimeout,
-          });
-        }
-      }
-
-      if (meta.nav?.readyEl) {
-        try {
-          await page.waitForSelector(meta.nav.readyEl, { timeout: TIMEOUTS.ELEMENT_READY });
-        } catch {
-          log.debug({ endpoint: meta.name, readyEl: meta.nav.readyEl }, 'readyEl not found, continuing');
-        }
-      }
-
-      await this._runTrigger(meta, page, params, ctx, log, collector);
-    } catch (err) {
-      collector.dispose();
-      if (err instanceof PddCliError) throw err;
-      throw new PddCliError({
-        code: 'E_NETWORK',
-        message: `${meta.name}: navigation failed: ${err?.message}`,
-        hint: '检查网络连通性或登录态',
-        detail: { url: navUrl },
-        exitCode: ExitCodes.NETWORK,
-      });
-    }
-
-    const responses = await collector.waitFor();
-    return responses[0];
   }
 }
