@@ -128,8 +128,6 @@ node bin/pdd.js goods publish --url <链接或纯数字goods_id> [--cost-templat
 ### 🚀 推广 promo
 
 ```bash
-node bin/pdd.js promo search --since YYYY-MM-DD --page 1 --size 10   # 搜索/全量推广
-node bin/pdd.js promo scene  --since YYYY-MM-DD --page 1 --size 10   # 场景推广
 node bin/pdd.js promo roi --by plan|sku|channel --break-even 1.0 [--include-inactive]  # ROI 诊断
 ```
 

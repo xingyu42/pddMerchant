@@ -721,7 +721,7 @@ describe('save draft cost template injection', () => {
         );
         return { json: async () => ({ success: true }) };
       },
-      evaluate: async () => ({ result: { goods_name: '测试商品', cost_template_id: 544142245494784, galleries: ['x'] } }),
+      evaluate: async () => ({ result: { goods_name: '测试商品', cost_template_id: 544142245494784, gallery: ['x'] } }),
     };
 
     await clickSaveDraft(page, 'abc789', { costTemplateId: 544142245494784 });
@@ -739,7 +739,7 @@ describe('save draft cost template injection', () => {
       route: async () => {},
       unroute: async () => { unrouted = true; },
       waitForResponse: async () => ({ json: async () => ({ success: true }) }),
-      evaluate: async () => ({ result: { goods_name: '测试商品', cost_template_id: 544142245494784, galleries: ['x'] } }),
+      evaluate: async () => ({ result: { goods_name: '测试商品', cost_template_id: 544142245494784, gallery: ['x'] } }),
     };
 
     await assert.rejects(
@@ -758,7 +758,7 @@ describe('save draft cost template injection', () => {
       route: async () => {},
       unroute: async () => { unrouted = true; },
       waitForResponse: async () => { throw new Error('timeout waiting for save'); },
-      evaluate: async () => ({ result: { goods_name: '测试商品', cost_template_id: 544142245494784, galleries: ['x'] } }),
+      evaluate: async () => ({ result: { goods_name: '测试商品', cost_template_id: 544142245494784, gallery: ['x'] } }),
     };
 
     await assert.rejects(
@@ -793,7 +793,7 @@ describe('save draft cost template injection', () => {
         unrouted = routed.some(item => item.handler === handler);
       },
       waitForResponse: async () => new Promise(() => {}),
-      evaluate: async () => ({ result: { goods_name: '测试商品', cost_template_id: 544142245494784, galleries: ['x'] } }),
+      evaluate: async () => ({ result: { goods_name: '测试商品', cost_template_id: 544142245494784, gallery: ['x'] } }),
     };
 
     await assert.rejects(
@@ -821,7 +821,7 @@ describe('save draft cost template injection', () => {
       route: async (pattern, handler) => { routed.push({ pattern, handler }); },
       unroute: async () => {},
       waitForResponse: async () => ({ json: async () => ({ success: true }) }),
-      evaluate: async () => ({ result: { goods_name: '测试商品', galleries: ['x'] } }),
+      evaluate: async () => ({ result: { goods_name: '测试商品', gallery: ['x'] } }),
     };
 
     await assert.rejects(

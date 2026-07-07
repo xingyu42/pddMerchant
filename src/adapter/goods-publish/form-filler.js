@@ -368,7 +368,7 @@ function collectDraftIssues(d, expectedCostTemplateId) {
   } else if (expectedCostTemplateId != null && String(actualTemplateId) !== String(expectedCostTemplateId)) {
     issues.push('cost_template_mismatch');
   }
-  if (!Array.isArray(d.galleries) || d.galleries.length === 0) issues.push('no_images');
+  if (!Array.isArray(d.gallery) || d.gallery.length === 0) issues.push('no_images');
   return issues;
 }
 

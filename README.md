@@ -49,7 +49,7 @@ src/infra/           envelope/errors/logger/timeouts
 | **orders** | `list` / `detail` / `stats` |
 | **goods** | `list` / `stock` / `segment` / `publish` / `templates` |
 | **goods update** | `status` / `price` / `stock` / `title` / `batch`（需 `--confirm`） |
-| **promo** | `search` / `scene` / `roi` |
+| **promo** | `roi`（`search` / `scene` 已合并废弃） |
 | **diagnose** | `shop` / `orders` / `inventory` / `promo` / `funnel` |
 | **action** | `plan` |
 | **shops** | `list` / `current` |
@@ -130,7 +130,7 @@ cp -r skills/pdd-cli ~/.openclaw/skills/
 ## 测试
 
 ```bash
-npm test                           # 全部测试（vitest，~770 个）
+npm test                           # 全部测试（vitest；数量以本地输出为准）
 npx vitest test/<file>.test.js     # 单文件
 ```
 
