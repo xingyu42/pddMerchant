@@ -1,13 +1,58 @@
 import { describe, it, beforeEach, afterEach, vi } from 'vitest';
 import assert from 'node:assert/strict';
+import { timeoutError } from '../src/infra/abort.js';
+import { ExitCodes } from '../src/infra/errors.js';
 
 const outputMock = vi.hoisted(() => ({
   emit: vi.fn(),
 }));
 
+const liveMocks = vi.hoisted(() => ({
+  fakePage: { __fake: 'page' },
+  fakeContext: { __fake: 'context' },
+  closeAll: vi.fn(async () => {}),
+  isAuthValid: vi.fn(async () => true),
+  migrateLegacyAuthStateIfNeeded: vi.fn(async () => {}),
+  resolveMallContext: vi.fn(async () => ({ activeId: '445301049', activeName: 'probe-mall', malls: [], source: 'probe' })),
+}));
+
 vi.mock('../src/infra/output.js', async (importOriginal) => ({
   ...(await importOriginal()),
   emit: outputMock.emit,
+}));
+
+vi.mock('../src/adapter/browser.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  withBrowser: async (options, fn) => fn({
+    browser: { __fake: 'browser', options },
+    context: liveMocks.fakeContext,
+    page: liveMocks.fakePage,
+  }),
+}));
+
+vi.mock('../src/adapter/auth-state.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  isAuthValid: liveMocks.isAuthValid,
+  migrateLegacyAuthStateIfNeeded: liveMocks.migrateLegacyAuthStateIfNeeded,
+}));
+
+vi.mock('../src/adapter/mall-reader.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  resolveMallContext: liveMocks.resolveMallContext,
+}));
+
+vi.mock('../src/adapter/mall-writer.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  switchTo: async () => {},
+}));
+
+vi.mock('../src/adapter/page-session.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  createPageSession: () => ({
+    closeAll: liveMocks.closeAll,
+    goto: async () => liveMocks.fakePage,
+    getSiblings: () => [],
+  }),
 }));
 
 const { executeSingle } = await import('../src/commands/_runner.js');
@@ -32,6 +77,11 @@ describe('runner contract invariants', () => {
     process.env.PDD_TEST_ADAPTER = 'fixture';
     delete process.env.PDD_TEST_AUTH_INVALID;
     outputMock.emit.mockClear();
+    liveMocks.closeAll.mockReset();
+    liveMocks.closeAll.mockResolvedValue(undefined);
+    liveMocks.isAuthValid.mockClear();
+    liveMocks.migrateLegacyAuthStateIfNeeded.mockClear();
+    liveMocks.resolveMallContext.mockClear();
   });
 
   afterEach(() => {
@@ -114,5 +164,69 @@ describe('runner contract invariants', () => {
     assert.equal(typeof captured.deadlineAt, 'number');
     assert.ok(captured.deadlineAt >= before + timeoutMs);
     assert.ok(captured.deadlineAt <= after + timeoutMs);
+  });
+
+  it('finalizes live pageSession closeAll failures as one emitted error envelope', async () => {
+    delete process.env.PDD_TEST_ADAPTER;
+    liveMocks.closeAll.mockRejectedValueOnce(new Error('close boom'));
+
+    const envelope = await executeSingle(
+      makeSpec({
+        name: 'runner.live.close.failure',
+        async run() { return { ok: true }; },
+      }),
+      { json: true, noColor: true },
+      { emitResult: true, skipDaemonStart: true },
+    );
+
+    assert.equal(envelope.ok, false);
+    assert.equal(envelope.error.code, 'E_GENERAL');
+    assert.equal(envelope.meta.exit_code, ExitCodes.GENERAL);
+    assert.equal(liveMocks.closeAll.mock.calls.length, 1);
+    assert.equal(outputMock.emit.mock.calls.length, 1);
+    assert.deepEqual(outputMock.emit.mock.calls[0][0], envelope);
+  });
+
+  it('finalizes an already-aborted parentSignal through the standard error envelope path', async () => {
+    const controller = new AbortController();
+    controller.abort(new Error('parent aborted'));
+
+    let observedSignal;
+    const envelope = await executeSingle(
+      makeSpec({
+        name: 'runner.parent.abort',
+        async run(ctx) {
+          observedSignal = ctx.signal;
+          if (ctx.signal?.aborted) throw timeoutError();
+          return { ok: true };
+        },
+      }),
+      { json: true, noColor: true },
+      { emitResult: true, skipDaemonStart: true, parentSignal: controller.signal },
+    );
+
+    assert.equal(observedSignal, controller.signal);
+    assert.equal(envelope.ok, false);
+    assert.equal(envelope.error.code, 'E_TIMEOUT');
+    assert.equal(envelope.meta.exit_code, ExitCodes.NETWORK);
+    assert.equal(outputMock.emit.mock.calls.length, 1);
+    assert.deepEqual(outputMock.emit.mock.calls[0][0], envelope);
+  });
+
+  it('skips run(ctx) and returns auth error envelope when fixture auth is invalid', async () => {
+    process.env.PDD_TEST_AUTH_INVALID = '1';
+    const run = vi.fn(async () => ({ ok: true }));
+
+    const envelope = await executeSingle(
+      makeSpec({ name: 'runner.fixture.auth.invalid', needsAuth: true, run }),
+      { json: true, noColor: true },
+      { emitResult: false, skipDaemonStart: true },
+    );
+
+    assert.equal(run.mock.calls.length, 0);
+    assert.equal(envelope.ok, false);
+    assert.equal(envelope.error.code, 'E_AUTH_EXPIRED');
+    assert.equal(envelope.meta.exit_code, ExitCodes.AUTH);
+    assert.equal(outputMock.emit.mock.calls.length, 0);
   });
 });
