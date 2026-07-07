@@ -56,17 +56,45 @@ async function listEnabledAccounts() {
   return allAccounts.filter((a) => !a.disabled);
 }
 
-async function runOneAccount(spec, opts, slug, batch) {
-  const perAccountCorrelation = `${batch.correlationId}:${slug}`;
+function validateBatchOptions(opts) {
+  if (opts.account) {
+    throw new PddCliError({
+      code: 'E_USAGE',
+      message: '--all-accounts and --account are mutually exclusive',
+      hint: 'Use one or the other, not both',
+      exitCode: ExitCodes.USAGE,
+    });
+  }
+  if (opts.authStatePath || process.env.PDD_AUTH_STATE_PATH) {
+    throw new PddCliError({
+      code: 'E_USAGE',
+      message: '--all-accounts and --auth-state-path / PDD_AUTH_STATE_PATH are mutually exclusive',
+      hint: 'Use --all-accounts alone to iterate registered accounts',
+      exitCode: ExitCodes.USAGE,
+    });
+  }
 
-  const perOpts = {
+  return opts.mall ? ['unused_flag_mall_in_batch'] : [];
+}
+
+function buildPerAccountOptions(opts, slug, batch) {
+  return {
     ...opts,
     account: undefined,
     authStatePath: accountAuthStatePath(slug),
     allAccounts: false,
     mall: undefined,
-    _correlationId: perAccountCorrelation,
+    _correlationId: `${batch.correlationId}:${slug}`,
   };
+}
+
+function batchJitterMs(random = Math.random) {
+  return BATCH_JITTER_MIN + Math.floor(random() * (BATCH_JITTER_MAX - BATCH_JITTER_MIN));
+}
+
+async function runOneAccount(spec, opts, slug, batch) {
+  const perOpts = buildPerAccountOptions(opts, slug, batch);
+  const perAccountCorrelation = perOpts._correlationId;
 
   const envelope = await executeSingle(spec, perOpts, {
     emitResult: false,
@@ -108,8 +136,7 @@ async function runAccountLoop(spec, opts, accounts, batch) {
 
     if (i < accounts.length - 1 && !batch.signal.aborted) {
       try {
-        const jitterMs = BATCH_JITTER_MIN + Math.floor(Math.random() * (BATCH_JITTER_MAX - BATCH_JITTER_MIN));
-        await abortableSleep(jitterMs, batch.signal);
+        await abortableSleep(batchJitterMs(), batch.signal);
       } catch {
         break;
       }
@@ -147,32 +174,12 @@ function finalizeBatch(spec, opts, accountResults, batch) {
 async function executeBatch(spec, opts) {
   const startedAt = Date.now();
   const correlationId = randomUUID();
-  const warnings = [];
 
   const log = getLogger().withOp
     ? getLogger().withOp({ command: spec.name, correlation_id: correlationId })
     : getLogger();
 
-  if (opts.account) {
-    throw new PddCliError({
-      code: 'E_USAGE',
-      message: '--all-accounts and --account are mutually exclusive',
-      hint: 'Use one or the other, not both',
-      exitCode: ExitCodes.USAGE,
-    });
-  }
-  if (opts.authStatePath || process.env.PDD_AUTH_STATE_PATH) {
-    throw new PddCliError({
-      code: 'E_USAGE',
-      message: '--all-accounts and --auth-state-path / PDD_AUTH_STATE_PATH are mutually exclusive',
-      hint: 'Use --all-accounts alone to iterate registered accounts',
-      exitCode: ExitCodes.USAGE,
-    });
-  }
-
-  if (opts.mall) {
-    warnings.push('unused_flag_mall_in_batch');
-  }
+  const warnings = validateBatchOptions(opts);
 
   const accounts = await listEnabledAccounts();
   if (accounts.length === 0) {
