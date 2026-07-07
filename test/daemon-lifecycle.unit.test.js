@@ -1,0 +1,131 @@
+import { afterEach, describe, it, vi } from 'vitest';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+
+const tempRoots = [];
+
+async function tempStatePath() {
+  const root = await mkdtemp(join(tmpdir(), 'pdd-daemon-lifecycle-'));
+  tempRoots.push(root);
+  return join(root, 'daemon-state.json');
+}
+
+function captureStdout() {
+  const original = process.stdout.write;
+  let output = '';
+  process.stdout.write = function write(chunk, encoding, cb) {
+    output += String(chunk);
+    if (typeof encoding === 'function') encoding();
+    if (typeof cb === 'function') cb();
+    return true;
+  };
+  return () => {
+    process.stdout.write = original;
+    return output;
+  };
+}
+
+async function importDaemonCommand({ statePath, pidAlive = false, ensureResult } = {}) {
+  vi.resetModules();
+  vi.doMock('../src/infra/paths.js', () => ({
+    DAEMON_STATE_PATH: statePath,
+  }));
+  vi.doMock('../src/infra/process-util.js', () => ({
+    isPidAlive: () => pidAlive,
+  }));
+  vi.doMock('../src/infra/daemon-launcher.js', () => ({
+    ensureDaemonRunning: async () => ensureResult ?? { started: false, pid: 12345 },
+  }));
+  return import('../src/commands/daemon.js');
+}
+
+afterEach(async () => {
+  vi.restoreAllMocks();
+  vi.resetModules();
+  while (tempRoots.length > 0) {
+    const root = tempRoots.pop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+describe('daemon command lifecycle invariants', () => {
+  it('daemon status cleans stale state and keeps --json stdout to one envelope line', async () => {
+    const statePath = await tempStatePath();
+    await writeFile(statePath, JSON.stringify({
+      pid: 987654321,
+      startedAt: '2026-07-08T00:00:00.000Z',
+      lastResult: 'refreshed',
+      refreshCount: 2,
+      failureCount: 0,
+    }));
+    const daemon = await importDaemonCommand({ statePath, pidAlive: false });
+
+    const restore = captureStdout();
+    const envelope = await daemon.status({ json: true, noColor: true });
+    const stdout = restore();
+
+    assert.equal(envelope.ok, true);
+    assert.equal(envelope.command, 'daemon.status');
+    assert.equal(envelope.data.running, false);
+    assert.equal(existsSync(statePath), false, 'stale daemon state file should be removed');
+
+    const lines = stdout.split(/\r?\n/).filter(Boolean);
+    assert.equal(lines.length, 1, `expected one stdout JSON line, got ${lines.length}: ${stdout}`);
+    const parsed = JSON.parse(lines[0]);
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.command, 'daemon.status');
+    assert.equal(parsed.data.running, false);
+    assert.equal(parsed.data.pid, 987654321);
+  });
+
+  it('daemon stop cleans tokenless state before attempting process termination', async () => {
+    const statePath = await tempStatePath();
+    await writeFile(statePath, JSON.stringify({
+      pid: 987654321,
+      startedAt: '2026-07-08T00:00:00.000Z',
+      status: 'running',
+    }));
+    const daemon = await importDaemonCommand({
+      statePath,
+      pidAlive: true,
+    });
+
+    const restore = captureStdout();
+    const envelope = await daemon.stop({ json: true, noColor: true });
+    const stdout = restore();
+
+    assert.equal(envelope.ok, true);
+    assert.equal(envelope.command, 'daemon.stop');
+    assert.equal(envelope.data.stopped, false);
+    assert.equal(envelope.data.message, 'daemon state missing token, cleaned');
+    assert.equal(existsSync(statePath), false, 'tokenless daemon state file should be removed');
+
+    const lines = stdout.split(/\r?\n/).filter(Boolean);
+    assert.equal(lines.length, 1, `expected one stdout JSON line, got ${lines.length}: ${stdout}`);
+  });
+
+  it('daemon start reports an already-running daemon without spawning a replacement', async () => {
+    const statePath = await tempStatePath();
+    const daemon = await importDaemonCommand({
+      statePath,
+      pidAlive: true,
+      ensureResult: { started: false, pid: 24680 },
+    });
+
+    const restore = captureStdout();
+    const envelope = await daemon.start({ json: true, noColor: true });
+    const stdout = restore();
+
+    assert.equal(envelope.ok, true);
+    assert.equal(envelope.command, 'daemon.start');
+    assert.equal(envelope.data.pid, 24680);
+    assert.equal(envelope.data.already_running, true);
+    assert.equal(envelope.data.stateFile, statePath);
+
+    const lines = stdout.split(/\r?\n/).filter(Boolean);
+    assert.equal(lines.length, 1, `expected one stdout JSON line, got ${lines.length}: ${stdout}`);
+  });
+});
