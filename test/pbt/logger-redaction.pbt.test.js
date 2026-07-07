@@ -1,7 +1,7 @@
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
-import { redactRecursive, REDACT_KEY_SET } from '../../src/infra/logger.js';
+import { createLogger, redactRecursive, REDACT_KEY_SET } from '../../src/infra/logger.js';
 
 describe('Logger redaction PBT', () => {
   it('PROP-RD-1: no REDACT_KEYS value appears as plaintext in serialized output', () => {
@@ -77,5 +77,47 @@ describe('Logger redaction PBT', () => {
     for (const pii of ['13800001111', '13900002222', '幸福街 1 号', 'X 路 2 号']) {
       assert.ok(!serialized.includes(pii), `PII must not survive: ${pii}`);
     }
+  });
+
+  it('withOp: emits structured operation context without raw mall_id leakage', () => {
+    const chunks = [];
+    const destination = {
+      write(chunk) {
+        chunks.push(String(chunk));
+      },
+    };
+    const logger = createLogger({ level: 'info', destination });
+    const rawMallId = 'mall-secret-445301049';
+    const authSentinel = 'AUTH-OP-SECRET';
+    const mobileSentinel = '13800001111';
+
+    logger
+      .withOp({
+        command: 'diagnose.shop',
+        endpoint: 'orders.list',
+        correlation_id: 'cid-op-1',
+        mall_id: rawMallId,
+      })
+      .info({
+        authorization: authSentinel,
+        mobile: mobileSentinel,
+        safe_count: 2,
+      }, 'operation context ready');
+
+    const serialized = chunks.join('');
+    assert.ok(serialized, 'one log line expected');
+    assert.ok(!serialized.includes(rawMallId), 'raw mall_id must not be serialized');
+    assert.ok(!serialized.includes(authSentinel), 'authorization sentinel must not leak');
+    assert.ok(!serialized.includes(mobileSentinel), 'mobile sentinel must not leak');
+
+    const record = JSON.parse(serialized.trim());
+    assert.equal(record.command, 'diagnose.shop');
+    assert.equal(record.endpoint, 'orders.list');
+    assert.equal(record.correlation_id, 'cid-op-1');
+    assert.equal(record.mall_id, undefined, 'raw mall_id field must not be emitted');
+    assert.ok(String(record.mall_id_hash).startsWith('fp:'), 'mall_id_hash fingerprint expected');
+    assert.ok(String(record.authorization).startsWith('fp:'), 'authorization fingerprint expected');
+    assert.ok(String(record.mobile).startsWith('fp:'), 'mobile fingerprint expected');
+    assert.equal(record.safe_count, 2);
   });
 });
