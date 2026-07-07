@@ -1,27 +1,17 @@
 import { describe, test } from 'vitest';
 import assert from 'node:assert/strict';
 import { validateEndpointSpec } from '../src/adapter/endpoint-validator.js';
-import * as goodsEndpoints from '../src/adapter/endpoints/goods.js';
-import * as ordersEndpoints from '../src/adapter/endpoints/orders.js';
-import * as promoEndpoints from '../src/adapter/endpoints/promo.js';
-import * as goodsPublishEndpoints from '../src/adapter/endpoints/goods-publish.js';
-
-const allEndpoints = [
-  ...Object.values(goodsEndpoints).filter((e) => e?.name && e?.urlPattern),
-  ...Object.values(ordersEndpoints).filter((e) => e?.name && e?.urlPattern),
-  ...Object.values(promoEndpoints).filter((e) => e?.name && e?.urlPattern),
-  ...Object.values(goodsPublishEndpoints).filter((e) => e?.name && e?.urlPattern),
-];
+import { allEndpointSpecs } from './_endpoint-specs.js';
 
 describe('existing endpoint spec diagnostics', () => {
   test('all endpoint specs are collected', () => {
-    assert.ok(allEndpoints.length >= 12, `expected >= 12 endpoints, got ${allEndpoints.length}`);
+    assert.ok(allEndpointSpecs.length >= 12, `expected >= 12 endpoints, got ${allEndpointSpecs.length}`);
   });
 
   test('no critical errors in existing endpoints', () => {
     const failures = [];
 
-    for (const spec of allEndpoints) {
+    for (const spec of allEndpointSpecs) {
       const result = validateEndpointSpec(spec);
       const errors = result.warnings.filter((w) => w.severity === 'error');
 
@@ -44,7 +34,7 @@ describe('existing endpoint spec diagnostics', () => {
   test('log warnings for existing endpoints (informational)', () => {
     const warningsByEndpoint = new Map();
 
-    for (const spec of allEndpoints) {
+    for (const spec of allEndpointSpecs) {
       const result = validateEndpointSpec(spec);
       const warnings = result.warnings.filter((w) => w.severity === 'warning');
 
@@ -66,7 +56,7 @@ describe('existing endpoint spec diagnostics', () => {
   });
 
   test('every endpoint has an inferred strategy', () => {
-    for (const spec of allEndpoints) {
+    for (const spec of allEndpointSpecs) {
       const result = validateEndpointSpec(spec);
       assert.ok(
         ['fetch', 'legacy', 'ambiguous'].includes(result.strategy),

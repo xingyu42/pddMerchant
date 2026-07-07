@@ -1,17 +1,7 @@
 import { describe, test } from 'vitest';
 import assert from 'node:assert/strict';
 import { resolveEndpointStrategy } from '../src/adapter/endpoint-strategy-resolver.js';
-import * as goodsEndpoints from '../src/adapter/endpoints/goods.js';
-import * as ordersEndpoints from '../src/adapter/endpoints/orders.js';
-import * as promoEndpoints from '../src/adapter/endpoints/promo.js';
-import * as goodsPublishEndpoints from '../src/adapter/endpoints/goods-publish.js';
-
-const allEndpoints = [
-  ...Object.values(goodsEndpoints).filter((e) => e?.name && e?.urlPattern),
-  ...Object.values(ordersEndpoints).filter((e) => e?.name && e?.urlPattern),
-  ...Object.values(promoEndpoints).filter((e) => e?.name && e?.urlPattern),
-  ...Object.values(goodsPublishEndpoints).filter((e) => e?.name && e?.urlPattern),
-];
+import { allEndpointSpecs } from './_endpoint-specs.js';
 
 const expectedStrategies = {
   'goods.list': 'fetch',
@@ -35,7 +25,7 @@ const expectedStrategies = {
 
 describe('endpoint strategy integration', () => {
   test('all existing endpoints resolve to expected strategy', () => {
-    for (const spec of allEndpoints) {
+    for (const spec of allEndpointSpecs) {
       const result = resolveEndpointStrategy(spec);
       const expected = expectedStrategies[spec.name];
 
@@ -49,7 +39,7 @@ describe('endpoint strategy integration', () => {
   });
 
   test('expected strategy map covers all existing endpoints', () => {
-    const specNames = new Set(allEndpoints.map((s) => s.name));
+    const specNames = new Set(allEndpointSpecs.map((s) => s.name));
     const mapNames = new Set(Object.keys(expectedStrategies));
 
     for (const name of specNames) {
@@ -58,7 +48,7 @@ describe('endpoint strategy integration', () => {
   });
 
   test('no existing endpoints are ambiguous', () => {
-    const ambiguous = allEndpoints.filter((spec) => resolveEndpointStrategy(spec).ambiguous);
+    const ambiguous = allEndpointSpecs.filter((spec) => resolveEndpointStrategy(spec).ambiguous);
 
     assert.equal(
       ambiguous.length,
@@ -68,7 +58,7 @@ describe('endpoint strategy integration', () => {
   });
 
   test('all existing endpoints resolve with explicit=false (Phase 1)', () => {
-    for (const spec of allEndpoints) {
+    for (const spec of allEndpointSpecs) {
       const result = resolveEndpointStrategy(spec);
       assert.equal(
         result.explicit,
