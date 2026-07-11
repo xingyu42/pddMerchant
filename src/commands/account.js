@@ -1,4 +1,3 @@
-import { promptText, promptPassword } from '../infra/prompts.js';
 import { emit } from '../infra/output.js';
 import { getLogger } from '../infra/logger.js';
 import { PddCliError, ExitCodes, errorToEnvelope } from '../infra/errors.js';
@@ -10,42 +9,28 @@ import {
   setDefaultAccount as setDefaultInRegistry,
   slugifyAccountName,
 } from '../infra/account-registry.js';
-import { encryptCredential, resolveMasterPassword } from '../infra/credential-vault.js';
-import { performPasswordLogin } from '../services/auth.js';
+import { performHeadedLogin } from '../services/auth.js';
 import { accountAuthStatePath } from '../infra/paths.js';
+import { TIMEOUTS } from '../infra/timeouts.js';
 
 export async function add(opts = {}) {
   const startedAt = Date.now();
   const log = getLogger();
 
   try {
-    const mobile = await promptText('手机号');
-    const password = await promptPassword('密码');
-
-    if (!mobile || !password) {
-      throw new PddCliError({
-        code: 'E_USAGE',
-        message: '手机号和密码不能为空',
-        exitCode: ExitCodes.USAGE,
-      });
-    }
-
     const reg = await loadAccountRegistry({ createIfMissing: true });
     const existingSlugs = new Set(Object.keys(reg.accounts));
     const tempSlug = `temp-${Date.now()}`;
     const authPath = accountAuthStatePath(tempSlug);
 
-    log.info('正在登录...');
-    const loginResult = await performPasswordLogin({
-      mobile,
-      password,
+    log.info('正在通过有头浏览器登录，请手动完成登录...');
+    const loginResult = await performHeadedLogin({
       authStatePath: authPath,
-      headed: opts.headed,
-      log,
+      timeoutMs: opts.timeoutMs ?? TIMEOUTS.LOGIN_HEADED,
     });
 
-    const displayName = loginResult.mall?.name ?? `account-${Date.now()}`;
-    const mallId = loginResult.mall?.id ?? null;
+    const displayName = `account-${Date.now()}`;
+    const mallId = null;
     const slug = slugifyAccountName(displayName, { existingSlugs, mallId });
 
     const { rename } = await import('node:fs/promises');
@@ -56,37 +41,26 @@ export async function add(opts = {}) {
     await ensureDir(finalDir);
 
     if (tempSlug !== slug) {
-      const { dirname } = await import('node:path');
       await rename(authPath, finalAuthPath).catch(async () => {
         const { copyFile } = await import('node:fs/promises');
         await copyFile(authPath, finalAuthPath);
       });
     }
 
-    let credential = null;
-    const masterPwd = resolveMasterPassword();
-    if (masterPwd) {
-      credential = await encryptCredential(
-        { version: 1, mobile, password, createdAt: new Date().toISOString() },
-        masterPwd,
-        { accountSlug: slug },
-      );
-    }
-
     const isFirst = Object.keys(reg.accounts).length === 0;
-    const account = await upsertAccount({
+    await upsertAccount({
       slug,
       displayName,
       mallId,
-      credential,
+      credential: null,
       lastLoginAt: new Date().toISOString(),
     }, { setDefault: isFirst });
 
     const envelope = {
       ok: true,
       command: 'account.add',
-      data: { slug, displayName, mallId, hasCredential: credential !== null },
-      meta: { latency_ms: Date.now() - startedAt, warnings: masterPwd ? [] : ['no_master_password_credentials_not_saved'] },
+      data: { slug, displayName, mallId, hasCredential: false },
+      meta: { latency_ms: Date.now() - startedAt, warnings: ['credentials_not_saved_headed_login'] },
     };
     emit(envelope, { json: opts.json, noColor: opts.noColor });
     return envelope;

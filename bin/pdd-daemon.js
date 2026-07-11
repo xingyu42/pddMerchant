@@ -10,8 +10,6 @@ import { refreshAuth } from '../src/adapter/auth-refresher.js';
 import { closeAllBrowsers } from '../src/adapter/browser.js';
 import { loadAccountRegistry, listAccounts, upsertAccount } from '../src/infra/account-registry.js';
 import { accountAuthStatePath } from '../src/infra/paths.js';
-import { decryptCredential, resolveMasterPassword, hasEncryptedCredential } from '../src/infra/credential-vault.js';
-import { loginWithPassword } from '../src/adapter/password-login.js';
 
 const token = randomUUID();
 const tokenFingerprint = createHash('sha256').update(token).digest('hex').slice(0, 8);
@@ -79,33 +77,8 @@ async function refreshSingleAccount(slug, authStatePath, account) {
     return;
   }
 
-  if (hasEncryptedCredential(account)) {
-    const masterPwd = resolveMasterPassword();
-    if (masterPwd) {
-      try {
-        const plaintext = await decryptCredential(account.credential, masterPwd, { accountSlug: slug });
-        await loginWithPassword({
-          mobile: plaintext.mobile,
-          password: plaintext.password,
-          authStatePath,
-          log,
-        });
-        const now = new Date().toISOString();
-        accountStates[slug] = {
-          lastRefreshAt: now,
-          lastResult: 'auth_expired_relogin_success',
-          lastLoginAt: now,
-          failureCount: 0,
-        };
-        await upsertAccount({ slug, lastLoginAt: now }).catch(() => {});
-        return;
-      } catch (reloginErr) {
-        log.warn({ slug, err: reloginErr?.message }, 'auto-relogin failed');
-      }
-    } else {
-      log.warn({ slug }, 'no master password, skip auto-relogin');
-    }
-  }
+  // Auth refresh failed, encrypted credentials removed (password login no longer supported)
+  log.warn({ slug, reason: result.reason }, 'auth refresh failed, manual re-login required');
 
   const prev = accountStates[slug] ?? {};
   accountStates[slug] = {

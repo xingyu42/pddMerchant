@@ -4,7 +4,7 @@ import * as accountCmd from '../account.js';
 export function register(program, wireAction) {
   const account = program.command('account').description('👤 多账号管理');
   wireAction(
-    account.command('add').description('添加新账号（密码登录 + 自动注册）'),
+    account.command('add').description('添加新账号（有头浏览器登录 + 自动注册）'),
     'account.add',
     accountCmd.add
   );

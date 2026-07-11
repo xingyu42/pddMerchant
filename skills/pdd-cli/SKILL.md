@@ -86,7 +86,7 @@ node bin/pdd.js orders list --json
 
 ```bash
 node bin/pdd.js init [--qr]                 # 首次交互式登录（默认弹浏览器；--qr 无头扫码）
-node bin/pdd.js login [--qr|--password|--consumer]  # 重新登录刷新 auth-state
+node bin/pdd.js login [--qr|--consumer]  # 重新登录刷新 auth-state
 node bin/pdd.js doctor [--probe xhr]        # 环境自检（Chromium / auth-state / 登录态）
 ```
 
@@ -158,7 +158,7 @@ node bin/pdd.js shops current   # 当前店铺
 ### 👤 多账号 account
 
 ```bash
-node bin/pdd.js account add                              # 添加账号（密码登录+自动注册）
+node bin/pdd.js account add                              # 添加账号（有头浏览器登录+自动注册）
 node bin/pdd.js account list                             # 列出所有账号
 node bin/pdd.js account default --slug <slug>            # 设默认账号
 node bin/pdd.js account remove --slug <slug> [--remove-files]

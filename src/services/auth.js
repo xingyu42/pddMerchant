@@ -1,6 +1,5 @@
 import { launchBrowser, closeBrowser, createConsumerContext } from '../adapter/browser.js';
 import { saveAuthState, PDD_HOME } from '../adapter/auth-state.js';
-import { loginWithPassword } from '../adapter/password-login.js';
 import {
   captureQrElement,
   saveQrPng,
@@ -89,10 +88,6 @@ export async function performHeadedLogin({ authStatePath, timeoutMs }) {
   } finally {
     await closeBrowser(browser);
   }
-}
-
-export async function performPasswordLogin(opts) {
-  return loginWithPassword(opts);
 }
 
 export async function performConsumerQrLogin({ authStatePath, timeoutMs, headed = false, onQrCaptured }) {
