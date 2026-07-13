@@ -373,37 +373,20 @@ test('scoreFunnelHealth: low refund → green', () => {
   assert.equal(r.detail.window_days, 30);
 });
 
-test('scoreFunnelHealth: boundary refund=0.05 exact → green (strict >)', () => {
-  const r = scoreFunnelHealth({
-    orderStats: { total: 1000, refund_count: 50, refund_rate: 0.05 },
-  });
-  assert.equal(r.score, 100);
-  assert.equal(r.status, 'green');
-});
-
-test('scoreFunnelHealth: mid refund 0.08 → yellow', () => {
-  const r = scoreFunnelHealth({
-    orderStats: { total: 1000, refund_count: 80, refund_rate: 0.08 },
-  });
-  assert.equal(r.score, 70);
-  assert.equal(r.status, 'yellow');
-});
-
-test('scoreFunnelHealth: boundary refund=0.15 exact → yellow (strict >)', () => {
-  const r = scoreFunnelHealth({
-    orderStats: { total: 1000, refund_count: 150, refund_rate: 0.15 },
-  });
-  assert.equal(r.score, 70);
-  assert.equal(r.status, 'yellow');
-});
-
-test('scoreFunnelHealth: high refund 0.20 → red', () => {
-  const r = scoreFunnelHealth({
-    orderStats: { total: 1000, refund_count: 200, refund_rate: 0.20 },
-  });
-  assert.equal(r.score, 40);
-  assert.equal(r.status, 'red');
-  assert.ok(r.issues.length >= 1);
+test('scoreFunnelHealth: refund rate boundaries (0.05/0.15 strict >) map to green/yellow/red', () => {
+  const cases = [
+    [50, 0.05, 100, 'green'],
+    [80, 0.08, 70, 'yellow'],
+    [150, 0.15, 70, 'yellow'],
+    [200, 0.20, 40, 'red'],
+  ];
+  for (const [refund_count, refund_rate, score, status] of cases) {
+    const r = scoreFunnelHealth({ orderStats: { total: 1000, refund_count, refund_rate } });
+    assert.equal(r.score, score);
+    assert.equal(r.status, status);
+  }
+  const red = scoreFunnelHealth({ orderStats: { total: 1000, refund_count: 200, refund_rate: 0.20 } });
+  assert.ok(red.issues.length >= 1);
 });
 
 test('scoreFunnelHealth: windowDays pass-through', () => {

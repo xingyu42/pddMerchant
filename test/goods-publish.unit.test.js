@@ -20,50 +20,25 @@ function loadFixture(rel) {
 // parseGoodsUrl
 // ---------------------------------------------------------------------------
 describe('parseGoodsUrl', () => {
-  it('accepts pure numeric string', () => {
-    assert.equal(parseGoodsUrl('918867803697'), '918867803697');
+  it('extracts goods_id from numeric string or known URL formats', () => {
+    const cases = [
+      ['918867803697', '918867803697'],
+      ['https://mobile.yangkeduo.com/goods.html?goods_id=12345', '12345'],
+      ['https://mobile.yangkeduo.com/goods1.html?goods_id=99999&refer_page_name=search_result', '99999'],
+      ['https://yangkeduo.com/goods.html?goods_id=55555', '55555'],
+    ];
+    for (const [input, expected] of cases) {
+      assert.equal(parseGoodsUrl(input), expected);
+    }
   });
 
-  it('extracts goods_id from full mobile URL', () => {
-    assert.equal(
-      parseGoodsUrl('https://mobile.yangkeduo.com/goods.html?goods_id=12345'),
-      '12345'
-    );
-  });
-
-  it('extracts goods_id from goods1.html format', () => {
-    assert.equal(
-      parseGoodsUrl('https://mobile.yangkeduo.com/goods1.html?goods_id=99999&refer_page_name=search_result'),
-      '99999'
-    );
-  });
-
-  it('extracts goods_id from yangkeduo.com domain', () => {
-    assert.equal(
-      parseGoodsUrl('https://yangkeduo.com/goods.html?goods_id=55555'),
-      '55555'
-    );
-  });
-
-  it('throws E_USAGE for invalid string', () => {
-    assert.throws(
-      () => parseGoodsUrl('not-a-valid-thing'),
-      (e) => e.code === 'E_USAGE'
-    );
-  });
-
-  it('throws E_USAGE for empty string', () => {
-    assert.throws(
-      () => parseGoodsUrl(''),
-      (e) => e.code === 'E_USAGE'
-    );
-  });
-
-  it('throws E_USAGE for null', () => {
-    assert.throws(
-      () => parseGoodsUrl(null),
-      (e) => e.code === 'E_USAGE'
-    );
+  it('throws E_USAGE for invalid/empty/null input', () => {
+    for (const input of ['not-a-valid-thing', '', null]) {
+      assert.throws(
+        () => parseGoodsUrl(input),
+        (e) => e.code === 'E_USAGE'
+      );
+    }
   });
 });
 
@@ -144,34 +119,24 @@ describe('validateScrapedData', () => {
 // isPriceMasked (软风控脱敏判定)
 // ---------------------------------------------------------------------------
 describe('isPriceMasked', () => {
-  it('treats null as masked', () => {
-    assert.equal(isPriceMasked(null), true);
-  });
-
-  it('treats undefined as masked', () => {
-    assert.equal(isPriceMasked(undefined), true);
-  });
-
-  it('treats empty / whitespace string as masked', () => {
-    assert.equal(isPriceMasked(''), true);
-    assert.equal(isPriceMasked('   '), true);
-  });
-
-  it('treats non-numeric placeholder as masked', () => {
-    assert.equal(isPriceMasked('--'), true);
-    assert.equal(isPriceMasked('¥**'), true);
-    assert.equal(isPriceMasked('打开App查看'), true);
-  });
-
-  it('treats zero / non-positive price as masked (¥0 占位)', () => {
-    assert.equal(isPriceMasked('0'), true);
-    assert.equal(isPriceMasked('0.00'), true);
-  });
-
-  it('accepts valid positive numeric price strings', () => {
-    assert.equal(isPriceMasked('8.22'), false);
-    assert.equal(isPriceMasked('10'), false);
-    assert.equal(isPriceMasked('0.01'), false);
+  it('detects masked vs valid price representations', () => {
+    const cases = [
+      [null, true],
+      [undefined, true],
+      ['', true],
+      ['   ', true],
+      ['--', true],
+      ['¥**', true],
+      ['打开App查看', true],
+      ['0', true],
+      ['0.00', true],
+      ['8.22', false],
+      ['10', false],
+      ['0.01', false],
+    ];
+    for (const [input, expected] of cases) {
+      assert.equal(isPriceMasked(input), expected);
+    }
   });
 });
 
@@ -226,39 +191,24 @@ describe('parseSkuText', () => {
 // mapPublishBusinessError
 // ---------------------------------------------------------------------------
 describe('mapPublishBusinessError', () => {
-  it('returns E_RATE_LIMIT for error_code 54001', () => {
-    const err = mapPublishBusinessError({ error_code: 54001 });
-    assert.equal(err.code, 'E_RATE_LIMIT');
-    assert.equal(err.exitCode, 4);
+  it('maps error_code to the expected error code and exit code', () => {
+    const cases = [
+      [{ error_code: 54001 }, 'E_RATE_LIMIT', 4],
+      [{ error_code: 1000 }, 'E_USAGE', 2],
+      [{ error_code: 99999 }, 'E_BUSINESS', 6],
+      [{ errorCode: 54001 }, 'E_RATE_LIMIT', 4],
+    ];
+    for (const [input, code, exitCode] of cases) {
+      const err = mapPublishBusinessError(input);
+      assert.equal(err.code, code);
+      assert.equal(err.exitCode, exitCode);
+    }
   });
 
-  it('returns E_USAGE for error_code 1000', () => {
-    const err = mapPublishBusinessError({ error_code: 1000 });
-    assert.equal(err.code, 'E_USAGE');
-    assert.equal(err.exitCode, 2);
-  });
-
-  it('returns E_BUSINESS for generic non-zero error_code', () => {
-    const err = mapPublishBusinessError({ error_code: 99999 });
-    assert.equal(err.code, 'E_BUSINESS');
-    assert.equal(err.exitCode, 6);
-  });
-
-  it('returns null for error_code 0 (success)', () => {
-    assert.equal(mapPublishBusinessError({ error_code: 0 }), null);
-  });
-
-  it('returns null for null input', () => {
-    assert.equal(mapPublishBusinessError(null), null);
-  });
-
-  it('also reads errorCode camelCase field', () => {
-    const err = mapPublishBusinessError({ errorCode: 54001 });
-    assert.equal(err.code, 'E_RATE_LIMIT');
-  });
-
-  it('returns null for error_code 1000000', () => {
-    assert.equal(mapPublishBusinessError({ error_code: 1000000 }), null);
+  it('returns null for success/absent error codes', () => {
+    for (const input of [{ error_code: 0 }, null, { error_code: 1000000 }]) {
+      assert.equal(mapPublishBusinessError(input), null);
+    }
   });
 });
 
