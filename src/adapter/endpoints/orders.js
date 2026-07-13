@@ -1,5 +1,6 @@
 import { readBusinessError } from '../run-endpoint.js';
 import { ExitCodes } from '../../infra/errors.js';
+import { evaluateInMainWorld } from '../browser.js';
 
 export const ORDER_LIST = {
   name: 'orders.list',
@@ -53,7 +54,7 @@ export const ORDER_DETAIL = {
     readyEl: 'body',
   },
   trigger: async (page, params) => {
-    await page.evaluate(({ order_sn, source }) => {
+    await evaluateInMainWorld(page, ({ order_sn, source }) => {
       return fetch('/mangkhut/mms/orderDetail', {
         method: 'POST',
         credentials: 'include',

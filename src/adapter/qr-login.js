@@ -8,6 +8,7 @@ import { DATA_DIR as DEFAULT_QR_DIR, ensureDir } from '../infra/paths.js';
 import { PDD_HOME } from './auth-state.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 import { getLogger } from '../infra/logger.js';
+import { evaluateInMainWorld } from './browser.js';
 
 export { DEFAULT_QR_DIR, QR_SELECTORS, QR_TAB_SELECTORS };
 
@@ -154,7 +155,7 @@ export async function extractElementImage(page, element) {
   if (info?.type === 'url') {
     const fetchUrl = upgradeQrImageUrl(info.data);
     try {
-      const base64 = await page.evaluate(async (url) => {
+      const base64 = await evaluateInMainWorld(page, async (url) => {
         const r = await fetch(url);
         const ab = await r.arrayBuffer();
         const u8 = new Uint8Array(ab);
@@ -170,7 +171,7 @@ export async function extractElementImage(page, element) {
 }
 
 export async function dismissModalOverlay(page) {
-  const removed = await page.evaluate(() => {
+  const removed = await evaluateInMainWorld(page, () => {
     let count = 0;
     document.querySelectorAll('[data-testid="beast-core-modal"]').forEach(el => { el.remove(); count++; });
     document.querySelectorAll('[class*="MDL_outerWrapper"]').forEach(el => { el.remove(); count++; });

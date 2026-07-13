@@ -1,6 +1,6 @@
 # pdd-cli
 
-拼多多商家后台命令行工具，面向 AI Agent 与人类运营。Playwright 驱动 Chromium、拦截 XHR 响应，输出统一 envelope JSON。
+拼多多商家后台命令行工具，面向 AI Agent 与人类运营。Patchright 驱动 Chromium、拦截 XHR 响应，输出统一 envelope JSON。
 
 **风险声明**：仅限本人店铺运营，滥用可能导致封禁。`data/auth-state.json` 勿上传公共仓库。
 
@@ -9,7 +9,7 @@
 ## 快速开始
 
 ```bash
-npm install && npx playwright install chromium
+npm install && npx patchright install chromium
 pdd init && pdd doctor      # 登录 + 自检
 pdd orders list --json      # AI 消费加 --json
 ```
@@ -34,7 +34,7 @@ pdd orders list --json      # AI 消费加 --json
 bin/pdd.js           CLI 入口（Commander + 信号处理）
 src/commands/        命令薄层（withCommand 封装）
 src/services/        业务逻辑（orders/goods/promo/diagnose）
-src/adapter/         Playwright + XHR 拦截 + auth
+src/adapter/         Patchright + XHR 拦截 + auth
 src/infra/           envelope/errors/logger/timeouts
 ```
 
@@ -115,14 +115,24 @@ cp -r skills/pdd-cli ~/.openclaw/skills/
 
 ## 环境变量
 
-常用：`PDD_AUTH_STATE_PATH` / `PDD_LOG_DESTINATION` / `PDD_FINGERPRINT_SEED` / `PDD_TEST_ADAPTER=fixture`（Mock 模式）
+常用：`PDD_AUTH_STATE_PATH` / `PDD_LOG_DESTINATION` / `PDD_TEST_ADAPTER=fixture`（Mock 模式）
+
+`goods publish --url` 可选择仅为消费者端源商品抓取启用青果短效 HTTP 代理：
+
+```text
+PDD_SOURCE_PROXY_PROVIDER=qingguo
+PDD_QINGGUO_AUTH_KEY=<青果提取接口 AuthKey>
+PDD_QINGGUO_AREA=<可选，6 位地区代码；多个用英文逗号分隔>
+```
+
+未设置 `PDD_SOURCE_PROXY_PROVIDER` 时保持直连；未设置 `PDD_QINGGUO_AREA` 时由青果随机选择地区。启用后配置、提取或连接失败不会自动回退直连；代理不作用于商家后台及其他命令。首版不配置代理节点账号/密码鉴权。不要把真实 AuthKey 写入仓库、日志或命令行参数。
 
 ---
 
 ## 故障排查
 
 - `E_AUTH_EXPIRED` → `pdd login`
-- `E_CHROMIUM_MISSING` → `npx playwright install chromium`
+- `E_CHROMIUM_MISSING` → `npx patchright install chromium`
 - 命令挂起 → 风控拦截，`pdd doctor` 自检后重新登录
 
 ---

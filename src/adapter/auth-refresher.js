@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { withBrowser } from './browser.js';
+import { evaluateInMainWorld, withBrowser } from './browser.js';
 import { isAuthValid, saveAuthState } from './auth-state.js';
 import { captureQrElement, saveQrPng } from './qr-login.js';
 import { acquireLock, releaseLock } from '../infra/auth-lock.js';
@@ -15,7 +15,7 @@ function checkAborted(signal) {
 const HEARTBEAT_URL = 'https://mms.pinduoduo.com/janus/api/informSeller/queryInformSellerTabList';
 
 async function heartbeat(page, { timeoutMs = 10_000 } = {}) {
-  const result = await page.evaluate(async (url) => {
+  const result = await evaluateInMainWorld(page, async (url) => {
     try {
       const resp = await fetch(url, { credentials: 'include' });
       return { status: resp.status, ok: resp.ok };

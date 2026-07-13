@@ -21,6 +21,7 @@ async function importRefreshAuthWithLockFailure() {
     releaseLock: async () => true,
   }));
   vi.doMock('../src/adapter/browser.js', () => ({
+    evaluateInMainWorld: (page, pageFunction, arg) => page.evaluate(pageFunction, arg, false),
     withBrowser: async () => {
       throw new Error('browser must not be launched when lock acquisition fails');
     },

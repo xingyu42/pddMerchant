@@ -1,6 +1,7 @@
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { isMockEnabled, mockCurrentMall, mockListMalls } from './mock-dispatcher.js';
 import { hasMallId, readActiveIdFromXhr } from './mall-xhr-probe.js';
+import { evaluateInMainWorld } from './browser.js';
 
 const MALL_LIST_PATHS = [
   ['__PRELOADED_STATE__', 'mall', 'mallList'],
@@ -67,7 +68,7 @@ function readPath(root, path) {
 
 async function readFromState(page, paths) {
   try {
-    return await page.evaluate((ps) => {
+    return await evaluateInMainWorld(page, (ps) => {
       const g = globalThis;
       for (const path of ps) {
         let cur = g;
@@ -110,7 +111,7 @@ async function readActiveIdFromCookie(page) {
 
 async function readActiveIdFromStorage(page) {
   try {
-    return await page.evaluate((keys) => {
+    return await evaluateInMainWorld(page, (keys) => {
       for (const key of keys) {
         const localValue = globalThis.localStorage?.getItem?.(key);
         if (typeof localValue === 'string' && localValue.trim().length > 0) return localValue.trim();
@@ -168,7 +169,7 @@ async function tryOpenSwitcher(page) {
 
 async function readMallListFromDom(page) {
   try {
-    return await page.evaluate(() => {
+    return await evaluateInMainWorld(page, () => {
       const nodes = Array.from(document.querySelectorAll(
         '[data-testid^="mall-option-"], [data-mall-id], .mall-option, .shop-option, li[data-id]'
       ));

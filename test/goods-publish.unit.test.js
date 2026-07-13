@@ -5,17 +5,9 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { parseGoodsUrl, validateScrapedData, parseSkuText, isPriceMasked } from '../src/adapter/goods-publish/source-scraper.js';
-import {
-  normalizePropertyText,
-  parsePropertiesText,
-  matchGoodsProperties,
-} from '../src/services/goods-publish/property-matcher.js';
-import {
-  buildGoodsEditPayload,
-  buildDecorationPayload,
-} from '../src/services/goods-publish/payload-builder.js';
-import { mapSourceSkus } from '../src/services/goods-publish/sku-mapper.js';
 import { mapPublishBusinessError } from '../src/adapter/endpoints/goods-publish.js';
+import { PddCliError, ExitCodes } from '../src/infra/errors.js';
+import { defaultSourceGoodsCache } from '../src/services/goods-publish-source-cache.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_DIR = join(__dirname, 'fixtures');
@@ -83,6 +75,14 @@ describe('validateScrapedData', () => {
     goodsName: '汪汪队衣服',
     catID3: '15000',
     carousel: ['https://img.pddpic.com/test.jpg'],
+    skuDimensions: [],
+    skus: [{
+      sourceSkuId: 'sku-1',
+      specValues: {},
+      sourcePriceCents: 822,
+      sourceNormalPriceCents: 899,
+      stock: 10,
+    }],
   };
 
   it('passes with complete data', () => {
@@ -114,6 +114,28 @@ describe('validateScrapedData', () => {
     assert.throws(
       () => validateScrapedData({ ...validData, carousel: null }),
       (e) => e.code === 'E_BUSINESS'
+    );
+  });
+
+  it('throws E_RATE_LIMIT (反爬空壳墙) when fiber missing and appWall hit', () => {
+    assert.throws(
+      () => validateScrapedData({ ...validData, _fiberFound: false, _appWall: true }),
+      (e) => e.code === 'E_RATE_LIMIT'
+    );
+  });
+
+  it('does NOT treat normal data as anti-scrape shell (no fiber/appWall fields)', () => {
+    assert.doesNotThrow(() => validateScrapedData(validData));
+  });
+
+  it('fails closed when structured SKU data is unavailable', () => {
+    assert.throws(
+      () => validateScrapedData({
+        goodsName: '商品',
+        catID3: '15000',
+        carousel: ['https://x.com/a.jpg'],
+      }),
+      (error) => error.code === 'E_SOURCE_SKU_UNAVAILABLE',
     );
   });
 });
@@ -150,191 +172,6 @@ describe('isPriceMasked', () => {
     assert.equal(isPriceMasked('8.22'), false);
     assert.equal(isPriceMasked('10'), false);
     assert.equal(isPriceMasked('0.01'), false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// normalizePropertyText
-// ---------------------------------------------------------------------------
-describe('normalizePropertyText', () => {
-  it('strips slashes and spaces', () => {
-    assert.equal(normalizePropertyText('面料/材质'), '面料材质');
-  });
-
-  it('trims surrounding whitespace', () => {
-    assert.equal(normalizePropertyText('  重要面料俗称  '), '重要面料俗称');
-  });
-
-  it('returns empty string for null', () => {
-    assert.equal(normalizePropertyText(null), '');
-  });
-
-  it('lowercases ASCII chars', () => {
-    assert.equal(normalizePropertyText('Brand'), 'brand');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// parsePropertiesText
-// ---------------------------------------------------------------------------
-describe('parsePropertiesText', () => {
-  it('parses two key:value pairs separated by newline', () => {
-    const result = parsePropertiesText('品牌: 无品牌\n面料/材质: 棉');
-    assert.equal(result.length, 2);
-    assert.equal(result[0].key, '品牌');
-    assert.deepEqual(result[0].values, ['无品牌']);
-    assert.equal(result[1].key, '面料/材质');
-    assert.deepEqual(result[1].values, ['棉']);
-  });
-
-  it('returns empty array for empty string', () => {
-    assert.deepEqual(parsePropertiesText(''), []);
-  });
-
-  it('returns empty array for null', () => {
-    assert.deepEqual(parsePropertiesText(null), []);
-  });
-
-  it('parses multi-value property separated by comma', () => {
-    const result = parsePropertiesText('流行元素: 印花，条纹');
-    assert.equal(result.length, 1);
-    assert.equal(result[0].key, '流行元素');
-    assert.deepEqual(result[0].values, ['印花', '条纹']);
-  });
-
-  it('skips lines without colon separator', () => {
-    const result = parsePropertiesText('no colon here\n品牌: test');
-    assert.equal(result.length, 1);
-    assert.equal(result[0].key, '品牌');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// matchGoodsProperties
-// ---------------------------------------------------------------------------
-describe('matchGoodsProperties', () => {
-  const templateFixture = loadFixture('endpoints/goods.publish.template.json');
-  const sourceFixture = loadFixture('goods-publish/source.json');
-
-  it('returns matched and unmatched arrays', () => {
-    const { matched, unmatched } = matchGoodsProperties(
-      sourceFixture.properties,
-      templateFixture.modules
-    );
-    assert.ok(Array.isArray(matched), 'matched should be array');
-    assert.ok(Array.isArray(unmatched), 'unmatched should be array');
-  });
-
-  it('matches at least one property from source', () => {
-    const { matched } = matchGoodsProperties(
-      sourceFixture.properties,
-      templateFixture.modules
-    );
-    assert.ok(matched.length > 0, `expected some matched props, got ${matched.length}`);
-  });
-
-  it('matched items contain required fields', () => {
-    const { matched } = matchGoodsProperties(
-      sourceFixture.properties,
-      templateFixture.modules
-    );
-    for (const m of matched) {
-      assert.ok('vid' in m, 'matched item should have vid');
-      assert.ok('pid' in m, 'matched item should have pid');
-    }
-  });
-
-  it('unmatched items include required flag', () => {
-    const { unmatched } = matchGoodsProperties(
-      sourceFixture.properties,
-      templateFixture.modules
-    );
-    for (const u of unmatched) {
-      assert.ok('required' in u, 'unmatched item should have required flag');
-      assert.ok('name' in u, 'unmatched item should have name');
-    }
-  });
-
-  it('throws when templateModules is not array', () => {
-    assert.throws(
-      () => matchGoodsProperties('品牌: 无品牌', null),
-      (e) => e.code === 'E_PROPERTY_MATCH_INVALID_INPUT'
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// buildGoodsEditPayload
-// ---------------------------------------------------------------------------
-describe('buildGoodsEditPayload', () => {
-  const draft = { goods_id: 953009364304, goods_commit_id: '191512609758' };
-  const scraped = loadFixture('goods-publish/source.json');
-  const category = loadFixture('goods-publish/category.json');
-  const matched = { matched: [], unmatched: [] };
-
-  it('constructs valid payload structure', () => {
-    const payload = buildGoodsEditPayload(draft, scraped, matched, category, 544142245494784);
-    assert.equal(payload.goods_id, draft.goods_id);
-    assert.equal(payload.goods_commit_id, draft.goods_commit_id);
-    assert.equal(payload.goods_name, scraped.goodsName);
-    assert.ok(Array.isArray(payload.skus), 'skus should be array');
-    assert.ok(typeof payload.groups === 'object', 'groups should be object');
-  });
-
-  it('converts price string to cents correctly', () => {
-    const payload = buildGoodsEditPayload(draft, scraped, matched, category, null);
-    assert.equal(payload.skus[0].price, 822, 'price 8.22 should become 822 cents');
-    assert.equal(payload.groups.single_price, 822);
-  });
-
-  it('passes goods_id and goods_commit_id through', () => {
-    const payload = buildGoodsEditPayload(draft, scraped, matched, category, null);
-    assert.equal(payload.goods_id, 953009364304);
-    assert.equal(payload.goods_commit_id, '191512609758');
-  });
-
-  it('throws when draft is missing goods_id', () => {
-    assert.throws(
-      () => buildGoodsEditPayload({ goods_commit_id: '123' }, scraped, matched, category, null),
-      (e) => e.code === 'E_PAYLOAD_INVALID_DRAFT'
-    );
-  });
-
-  it('throws when draft is missing goods_commit_id', () => {
-    assert.throws(
-      () => buildGoodsEditPayload({ goods_id: 123 }, scraped, matched, category, null),
-      (e) => e.code === 'E_PAYLOAD_INVALID_DRAFT'
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// buildDecorationPayload
-// ---------------------------------------------------------------------------
-describe('buildDecorationPayload', () => {
-  it('builds floor_list with image type elements', () => {
-    const urls = ['https://img.pddpic.com/test-detail-1.jpg', 'https://img.pddpic.com/test-detail-2.jpg'];
-    const payload = buildDecorationPayload('191512609758', 953009364304, urls);
-    assert.equal(payload.floor_list.length, 2);
-    assert.equal(payload.floor_list[0].type, 'image');
-    assert.ok(Array.isArray(payload.floor_list[0].content_list));
-    assert.equal(payload.floor_list[0].content_list[0].img_url, urls[0]);
-  });
-
-  it('returns empty floor_list for empty URL array', () => {
-    const payload = buildDecorationPayload('191512609758', 953009364304, []);
-    assert.deepEqual(payload.floor_list, []);
-  });
-
-  it('returns empty floor_list for null URLs', () => {
-    const payload = buildDecorationPayload('191512609758', 953009364304, null);
-    assert.deepEqual(payload.floor_list, []);
-  });
-
-  it('passes goods_commit_id and goods_id correctly', () => {
-    const payload = buildDecorationPayload('191512609758', 953009364304, []);
-    assert.equal(payload.goods_commit_id, '191512609758');
-    assert.equal(payload.goods_id, 953009364304);
   });
 });
 
@@ -382,63 +219,6 @@ describe('parseSkuText', () => {
     const result = parseSkuText('颜色分类\n¥9.99\n尺码\nS\nM');
     assert.equal(result.length, 1);
     assert.equal(result[0].name, '尺码');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// mapSourceSkus
-// ---------------------------------------------------------------------------
-describe('mapSourceSkus', () => {
-  it('returns default single SKU for empty array', () => {
-    const { skus } = mapSourceSkus([], '8.22');
-    assert.equal(skus.length, 1);
-    assert.equal(skus[0].spec, '');
-  });
-
-  it('returns default single SKU for null', () => {
-    const { skus } = mapSourceSkus(null, '8.22');
-    assert.equal(skus.length, 1);
-  });
-
-  it('maps single dimension to multiple SKUs', () => {
-    const specs = [{ name: '颜色分类', values: ['白色', '黑色'] }];
-    const { skus } = mapSourceSkus(specs, '8.22');
-    assert.equal(skus.length, 2);
-    assert.equal(skus[0].spec, '颜色分类:白色');
-    assert.equal(skus[1].spec, '颜色分类:黑色');
-  });
-
-  it('builds Cartesian product for two dimensions', () => {
-    const specs = [
-      { name: '颜色分类', values: ['白色', '黑色'] },
-      { name: '尺码', values: ['S', 'M', 'L'] },
-    ];
-    const { skus } = mapSourceSkus(specs, '8.22');
-    assert.equal(skus.length, 6);
-    assert.equal(skus[0].spec, '颜色分类:白色 尺码:S');
-    assert.equal(skus[5].spec, '颜色分类:黑色 尺码:L');
-  });
-
-  it('converts price to cents', () => {
-    const specs = [{ name: '颜色', values: ['白色', '黑色'] }];
-    const { skus, groups } = mapSourceSkus(specs, '8.22');
-    assert.equal(skus[0].price, 822);
-    assert.equal(groups.single_price, 822);
-  });
-
-  it('all SKUs share same price', () => {
-    const specs = [{ name: '颜色', values: ['白', '黑', '红'] }];
-    const { skus } = mapSourceSkus(specs, '10.00');
-    for (const sku of skus) {
-      assert.equal(sku.price, 1000);
-    }
-  });
-
-  it('single value single dimension returns default SKU', () => {
-    const specs = [{ name: '颜色', values: ['白色'] }];
-    const { skus } = mapSourceSkus(specs, '5.00');
-    assert.equal(skus.length, 1);
-    assert.equal(skus[0].spec, '');
   });
 });
 
@@ -492,7 +272,19 @@ vi.mock('../src/adapter/mock-dispatcher.js', () => ({
   mockCloseBrowser: vi.fn(),
 }));
 
+const sourceCacheMockState = {
+  entries: new Map(),
+  readError: null,
+  writeError: null,
+  removeError: null,
+  readCalls: [],
+  writeCalls: [],
+  removeCalls: [],
+};
+
 vi.mock('../src/adapter/browser.js', () => ({
+  evaluateInMainWorld: vi.fn((page, pageFunction, arg) =>
+    page.evaluate(pageFunction, arg, false)),
   createConsumerContext: vi.fn(async () => ({
     page: {},
     context: {},
@@ -506,20 +298,56 @@ vi.mock('../src/adapter/browser.js', () => ({
   closeBrowser: vi.fn(async () => {}),
 }));
 
+vi.mock('../src/adapter/auth-state.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    deleteAuthState: vi.fn(async () => ({ removed: true, existed: true })),
+  };
+});
+
+const sourceScraperMockState = vi.hoisted(() => ({ outcomes: [] }));
+
 vi.mock('../src/adapter/goods-publish/source-scraper.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    scrapeSourceGoods: vi.fn(async () => ({
-      goodsName: '测试商品',
-      catID3: '15000',
-      catID1: '100',
-      catID2: '200',
-      carousel: ['https://img.pddpic.com/test.jpg'],
-      price: '8.22',
-      properties: '品牌: 无品牌',
-      detailImages: [],
-    })),
+    scrapeSourceGoods: vi.fn(async () => {
+      const outcome = sourceScraperMockState.outcomes.shift();
+      if (outcome?.error) throw outcome.error;
+      return outcome?.value ?? {
+        goodsName: '测试商品',
+        catID3: '15000',
+        catID1: '100',
+        catID2: '200',
+        carousel: ['https://img.pddpic.com/test.jpg'],
+        price: '8.22',
+        skuText: '颜色分类\n红色',
+        properties: '品牌: 无品牌',
+        detailImages: [],
+      };
+    }),
+  };
+});
+
+const sourceProxyMockState = vi.hoisted(() => ({ outcomes: [] }));
+
+vi.mock('../src/adapter/goods-publish/qingguo-proxy.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    acquireQingguoProxyLease: vi.fn(async () => {
+      const outcome = sourceProxyMockState.outcomes.shift();
+      if (outcome?.error) throw outcome.error;
+      return outcome?.value ?? {
+        provider: 'qingguo',
+        server: 'http://127.0.0.1:8000',
+        expiresAt: Date.now() + 60_000,
+        area: '广东',
+        isp: '电信',
+        requestIdHash: 'fp:12345678',
+      };
+    }),
   };
 });
 
@@ -575,6 +403,10 @@ vi.mock('../src/infra/circuit-breaker.js', () => ({
   _resetSharedBreaker: () => {},
 }));
 
+vi.mock('../src/infra/rate-control.js', () => ({
+  withWriteRateControl: vi.fn(async (_label, fn) => fn()),
+}));
+
 // scrape-cooldown 在服务层早短路被调用（getSharedScrapeCooldown().check()）；
 // 单测里 stub 为 no-op，隔离磁盘状态，避免真实冷却态导致偶发失败。
 vi.mock('../src/infra/scrape-cooldown.js', () => ({
@@ -616,6 +448,61 @@ function resetFormFillerMock() {
   formFillerMockState.selectCalls = 0;
   formFillerMockState.fillCalls = 0;
 }
+
+function resetSourceProxyMocks() {
+  sourceScraperMockState.outcomes = [];
+  sourceProxyMockState.outcomes = [];
+}
+
+function resetSourceCacheMocks() {
+  sourceCacheMockState.entries.clear();
+  sourceCacheMockState.readError = null;
+  sourceCacheMockState.writeError = null;
+  sourceCacheMockState.removeError = null;
+  sourceCacheMockState.readCalls = [];
+  sourceCacheMockState.writeCalls = [];
+  sourceCacheMockState.removeCalls = [];
+}
+
+function installSourceCacheMocks() {
+  vi.spyOn(defaultSourceGoodsCache, 'read').mockImplementation(async (goodsId) => {
+    sourceCacheMockState.readCalls.push(String(goodsId));
+    if (sourceCacheMockState.readError) throw sourceCacheMockState.readError;
+    return sourceCacheMockState.entries.get(String(goodsId)) ?? null;
+  });
+  vi.spyOn(defaultSourceGoodsCache, 'write').mockImplementation(async (goodsId, source) => {
+    sourceCacheMockState.writeCalls.push(String(goodsId));
+    if (sourceCacheMockState.writeError) throw sourceCacheMockState.writeError;
+    sourceCacheMockState.entries.set(String(goodsId), source);
+    return true;
+  });
+  vi.spyOn(defaultSourceGoodsCache, 'remove').mockImplementation(async (goodsId) => {
+    sourceCacheMockState.removeCalls.push(String(goodsId));
+    if (sourceCacheMockState.removeError) throw sourceCacheMockState.removeError;
+    return sourceCacheMockState.entries.delete(String(goodsId));
+  });
+}
+
+function cachedSourceData(overrides = {}) {
+  return {
+    goodsID: '918867803697',
+    goodsName: '缓存商品',
+    catID3: '15000',
+    catID1: '100',
+    catID2: '200',
+    carousel: ['https://img.pddpic.com/cached.jpg'],
+    price: '8.22',
+    skuText: '颜色分类\n红色',
+    properties: '品牌: 缓存品牌',
+    detailImgs: [],
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  resetSourceCacheMocks();
+  installSourceCacheMocks();
+});
 
 describe('resolvePublishCostTemplate', () => {
   beforeEach(() => {
@@ -676,6 +563,51 @@ describe('resolvePublishCostTemplate', () => {
 });
 
 describe('save draft cost template injection', () => {
+  it('classifies a business failure as verification unavailable', async () => {
+    const { normalizeDraftDetailResponse } = await vi.importActual('../src/adapter/goods-publish/form-filler.js');
+    const normalized = normalizeDraftDetailResponse({
+      http_status: 200,
+      http_ok: true,
+      payload: {
+        success: false,
+        error_code: 2000000,
+        error_msg: '网络繁忙，请不要频繁操作',
+        result: null,
+      },
+    });
+
+    assert.equal(normalized.available, false);
+    assert.equal(normalized.observation.error_code, 2000000);
+    assert.equal(normalized.observation.result_type, 'null');
+    assert.deepEqual(normalized.observation.field_keys, []);
+  });
+
+  it('normalizes a successful nested detail payload before field validation', async () => {
+    const { normalizeDraftDetailResponse } = await vi.importActual('../src/adapter/goods-publish/form-filler.js');
+    const normalized = normalizeDraftDetailResponse({
+      http_status: 200,
+      http_ok: true,
+      payload: {
+        success: true,
+        result: {
+          data: {
+            goods_name: '测试商品',
+            cost_template_id: 544142245494784,
+            gallery: ['x'],
+          },
+        },
+      },
+    });
+
+    assert.equal(normalized.available, true);
+    assert.equal(normalized.observation.candidate_path, 'result.data');
+    assert.deepEqual(normalized.data, {
+      goods_name: '测试商品',
+      cost_template_id: 544142245494784,
+      gallery: ['x'],
+    });
+  });
+
   it('writes cost_template_id into the edit request body', async () => {
     const { injectCostTemplateIntoEditBody } = await vi.importActual('../src/adapter/goods-publish/form-filler.js');
     const injected = JSON.parse(injectCostTemplateIntoEditBody('{"goods_id":123}', 544142245494784));
@@ -804,6 +736,59 @@ describe('save draft cost template injection', () => {
     assert.equal(unrouted, true);
   });
 
+  it('aborts the save request before transmission when strict SKU payload validation fails', async () => {
+    const { clickSaveDraft } = await vi.importActual('../src/adapter/goods-publish/form-filler.js');
+    const routed = [];
+    let continued = false;
+    let aborted = false;
+    let unrouted = false;
+    const page = {
+      waitForSelector: async () => ({
+        click: async () => {
+          await routed[0].handler({
+            request: () => ({
+              postData: () => JSON.stringify({
+                goods_name: '测试商品',
+                gallery: ['image'],
+                skus: [{ spec: '红色,90', multi_price: 1, price: 1890, quantity_delta: 7 }],
+              }),
+            }),
+            continue: async () => { continued = true; },
+            abort: async () => { aborted = true; },
+          });
+        },
+      }),
+      $: async () => null,
+      route: async (pattern, handler) => { routed.push({ pattern, handler }); },
+      unroute: async (_pattern, handler) => {
+        unrouted = routed.some(item => item.handler === handler);
+      },
+      waitForResponse: async () => new Promise(() => {}),
+    };
+
+    await assert.rejects(
+      () => clickSaveDraft(page, 'abc789', {
+        costTemplateId: 544142245494784,
+        strictPayload: true,
+        expectedSkuPricing: [{
+          sourceSkuId: 'sku-red-90',
+          specValues: { 颜色分类: '红色', 身高: '90' },
+          groupPrice: '16.90',
+          singlePrice: '18.90',
+          stock: 7,
+        }],
+      }),
+      (err) => {
+        assert.equal(err.code, 'E_BUSINESS');
+        assert.ok(err.detail.issues.includes('sku_group_price_mismatch'));
+        return true;
+      },
+    );
+    assert.equal(continued, false);
+    assert.equal(aborted, true);
+    assert.equal(unrouted, true);
+  });
+
   it('strict verification fails when saved draft misses required fields', async () => {
     const { clickSaveDraft } = await vi.importActual('../src/adapter/goods-publish/form-filler.js');
     const routed = [];
@@ -882,6 +867,134 @@ describe('publishGoodsFromLink: save draft failure handling', () => {
     assert.equal(result.source_title, '测试商品');
     assert.equal(result.category_path, '服饰 > 童装 > 上衣');
     assert.equal(formFillerMockState.saveCalls[0].strictVerify, true);
+  });
+
+  it('propagates draft verification unavailability through the warnings channel', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    formFillerMockState.saveShouldThrow = false;
+    formFillerMockState.saveVerification = {
+      ok: true,
+      issues: [],
+      skipped: true,
+      warnings: ['draft_verification_unavailable'],
+    };
+    const mockCtx = {
+      page: {},
+      context: { browser: () => ({}) },
+      log: { info: () => {}, warn: () => {}, debug: () => {} },
+    };
+
+    const result = await publishGoodsFromLink(mockCtx, '918867803697');
+
+    assert.deepEqual(result.warnings, ['draft_verification_unavailable']);
+  });
+});
+
+describe('publishGoodsFromLink: temporary source cache', () => {
+  function mockContext(overrides = {}) {
+    return {
+      page: {},
+      context: { browser: () => ({}) },
+      log: { info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetEndpointMock();
+    resetFormFillerMock();
+    resetSourceProxyMocks();
+  });
+
+  it('uses a cache hit before cooldown, proxy acquisition, or consumer context creation', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    const { createConsumerContext } = await import('../src/adapter/browser.js');
+    const { scrapeSourceGoods } = await import('../src/adapter/goods-publish/source-scraper.js');
+    const { acquireQingguoProxyLease } = await import('../src/adapter/goods-publish/qingguo-proxy.js');
+    sourceCacheMockState.entries.set('918867803697', cachedSourceData());
+    formFillerMockState.saveShouldThrow = false;
+    let cooldownChecks = 0;
+    const ctx = mockContext({
+      scrapeCooldown: {
+        check() {
+          cooldownChecks += 1;
+          throw new Error('cache hit must bypass cooldown');
+        },
+      },
+    });
+
+    const result = await publishGoodsFromLink(ctx, '918867803697');
+
+    assert.equal(result.source_title, '缓存商品');
+    assert.equal(cooldownChecks, 0);
+    assert.equal(createConsumerContext.mock.calls.length, 0);
+    assert.equal(scrapeSourceGoods.mock.calls.length, 0);
+    assert.equal(acquireQingguoProxyLease.mock.calls.length, 0);
+    assert.deepEqual(sourceCacheMockState.readCalls, ['918867803697']);
+    assert.deepEqual(sourceCacheMockState.removeCalls, ['918867803697']);
+    assert.equal(sourceCacheMockState.entries.has('918867803697'), false);
+  });
+
+  it('keeps a live scrape after downstream failure, then reuses and clears it on retry success', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    const { scrapeSourceGoods } = await import('../src/adapter/goods-publish/source-scraper.js');
+    const ctx = mockContext();
+
+    await assert.rejects(
+      () => publishGoodsFromLink(ctx, '918867803697'),
+      (error) => error.code === 'E_BUSINESS',
+    );
+    assert.deepEqual(sourceCacheMockState.writeCalls, ['918867803697']);
+    assert.deepEqual(sourceCacheMockState.removeCalls, []);
+    assert.equal(sourceCacheMockState.entries.has('918867803697'), true);
+
+    formFillerMockState.saveShouldThrow = false;
+    const result = await publishGoodsFromLink(ctx, '918867803697');
+
+    assert.equal(result.status, 'draft');
+    assert.equal(scrapeSourceGoods.mock.calls.length, 1);
+    assert.deepEqual(sourceCacheMockState.readCalls, ['918867803697', '918867803697']);
+    assert.deepEqual(sourceCacheMockState.removeCalls, ['918867803697']);
+    assert.equal(sourceCacheMockState.entries.has('918867803697'), false);
+  });
+
+  it('continues the current publish when cache read and write both fail', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    sourceCacheMockState.readError = Object.assign(new Error('read failed'), { code: 'EIO' });
+    sourceCacheMockState.writeError = Object.assign(new Error('write failed'), { code: 'EACCES' });
+    formFillerMockState.saveShouldThrow = false;
+
+    const result = await publishGoodsFromLink(mockContext(), '918867803697');
+
+    assert.equal(result.status, 'draft');
+    assert.deepEqual(sourceCacheMockState.readCalls, ['918867803697']);
+    assert.deepEqual(sourceCacheMockState.writeCalls, ['918867803697']);
+    assert.equal(result.warnings.includes('source_cache_cleanup_failed'), false);
+  });
+
+  it('clears cached data only after a confirmed submit succeeds', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    sourceCacheMockState.entries.set('918867803697', cachedSourceData());
+    formFillerMockState.saveShouldThrow = false;
+
+    const result = await publishGoodsFromLink(mockContext(), '918867803697', { draftOnly: false });
+
+    assert.equal(result.status, 'submitted');
+    assert.ok(endpointMockState.calls.includes('goods.publish.submit'));
+    assert.deepEqual(sourceCacheMockState.removeCalls, ['918867803697']);
+  });
+
+  it('reports cleanup failure without changing a successful publish result', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    sourceCacheMockState.entries.set('918867803697', cachedSourceData());
+    sourceCacheMockState.removeError = Object.assign(new Error('cleanup failed'), { code: 'EACCES' });
+    formFillerMockState.saveShouldThrow = false;
+
+    const result = await publishGoodsFromLink(mockContext(), '918867803697');
+
+    assert.equal(result.status, 'draft');
+    assert.ok(result.warnings.includes('source_cache_cleanup_failed'));
   });
 });
 
@@ -974,5 +1087,215 @@ describe('publishGoodsFromLink: confirmed submit path', () => {
       (err) => err.code === 'E_BUSINESS',
     );
     assert.equal(endpointMockState.calls.includes('goods.publish.submit'), false);
+  });
+});
+
+describe('publishGoodsFromLink: Qingguo source proxy retries', () => {
+  const envNames = [
+    'PDD_SOURCE_PROXY_PROVIDER',
+    'PDD_QINGGUO_AUTH_KEY',
+    'PDD_CONSUMER_AUTH_STATE_PATH',
+    'PDD_TITLE_REWRITE',
+  ];
+  let previousEnv;
+
+  beforeEach(() => {
+    previousEnv = Object.fromEntries(envNames.map((name) => [name, process.env[name]]));
+    process.env.PDD_SOURCE_PROXY_PROVIDER = 'qingguo';
+    process.env.PDD_QINGGUO_AUTH_KEY = 'test-auth-key';
+    process.env.PDD_CONSUMER_AUTH_STATE_PATH = 'test-consumer-auth-state.json';
+    process.env.PDD_TITLE_REWRITE = '0';
+    vi.clearAllMocks();
+    resetEndpointMock();
+    resetFormFillerMock();
+    resetSourceProxyMocks();
+    formFillerMockState.saveShouldThrow = false;
+  });
+
+  afterEach(() => {
+    for (const name of envNames) {
+      if (previousEnv[name] === undefined) delete process.env[name];
+      else process.env[name] = previousEnv[name];
+    }
+  });
+
+  it('uses a fresh proxy context and reports recovery after a proxy-network retry', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    const { createConsumerContext } = await import('../src/adapter/browser.js');
+    const { scrapeSourceGoods } = await import('../src/adapter/goods-publish/source-scraper.js');
+    sourceProxyMockState.outcomes = [
+      { value: {
+        provider: 'qingguo', server: 'http://127.0.0.1:8001',
+        expiresAt: Date.now() + 60_000, area: '广东', isp: '电信', requestIdHash: 'fp:11111111',
+      } },
+      { value: {
+        provider: 'qingguo', server: 'http://127.0.0.1:8002',
+        expiresAt: Date.now() + 60_000, area: '浙江', isp: '联通', requestIdHash: 'fp:22222222',
+      } },
+    ];
+    sourceScraperMockState.outcomes = [{
+      error: new PddCliError({
+        code: 'E_PROXY_NETWORK',
+        message: '代理连接失败',
+        exitCode: ExitCodes.NETWORK,
+      }),
+    }];
+    const cooldownCalls = [];
+    const mockCtx = {
+      page: {},
+      context: { browser: () => ({}) },
+      log: { info: () => {}, warn: () => {}, debug: () => {} },
+      scrapeCooldown: {
+        check() {},
+        recordSoftBlock(signal) { cooldownCalls.push(signal); return { cooldownTriggered: false, cooldownRemainingMs: 0 }; },
+        recordSuccess() {},
+      },
+    };
+
+    const result = await publishGoodsFromLink(mockCtx, '918867803697');
+
+    assert.ok(result.warnings.includes('source_proxy_retry_recovered'));
+    assert.equal(createConsumerContext.mock.calls.length, 2);
+    assert.deepEqual(createConsumerContext.mock.calls[0][1].proxy, { server: 'http://127.0.0.1:8001' });
+    assert.deepEqual(createConsumerContext.mock.calls[1][1].proxy, { server: 'http://127.0.0.1:8002' });
+    assert.equal(cooldownCalls.length, 0);
+  });
+
+  it('maps Chromium tunnel failure to proxy auth and stops after one lease', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    const { acquireQingguoProxyLease } = await import('../src/adapter/goods-publish/qingguo-proxy.js');
+    sourceScraperMockState.outcomes = [{
+      error: new Error('page.goto: net::ERR_TUNNEL_CONNECTION_FAILED'),
+    }];
+    const mockCtx = {
+      page: {},
+      context: { browser: () => ({}) },
+      log: { info: () => {}, warn: () => {}, debug: () => {} },
+      scrapeCooldown: { check() {}, recordSoftBlock() {}, recordSuccess() {} },
+    };
+
+    await assert.rejects(
+      () => publishGoodsFromLink(mockCtx, '918867803697'),
+      (err) => err.code === 'E_PROXY_AUTH' && err.exitCode === ExitCodes.AUTH,
+    );
+    assert.equal(acquireQingguoProxyLease.mock.calls.length, 1);
+  });
+
+  it('deletes consumer auth and stops after the first account-degradation signal', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    const { deleteAuthState } = await import('../src/adapter/auth-state.js');
+    const { acquireQingguoProxyLease } = await import('../src/adapter/goods-publish/qingguo-proxy.js');
+    sourceScraperMockState.outcomes = [{
+      error: new PddCliError({
+        code: 'E_RISK_CONTROL_SOFT',
+        message: '价格脱敏',
+        detail: { type: 'desensitized', reason: 'price_masked', skuEmpty: true },
+        exitCode: ExitCodes.RATE_LIMIT,
+      }),
+    }];
+    const cooldownCalls = [];
+    const mockCtx = {
+      page: {},
+      context: { browser: () => ({}) },
+      log: { info: () => {}, warn: () => {}, debug: () => {} },
+      scrapeCooldown: {
+        check() {},
+        recordSoftBlock(signal) {
+          cooldownCalls.push(signal);
+          return { cooldownTriggered: true, cooldownRemainingMs: 7_200_000 };
+        },
+        recordSuccess() {},
+      },
+    };
+
+    await assert.rejects(
+      () => publishGoodsFromLink(mockCtx, '918867803697'),
+      (err) => {
+        assert.equal(err.code, 'E_RISK_CONTROL_SOFT');
+        assert.equal(err.detail.consumer_account_degraded, true);
+        assert.equal(err.detail.consumer_auth_removed, true);
+        assert.match(err.hint, /更换账号/);
+        return true;
+      },
+    );
+    assert.equal(cooldownCalls.length, 0);
+    assert.equal(acquireQingguoProxyLease.mock.calls.length, 1);
+    assert.equal(deleteAuthState.mock.calls.length, 1);
+    assert.equal(deleteAuthState.mock.calls[0][0], 'test-consumer-auth-state.json');
+  });
+
+  it('keeps consumer auth when the source page is an IP-degraded empty shell', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    const { deleteAuthState } = await import('../src/adapter/auth-state.js');
+    const { acquireQingguoProxyLease } = await import('../src/adapter/goods-publish/qingguo-proxy.js');
+    sourceScraperMockState.outcomes = [{
+      error: new PddCliError({
+        code: 'E_RATE_LIMIT',
+        message: '源商品页返回反爬空壳',
+        detail: { reason: 'empty_shell' },
+        exitCode: ExitCodes.RATE_LIMIT,
+      }),
+    }];
+    const mockCtx = {
+      page: {},
+      context: { browser: () => ({}) },
+      log: { info: () => {}, warn: () => {}, debug: () => {} },
+      scrapeCooldown: { check() {}, recordSoftBlock() {}, recordSuccess() {} },
+    };
+
+    await assert.rejects(
+      () => publishGoodsFromLink(mockCtx, '918867803697'),
+      (err) => err.code === 'E_RATE_LIMIT' && err.detail.reason === 'empty_shell',
+    );
+    assert.equal(acquireQingguoProxyLease.mock.calls.length, 1);
+    assert.equal(deleteAuthState.mock.calls.length, 0);
+  });
+
+  it('fails closed when degraded consumer auth cannot be deleted', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    const { deleteAuthState } = await import('../src/adapter/auth-state.js');
+    deleteAuthState.mockRejectedValueOnce(new PddCliError({
+      code: 'E_AUTH_STATE_DELETE_FAILED',
+      message: '删除登录凭据失败',
+      exitCode: ExitCodes.AUTH,
+    }));
+    sourceScraperMockState.outcomes = [{
+      error: new PddCliError({
+        code: 'E_RISK_CONTROL_SOFT',
+        message: 'SKU 缺失',
+        detail: { type: 'desensitized', reason: 'sku_missing' },
+        exitCode: ExitCodes.RATE_LIMIT,
+      }),
+    }];
+    const mockCtx = {
+      page: {},
+      context: { browser: () => ({}) },
+      log: { info: () => {}, warn: () => {}, debug: () => {} },
+      scrapeCooldown: { check() {}, recordSoftBlock() {}, recordSuccess() {} },
+    };
+
+    await assert.rejects(
+      () => publishGoodsFromLink(mockCtx, '918867803697'),
+      (err) => err.code === 'E_AUTH_STATE_DELETE_FAILED',
+    );
+    assert.equal(deleteAuthState.mock.calls.length, 1);
+  });
+
+  it('rejects incomplete proxy config before cost-template or proxy requests', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    const { acquireQingguoProxyLease } = await import('../src/adapter/goods-publish/qingguo-proxy.js');
+    delete process.env.PDD_QINGGUO_AUTH_KEY;
+    const mockCtx = {
+      page: {},
+      context: { browser: () => ({}) },
+      log: { info: () => {}, warn: () => {}, debug: () => {} },
+    };
+
+    await assert.rejects(
+      () => publishGoodsFromLink(mockCtx, '918867803697'),
+      (err) => err.code === 'E_USAGE',
+    );
+    assert.equal(endpointMockState.calls.length, 0);
+    assert.equal(acquireQingguoProxyLease.mock.calls.length, 0);
   });
 });

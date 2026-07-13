@@ -10,7 +10,7 @@ metadata:
 
 # pdd-cli — 拼多多商家后台自动化
 
-`pdd` 是一个基于 Playwright 的拼多多商家后台 CLI。它驱动 Chromium、拦截后台 XHR 响应，把结果封装成稳定的 **envelope 契约** 输出，专为脚本 / AI 消费设计。纯 JavaScript（Node.js ESM），无构建步骤。
+`pdd` 是一个基于 Patchright 的拼多多商家后台 CLI。它驱动 Chromium、拦截后台 XHR 响应，把结果封装成稳定的 **envelope 契约** 输出，专为脚本 / AI 消费设计。纯 JavaScript（Node.js ESM），无构建步骤。
 
 ## 何时使用本 skill
 
@@ -176,7 +176,7 @@ node bin/pdd.js daemon stop
 
 **首次上手：**
 ```bash
-npx playwright install chromium   # 装 Chromium（~150MB，仅一次）
+npx patchright install chromium   # 装 Chromium（仅一次）
 node bin/pdd.js init              # 登录
 node bin/pdd.js doctor            # 确认环境就绪
 ```

@@ -22,6 +22,7 @@ export const CONFIG_PATH = join(CONFIG_DIR, 'config.json');
 export const DAEMON_STATE_PATH = join(DATA_DIR, 'daemon-state.json');
 export const DAEMON_LOG_PATH = join(DATA_DIR, 'daemon.log');
 export const SCRAPE_COOLDOWN_PATH = join(DATA_DIR, 'scrape-cooldown.json');
+export const GOODS_PUBLISH_SOURCE_CACHE_DIR = join(PROJECT_ROOT, 'tmp', 'goods-publish-source-cache');
 
 function resolveDefaultAccountsDir() {
   const accountsDirEnv = process.env.PDD_ACCOUNTS_DIR;

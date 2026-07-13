@@ -24,8 +24,10 @@ export const run = withCommand({
       draftOnly: !confirm,
       costTemplateId: costTemplate ?? null,
     });
+    const { warnings, ...data } = result;
     return {
-      data: result,
+      data,
+      warnings,
       meta: {
         mall: mallId,
         goods_id: result.goods_id,

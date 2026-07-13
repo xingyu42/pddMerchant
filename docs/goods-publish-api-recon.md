@@ -44,6 +44,23 @@ Phase C — 商家后台发布 (mms.pinduoduo.com)
 - 导航 URL 需附加 `refer_page_name=search_result&refer_page_id=10033&refer_page_sn=10033` 参数避免重定向
 - 消费者端登录态保存路径: `data/consumer-auth-state.json` (与商家端 `data/auth-state.json` 同级)
 
+### 2.0a 可选青果短效代理
+
+源商品抓取可通过环境变量选择青果短效 HTTP 代理：
+
+```text
+PDD_SOURCE_PROXY_PROVIDER=qingguo
+PDD_QINGGUO_AUTH_KEY=<提取接口 AuthKey>
+```
+
+- 代理仅作用于 Phase A 消费者端抓取，不作用于商家后台 Phase C。
+- 默认仍是直连；启用后失败关闭，不会偷偷回退直连。
+- 每次尝试即时提取一个代理并创建新的消费者 context，最多 3 次。
+- 每个 context 只读加载公共消费者登录态，不把代理会话写回文件。
+- 验证码、滑块、登录失效、认证或额度错误立即停止，不自动绕过。
+- 首版不配置代理节点账号/密码鉴权。
+- 普通输出和日志不得包含代理节点或提取接口 AuthKey。
+
 ### 2.1 提取方式 (DOM 提取)
 
 `oak/integration/render` XHR 返回加密数据 (`encrypt_status: 3`)。客户端 JS 解密后渲染到 DOM。

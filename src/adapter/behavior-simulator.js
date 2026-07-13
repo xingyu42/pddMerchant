@@ -20,7 +20,9 @@ export async function pickTargetElements(page, count = 3) {
       for (const el of els) {
         if (targets.length >= count) break;
         const visible = await el.isVisible().catch(() => false);
-        if (visible) targets.push(el);
+        if (!visible) continue;
+        const box = await el.boundingBox().catch(() => null);
+        if (box) targets.push(box);
       }
     } catch { /* selector not found */ }
   }
@@ -60,7 +62,7 @@ export async function simulateHumanBrowsing(page, opts = {}) {
 
   let cursor;
   try {
-    cursor = createCursor(page);
+    cursor = await createCursor(page, { debug: false });
   } catch {
     return { cursor: null, moves: 0, scrollPx: 0, dwellMs: 0 };
   }

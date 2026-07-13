@@ -130,8 +130,7 @@ test('pbt: goods_name_normalization_idempotence', async () => {
 // PBT 6.15: envelope_schema_stability.
 // Run the V0.1 runnable commands under MOCK_ENV and assert every stdout
 // produces a single-line JSON envelope matching the frozen schema.
-// The `promo ddk` command was removed in V0.2 (see openspec/changes/archive/
-// *-remove-promo-ddk). `init`, `login`, `doctor` require a real browser /
+// The `promo ddk` command was removed in V0.2. `init`, `login`, `doctor` require a real browser /
 // interactive input so they are excluded from PBT and covered by real-call
 // regression in Section 7.
 

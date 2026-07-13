@@ -1,12 +1,9 @@
 import { existsSync } from 'node:fs';
-import { chromium } from 'playwright';
+import { chromium } from 'patchright';
 import { isMockEnabled, mockLaunchBrowser, mockCloseBrowser } from './mock-dispatcher.js';
 import { getLogger } from '../infra/logger.js';
-import { buildStealthScript, generateFingerprintProfile } from '../infra/stealth-scripts.js';
 
 const DEFAULT_VIEWPORT = { width: 1920, height: 1080 };
-const DEFAULT_USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 
 // --- Browser Lifecycle Registry ---
 const activeBrowsers = new Set();
@@ -20,6 +17,14 @@ export function registerBrowser(browser) {
 
 export function unregisterBrowser(browser) {
   activeBrowsers.delete(browser);
+}
+
+export function getBrowserExecutablePath() {
+  return chromium.executablePath();
+}
+
+export function evaluateInMainWorld(page, pageFunction, arg) {
+  return page.evaluate(pageFunction, arg, false);
 }
 
 export async function closeAllBrowsers({ timeoutMs = 5000 } = {}) {
@@ -36,27 +41,17 @@ export async function launchBrowser({
   headed = false,
   storageStatePath,
   viewport = DEFAULT_VIEWPORT,
-  userAgent = DEFAULT_USER_AGENT,
   extraContextOptions = {},
 } = {}) {
   if (isMockEnabled()) return mockLaunchBrowser();
   const browser = await chromium.launch({
     headless: !headed,
-    args: [
-      '--disable-blink-features=AutomationControlled',
-      '--no-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--hide-scrollbars',
-      '--mute-audio',
-    ],
   });
   registerBrowser(browser);
 
   try {
     const contextOptions = {
       viewport,
-      userAgent,
       locale: 'zh-CN',
       timezoneId: 'Asia/Shanghai',
       deviceScaleFactor: 2,
@@ -67,8 +62,6 @@ export async function launchBrowser({
     }
 
     const context = await browser.newContext(contextOptions);
-    const fingerprint = generateFingerprintProfile();
-    await context.addInitScript(buildStealthScript(fingerprint));
     const page = await context.newPage();
 
     return { browser, context, page };
@@ -121,14 +114,13 @@ export async function withBrowser(options, fn) {
   }
 }
 
-const MOBILE_VIEWPORT = { width: 375, height: 812 };
-const MOBILE_USER_AGENT =
-  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/130.0.0.0 Mobile/15E148 Safari/604.1';
-
-export async function createConsumerContext(browser, { storageStatePath, viewport = MOBILE_VIEWPORT, userAgent = MOBILE_USER_AGENT } = {}) {
+export async function createConsumerContext(browser, {
+  storageStatePath,
+  viewport = DEFAULT_VIEWPORT,
+  proxy,
+} = {}) {
   const contextOptions = {
     viewport,
-    userAgent,
     locale: 'zh-CN',
     timezoneId: 'Asia/Shanghai',
     deviceScaleFactor: 2,
@@ -136,10 +128,19 @@ export async function createConsumerContext(browser, { storageStatePath, viewpor
   if (storageStatePath && existsSync(storageStatePath)) {
     contextOptions.storageState = storageStatePath;
   }
+  if (proxy) {
+    contextOptions.proxy = proxy;
+  }
   const context = await browser.newContext(contextOptions);
-  const fingerprint = generateFingerprintProfile();
-  await context.addInitScript(buildStealthScript(fingerprint));
-  const page = await context.newPage();
+  let page = null;
+
+  try {
+    page = await context.newPage();
+  } catch (err) {
+    try { await page?.close(); } catch { /* ignore */ }
+    try { await context.close(); } catch { /* ignore */ }
+    throw err;
+  }
 
   return {
     context,
@@ -151,4 +152,4 @@ export async function createConsumerContext(browser, { storageStatePath, viewpor
   };
 }
 
-export { DEFAULT_VIEWPORT, DEFAULT_USER_AGENT, MOBILE_VIEWPORT, MOBILE_USER_AGENT };
+export { DEFAULT_VIEWPORT };

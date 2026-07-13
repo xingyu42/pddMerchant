@@ -84,7 +84,14 @@ describe('fixture/live parity diagnostics', () => {
 
     const missing = warningsByCode(reports, 'MISSING_BASE_FIXTURE').map((item) => item.endpoint).sort();
 
-    assert.deepEqual(missing, ['goods.adStrategy', 'promo.hourlyReport']);
+    assert.deepEqual(missing, [
+      'goods.adStrategy',
+      'goods.publish.create_draft',
+      'goods.publish.edit_draft',
+      'goods.publish.save_decoration',
+      'goods.publish.template',
+      'promo.hourlyReport',
+    ]);
   });
 
   test('reports normalized fixture payloads that differ from FixtureEndpointClient output', () => {

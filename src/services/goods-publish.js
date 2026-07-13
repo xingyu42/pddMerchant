@@ -1,4 +1,5 @@
 import { createConsumerContext } from '../adapter/browser.js';
+import { deleteAuthState } from '../adapter/auth-state.js';
 import { CONSUMER_AUTH_STATE_PATH } from '../infra/paths.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getSharedBreaker } from '../infra/circuit-breaker.js';
@@ -14,10 +15,19 @@ import { assertNoRiskControl } from '../adapter/goods-publish/risk-detector.js';
 import { rewriteTitle } from './title-rewriter.js';
 import { transformImages } from './image-transform.js';
 import { buildPricingPlan, validatePricingPlan } from './pricing-validator.js';
+import { defaultSourceGoodsCache } from './goods-publish-source-cache.js';
+import { abortableSleep } from '../infra/abort.js';
+import {
+  acquireQingguoProxyLease,
+  readSourceProxyConfig,
+} from '../adapter/goods-publish/qingguo-proxy.js';
 
-// NOTE: Sub-modules in ./goods-publish/ (payload-builder, property-matcher, sku-mapper)
-// are Phase 2 (API-based publish path). Currently unused — the active path uses UI automation.
-// Do NOT remove: they have test coverage and will be integrated when PDD exposes a stable API.
+const SOURCE_PROXY_MAX_ATTEMPTS = 3;
+const SOURCE_PROXY_RETRY_DELAYS = [500, 1000];
+
+// NOTE: The Phase 2 API-based publish path (payload-builder, property-matcher, sku-mapper)
+// was removed on 2026-07-10 in favor of the active UI-automation path. If PDD later exposes a
+// stable publish API, reintroduce those modules from git history rather than reviving stale code.
 
 export async function listCostTemplates(ctx) {
   const result = await runEndpoint(ctx.page, GOODS_PUBLISH_COST_TEMPLATE_LIST, {}, ctx);
@@ -107,36 +117,213 @@ function wrapSaveDraftError(err) {
   });
 }
 
+function isRetryableProxyAttemptError(err) {
+  return err?.code === 'E_PROXY_UNAVAILABLE'
+    || err?.code === 'E_PROXY_NETWORK';
+}
+
+function isProxyInfrastructureError(err) {
+  return err?.code === 'E_PROXY_UNAVAILABLE' || err?.code === 'E_PROXY_NETWORK';
+}
+
+function mapProxyBrowserError(err) {
+  if (err instanceof PddCliError) return err;
+  const text = `${err?.name ?? ''} ${err?.code ?? ''} ${err?.message ?? ''}`;
+  // Chromium hides an upstream HTTP 407 behind ERR_TUNNEL_CONNECTION_FAILED for
+  // this IP-whitelist provider. Retrying fresh leases cannot repair provider auth.
+  if (/407|proxy.*auth|ERR_PROXY_AUTH_REQUESTED|ERR_INVALID_AUTH_CREDENTIALS|ERR_TUNNEL_CONNECTION_FAILED/i.test(text)) {
+    return new PddCliError({
+      code: 'E_PROXY_AUTH',
+      message: '青果代理连接认证失败',
+      hint: '当前未启用代理账号密码鉴权，请确认青果套餐或节点是否要求额外鉴权',
+      detail: { provider: 'qingguo' },
+      exitCode: ExitCodes.AUTH,
+    });
+  }
+  if (/TimeoutError|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ERR_(PROXY|TUNNEL|CONNECTION|TIMED_OUT)|net::ERR_/i.test(text)) {
+    return new PddCliError({
+      code: 'E_PROXY_NETWORK',
+      message: '青果代理连接超时、拒绝或提前断开',
+      hint: '系统会在重试预算内更换短效代理；不会自动回退直连',
+      detail: { provider: 'qingguo' },
+      exitCode: ExitCodes.NETWORK,
+    });
+  }
+  return new PddCliError({
+    code: 'E_GENERAL',
+    message: '源商品代理抓取发生未分类错误',
+    hint: '查看脱敏 verbose 日志定位问题；为避免泄露代理节点，原始错误不会写入普通输出',
+    detail: { provider: 'qingguo' },
+    exitCode: ExitCodes.GENERAL,
+  });
+}
+
+function proxyLeaseSummary(lease, attempt) {
+  return {
+    provider: lease.provider,
+    attempt,
+    area: lease.area,
+    isp: lease.isp,
+    remaining_ms: Math.max(0, lease.expiresAt - Date.now()),
+    request_id_hash: lease.requestIdHash,
+  };
+}
+
+async function invalidateDegradedConsumerAuth(ctx, err) {
+  if (err?.code !== 'E_RISK_CONTROL_SOFT') return;
+  const authStatePath = process.env.PDD_CONSUMER_AUTH_STATE_PATH || CONSUMER_AUTH_STATE_PATH;
+  const cleanup = await deleteAuthState(authStatePath);
+  err.detail = {
+    ...(err.detail && typeof err.detail === 'object' ? err.detail : {}),
+    consumer_account_degraded: true,
+    consumer_auth_removed: cleanup.removed,
+    consumer_auth_existed: cleanup.existed,
+  };
+  err.hint = '消费者账号已降级，旧登录态已删除；请更换账号并执行 pdd login --consumer';
+  ctx.log.warn({ reason: err.detail.reason, authExisted: cleanup.existed },
+    'goods-publish: degraded consumer auth removed');
+}
+
+async function scrapeSourceDirect(ctx, goodsId) {
+  const consumer = await createConsumerContext(ctx.context.browser(), {
+    storageStatePath: process.env.PDD_CONSUMER_AUTH_STATE_PATH || CONSUMER_AUTH_STATE_PATH,
+  });
+  try {
+    return await scrapeSourceGoods(consumer.page, goodsId, ctx);
+  } finally {
+    await consumer.close();
+  }
+}
+
+async function runProxyScrapeAttempt(ctx, goodsId, proxyConfig, attempt) {
+  let consumer = null;
+  let lease = null;
+  try {
+    lease = await acquireQingguoProxyLease(proxyConfig, { signal: ctx.signal });
+    ctx.log.debug(proxyLeaseSummary(lease, attempt), 'goods-publish: source proxy acquired');
+    consumer = await createConsumerContext(ctx.context.browser(), {
+      storageStatePath: process.env.PDD_CONSUMER_AUTH_STATE_PATH || CONSUMER_AUTH_STATE_PATH,
+      proxy: {
+        server: lease.server,
+      },
+    });
+    const source = await scrapeSourceGoods(consumer.page, goodsId, {
+      ...ctx,
+    });
+    ctx.log.debug({ ...proxyLeaseSummary(lease, attempt), result: 'success' },
+      'goods-publish: source proxy attempt completed');
+    return source;
+  } catch (err) {
+    const mapped = mapProxyBrowserError(err);
+    ctx.log.debug({
+      ...(lease ? proxyLeaseSummary(lease, attempt) : {
+        provider: 'qingguo',
+        attempt,
+        request_id_hash: mapped?.detail?.request_id_hash ?? null,
+      }),
+      result: mapped?.code ?? 'E_GENERAL',
+    }, 'goods-publish: source proxy attempt failed');
+    throw mapped;
+  } finally {
+    await consumer?.close();
+  }
+}
+
+async function scrapeSourceWithProxy(ctx, goodsId, proxyConfig, warnings) {
+  for (let attempt = 1; attempt <= SOURCE_PROXY_MAX_ATTEMPTS; attempt++) {
+    try {
+      const source = await runProxyScrapeAttempt(ctx, goodsId, proxyConfig, attempt);
+      if (attempt > 1) warnings.push('source_proxy_retry_recovered');
+      return source;
+    } catch (err) {
+      if (!isRetryableProxyAttemptError(err)) throw err;
+      if (attempt === SOURCE_PROXY_MAX_ATTEMPTS) {
+        throw err;
+      }
+      if (isProxyInfrastructureError(err)) {
+        await abortableSleep(SOURCE_PROXY_RETRY_DELAYS[attempt - 1], ctx.signal);
+      }
+    }
+  }
+  throw new PddCliError({
+    code: 'E_PROXY_UNAVAILABLE',
+    message: '青果代理重试预算已耗尽',
+    exitCode: ExitCodes.NETWORK,
+  });
+}
+
+async function readCachedSource(ctx, sourceCache, goodsId) {
+  try {
+    const source = await sourceCache.read(goodsId);
+    if (source) ctx.log.info({ goodsId }, 'goods-publish: source cache hit');
+    return source;
+  } catch (error) {
+    ctx.log.warn({ goodsId, cache_error: error?.code ?? 'E_UNKNOWN' },
+      'goods-publish: source cache read failed, falling back to live scrape');
+    return null;
+  }
+}
+
+async function writeCachedSource(ctx, sourceCache, goodsId, source) {
+  try {
+    await sourceCache.write(goodsId, source);
+    ctx.log.debug({ goodsId }, 'goods-publish: source cache written');
+  } catch (error) {
+    ctx.log.warn({ goodsId, cache_error: error?.code ?? 'E_UNKNOWN' },
+      'goods-publish: source cache write failed');
+  }
+}
+
+async function clearCachedSource(ctx, sourceCache, goodsId, warnings) {
+  try {
+    const removed = await sourceCache.remove(goodsId);
+    if (removed) ctx.log.debug({ goodsId }, 'goods-publish: source cache cleared');
+  } catch (error) {
+    ctx.log.warn({ goodsId, cache_error: error?.code ?? 'E_UNKNOWN' },
+      'goods-publish: source cache cleanup failed after successful publish');
+    warnings.push('source_cache_cleanup_failed');
+  }
+}
+
 export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
   const goodsId = parseGoodsUrl(goodsUrl);
   const draftOnly = opts.draftOnly ?? true;
   const mockEnabled = isMockEnabled();
+  const sourceCache = ctx.sourceGoodsCache ?? defaultSourceGoodsCache;
+  const warnings = [];
+  let source = null;
+  let pricingPlan = null;
+  let sourceProxyConfig = { enabled: false, provider: null };
 
   if (!mockEnabled) {
-    // IP 软封冷却期内：在任何真实网络请求前就短路退避（省资源、不再烧 IP）。
-    // 放在 breaker.wrap 之外，避免把"主动退避"误记为 scrape 阶段失败而触发熔断。
-    // 与 scrapeSourceGoods 一致走 ctx 注入 seam（便于测试注入）。
-    (ctx.scrapeCooldown ?? getSharedScrapeCooldown()).check();
+    source = await readCachedSource(ctx, sourceCache, goodsId);
+    if (!source) {
+      // IP 软封冷却期内：只在确实需要实时抓取时短路退避。缓存命中不消耗出口 IP。
+      // 放在 breaker.wrap 之外，避免把"主动退避"误记为 scrape 阶段失败而触发熔断。
+      (ctx.scrapeCooldown ?? getSharedScrapeCooldown()).check();
+      sourceProxyConfig = readSourceProxyConfig();
+    }
   }
 
   const selectedTemplate = await resolvePublishCostTemplate(ctx, opts.costTemplateId ?? null);
 
   if (mockEnabled) return buildMockPublishResult(ctx, goodsId, draftOnly, selectedTemplate.id);
   const log = ctx.log;
-  const warnings = [];
   const breaker = getSharedBreaker();
 
-  const source = await breaker.wrap('scrape', async () => {
-    log.info({ goodsId }, 'goods-publish: Phase A — scraping source');
-    const consumer = await createConsumerContext(ctx.context.browser(), {
-      storageStatePath: process.env.PDD_CONSUMER_AUTH_STATE_PATH || CONSUMER_AUTH_STATE_PATH,
+  if (!source) {
+    source = await breaker.wrap('scrape', async () => {
+      log.info({ goodsId }, 'goods-publish: Phase A — scraping source');
+      try {
+        if (!sourceProxyConfig.enabled) return await scrapeSourceDirect(ctx, goodsId);
+        return await scrapeSourceWithProxy(ctx, goodsId, sourceProxyConfig, warnings);
+      } catch (err) {
+        await invalidateDegradedConsumerAuth(ctx, err);
+        throw err;
+      }
     });
-    try {
-      return await scrapeSourceGoods(consumer.page, goodsId, ctx);
-    } finally {
-      await consumer.close();
-    }
-  });
+    await writeCachedSource(ctx, sourceCache, goodsId, source);
+  }
 
   const categorySearchText = await breaker.wrap('category', async () => {
     const catId3 = source.catID3 || source.catID;
@@ -177,7 +364,7 @@ export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
   await withWriteRateControl('publish.fill_form', () =>
     breaker.wrap('fill_form', async () => {
       log.info({ ...draft }, 'goods-publish: Phase D — filling form');
-      const pricingPlan = buildPricingPlan(sourceForForm);
+      pricingPlan = buildPricingPlan(sourceForForm);
       const pricingValidation = validatePricingPlan(pricingPlan);
       await fillGoodsForm(ctx.page, sourceForForm, warnings, { pricingPlan, pricingValidation });
       await assertNoRiskControl(ctx.page, { phase: 'form' });
@@ -188,10 +375,15 @@ export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
     await withWriteRateControl('publish.save_draft', () =>
       breaker.wrap('save_draft', async () => {
         log.info({ costTemplateId: selectedTemplate.id }, 'goods-publish: Phase E — saving draft');
-        await clickSaveDraft(ctx.page, draft.goodsCommitId, {
+        const saved = await clickSaveDraft(ctx.page, draft.goodsCommitId, {
           costTemplateId: selectedTemplate.id,
+          expectedSkuPricing: pricingPlan?.skuPricing,
+          strictPayload: true,
           strictVerify: true,
         });
+        for (const warning of saved.verification?.warnings ?? []) {
+          if (!warnings.includes(warning)) warnings.push(warning);
+        }
       })
     );
   } catch (err) {
@@ -214,6 +406,8 @@ export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
     await assertNoRiskControl(ctx.page, { phase: 'submit:after' });
     submit = assertSubmitSucceeded(submitResult);
   }
+
+  await clearCachedSource(ctx, sourceCache, goodsId, warnings);
 
   return {
     goods_id: draft.goodsId,

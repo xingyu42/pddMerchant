@@ -11,6 +11,27 @@
     "https://img.pddpic.com/mms-material-img/2024-01-01/test-carousel-2.jpg"
   ],
   "skuText": "颜色分类\n白色\n黑色\n红色\n尺码\n110cm\n120cm\n130cm",
+  "skuDimensions": [
+    {
+      "name": "颜色分类",
+      "values": ["白色", "黑色", "红色"]
+    },
+    {
+      "name": "尺码",
+      "values": ["110cm", "120cm", "130cm"]
+    }
+  ],
+  "skus": [
+    { "sourceSkuId": "fixture-white-110", "specValues": { "颜色分类": "白色", "尺码": "110cm" }, "sourcePriceCents": 822, "sourceNormalPriceCents": 999, "stock": 12 },
+    { "sourceSkuId": "fixture-white-120", "specValues": { "颜色分类": "白色", "尺码": "120cm" }, "sourcePriceCents": 842, "sourceNormalPriceCents": 1019, "stock": 11 },
+    { "sourceSkuId": "fixture-white-130", "specValues": { "颜色分类": "白色", "尺码": "130cm" }, "sourcePriceCents": 862, "sourceNormalPriceCents": 1039, "stock": 10 },
+    { "sourceSkuId": "fixture-black-110", "specValues": { "颜色分类": "黑色", "尺码": "110cm" }, "sourcePriceCents": 832, "sourceNormalPriceCents": 1009, "stock": 9 },
+    { "sourceSkuId": "fixture-black-120", "specValues": { "颜色分类": "黑色", "尺码": "120cm" }, "sourcePriceCents": 852, "sourceNormalPriceCents": 1029, "stock": 8 },
+    { "sourceSkuId": "fixture-black-130", "specValues": { "颜色分类": "黑色", "尺码": "130cm" }, "sourcePriceCents": 872, "sourceNormalPriceCents": 1049, "stock": 7 },
+    { "sourceSkuId": "fixture-red-110", "specValues": { "颜色分类": "红色", "尺码": "110cm" }, "sourcePriceCents": 842, "sourceNormalPriceCents": 1019, "stock": 6 },
+    { "sourceSkuId": "fixture-red-120", "specValues": { "颜色分类": "红色", "尺码": "120cm" }, "sourcePriceCents": 862, "sourceNormalPriceCents": 1039, "stock": 5 },
+    { "sourceSkuId": "fixture-red-130", "specValues": { "颜色分类": "红色", "尺码": "130cm" }, "sourcePriceCents": 882, "sourceNormalPriceCents": 1059, "stock": 0 }
+  ],
   "properties": "品牌: 无品牌\n面料/材质: 棉\n风格: 卡通",
   "detailImgs": [
     "https://img.pddpic.com/mms-goods-image/2024-01-01/test-detail-1.jpg"

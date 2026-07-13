@@ -1,5 +1,16 @@
-import { describe, it } from 'vitest';
+import { describe, it, vi } from 'vitest';
 import assert from 'node:assert/strict';
+
+const cursorMock = vi.hoisted(() => ({ targets: [] }));
+vi.mock('ghost-cursor-playwright', () => ({
+  createCursor: vi.fn(async () => ({
+    actions: {
+      move: async (target) => { cursorMock.targets.push(target); },
+      click: async () => {},
+    },
+  })),
+}));
+
 import { naturalScroll, pickTargetElements, simulateHumanBrowsing } from '../src/adapter/behavior-simulator.js';
 
 function makeFakePage(opts = {}) {
@@ -13,6 +24,7 @@ function makeFakePage(opts = {}) {
       return {
         all: async () => els.map(e => ({
           isVisible: async () => e.visible ?? true,
+          boundingBox: async () => e.box ?? { x: 10, y: 20, width: 100, height: 50 },
         })),
         first() {
           return {
@@ -52,6 +64,7 @@ describe('pickTargetElements', () => {
     });
     const targets = await pickTargetElements(page, 3);
     assert.equal(targets.length, 3);
+    assert.deepEqual(targets[0], { x: 10, y: 20, width: 100, height: 50 });
   });
 
   it('returns empty array when no elements', async () => {
@@ -101,6 +114,10 @@ describe('simulateHumanBrowsing', () => {
       random: seededRandom(42),
     });
     assert.ok(result.cursor !== null, 'cursor should be created');
+    assert.equal(typeof result.cursor?.then, 'undefined', 'cursor must be awaited, not returned as a Promise');
+    assert.equal(result.moves, 1);
+    assert.equal(cursorMock.targets.length, 1);
+    assert.deepEqual(cursorMock.targets[0], { x: 10, y: 20, width: 100, height: 50 });
     assert.ok(result.dwellMs >= 100 && result.dwellMs <= 200);
   });
 });

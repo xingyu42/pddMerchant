@@ -1,6 +1,9 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { isAuthValid } from '../src/adapter/auth-state.js';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { deleteAuthState, isAuthValid, isConsumerAuthValid } from '../src/adapter/auth-state.js';
 
 function createResponse({ ok = true, status = 200 } = {}) {
   return {
@@ -74,4 +77,69 @@ test('isAuthValid: returns false when navigation lands on login page', async () 
 
   const valid = await isAuthValid(page, { timeoutMs: 10, maxAttempts: 2 });
   assert.equal(valid, false);
+});
+
+test('isAuthValid: does not wait for networkidle after domcontentloaded', async () => {
+  delete process.env.PDD_TEST_ADAPTER;
+  let waitForLoadStateCalls = 0;
+  const page = {
+    async goto() {
+      return createResponse({ ok: true, status: 200 });
+    },
+    async waitForLoadState() {
+      waitForLoadStateCalls += 1;
+    },
+    url() {
+      return 'https://mms.pinduoduo.com/home/';
+    },
+  };
+
+  const valid = await isAuthValid(page, { timeoutMs: 10, maxAttempts: 1 });
+
+  assert.equal(valid, true);
+  assert.equal(waitForLoadStateCalls, 0);
+});
+
+test('isConsumerAuthValid: does not wait for networkidle after domcontentloaded', async () => {
+  delete process.env.PDD_TEST_ADAPTER;
+  let waitForLoadStateCalls = 0;
+  const page = {
+    async goto() {
+      return createResponse({ ok: true, status: 200 });
+    },
+    async waitForLoadState() {
+      waitForLoadStateCalls += 1;
+    },
+    url() {
+      return 'https://mobile.yangkeduo.com/';
+    },
+  };
+
+  const valid = await isConsumerAuthValid(page, { timeoutMs: 10 });
+
+  assert.equal(valid, true);
+  assert.equal(waitForLoadStateCalls, 0);
+});
+
+test('deleteAuthState: permanently removes an existing auth snapshot', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pdd-auth-delete-'));
+  const path = join(root, 'consumer-auth-state.json');
+  try {
+    await writeFile(path, '{"cookies":[],"origins":[]}', 'utf8');
+    const result = await deleteAuthState(path);
+    assert.deepEqual(result, { removed: true, existed: true });
+    await assert.rejects(() => readFile(path), (err) => err.code === 'ENOENT');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('deleteAuthState: treats an already-missing snapshot as removed', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pdd-auth-delete-'));
+  try {
+    const result = await deleteAuthState(join(root, 'missing.json'));
+    assert.deepEqual(result, { removed: true, existed: false });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

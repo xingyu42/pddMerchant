@@ -1,6 +1,6 @@
 // E2E · promo domain
 // 注：search/scene 推广已合并为「商品推广」（scenesType=9），对应命令已废弃删除。
-// 注：V0.2 移除 ddk 子命令（详见 openspec/changes/archive/*-remove-promo-ddk）
+// 注：V0.2 移除 ddk 子命令。
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { runPdd, assertOkEnvelope } from './_helpers.js';

@@ -1,3 +1,5 @@
+import { evaluateInMainWorld } from '../browser.js';
+
 export function mapPublishBusinessError(raw) {
   const code = raw?.error_code ?? raw?.errorCode;
   const msg = raw?.error_msg ?? raw?.errorMsg ?? '';
@@ -26,7 +28,7 @@ export const GOODS_PUBLISH_CREATE_DRAFT = {
     readyEl: '[class*="goods-edit"], [class*="form"], [class*="commit"]',
   },
   trigger: async (page, params) => {
-    await page.evaluate(({ cat_id, cat_ids, cats }) => {
+    await evaluateInMainWorld(page, ({ cat_id, cat_ids, cats }) => {
       return fetch('/glide/v2/mms/edit/commit/create_new', {
         method: 'POST',
         credentials: 'include',
@@ -76,7 +78,7 @@ export const GOODS_PUBLISH_EDIT_DRAFT = {
   },
   trigger: async (page, params) => {
     await page.waitForTimeout(2000);
-    await page.evaluate(({ payload }) => {
+    await evaluateInMainWorld(page, ({ payload }) => {
       return fetch('/glide/mms/goodsCommit/action/edit', {
         method: 'POST',
         credentials: 'include',
@@ -103,7 +105,7 @@ export const GOODS_PUBLISH_SAVE_DECORATION = {
     readyEl: '[class*="goods-edit"], [class*="form"]',
   },
   trigger: async (page, params) => {
-    await page.evaluate(({ goods_commit_id, goods_id, floor_list }) => {
+    await evaluateInMainWorld(page, ({ goods_commit_id, goods_id, floor_list }) => {
       return fetch('/glide/forward/gorse/mms/goods/decoration/commit/save', {
         method: 'POST',
         credentials: 'include',
@@ -134,7 +136,7 @@ export const GOODS_PUBLISH_SUBMIT = {
     readyEl: '[class*="goods-edit"], [class*="form"]',
   },
   trigger: async (page, params) => {
-    await page.evaluate(({ goods_commit_id, goods_id }) => {
+    await evaluateInMainWorld(page, ({ goods_commit_id, goods_id }) => {
       return fetch('/glide/v2/mms/edit/commit/submit', {
         method: 'POST',
         credentials: 'include',
@@ -163,7 +165,7 @@ export const GOODS_PUBLISH_COST_TEMPLATE_LIST = {
     readyEl: '[class*="goods-edit"], [class*="form"]',
   },
   trigger: async (page) => {
-    await page.evaluate(() => {
+    await evaluateInMainWorld(page, () => {
       return fetch('/express_inf/cost_template/get_list', {
         method: 'POST',
         credentials: 'include',

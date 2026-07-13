@@ -14,6 +14,7 @@ import {
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 import { getLogger } from '../infra/logger.js';
+import { getSharedScrapeCooldown } from '../infra/scrape-cooldown.js';
 
 async function waitForMmsLogin(page, { timeoutMs }) {
   try {
@@ -117,6 +118,7 @@ export async function performConsumerQrLogin({ authStatePath, timeoutMs, headed 
     }
 
     const savedPath = await saveAuthState(consumer.context, authStatePath);
+    getSharedScrapeCooldown().recordSuccess();
     return { path: savedPath, url: result.url, mode: 'consumer-qr', qrImagePath: imagePath };
   } finally {
     await closeBrowser(browser);
@@ -145,6 +147,7 @@ export async function performConsumerHeadedLogin({ authStatePath, timeoutMs }) {
     }
 
     const savedPath = await saveAuthState(context, authStatePath);
+    getSharedScrapeCooldown().recordSuccess();
     return { path: savedPath, url: result.url, mode: 'consumer-headed' };
   } finally {
     await closeBrowser(browser);

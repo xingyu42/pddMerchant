@@ -83,6 +83,22 @@ export async function loadAuthState(path) {
   return { path, exists: true, state };
 }
 
+export async function deleteAuthState(path) {
+  try {
+    await unlink(path);
+    return { removed: true, existed: true };
+  } catch (err) {
+    if (err?.code === 'ENOENT') return { removed: true, existed: false };
+    throw new PddCliError({
+      code: 'E_AUTH_STATE_DELETE_FAILED',
+      message: '删除登录凭据失败',
+      hint: '停止使用当前账号并检查登录态文件权限后重试',
+      detail: { fs_code: err?.code ?? null },
+      exitCode: ExitCodes.AUTH,
+    });
+  }
+}
+
 export async function migrateLegacyAuthStateIfNeeded(targetPath, warnings = []) {
   const legacy = legacyAuthStatePath();
   if (!existsSync(legacy)) return false;
@@ -121,7 +137,6 @@ export async function isAuthValid(page, { timeoutMs = 15000, maxAttempts = 2 } =
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const resp = await page.goto(PDD_HOME, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
-      await page.waitForLoadState('networkidle', { timeout: timeoutMs }).catch(() => {});
       const finalUrl = page.url();
       if (finalUrl.includes('/login')) return false;
       if (resp && !resp.ok() && resp.status() >= 400) return false;
@@ -147,7 +162,6 @@ export async function isConsumerAuthValid(page, { timeoutMs = 15000 } = {}) {
   if (isMockEnabled()) return mockIsConsumerAuthValid();
   try {
     await page.goto(CONSUMER_HOME, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
-    await page.waitForLoadState('networkidle', { timeout: timeoutMs }).catch(() => {});
     const finalUrl = page.url();
     return !finalUrl.includes('/login');
   } catch (err) {

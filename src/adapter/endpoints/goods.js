@@ -1,3 +1,5 @@
+import { evaluateInMainWorld } from '../browser.js';
+
 export const GOODS_LIST = {
   name: 'goods.list',
   urlPattern: /vodka\/v2\/mms\/query\/display\/mall\/goodsList/,
@@ -109,7 +111,7 @@ export const GOODS_UPDATE_PRICE = {
     readyEl: 'table, [class*="goods"], [class*="list"]',
   },
   trigger: async (page, params) => {
-    await page.evaluate(({ goods_id, sku_id, price }) => {
+    await evaluateInMainWorld(page, ({ goods_id, sku_id, price }) => {
       return fetch('/guide-api/mms/sync/edit/price', {
         method: 'POST',
         credentials: 'include',
@@ -145,7 +147,7 @@ export const GOODS_UPDATE_STOCK = {
     readyEl: 'table, [class*="goods"], [class*="list"]',
   },
   trigger: async (page, params) => {
-    await page.evaluate(({ goods_id, sku_id, quantity }) => {
+    await evaluateInMainWorld(page, ({ goods_id, sku_id, quantity }) => {
       return fetch('/guide-api/mms/sync/edit/quantity', {
         method: 'POST',
         credentials: 'include',
@@ -183,7 +185,7 @@ export const GOODS_UPDATE_TITLE = {
   trigger: async (page, params) => {
     const goods_id2_name = {};
     goods_id2_name[String(params.goods_id)] = params.title;
-    await page.evaluate(({ payload }) => {
+    await evaluateInMainWorld(page, ({ payload }) => {
       return fetch('/guide-api/mms/goodsName/batch_edit', {
         method: 'POST',
         credentials: 'include',

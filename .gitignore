@@ -14,10 +14,10 @@ coverage/
 .smoke/
 AGENTS.md
 CLAUDE.md
-openspec/
 .context/
 .env
 .ccg/
 .codex/
 .cursor/
 .trellis/
+tmp/

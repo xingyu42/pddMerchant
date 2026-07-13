@@ -43,6 +43,12 @@ vi.mock('../src/adapter/auth-state.js', () => ({
   PDD_HOME: 'https://mms.pinduoduo.com',
 }));
 
+const scrapeCooldownMock = vi.hoisted(() => ({ recordSuccess: vi.fn() }));
+
+vi.mock('../src/infra/scrape-cooldown.js', () => ({
+  getSharedScrapeCooldown: () => scrapeCooldownMock,
+}));
+
 describe('consumer-login: E_AUTH_TIMEOUT path', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -99,5 +105,22 @@ describe('consumer-login: E_AUTH_TIMEOUT path', () => {
       assert.equal(err.constructor.name, 'PddCliError');
       assert.equal(err.exitCode, 3);
     }
+  });
+
+  it('successful consumer login clears the previous scrape cooldown', async () => {
+    const { waitForConsumerLogin } = await import('../src/adapter/consumer-qr-login.js');
+    waitForConsumerLogin.mockResolvedValueOnce({
+      success: true,
+      url: 'https://mobile.yangkeduo.com/',
+    });
+    const { performConsumerHeadedLogin } = await import('../src/services/auth.js');
+
+    const result = await performConsumerHeadedLogin({
+      authStatePath: '/tmp/test-auth.json',
+      timeoutMs: 1000,
+    });
+
+    assert.equal(result.mode, 'consumer-headed');
+    assert.equal(scrapeCooldownMock.recordSuccess.mock.calls.length, 1);
   });
 });
