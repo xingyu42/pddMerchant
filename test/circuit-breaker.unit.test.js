@@ -47,6 +47,42 @@ describe('CircuitBreaker', () => {
     assert.equal(breaker.status().globalTripped, true);
   });
 
+  it('trips globally on 3 consecutive E_RATE_LIMIT errors', () => {
+    const err = new Error('Too many requests');
+    err.code = 'E_RATE_LIMIT';
+    breaker.recordFailure('api1', err);
+    breaker.recordFailure('api2', err);
+    breaker.recordFailure('api3', err);
+
+    const status = breaker.status();
+    assert.equal(status.globalTripped, true);
+    assert(status.globalCooldownRemaining > 0);
+    assert(status.globalCooldownRemaining <= 5 * 60 * 1000);
+  });
+
+  it('blocks all phases when globally tripped', () => {
+    const err = new Error('rate limit');
+    err.code = 'E_RATE_LIMIT';
+    breaker.recordFailure('phase1', err);
+
+    assert.throws(() => breaker.check('phase1'), /全局冷却/);
+    assert.throws(() => breaker.check('phase2'), /全局冷却/);
+    assert.throws(() => breaker.check('any_other_phase'), /全局冷却/);
+  });
+
+  it('recovers after global cooldown expires', () => {
+    const err = new Error('rate limit');
+    err.code = 'E_RATE_LIMIT';
+    breaker.recordFailure('test', err);
+    assert.equal(breaker.status().globalTripped, true);
+
+    breaker._globalTrippedAt = Date.now() - (6 * 60 * 1000);
+
+    assert.equal(breaker._isGlobalTripped(), false);
+    assert.equal(breaker.status().globalTripped, false);
+    breaker.check('test');
+  });
+
   it('does not trip globally on regular errors', () => {
     breaker.recordFailure('save', new Error('network timeout'));
     assert.equal(breaker.status().globalTripped, false);
