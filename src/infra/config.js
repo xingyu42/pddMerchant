@@ -149,4 +149,32 @@ function validIntNonNegOrDefault(v, fallback) {
   return fallback;
 }
 
-export { ConfigSchema, DEFAULT_CONFIG_PATH, RUNTIME_DEFAULTS, REJECTED_LOG_DESTINATIONS };
+const DEFAULT_FULL_COUNT_DISCOUNT_RATE = 0.95;
+
+export function readFullCountDiscountRate(env = process.env) {
+  const raw = env.PDD_FULL_COUNT_DISCOUNT_RATE;
+  if (raw == null || raw === '') {
+    return DEFAULT_FULL_COUNT_DISCOUNT_RATE;
+  }
+
+  const trimmed = String(raw).trim();
+  let parsed = Number(trimmed);
+
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_FULL_COUNT_DISCOUNT_RATE;
+  }
+
+  // 百分比形式转换：95 → 0.95
+  if (parsed > 1 && parsed <= 99) {
+    parsed = parsed / 100;
+  }
+
+  // 范围校验：0.5-0.99
+  if (parsed < 0.5 || parsed > 0.99) {
+    return DEFAULT_FULL_COUNT_DISCOUNT_RATE;
+  }
+
+  return parsed;
+}
+
+export { ConfigSchema, DEFAULT_CONFIG_PATH, RUNTIME_DEFAULTS, REJECTED_LOG_DESTINATIONS, DEFAULT_FULL_COUNT_DISCOUNT_RATE };
