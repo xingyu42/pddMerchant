@@ -14,6 +14,7 @@ coverage/
 .smoke/
 AGENTS.md
 CLAUDE.md
+CONTEXT.md
 .context/
 .env
 .ccg/
