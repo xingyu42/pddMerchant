@@ -14,6 +14,8 @@ pdd init && pdd doctor      # 登录 + 自检
 pdd orders list --json      # AI 消费加 --json
 ```
 
+Linux 部署方需自行准备 Debian/Ubuntu 所需的 Chromium 运行库。系统 Chrome 是可选的首选运行时；`npx patchright install chromium` 安装的 Chromium 是必须保留的回退运行时。默认自动化始终使用真正的 `headless:true`，不依赖 Xvfb；无头启动仅传入 `--enable-gpu`，由 Chrome 自行探测后端。若验收依赖硬件 WebGL，部署环境还必须提供 Chrome 可用的 EGL/X11 或 Vulkan 驱动；项目不会强制 Vulkan，也不会伪造 WebGL/GPU 结果。[Chromium Headless GPU](https://chromium.googlesource.com/chromium/src/+/HEAD/docs/gpu/using-gpu-hardware-in-headless-chrome.md)
+
 ---
 
 ## 核心特性

@@ -1,59 +1,120 @@
-import { describe, it } from 'vitest';
+import { afterEach, describe, it, vi } from 'vitest';
 import assert from 'node:assert/strict';
+import { chromium } from 'patchright';
 import {
+  closeAllBrowsers,
+  closeBrowser,
   createConsumerContext,
-  DEFAULT_VIEWPORT,
+  launchBrowser,
 } from '../../src/adapter/browser.js';
 
-describe('createConsumerContext proxy option', () => {
-  it('uses the desktop browser profile by default', async () => {
-    let contextOptions = null;
-    let initScriptCalls = 0;
-    const context = {
-      addInitScript: async () => { initScriptCalls += 1; },
-      newPage: async () => ({ close: async () => {} }),
-      close: async () => {},
-    };
-    const browser = {
-      newContext: async (options) => { contextOptions = options; return context; },
-    };
+function fakeContext({ pageError } = {}) {
+  const page = { close: vi.fn(async () => {}) };
+  return {
+    context: {
+      addInitScript: vi.fn(async () => {}),
+      newPage: vi.fn(async () => {
+        if (pageError) throw pageError;
+        return page;
+      }),
+      close: vi.fn(async () => {}),
+    },
+    page,
+  };
+}
 
-    const consumer = await createConsumerContext(browser);
+function fakeBrowserRuntime(contexts) {
+  const createdContexts = [];
+  const contextOptions = [];
+  let nextContext = 0;
+  const browser = {
+    version: vi.fn(async () => '136.0.7103.114'),
+    newContext: vi.fn(async (options) => {
+      const entry = contexts[nextContext++];
+      contextOptions.push(options);
+      createdContexts.push(entry.context);
+      return entry.context;
+    }),
+    contexts: vi.fn(() => createdContexts),
+    close: vi.fn(async () => {}),
+  };
+  return { browser, contextOptions };
+}
 
-    assert.deepEqual(contextOptions.viewport, DEFAULT_VIEWPORT);
-    assert.equal(contextOptions.userAgent, undefined);
-    assert.equal(initScriptCalls, 0);
+afterEach(async () => {
+  await closeAllBrowsers();
+  vi.restoreAllMocks();
+});
+
+describe('createConsumerContext runtime profile inheritance', () => {
+  it('inherits the fixed Headless profile and installs the script before its page', async () => {
+    const merchant = fakeContext();
+    const consumerRuntime = fakeContext();
+    const runtime = fakeBrowserRuntime([merchant, consumerRuntime]);
+    vi.spyOn(chromium, 'launch').mockResolvedValue(runtime.browser);
+
+    const launched = await launchBrowser();
+    const consumer = await createConsumerContext(launched.browser);
+
+    assert.deepEqual(runtime.contextOptions[1], runtime.contextOptions[0]);
+    assert.notStrictEqual(runtime.contextOptions[1], runtime.contextOptions[0]);
+    assert.equal(consumerRuntime.context.addInitScript.mock.calls.length, 1);
+    assert.ok(
+      consumerRuntime.context.addInitScript.mock.invocationCallOrder[0]
+        < consumerRuntime.context.newPage.mock.invocationCallOrder[0],
+    );
     await consumer.close();
+    await closeBrowser(launched.browser);
   });
 
-  it('passes an optional proxy only to the new consumer context', async () => {
-    let contextOptions = null;
-    const page = { close: async () => {} };
-    const context = {
-      addInitScript: async () => {},
-      newPage: async () => page,
-      close: async () => {},
-    };
-    const browser = {
-      newContext: async (options) => { contextOptions = options; return context; },
-    };
+  it('adds storageState and proxy only to the fresh consumer Context', async () => {
+    const merchant = fakeContext();
+    const consumerRuntime = fakeContext();
+    const runtime = fakeBrowserRuntime([merchant, consumerRuntime]);
+    vi.spyOn(chromium, 'launch').mockResolvedValue(runtime.browser);
     const proxy = { server: 'http://127.0.0.1:8080' };
 
-    const consumer = await createConsumerContext(browser, { proxy });
+    const launched = await launchBrowser();
+    const consumer = await createConsumerContext(launched.browser, {
+      storageStatePath: process.execPath,
+      proxy,
+    });
 
-    assert.deepEqual(contextOptions.proxy, proxy);
+    assert.equal(runtime.contextOptions[0].proxy, undefined);
+    assert.equal(runtime.contextOptions[0].storageState, undefined);
+    assert.deepEqual(runtime.contextOptions[1].proxy, proxy);
+    assert.equal(runtime.contextOptions[1].storageState, process.execPath);
     await consumer.close();
+    await closeBrowser(launched.browser);
   });
 
-  it('closes a partially-created context when initialization fails', async () => {
-    let closed = 0;
-    const context = {
-      newPage: async () => { throw new Error('page init failed'); },
-      close: async () => { closed += 1; },
-    };
-    const browser = { newContext: async () => context };
+  it('inherits natural headed settings without UA or init-script overrides', async () => {
+    const merchant = fakeContext();
+    const consumerRuntime = fakeContext();
+    const runtime = fakeBrowserRuntime([merchant, consumerRuntime]);
+    vi.spyOn(chromium, 'launch').mockResolvedValue(runtime.browser);
 
-    await assert.rejects(() => createConsumerContext(browser), /page init failed/);
-    assert.equal(closed, 1);
+    const launched = await launchBrowser({ headed: true });
+    const consumer = await createConsumerContext(launched.browser);
+
+    assert.deepEqual(runtime.contextOptions, [{ viewport: null }, { viewport: null }]);
+    assert.equal(consumerRuntime.context.addInitScript.mock.calls.length, 0);
+    await consumer.close();
+    await closeBrowser(launched.browser);
+  });
+
+  it('closes a partially-created consumer Context without closing the shared browser', async () => {
+    const pageError = new Error('page init failed');
+    const merchant = fakeContext();
+    const consumerRuntime = fakeContext({ pageError });
+    const runtime = fakeBrowserRuntime([merchant, consumerRuntime]);
+    vi.spyOn(chromium, 'launch').mockResolvedValue(runtime.browser);
+    const launched = await launchBrowser();
+
+    await assert.rejects(() => createConsumerContext(launched.browser), (err) => err === pageError);
+
+    assert.ok(consumerRuntime.context.close.mock.calls.length >= 1);
+    assert.equal(runtime.browser.close.mock.calls.length, 0);
+    await closeBrowser(launched.browser);
   });
 });
