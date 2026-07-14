@@ -44,8 +44,13 @@ export async function launchBrowser({
   extraContextOptions = {},
 } = {}) {
   if (isMockEnabled()) return mockLaunchBrowser();
+  const headless = !headed;
   const browser = await chromium.launch({
-    headless: !headed,
+    headless,
+    // Playwright's default headless path uses the separate headless shell.
+    // The chromium channel opts into unified Headless Chromium, keeping real
+    // browser features (plugins/extensions/window.chrome) without UA spoofing.
+    ...(headless ? { channel: 'chromium' } : {}),
   });
   registerBrowser(browser);
 

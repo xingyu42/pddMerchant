@@ -1,6 +1,25 @@
-import { describe, it } from 'vitest';
+import { afterEach, describe, it, vi } from 'vitest';
 import assert from 'node:assert/strict';
+import { chromium } from 'patchright';
 import * as browserAdapter from '../../src/adapter/browser.js';
+
+function fakeBrowserRuntime() {
+  const page = { close: vi.fn(async () => {}) };
+  const context = {
+    newPage: vi.fn(async () => page),
+    close: vi.fn(async () => {}),
+  };
+  const browser = {
+    newContext: vi.fn(async () => context),
+    contexts: vi.fn(() => [context]),
+    close: vi.fn(async () => {}),
+  };
+  return { browser, context };
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('browser runtime adapter contract', () => {
   it('owns the browser executable path lookup for doctor', () => {
@@ -26,5 +45,26 @@ describe('browser runtime adapter contract', () => {
 
     assert.equal(result, 'ok');
     assert.deepEqual(calls, [[pageFunction, arg, false]]);
+  });
+
+  it('uses unified Headless Chromium without overriding UA', async () => {
+    const runtime = fakeBrowserRuntime();
+    const launch = vi.spyOn(chromium, 'launch').mockResolvedValue(runtime.browser);
+
+    const launched = await browserAdapter.launchBrowser();
+
+    assert.deepEqual(launch.mock.calls, [[{ headless: true, channel: 'chromium' }]]);
+    assert.equal(runtime.browser.newContext.mock.calls[0][0].userAgent, undefined);
+    await browserAdapter.closeBrowser(launched.browser);
+  });
+
+  it('keeps headed mode on the regular bundled browser path', async () => {
+    const runtime = fakeBrowserRuntime();
+    const launch = vi.spyOn(chromium, 'launch').mockResolvedValue(runtime.browser);
+
+    const launched = await browserAdapter.launchBrowser({ headed: true });
+
+    assert.deepEqual(launch.mock.calls, [[{ headless: false }]]);
+    await browserAdapter.closeBrowser(launched.browser);
   });
 });
