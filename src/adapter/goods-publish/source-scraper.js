@@ -149,6 +149,19 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
   const simulate = process.env.PDD_SCRAPE_SIMULATE !== '0';
   const random = ctx.random ?? Math.random;
 
+  function scoreSourceData(candidateData) {
+    const source = candidateData?._decodedSkuSource ?? candidateData;
+    const snapshot = normalizeSourceSkuSnapshot(source);
+    return {
+      source,
+      snapshot,
+      score: (snapshot.complete ? 1_000_000 : 0)
+        + (snapshot.skuDimensions.length * 10_000)
+        + (snapshot.skus.length * 10)
+        - (snapshot.issues.length * 100),
+    };
+  }
+
   // Phase 0: Pre-flight — IP 软封冷却期内直接短路退避（不 page.goto，避免继续烧 IP）
   cooldown.check();
   health.check();
@@ -167,7 +180,23 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
     throw riskToError(navRisk);
   }
 
+  // 页面会把初始化期的完整 SKU 对象精简成展示态；通过导航风控检查后短暂轮询，
+  // 只保留规范化质量最高的脱敏投影，不保存完整 React 状态。
+  let earlyData = null;
+  let earlyScore = Number.NEGATIVE_INFINITY;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const candidate = await evaluateInMainWorld(page, extractPageData, goodsId);
+    const scored = scoreSourceData(candidate);
+    if (scored.score > earlyScore) {
+      earlyData = candidate;
+      earlyScore = scored.score;
+    }
+    if (scored.snapshot.complete) break;
+    if (typeof page.waitForTimeout === 'function') await page.waitForTimeout(150);
+  }
+
   // Phase 2: Warm-up
+  await page.waitForSelector('[class*="sku"]', { timeout: 10000 }).catch(() => null);
   if (simulate) {
     await simulateHumanBrowsing(page, {
       moveCount: 2 + Math.floor(random() * 2),
@@ -178,8 +207,6 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
     });
   }
 
-  await page.waitForSelector('[class*="sku"]', { timeout: 10000 }).catch(() => null);
-
   const warmRisk = await detectPageRisk(page, { phase: 'source-warmup' });
   if (warmRisk.detected) {
     health.recordRisk(warmRisk);
@@ -187,39 +214,103 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
   }
 
   // Phase 3: Extract
-  const data = await evaluateInMainWorld(page, (nodeGoodsId) => {
+  function extractPageData(nodeGoodsId) {
+    function unwrapObservable(value) {
+      let current = value;
+      for (let depth = 0; depth < 3; depth += 1) {
+        if (!current || typeof current !== 'object' || Array.isArray(current)) break;
+        const isObservableValue = Object.hasOwn(current, 'value')
+          && (Object.hasOwn(current, 'observers')
+            || Object.hasOwn(current, 'enhancer')
+            || Object.hasOwn(current, 'diffValue'));
+        if (!isObservableValue) break;
+        current = current.value;
+      }
+      return current;
+    }
+
+    function readValue(record, keys) {
+      if (!record || typeof record !== 'object') return undefined;
+      for (const key of keys) {
+        if (record[key] !== undefined) return unwrapObservable(record[key]);
+      }
+      return undefined;
+    }
+
+    function toList(value) {
+      const unwrapped = unwrapObservable(value);
+      if (Array.isArray(unwrapped)) return unwrapped;
+      if (unwrapped && typeof unwrapped !== 'string'
+        && typeof unwrapped[Symbol.iterator] === 'function') {
+        try {
+          return Array.from(unwrapped);
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    }
+
     function projectDimensionValue(rawValue) {
-      if (typeof rawValue === 'string' || typeof rawValue === 'number') return rawValue;
+      if (typeof rawValue === 'string' || typeof rawValue === 'number') {
+        return { id: rawValue, text: rawValue };
+      }
       if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) return null;
       return {
-        id: rawValue.id ?? rawValue.valueId ?? rawValue.specValueId
-          ?? rawValue.spec_value_id ?? rawValue.specValueID ?? null,
-        text: rawValue.text ?? rawValue.name ?? rawValue.value ?? rawValue.label
-          ?? rawValue.spec_value ?? rawValue.specValue ?? rawValue.value_name ?? null,
+        id: readValue(rawValue, ['id', 'valueId', 'specValueId', 'spec_value_id', 'specValueID']),
+        text: readValue(rawValue, [
+          'text', 'name', 'value', 'label', 'spec_value', 'specValue', 'value_name',
+        ]),
       };
     }
 
-    function projectDimensions(goods) {
+    function projectSpec(rawSpec) {
+      if (!rawSpec || typeof rawSpec !== 'object') return null;
+      const name = readValue(rawSpec, ['name', 'key', 'specName', 'spec_name', 'specKey', 'spec_key']);
+      const value = readValue(rawSpec, [
+        'text', 'value', 'label', 'specValue', 'spec_value', 'value_name',
+      ]);
+      return name && value ? { name, text: value } : null;
+    }
+
+    function dimensionsFromSkus(rawSkus) {
+      const grouped = new Map();
+      for (const rawSku of rawSkus) {
+        const rawSpecs = toList(readValue(rawSku, ['specs', 'properties']));
+        for (const spec of rawSpecs.map(projectSpec).filter(Boolean)) {
+          const name = String(spec.name);
+          const text = String(spec.text);
+          if (!grouped.has(name)) grouped.set(name, new Set());
+          grouped.get(name).add(text);
+        }
+      }
+      return [...grouped.entries()].map(([name, values]) => ({
+        name,
+        values: [...values].map((text) => ({ id: text, text })),
+      }));
+    }
+
+    function projectDimensions(goods, rawSkus) {
       const candidates = [
-        goods?.skuDimensions,
-        goods?.sku_dimensions,
-        goods?.skuProperty,
-        goods?.newOptions,
-        goods?.options,
+        readValue(goods, ['skuDimensions']),
+        readValue(goods, ['sku_dimensions']),
+        readValue(goods, ['skuProperty']),
+        readValue(goods, ['newOptions']),
+        readValue(goods, ['options']),
       ];
-      for (const rawDimensions of candidates) {
-        if (!Array.isArray(rawDimensions) || rawDimensions.length === 0) continue;
+      for (const candidate of candidates) {
+        const rawDimensions = toList(candidate);
+        if (rawDimensions.length === 0) continue;
         const nested = rawDimensions.map((rawDimension) => {
           if (!rawDimension || typeof rawDimension !== 'object' || Array.isArray(rawDimension)) return null;
-          const rawValues = rawDimension.values ?? rawDimension.options
-            ?? rawDimension.children ?? rawDimension.valueList
-            ?? rawDimension.value_list ?? rawDimension.specValues ?? rawDimension.spec_values;
+          const rawValues = toList(readValue(rawDimension, [
+            'values', 'options', 'children', 'valueList', 'value_list', 'specValues', 'spec_values',
+          ]));
           return {
-            name: rawDimension.name ?? rawDimension.key ?? rawDimension.specName
-              ?? rawDimension.spec_name ?? rawDimension.specKey ?? rawDimension.spec_key ?? null,
-            values: Array.isArray(rawValues)
-              ? rawValues.map(projectDimensionValue).filter((value) => value?.text)
-              : [],
+            name: readValue(rawDimension, [
+              'name', 'key', 'specName', 'spec_name', 'specKey', 'spec_key',
+            ]),
+            values: rawValues.map(projectDimensionValue).filter((value) => value?.text),
           };
         }).filter((dimension) => dimension?.name && dimension.values.length > 0);
         if (nested.length > 0) return nested;
@@ -227,8 +318,9 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
         const grouped = new Map();
         for (const rawOption of rawDimensions) {
           if (!rawOption || typeof rawOption !== 'object' || Array.isArray(rawOption)) continue;
-          const name = rawOption.name ?? rawOption.key ?? rawOption.specName
-            ?? rawOption.spec_name ?? rawOption.specKey ?? rawOption.spec_key;
+          const name = readValue(rawOption, [
+            'name', 'key', 'specName', 'spec_name', 'specKey', 'spec_key',
+          ]);
           const value = projectDimensionValue(rawOption);
           if (!name || !value?.text) continue;
           if (!grouped.has(String(name))) grouped.set(String(name), []);
@@ -238,56 +330,104 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
           return [...grouped.entries()].map(([name, values]) => ({ name, values }));
         }
       }
-      return [];
+      return dimensionsFromSkus(rawSkus);
     }
 
     function projectSku(rawSku) {
+      const specs = toList(readValue(rawSku, ['specs'])).map(projectSpec).filter(Boolean);
+      const properties = toList(readValue(rawSku, ['properties'])).map(projectSpec).filter(Boolean);
       return {
-        skuID: rawSku?.skuID ?? rawSku?.skuId ?? null,
-        groupPrice: rawSku?.groupPrice ?? rawSku?.group_price ?? null,
-        normalPrice: rawSku?.normalPrice ?? rawSku?.normal_price ?? null,
-        quantity: rawSku?.quantity ?? rawSku?.stock ?? rawSku?.inventory ?? null,
-        specValues: rawSku?.specValues ?? rawSku?.spec_values ?? null,
-        specs: Array.isArray(rawSku?.specs) ? rawSku.specs : null,
-        properties: Array.isArray(rawSku?.properties) ? rawSku.properties : null,
+        skuID: readValue(rawSku, ['skuID', 'skuId']),
+        groupPrice: readValue(rawSku, ['groupPrice', 'group_price']),
+        normalPrice: readValue(rawSku, ['normalPrice', 'normal_price']),
+        quantity: readValue(rawSku, ['quantity', 'stock', 'inventory']),
+        specValues: readValue(rawSku, ['specValues', 'spec_values']),
+        specs: specs.length > 0 ? specs : null,
+        properties: properties.length > 0 ? properties : null,
       };
     }
 
-    function findDecodedGoods(root, targetGoodsId) {
-      const queue = [{ value: root, depth: 0 }];
+    function collectRuntimeRoots() {
+      const roots = [];
+      if (globalThis.rawData && typeof globalThis.rawData === 'object') roots.push(globalThis.rawData);
+      let scannedElements = 0;
+      for (const element of document.querySelectorAll('*')) {
+        scannedElements += 1;
+        if (scannedElements > 10000 || roots.length >= 200) break;
+        for (const key of Object.getOwnPropertyNames(element)) {
+          if (!key.startsWith('__reactFiber')
+            && !key.startsWith('__reactContainer')
+            && !key.startsWith('__reactInternalInstance')) continue;
+          const root = element[key];
+          if (root && typeof root === 'object') roots.push(root);
+          break;
+        }
+      }
+      return roots;
+    }
+
+    function findDecodedGoods(roots, targetGoodsId) {
+      const queue = roots.map((value) => ({ value, depth: 0 }));
       const seen = new WeakSet();
+      const looseSkus = new Map();
       let visited = 0;
       let fallback = null;
-      while (queue.length > 0 && visited < 5000) {
+      let bestGoods = null;
+      let bestSkuCount = 0;
+      while (queue.length > 0 && visited < 15000) {
         const current = queue.shift();
         const value = current?.value;
         if (!value || typeof value !== 'object') continue;
         if (seen.has(value)) continue;
         seen.add(value);
         visited += 1;
-        const candidateGoodsId = value.goodsID ?? value.goodsId ?? value.goods_id;
+        const candidateGoodsId = readValue(value, ['goodsID', 'goodsId', 'goods_id']);
         if (String(candidateGoodsId ?? '') === String(targetGoodsId)) {
-          if (Array.isArray(value.skus) && value.skus.length > 0) return { goods: value, visited };
+          const candidateSkus = toList(readValue(value, ['skus']));
+          if (candidateSkus.length > bestSkuCount) {
+            bestGoods = value;
+            bestSkuCount = candidateSkus.length;
+          }
+          const skuId = readValue(value, ['skuID', 'skuId']);
+          if (skuId != null && readValue(value, ['groupPrice', 'group_price']) != null) {
+            looseSkus.set(String(skuId), value);
+          }
           fallback ??= value;
         }
-        if (current.depth >= 8) continue;
-        const children = Array.isArray(value)
-          ? value.slice(0, 500)
-          : Object.values(value).slice(0, 500);
-        for (const child of children) {
+        if (current.depth >= 14) continue;
+        const descriptors = Object.getOwnPropertyDescriptors(value);
+        let childCount = 0;
+        for (const descriptor of Object.values(descriptors)) {
+          const child = descriptor?.value;
           if (child && typeof child === 'object') queue.push({ value: child, depth: current.depth + 1 });
+          childCount += 1;
+          if (childCount >= 300) break;
         }
       }
-      return { goods: fallback, visited };
+      return { goods: bestGoods ?? fallback, looseSkus: [...looseSkus.values()], visited };
     }
 
-    const decodedSearch = findDecodedGoods(globalThis.rawData, nodeGoodsId);
+    const runtimeRoots = collectRuntimeRoots();
+    const decodedSearch = findDecodedGoods(runtimeRoots, nodeGoodsId);
     const decodedGoodsCandidate = decodedSearch.goods;
-    const decodedGoodsId = decodedGoodsCandidate?.goodsID ?? decodedGoodsCandidate?.goodsId
-      ?? decodedGoodsCandidate?.goods_id;
+    const decodedGoodsId = readValue(decodedGoodsCandidate, ['goodsID', 'goodsId', 'goods_id']);
     const decodedGoods = String(decodedGoodsId ?? '') === String(nodeGoodsId)
       ? decodedGoodsCandidate
       : null;
+    const goodsSkus = toList(readValue(decodedGoods, ['skus']));
+    const rawSkuQuality = (rawSkus) => rawSkus.reduce((score, rawSku) => {
+      const projected = projectSku(rawSku);
+      const specCount = (projected.specs?.length ?? 0) + (projected.properties?.length ?? 0);
+      const hasPrice = Number(projected.groupPrice) > 0 ? 1 : 0;
+      const hasStock = Number.isSafeInteger(Number(projected.quantity)) ? 1 : 0;
+      return score + (specCount * 100) + (hasPrice * 10) + hasStock;
+    }, 0);
+    const looseSkusCoverParent = goodsSkus.length > 0
+      && decodedSearch.looseSkus.length === goodsSkus.length;
+    const rawSkus = looseSkusCoverParent
+      && rawSkuQuality(decodedSearch.looseSkus) > rawSkuQuality(goodsSkus)
+      ? decodedSearch.looseSkus
+      : goodsSkus;
     function extractFromFiber() {
       const roots = [document.getElementById('main'), document.getElementById('app'), document.getElementById('root')];
       for (const el of roots) {
@@ -321,17 +461,17 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
     const title = document.querySelector('title')?.textContent || '';
     const detailIdx = body.indexOf('商品详情');
 
-    const fiberName = decodedGoods?.goodsName || get('goodsName') || get('goodsDesc');
+    const fiberName = readValue(decodedGoods, ['goodsName', 'goodsDesc']) || get('goodsName') || get('goodsDesc');
     const domTitle = title.replace(/[-–—|].*/g, '').trim();
     const metaTitle = document.querySelector('meta[property="og:title"]')?.content || '';
 
     return {
       goodsID: decodedGoodsId || get('goodsID') || String(nodeGoodsId),
       goodsName: fiberName || domTitle || metaTitle || '',
-      catID: decodedGoods?.catID ?? get('catID'),
-      catID1: decodedGoods?.catID1 ?? get('catID1'),
-      catID2: decodedGoods?.catID2 ?? get('catID2'),
-      catID3: decodedGoods?.catID3 ?? get('catID3'),
+      catID: readValue(decodedGoods, ['catID']) ?? get('catID'),
+      catID1: readValue(decodedGoods, ['catID1']) ?? get('catID1'),
+      catID2: readValue(decodedGoods, ['catID2']) ?? get('catID2'),
+      catID3: readValue(decodedGoods, ['catID3']) ?? get('catID3'),
       price: body.match(/[¥￥]\s*\n?\s*(\d+\.?\d*)/)?.[1] || null,
       carousel: [...new Set(
         Array.from(document.querySelectorAll('img[src*="mms-material-img"]'))
@@ -343,7 +483,7 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
         Array.from(document.querySelectorAll('img[src*="mms-goods-image"]'))
           .map(i => i.src.split('?')[0])
       )],
-      _fiberFound: fiberStr.length > 0,
+      _fiberFound: Boolean(decodedGoods) || fiberStr.length > 0,
       _maskHint: /前往APP查看价格|APP内?查看价格|登录后?查看价格|查看完整价格/i.test(body),
       _url: location.href,
       _title: title,
@@ -352,18 +492,28 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
       _appWall: /打开(拼多多)?APP|在APP(内|中)?(打开|查看)|下载拼多多|立即打开/i.test(body),
       _decodedSkuSource: decodedGoods ? {
         goodsID: decodedGoodsId,
-        skuDimensions: projectDimensions(decodedGoods),
-        skus: Array.isArray(decodedGoods.skus) ? decodedGoods.skus.map(projectSku) : [],
+        linePrice: readValue(decodedGoods, ['linePrice', 'line_price']),
+        skuDimensions: projectDimensions(decodedGoods, rawSkus),
+        skus: rawSkus.map(projectSku),
         visitedObjects: decodedSearch.visited,
       } : null,
     };
-  }, goodsId);
+  }
+
+  const finalData = await evaluateInMainWorld(page, extractPageData, goodsId);
+  const finalScored = scoreSourceData(finalData);
+  const selectedSkuSource = earlyScore > finalScored.score
+    ? (earlyData?._decodedSkuSource ?? earlyData)
+    : finalScored.source;
+  const data = finalData;
+  data._decodedSkuSource = selectedSkuSource;
 
   const decodedSkuCount = Array.isArray(data?._decodedSkuSource?.skus)
     ? data._decodedSkuSource.skus.length
     : 0;
   const skuSnapshot = normalizeSourceSkuSnapshot(data?._decodedSkuSource ?? data);
   delete data._decodedSkuSource;
+  data.sourceReferencePriceCents = skuSnapshot.sourceReferencePriceCents;
   data.skuDimensions = skuSnapshot.skuDimensions;
   data.skus = skuSnapshot.skus;
 
@@ -386,9 +536,10 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
     }
   }
 
-  // Phase 3.5: 软风控脱敏判定（激进：price 缺失/非正数，或出现"前往APP查看价格"类价格占位即拦截）
-  const hasStructuredPrice = skuSnapshot.skus.some((sku) => sku.sourcePriceCents > 0);
-  const priceMasked = (!hasStructuredPrice && isPriceMasked(data.price)) || data._maskHint;
+  // Phase 3.5: 只有结构化 SKU 不完整时，DOM 价格或通用 APP 引导文案才作为脱敏证据。
+  // 页面可能同时展示 APP 引导和完整 React 商品状态，后者已由目标 goods_id、逐 SKU
+  // 价格/库存和规格组合共同校验，不能再被非特异性的展示文案覆盖。
+  const priceMasked = !skuSnapshot.complete && (isPriceMasked(data.price) || data._maskHint);
   const skuMissing = decodedSkuCount === 0 && !String(data.skuText ?? '').trim();
   if (priceMasked || skuMissing) {
     const signal = {
@@ -399,7 +550,16 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
         : 'sku_missing',
       priceRaw: data.price ?? null,
       skuEmpty: skuMissing,
-      url: page.url(),
+      dimensionCount: skuSnapshot.skuDimensions.length,
+      skuCount: skuSnapshot.skus.length,
+      skuIssues: skuSnapshot.issues,
+      path: (() => {
+        try {
+          return new URL(page.url()).pathname;
+        } catch {
+          return null;
+        }
+      })(),
     };
     health.recordRisk(signal);
     throw softRiskControlDetected(signal);

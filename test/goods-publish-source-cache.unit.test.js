@@ -18,6 +18,7 @@ function sourceData(overrides = {}) {
     catID2: '200',
     catID3: '15000',
     price: '19.90',
+    sourceReferencePriceCents: 3990,
     carousel: ['https://img.pddpic.com/carousel.jpg'],
     skuText: '颜色分类\n红色',
     skuDimensions: [
@@ -74,7 +75,7 @@ describe('goods publish source cache', () => {
 
     const raw = await readFile(join(cacheDir, `${GOODS_ID}.json`), 'utf8');
     const stored = JSON.parse(raw);
-    assert.equal(stored.version, 2);
+    assert.equal(stored.version, 3);
     assert.equal(stored.goods_id, GOODS_ID);
     assert.ok(typeof stored.cached_at === 'string');
     assert.equal(raw.includes('PRIVATE-DIAGNOSTIC-URL'), false);
@@ -100,14 +101,14 @@ describe('goods publish source cache', () => {
     await assert.rejects(() => cache.read(GOODS_ID), (error) => error.code === 'E_SOURCE_CACHE_INVALID');
 
     await writeFile(path, JSON.stringify({
-      version: 3,
+      version: 4,
       goods_id: GOODS_ID,
       source: sourceData(),
     }), 'utf8');
     await assert.rejects(() => cache.read(GOODS_ID), (error) => error.code === 'E_SOURCE_CACHE_INVALID');
 
     await writeFile(path, JSON.stringify({
-      version: 2,
+      version: 3,
       goods_id: '123',
       source: sourceData(),
     }), 'utf8');
@@ -128,6 +129,14 @@ describe('goods publish source cache', () => {
     );
     await assert.rejects(
       () => cache.write(GOODS_ID, sourceData({ goodsName: 123, detailImgs: null })),
+      (error) => error.code === 'E_SOURCE_CACHE_INVALID',
+    );
+    await assert.rejects(
+      () => cache.write(GOODS_ID, sourceData({ sourceReferencePriceCents: undefined })),
+      (error) => error.code === 'E_SOURCE_CACHE_INVALID',
+    );
+    await assert.rejects(
+      () => cache.write(GOODS_ID, sourceData({ sourceReferencePriceCents: 2190 })),
       (error) => error.code === 'E_SOURCE_CACHE_INVALID',
     );
   });

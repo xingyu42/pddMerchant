@@ -5,6 +5,7 @@ import { normalizeSourceSkuSnapshot } from '../src/adapter/goods-publish/source-
 function decodedGoods(overrides = {}) {
   return {
     goodsID: '447841256386',
+    linePrice: '59',
     skuDimensions: [
       { name: '颜色', values: [{ id: 'red', text: '红色' }, { id: 'blue', text: '蓝色' }] },
       { name: '尺码', values: [{ id: '90', text: '90' }] },
@@ -12,15 +13,17 @@ function decodedGoods(overrides = {}) {
     skus: [
       {
         skuID: 'sku-red-90',
-        groupPrice: 1690,
-        normalPrice: 1890,
+        groupPrice: '14.7',
+        normalPrice: '25.8',
+        marketPrice: 0,
         quantity: 0,
         specValues: { 颜色: '红色', 尺码: '90' },
       },
       {
         skuID: 'sku-blue-90',
-        groupPrice: 1790,
-        normalPrice: 1990,
+        groupPrice: '15.7',
+        normalPrice: '26.8',
+        marketPrice: 0,
         quantity: 12,
         specValues: { 颜色: '蓝色', 尺码: '90' },
       },
@@ -30,17 +33,18 @@ function decodedGoods(overrides = {}) {
 }
 
 describe('normalizeSourceSkuSnapshot', () => {
-  it('normalizes explicit dimensions and per-SKU price/stock mappings', () => {
+  it('converts real PDD yuan price strings to integer cents', () => {
     const result = normalizeSourceSkuSnapshot(decodedGoods());
 
     assert.equal(result.complete, true);
     assert.deepEqual(result.issues, []);
+    assert.equal(result.sourceReferencePriceCents, 5900);
     assert.equal(result.skuDimensions.length, 2);
     assert.deepEqual(result.skus[0], {
       sourceSkuId: 'sku-red-90',
       specValues: { 颜色: '红色', 尺码: '90' },
-      sourcePriceCents: 1690,
-      sourceNormalPriceCents: 1890,
+      sourcePriceCents: 1470,
+      sourceNormalPriceCents: 2580,
       stock: 0,
     });
   });
@@ -65,24 +69,70 @@ describe('normalizeSourceSkuSnapshot', () => {
 
   it('rejects invalid prices and missing stock without inventing defaults', () => {
     const source = decodedGoods();
-    source.skus[0].groupPrice = 0;
+    source.skus[0].groupPrice = '14.701';
+    source.skus[0].normalPrice = '¥25.80';
     delete source.skus[1].quantity;
     const result = normalizeSourceSkuSnapshot(source);
 
     assert.equal(result.complete, false);
     assert.ok(result.issues.includes('sku_price_invalid'));
+    assert.ok(result.issues.includes('sku_normal_price_invalid'));
     assert.ok(result.issues.includes('sku_stock_missing'));
+  });
+
+  it('treats raw integer prices as yuan and preserves explicit cent fields', () => {
+    const rawResult = normalizeSourceSkuSnapshot(decodedGoods({
+      skuDimensions: [{ name: '颜色', values: ['红色'] }],
+      skus: [{
+        skuID: 'sku-red',
+        groupPrice: '15',
+        normalPrice: 25,
+        quantity: 3,
+        specValues: { 颜色: '红色' },
+      }],
+    }));
+    const normalizedResult = normalizeSourceSkuSnapshot({
+      sourceReferencePriceCents: 5900,
+      skuDimensions: [{ name: '颜色', values: ['红色'] }],
+      skus: [{
+        sourceSkuId: 'sku-red',
+        sourcePriceCents: 1500,
+        sourceNormalPriceCents: 2500,
+        stock: 3,
+        specValues: { 颜色: '红色' },
+      }],
+    });
+
+    assert.equal(rawResult.skus[0].sourcePriceCents, 1500);
+    assert.equal(rawResult.skus[0].sourceNormalPriceCents, 2500);
+    assert.equal(rawResult.sourceReferencePriceCents, 5900);
+    assert.equal(normalizedResult.complete, true);
+    assert.equal(normalizedResult.sourceReferencePriceCents, 5900);
+    assert.equal(normalizedResult.skus[0].sourcePriceCents, 1500);
+    assert.equal(normalizedResult.skus[0].sourceNormalPriceCents, 2500);
+  });
+
+  it('rejects a missing, non-positive, or non-strict source reference price', () => {
+    const missing = normalizeSourceSkuSnapshot(decodedGoods({ linePrice: undefined }));
+    const zero = normalizeSourceSkuSnapshot(decodedGoods({ linePrice: '0' }));
+    const equalToMaxSingle = normalizeSourceSkuSnapshot(decodedGoods({ linePrice: '26.8' }));
+
+    assert.ok(missing.issues.includes('source_reference_price_invalid'));
+    assert.ok(zero.issues.includes('source_reference_price_invalid'));
+    assert.ok(equalToMaxSingle.issues.includes('source_reference_price_not_above_single'));
   });
 
   it('rejects snapshots that exceed traversal safety limits', () => {
     const result = normalizeSourceSkuSnapshot({
+      sourceReferencePriceCents: 10000,
       skuDimensions: Array.from({ length: 11 }, (_, index) => ({
         name: `规格${index}`,
         values: ['值'],
       })),
       skus: Array.from({ length: 501 }, (_, index) => ({
         skuID: `sku-${index}`,
-        groupPrice: 100,
+        groupPrice: '1.00',
+        normalPrice: '1.00',
         quantity: 1,
         specValues: {},
       })),
@@ -91,5 +141,23 @@ describe('normalizeSourceSkuSnapshot', () => {
     assert.equal(result.complete, false);
     assert.ok(result.issues.includes('sku_dimension_limit_exceeded'));
     assert.ok(result.issues.includes('source_sku_limit_exceeded'));
+  });
+
+  it('normalizes PDD spec_key/spec_value entries', () => {
+    const source = decodedGoods({
+      skuDimensions: [{ name: '颜色', values: ['红色'] }],
+      skus: [{
+        skuID: 'sku-red',
+        groupPrice: '14.7',
+        normalPrice: '25.8',
+        quantity: 3,
+        specs: [{ spec_key: '颜色', spec_value: '红色' }],
+      }],
+    });
+
+    const result = normalizeSourceSkuSnapshot(source);
+
+    assert.equal(result.complete, true);
+    assert.deepEqual(result.skus[0].specValues, { 颜色: '红色' });
   });
 });

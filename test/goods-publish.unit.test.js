@@ -50,6 +50,7 @@ describe('validateScrapedData', () => {
     goodsName: '汪汪队衣服',
     catID3: '15000',
     carousel: ['https://img.pddpic.com/test.jpg'],
+    sourceReferencePriceCents: 1599,
     skuDimensions: [],
     skus: [{
       sourceSkuId: 'sku-1',

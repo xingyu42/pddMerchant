@@ -16,7 +16,7 @@ function makePage(evaluateResult, { url = 'https://mobile.yangkeduo.com/goods.ht
   return page;
 }
 
-function makeRuntimePage(rawData) {
+function makeRuntimePage(rawData, { reactElements = [] } = {}) {
   const page = makePage(null);
   page.evaluate = async (fn, arg) => {
     page.evaluated += 1;
@@ -35,9 +35,12 @@ function makeRuntimePage(rawData) {
         if (selector === '[class*="sku"]') return { innerText: '颜色\n红色' };
         return null;
       },
-      querySelectorAll: (selector) => selector.includes('mms-material-img')
-        ? [{ src: 'https://img.pddpic.com/mms-material-img/test.jpg' }]
-        : [],
+      querySelectorAll: (selector) => {
+        if (selector === '*') return reactElements;
+        return selector.includes('mms-material-img')
+          ? [{ src: 'https://img.pddpic.com/mms-material-img/test.jpg' }]
+          : [];
+      },
     };
     try {
       return fn(arg);
@@ -95,6 +98,7 @@ const HEALTHY = {
   ...MASKED,
   price: '8.22',
   skuText: '颜色\n白色',
+  sourceReferencePriceCents: 1200,
   skuDimensions: [],
   skus: [{
     sourceSkuId: 'sku-1',
@@ -161,7 +165,7 @@ describe('scrapeSourceGoods 软风控脱敏检测', () => {
   it('SKU 缺失也会确认账号降级', async () => {
     const health = makeHealth();
     const cooldown = makeCooldown({ threshold: 1 });
-    const skuMissing = { ...HEALTHY, skuText: '' };
+    const skuMissing = { ...MASKED, price: '8.22', skuText: '', skuDimensions: [], skus: [] };
     await assert.rejects(
       () => scrapeSourceGoods(makePage(skuMissing), '1', { sessionHealth: health, scrapeCooldown: cooldown }),
       (err) => {
@@ -179,6 +183,7 @@ describe('scrapeSourceGoods 软风控脱敏检测', () => {
     const cooldown = makeCooldown();
     const data = await scrapeSourceGoods(makePage(HEALTHY), '1', { sessionHealth: health, scrapeCooldown: cooldown });
     assert.equal(data.price, '8.22');
+    assert.equal(data.sourceReferencePriceCents, 1200);
     assert.equal(health.calls.recordRisk.length, 0);
     assert.equal(health.calls.recordSuccess, 1);
     assert.equal(cooldown.calls.recordSuccess, 1, 'success must reset cooldown counter');
@@ -192,11 +197,12 @@ describe('scrapeSourceGoods 软风控脱敏检测', () => {
       catID1: '1',
       catID2: '2',
       catID3: '15000',
+      linePrice: '12',
       skuDimensions: [{ name: '颜色', values: [{ id: 'red', text: '红色' }] }],
       skus: [{
         skuID: 'target-sku',
-        groupPrice: 822,
-        normalPrice: 899,
+        groupPrice: '8.22',
+        normalPrice: '8.99',
         quantity: 0,
         specValues: { 颜色: '红色' },
       }],
@@ -218,14 +224,134 @@ describe('scrapeSourceGoods 软风控脱敏检测', () => {
     assert.equal(data.skus.length, 1);
     assert.equal(data.skus[0].sourceSkuId, 'target-sku');
     assert.equal(data.skus[0].stock, 0);
+    assert.equal(data.sourceReferencePriceCents, 1200);
     assert.equal(health.calls.recordSuccess, 1);
+  });
+
+  it('unwraps MobX React state and derives dimensions from spec_key/spec_value', async () => {
+    const observable = (value) => ({ value, observers: [] });
+    const skus = [
+      {
+        skuID: 101,
+        groupPrice: '8.22',
+        normalPrice: '8.99',
+        quantity: 0,
+        specs: [
+          { spec_key: '颜色', spec_value: '红色' },
+          { spec_key: '尺码', spec_value: '90' },
+        ],
+      },
+      {
+        skuID: 102,
+        groupPrice: '9.22',
+        normalPrice: '9.99',
+        quantity: 12,
+        specs: [
+          { spec_key: '颜色', spec_value: '蓝色' },
+          { spec_key: '尺码', spec_value: '90' },
+        ],
+      },
+    ];
+    const observedGoods = {
+      goodsID: observable('1'),
+      goodsName: observable('测试商品'),
+      catID: observable('15000'),
+      catID1: observable('1'),
+      catID2: observable('2'),
+      catID3: observable('15000'),
+      linePrice: observable('12'),
+      newOptions: observable([1, 2]),
+      skus: observable(skus),
+    };
+    const reactElement = {};
+    reactElement.__reactFiber$test = {
+      memoizedProps: { store: { initDataObj: { goods: observedGoods } } },
+    };
+    const rawData = { store: { initDataObj: { goods: { goodsID: '1', skus: [] } } } };
+    const health = makeHealth();
+    const cooldown = makeCooldown();
+
+    const data = await scrapeSourceGoods(makeRuntimePage(rawData, { reactElements: [reactElement] }), '1', {
+      sessionHealth: health,
+      scrapeCooldown: cooldown,
+    });
+
+    assert.deepEqual(data.skuDimensions.map((dimension) => [dimension.name, dimension.values.length]), [
+      ['颜色', 2],
+      ['尺码', 1],
+    ]);
+    assert.equal(data.skus.length, 2);
+    assert.deepEqual(data.skus[0].specValues, { 颜色: '红色', 尺码: '90' });
+    assert.equal(data.skus[0].sourcePriceCents, 822);
+    assert.equal(data.skus[0].stock, 0);
+    assert.equal(data.sourceReferencePriceCents, 1200);
+  });
+
+  it('aggregates exact-target SKU records only when they cover the parent SKU count', async () => {
+    const reducedSkus = [
+      { skuID: 201, groupPrice: null, quantity: 1 },
+      { skuID: 202, groupPrice: null, quantity: 2 },
+    ];
+    const rawData = {
+      store: {
+        initDataObj: {
+          goods: {
+            goodsID: '1', goodsName: '测试商品', catID: '15000', linePrice: '12', skus: reducedSkus,
+          },
+          skuCache: [
+            {
+              goodsId: '1', skuID: 201, groupPrice: '8.22', normalPrice: '8.99', quantity: 1,
+              specs: [{ spec_key: '颜色', spec_value: '红色' }],
+            },
+            {
+              goodsId: '1', skuID: 202, groupPrice: '9.22', normalPrice: '9.99', quantity: 2,
+              specs: [{ spec_key: '颜色', spec_value: '蓝色' }],
+            },
+            {
+              goodsId: '999', skuID: 999, groupPrice: '1', quantity: 999,
+              specs: [{ spec_key: '颜色', spec_value: '错误推荐商品' }],
+            },
+          ],
+        },
+      },
+    };
+    const health = makeHealth();
+    const cooldown = makeCooldown();
+
+    const data = await scrapeSourceGoods(makeRuntimePage(rawData), '1', {
+      sessionHealth: health,
+      scrapeCooldown: cooldown,
+    });
+
+    assert.equal(data.skus.length, 2);
+    assert.deepEqual(data.skuDimensions[0].values.map((value) => value.text), ['红色', '蓝色']);
+    assert.deepEqual(data.skus.map((sku) => sku.sourceSkuId), ['201', '202']);
+    assert.equal(data.sourceReferencePriceCents, 1200);
+  });
+
+  it('fails closed before draft creation when the source reference price is missing', async () => {
+    const health = makeHealth();
+    const cooldown = makeCooldown();
+
+    await assert.rejects(
+      () => scrapeSourceGoods(makePage({
+        ...HEALTHY,
+        sourceReferencePriceCents: undefined,
+      }), '1', { sessionHealth: health, scrapeCooldown: cooldown }),
+      (err) => {
+        assert.equal(err.code, 'E_SOURCE_SKU_UNAVAILABLE');
+        assert.ok(err.detail.issues.includes('source_reference_price_invalid'));
+        return true;
+      },
+    );
+    assert.equal(health.calls.recordSuccess, 0);
   });
 
   it('throws on app-redirect placeholder even when price parses', async () => {
     const health = makeHealth();
     const cooldown = makeCooldown();
     // 价格能解析，但页面带"前往APP查看价格"占位 → _maskHint 命中
-    const masked = { ...HEALTHY, _maskHint: true };
+    const masked = { ...MASKED, price: '8.22', skuText: '颜色\n白色', _maskHint: true };
     await assert.rejects(
       () => scrapeSourceGoods(makePage(masked), '1', { sessionHealth: health, scrapeCooldown: cooldown }),
       (err) => {
@@ -238,6 +364,20 @@ describe('scrapeSourceGoods 软风控脱敏检测', () => {
     assert.equal(health.calls.recordSuccess, 0);
     // 价格能解析(¥8.22) → 非 price 脱敏 → 视为单品门控，不计入跨进程冷却
     assert.equal(cooldown.calls.recordSoftBlock.length, 0);
+  });
+
+  it('does not let a generic app banner override a complete structured SKU snapshot', async () => {
+    const health = makeHealth();
+    const cooldown = makeCooldown();
+
+    const data = await scrapeSourceGoods(makePage({ ...HEALTHY, _maskHint: true }), '1', {
+      sessionHealth: health,
+      scrapeCooldown: cooldown,
+    });
+
+    assert.equal(data.skus.length, 1);
+    assert.equal(health.calls.recordRisk.length, 0);
+    assert.equal(health.calls.recordSuccess, 1);
   });
 
   it('short-circuits before page.evaluate when cooldown is active', async () => {

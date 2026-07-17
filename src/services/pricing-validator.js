@@ -1,15 +1,15 @@
 const DEFAULTS = {
   maxSkuRatio: 5,
-  minGroupSourceRatio: 1.02,
   maxGroupSourceRatio: 3.0,
-  singleMultiplier: 1.15,
-  marketMultiplier: 1.8,
 };
 
-export function buildPricingPlan(source, opts = {}) {
-  const cfg = { ...DEFAULTS, ...opts };
+export function buildPricingPlan(source) {
   const warnings = [];
   const sourceSkus = Array.isArray(source?.skus) ? source.skus : [];
+  const sourceReferencePriceCents = Number(source?.sourceReferencePriceCents);
+  const hasValidReferencePrice = Number.isSafeInteger(sourceReferencePriceCents)
+    && sourceReferencePriceCents > 0;
+  if (!hasValidReferencePrice) warnings.push('source_reference_price_invalid');
 
   if (sourceSkus.length === 0) {
     warnings.push('source_skus_missing');
@@ -26,24 +26,30 @@ export function buildPricingPlan(source, opts = {}) {
 
   const skuPricing = sourceSkus.map((sku) => {
     const sourcePriceCents = Number(sku.sourcePriceCents);
+    const sourceNormalPriceCents = Number(sku.sourceNormalPriceCents);
     const sourcePrice = Number.isSafeInteger(sourcePriceCents) && sourcePriceCents > 0
       ? sourcePriceCents / 100
       : 0;
+    const sourceNormalPrice = Number.isSafeInteger(sourceNormalPriceCents)
+      && sourceNormalPriceCents > 0
+      ? sourceNormalPriceCents / 100
+      : 0;
     if (sourcePrice <= 0) warnings.push('source_price_invalid');
+    if (sourceNormalPrice <= 0) warnings.push('source_normal_price_invalid');
     if (!Number.isSafeInteger(sku.stock) || sku.stock < 0) warnings.push('source_stock_missing');
     return {
       sourceSkuId: sku.sourceSkuId,
       specValues: sku.specValues,
       sourcePriceCents: sourcePrice > 0 ? sourcePriceCents : 0,
-      groupPrice: (sourcePrice * cfg.minGroupSourceRatio).toFixed(2),
-      singlePrice: (sourcePrice * cfg.singleMultiplier).toFixed(2),
+      groupPrice: sourcePrice.toFixed(2),
+      singlePrice: sourceNormalPrice.toFixed(2),
       stock: Number.isSafeInteger(sku.stock) && sku.stock >= 0 ? sku.stock : null,
     };
   });
   const first = skuPricing[0];
-  const marketPrice = Math.max(
-    ...skuPricing.map((sku) => (sku.sourcePriceCents / 100) * cfg.marketMultiplier),
-  ).toFixed(2);
+  const marketPrice = hasValidReferencePrice
+    ? (sourceReferencePriceCents / 100).toFixed(2)
+    : '0.00';
 
   return {
     sourcePrice: first.sourcePriceCents / 100,
@@ -92,9 +98,16 @@ export function validatePricingPlan(plan, constraints = {}) {
   }
 
   if (group > single) errors.push(`groupPrice (${plan.groupPrice}) > singlePrice (${plan.singlePrice})`);
-  if (single > market) errors.push(`singlePrice (${plan.singlePrice}) > marketPrice (${plan.marketPrice})`);
-  if (Array.isArray(plan.skuPricing) && plan.skuPricing.some((sku) => Number(sku.singlePrice) > market)) {
-    errors.push(`marketPrice (${plan.marketPrice}) is below a SKU singlePrice`);
+  const maxSinglePrice = Math.max(
+    single,
+    ...(Array.isArray(plan.skuPricing)
+      ? plan.skuPricing.map((sku) => Number(sku.singlePrice) || 0)
+      : []),
+  );
+  if (market <= 0) {
+    errors.push(`marketPrice (${plan.marketPrice}) must be positive`);
+  } else if (market <= maxSinglePrice) {
+    errors.push(`marketPrice (${plan.marketPrice}) must be greater than max singlePrice (${maxSinglePrice.toFixed(2)})`);
   }
 
   if (plan.skuPrices && plan.skuPrices.length > 1) {

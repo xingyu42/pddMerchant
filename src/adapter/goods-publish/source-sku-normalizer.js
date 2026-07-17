@@ -48,8 +48,10 @@ function normalizeSpecValues(rawSku) {
   const entries = list.map((item) => {
     const record = asObject(item);
     if (!record) return null;
-    const name = String(record.name ?? record.key ?? record.specName ?? '').trim();
-    const value = String(record.text ?? record.value ?? record.label ?? record.specValue ?? '').trim();
+    const name = String(record.name ?? record.key ?? record.specName ?? record.spec_name
+      ?? record.specKey ?? record.spec_key ?? '').trim();
+    const value = String(record.text ?? record.value ?? record.label ?? record.specValue
+      ?? record.spec_value ?? record.value_name ?? '').trim();
     return name && value ? [name, value] : null;
   }).filter(Boolean);
   return entries.length > 0 ? Object.fromEntries(entries) : null;
@@ -61,11 +63,42 @@ function parseInteger(value) {
   return Number.isSafeInteger(number) ? number : null;
 }
 
+function parseYuanToCents(value) {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  if (typeof value === 'number' && !Number.isFinite(value)) return null;
+  const text = String(value).trim();
+  if (!/^\d+(?:\.\d{1,2})?$/.test(text)) return null;
+  const [whole, fraction = ''] = text.split('.');
+  if (whole.length > 14) return null;
+  const cents = (BigInt(whole) * 100n) + BigInt(fraction.padEnd(2, '0'));
+  return cents <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(cents) : null;
+}
+
+function normalizePriceCents(rawSku, centsKey, yuanKeys) {
+  const explicitCents = rawSku?.[centsKey];
+  if (explicitCents != null) return parseInteger(explicitCents);
+  const yuanValue = yuanKeys.map((key) => rawSku?.[key]).find((value) => value != null);
+  return parseYuanToCents(yuanValue);
+}
+
+function normalizeReferencePriceCents(source) {
+  if (source?.sourceReferencePriceCents != null) {
+    return parseInteger(source.sourceReferencePriceCents);
+  }
+  return parseYuanToCents(source?.linePrice ?? source?.line_price);
+}
+
 function normalizeSku(rawSku) {
   const sourceSkuId = String(rawSku?.sourceSkuId ?? rawSku?.skuID ?? rawSku?.skuId ?? '').trim();
-  const sourcePriceCents = parseInteger(rawSku?.sourcePriceCents ?? rawSku?.groupPrice ?? rawSku?.group_price);
-  const sourceNormalPriceCents = parseInteger(
-    rawSku?.sourceNormalPriceCents ?? rawSku?.normalPrice ?? rawSku?.normal_price,
+  const sourcePriceCents = normalizePriceCents(
+    rawSku,
+    'sourcePriceCents',
+    ['groupPrice', 'group_price'],
+  );
+  const sourceNormalPriceCents = normalizePriceCents(
+    rawSku,
+    'sourceNormalPriceCents',
+    ['normalPrice', 'normal_price'],
   );
   const stock = parseInteger(rawSku?.stock ?? rawSku?.quantity ?? rawSku?.inventory);
   return {
@@ -105,6 +138,7 @@ export function normalizeSourceSkuSnapshot(source) {
   const issues = new Set();
   const skuDimensions = normalizeDimensions(source, issues);
   const rawSkus = Array.isArray(source?.skus) ? source.skus : [];
+  const sourceReferencePriceCents = normalizeReferencePriceCents(source);
   if (rawSkus.length > MAX_SOURCE_SKUS) issues.add('source_sku_limit_exceeded');
   const skus = rawSkus.slice(0, MAX_SOURCE_SKUS).map(normalizeSku);
   if (skuDimensions.length === 0 && skus.length === 1 && !skus[0].specValues) {
@@ -114,12 +148,26 @@ export function normalizeSourceSkuSnapshot(source) {
   for (const sku of skus) {
     if (!sku.sourceSkuId) issues.add('source_sku_id_missing');
     if (sku.sourcePriceCents == null || sku.sourcePriceCents <= 0) issues.add('sku_price_invalid');
+    if (sku.sourceNormalPriceCents == null || sku.sourceNormalPriceCents <= 0) {
+      issues.add('sku_normal_price_invalid');
+    }
     if (sku.stock == null || sku.stock < 0) issues.add('sku_stock_missing');
+  }
+  if (sourceReferencePriceCents == null || sourceReferencePriceCents <= 0) {
+    issues.add('source_reference_price_invalid');
+  }
+  const maxNormalPriceCents = Math.max(
+    0,
+    ...skus.map((sku) => sku.sourceNormalPriceCents ?? 0),
+  );
+  if (sourceReferencePriceCents > 0 && sourceReferencePriceCents <= maxNormalPriceCents) {
+    issues.add('source_reference_price_not_above_single');
   }
   validateCombinations(skuDimensions, skus, issues);
   return {
     complete: issues.size === 0,
     issues: [...issues],
+    sourceReferencePriceCents,
     skuDimensions,
     skus,
   };

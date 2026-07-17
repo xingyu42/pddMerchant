@@ -5,7 +5,7 @@ import { validateScrapedData } from '../adapter/goods-publish/source-scraper.js'
 import { normalizeSourceSkuSnapshot } from '../adapter/goods-publish/source-sku-normalizer.js';
 import { GOODS_PUBLISH_SOURCE_CACHE_DIR } from '../infra/paths.js';
 
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
 const GOODS_ID_RE = /^\d+$/;
 
 function cacheError(code, reason) {
@@ -62,6 +62,7 @@ function normalizeSource(goodsId, source) {
     catID2: source.catID2 ?? null,
     catID3: source.catID3 ?? null,
     price: source.price ?? null,
+    sourceReferencePriceCents: skuSnapshot.sourceReferencePriceCents,
     carousel: Array.isArray(source.carousel) ? [...source.carousel] : source.carousel,
     skuText: source.skuText ?? '',
     skuDimensions: skuSnapshot.skuDimensions,
