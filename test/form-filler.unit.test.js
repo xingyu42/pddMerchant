@@ -105,11 +105,19 @@ describe('fillPrices single-SKU form contract', () => {
   it('fills stock, group price, single price, and market price through input.fill()', async () => {
     const values = new Map();
     const fills = [];
+    let activeFills = 0;
+    let maxConcurrentFills = 0;
     const inputAt = (cellIndex) => ({
       count: async () => 1,
       fill: async (value) => {
-        values.set(cellIndex, String(value));
+        activeFills += 1;
+        maxConcurrentFills = Math.max(maxConcurrentFills, activeFills);
+        await Promise.resolve();
+        // The live merchant input normalizes decimal text such as 19.30 -> 19.3;
+        // readback must compare the numeric value, not formatting alone.
+        values.set(cellIndex, cellIndex === 1 ? String(Number(value)) : String(value));
         fills.push([cellIndex, String(value)]);
+        activeFills -= 1;
       },
       inputValue: async () => values.get(cellIndex) ?? '',
     });
@@ -143,6 +151,7 @@ describe('fillPrices single-SKU form contract', () => {
     };
     const page = {
       locator: (selector) => {
+        if (selector === '[class*="TB_outerWrapper"]') return { count: async () => 0 };
         if (selector === 'table') return tables;
         throw new Error(`unexpected page selector: ${selector}`);
       },
@@ -155,7 +164,7 @@ describe('fillPrices single-SKU form contract', () => {
         sourceSkuId: 'single-sku',
         specValues: {},
         stock: 0,
-        groupPrice: '19.38',
+        groupPrice: '19.30',
         singlePrice: '21.85',
       }],
     };
@@ -166,7 +175,8 @@ describe('fillPrices single-SKU form contract', () => {
       pricingValidation: { ok: true, errors: [], warnings: [] },
     }, warnings, { info: () => {} });
 
-    assert.deepEqual(fills, [[0, '0'], [1, '19.38'], [2, '21.85']]);
+    assert.deepEqual(fills, [[0, '0'], [1, '19.30'], [2, '21.85']]);
+    assert.equal(maxConcurrentFills, 1);
     assert.equal(marketPrice, '34.20');
     assert.deepEqual(warnings, []);
   });

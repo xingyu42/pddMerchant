@@ -283,16 +283,24 @@ async function selectColorValues(page, root, dimension) {
     if (!input) {
       throw new PddCliError({ code: 'E_BUSINESS', message: '没有可写入的主色输入行', exitCode: ExitCodes.BUSINESS });
     }
-    await input.fill(value);
-    await page.waitForSelector('.spec-color-menu .menu-item', {
-      state: 'visible',
-      timeout: 3000,
-    }).catch(() => null);
     const items = page.locator('.spec-color-menu:visible .menu-item');
-    const itemTexts = await items.allInnerTexts();
-    const matches = itemTexts
-      .map((text, index) => ({ text: normalizeSkuSpecValue(text), index }))
-      .filter((item) => item.text === normalizeSkuSpecValue(value));
+    const expected = normalizeSkuSpecValue(value);
+    let matches = [];
+    // 新建草稿页的标准色数据可能晚于输入框出现。每轮都重新派发真实键盘事件，
+    // 不能只盯着第一次输入后的空菜单等待，否则数据就绪后也不会重新查询。
+    for (let queryAttempt = 0; queryAttempt < 3 && matches.length === 0; queryAttempt += 1) {
+      await input.click();
+      await input.fill('');
+      await input.pressSequentially(value, { delay: 80 });
+      for (let pollAttempt = 0; pollAttempt < 30; pollAttempt += 1) {
+        const itemTexts = await items.allInnerTexts();
+        matches = itemTexts
+          .map((text, index) => ({ text: normalizeSkuSpecValue(text), index }))
+          .filter((item) => item.text === expected);
+        if (matches.length > 0) break;
+        await page.waitForTimeout(100);
+      }
+    }
     if (matches.length !== 1) {
       await input.fill('');
       throw new PddCliError({
@@ -335,15 +343,19 @@ async function selectSizeValues(root, dimension) {
 }
 
 async function waitForSkuRows(page, expectedCount) {
-  for (let attempt = 0; attempt < 30; attempt += 1) {
+  let tableFound = false;
+  let actualCount = 0;
+  for (let attempt = 0; attempt < 60; attempt += 1) {
     const table = await findSkuTable(page);
-    if (table && await table.locator('tbody tr').count() === expectedCount) return;
+    tableFound = Boolean(table);
+    actualCount = table ? await table.locator('tbody tr').count() : 0;
+    if (actualCount === expectedCount) return;
     await page.waitForTimeout(200);
   }
   throw new PddCliError({
     code: 'E_BUSINESS',
     message: '商家 SKU 表格未生成完整规格组合',
-    detail: { expected_skus: expectedCount },
+    detail: { expected_skus: expectedCount, actual_skus: actualCount, table_found: tableFound },
     exitCode: ExitCodes.BUSINESS,
   });
 }
@@ -848,6 +860,17 @@ async function verifyDraft(page, goodsCommitId, log, options = {}) {
 }
 
 async function findSkuTable(page) {
+  // 真实后台把表头和数据行拆成两个相邻 table，共同放在 TB_outerWrapper 内。
+  // 返回共同 wrapper 后，thead th 与 tbody tr 才能同时被后续逻辑定位。
+  const wrappers = page.locator('[class*="TB_outerWrapper"]');
+  const wrapperCount = await wrappers.count();
+  for (let index = 0; index < wrapperCount; index += 1) {
+    const wrapper = wrappers.nth(index);
+    const text = await wrapper.innerText().catch(() => '');
+    if (/库存/.test(text) && /拼单价|团购价/.test(text) && /单买价/.test(text)) return wrapper;
+  }
+
+  // 兼容旧版或测试中的单 table 结构。
   const tables = page.locator('table');
   const count = await tables.count();
   for (let index = 0; index < count; index += 1) {
@@ -859,12 +882,19 @@ async function findSkuTable(page) {
 }
 
 async function fillSkuCell(row, domCellIndex, value) {
-  if (!Number.isInteger(domCellIndex) || domCellIndex < 0) return false;
+  if (!Number.isInteger(domCellIndex) || domCellIndex < 0) return { ok: false, actual: null };
   const input = row.locator('td').nth(domCellIndex).locator('input').first();
-  if (await input.count() === 0) return false;
+  if (await input.count() === 0) return { ok: false, actual: null };
   const expected = String(value);
   await input.fill(expected);
-  return await input.inputValue() === expected;
+  const actual = await input.inputValue();
+  const actualNumber = Number(actual);
+  const expectedNumber = Number(expected);
+  const numericallyEqual = actual.trim() !== ''
+    && Number.isFinite(actualNumber)
+    && Number.isFinite(expectedNumber)
+    && actualNumber === expectedNumber;
+  return { ok: actual === expected || numericallyEqual, actual };
 }
 
 async function readSkuTableRows(rows) {
@@ -943,13 +973,26 @@ async function fillSkuTableRows(page, skuPricing, log) {
     const row = rows.nth(rowIndex);
     const rowModel = rowModels[rowIndex];
     const sku = skuPricing[pricingIndex];
-    const results = await Promise.all([
-      fillSkuCell(row, rowModel.domCellIndexes[columns.stock], sku.stock),
-      fillSkuCell(row, rowModel.domCellIndexes[columns.groupPrice], sku.groupPrice),
-      fillSkuCell(row, rowModel.domCellIndexes[columns.singlePrice], sku.singlePrice),
-    ]);
-    if (results.some((ok) => !ok)) {
-      throw new PddCliError({ code: 'E_BUSINESS', message: 'SKU 价格或库存填写后读回失败', exitCode: ExitCodes.BUSINESS });
+    // React 会在每次单元格变更后重绘当前行；并行 fill 会让多个 locator 在重绘
+    // 中命中同一输入框，出现库存串入拼单价。必须按列顺序写入并逐项读回。
+    const results = [];
+    results.push(await fillSkuCell(row, rowModel.domCellIndexes[columns.stock], sku.stock));
+    results.push(await fillSkuCell(row, rowModel.domCellIndexes[columns.groupPrice], sku.groupPrice));
+    results.push(await fillSkuCell(row, rowModel.domCellIndexes[columns.singlePrice], sku.singlePrice));
+    if (results.some((result) => !result.ok)) {
+      throw new PddCliError({
+        code: 'E_BUSINESS',
+        message: 'SKU 价格或库存填写后读回失败',
+        detail: {
+          sku_index: pricingIndex,
+          fields: {
+            stock: results[0].ok,
+            group_price: results[1].ok,
+            single_price: results[2].ok,
+          },
+        },
+        exitCode: ExitCodes.BUSINESS,
+      });
     }
   }
   log.info({ skuCount: rowCount }, 'goods-publish: SKU prices and stock filled');

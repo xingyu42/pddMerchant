@@ -65,10 +65,33 @@ async function extractUploadedUrls(responses) {
   return urls;
 }
 
-export async function uploadCarouselImages(page, filePaths) {
-  const uploadPromises = filePaths.map(() =>
-    page.waitForResponse(r => r.url().includes('upload_complete'), { timeout: 30000 })
+function isUploadCompletionResponse(response) {
+  try {
+    const { hostname, pathname } = new URL(response.url());
+    const isCompletionPath = pathname.includes('upload_complete')
+      || (hostname === 'file.pinduoduo.com' && pathname === '/v3/store_image');
+    const status = typeof response.status === 'function' ? response.status() : 200;
+    return isCompletionPath && status >= 200 && status < 300;
+  } catch {
+    return false;
+  }
+}
+
+function waitForDistinctUploadResponses(page, count) {
+  // 同一次批量上传的每个 waiter 必须认领不同响应，否则第一条完成响应会被
+  // 所有 waiter 同时消费，尚未完成的图片也会被误报为成功。
+  const seenResponses = new WeakSet();
+  return Array.from({ length: count }, () =>
+    page.waitForResponse((response) => {
+      if (!isUploadCompletionResponse(response) || seenResponses.has(response)) return false;
+      seenResponses.add(response);
+      return true;
+    }, { timeout: 30000 })
   );
+}
+
+export async function uploadCarouselImages(page, filePaths) {
+  const uploadPromises = waitForDistinctUploadResponses(page, filePaths.length);
   const fileInput = page.locator('input[type="file"][accept*="image"]').first();
   await fileInput.setInputFiles(filePaths);
 
@@ -79,27 +102,27 @@ export async function uploadCarouselImages(page, filePaths) {
 export async function uploadDetailImages(page, filePaths) {
   const fileInputs = page.locator('input[type="file"][accept*="image"]');
   const inputCount = await fileInputs.count();
-  if (inputCount < 8) {
+  // 详情图位于“快捷编辑”区域。不能再按全页第 8 个文件输入框定位：
+  // 多 SKU 表格会为每行增加预览图输入框，使全页索引随规格数量变化。
+  const detailInputs = page.locator(
+    '[class*="quick_decoration"] input[type="file"][accept*="image"]',
+  );
+  const detailInputCount = await detailInputs.count();
+  if (detailInputCount !== 1) {
     throw new PddCliError({
       code: 'E_BUSINESS',
       message: '详情图上传区域未找到',
       hint: '商家后台表单结构可能已变化，已停止保存以避免把图片上传到错误区域',
-      detail: { image_file_input_count: inputCount },
+      detail: {
+        image_file_input_count: inputCount,
+        detail_image_input_count: detailInputCount,
+      },
       exitCode: ExitCodes.BUSINESS,
     });
   }
 
-  // 每个 waiter 必须认领不同的响应；否则多个 waitForResponse 会同时被第一条
-  // upload_complete 满足，导致尚未完成的上传被误报为成功。
-  const seenResponses = new WeakSet();
-  const uploadPromises = filePaths.map(() =>
-    page.waitForResponse((response) => {
-      if (!response.url().includes('upload_complete') || seenResponses.has(response)) return false;
-      seenResponses.add(response);
-      return true;
-    }, { timeout: 30000 })
-  );
-  const detailInput = fileInputs.nth(7);
+  const uploadPromises = waitForDistinctUploadResponses(page, filePaths.length);
+  const detailInput = detailInputs.first();
   await detailInput.setInputFiles(filePaths);
 
   const settled = await Promise.allSettled(uploadPromises);
