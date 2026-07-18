@@ -145,7 +145,10 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
   if (isMockEnabled()) return loadFixture('goods-publish/source.json');
 
   const health = ctx.sessionHealth ?? getSharedSessionHealth();
-  const cooldown = ctx.scrapeCooldown ?? getSharedScrapeCooldown();
+  const cooldown = ctx.scrapeCooldown ?? getSharedScrapeCooldown({
+    threshold: ctx.runtimeConfig?.scrapeSoftBlockThreshold,
+    cooldownMs: ctx.runtimeConfig?.scrapeSoftBlockCooldownMs,
+  });
   const simulate = process.env.PDD_SCRAPE_SIMULATE !== '0';
   const random = ctx.random ?? Math.random;
 
@@ -341,10 +344,26 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
         groupPrice: readValue(rawSku, ['groupPrice', 'group_price']),
         normalPrice: readValue(rawSku, ['normalPrice', 'normal_price']),
         quantity: readValue(rawSku, ['quantity', 'stock', 'inventory']),
+        thumbUrl: readValue(rawSku, ['thumbUrl', 'thumb_url']),
         specValues: readValue(rawSku, ['specValues', 'spec_values']),
         specs: specs.length > 0 ? specs : null,
         properties: properties.length > 0 ? properties : null,
       };
+    }
+
+    function projectGoodsProperties(goods) {
+      const rawProperties = toList(readValue(goods, [
+        'goodsProperty', 'goods_property', 'goodsProperties', 'goods_properties',
+      ])).slice(0, 100);
+      return rawProperties.map((rawProperty) => {
+        if (!rawProperty || typeof rawProperty !== 'object' || Array.isArray(rawProperty)) return null;
+        return {
+          name: readValue(rawProperty, ['name', 'key', 'propertyName', 'property_name']),
+          values: toList(readValue(rawProperty, ['values', 'valueList', 'value_list'])).slice(0, 20),
+          refPid: readValue(rawProperty, ['refPid', 'ref_pid']),
+          referenceId: readValue(rawProperty, ['referenceId', 'reference_id']),
+        };
+      }).filter((property) => property?.name && property.values.length > 0);
     }
 
     function collectRuntimeRoots() {
@@ -495,6 +514,7 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
         linePrice: readValue(decodedGoods, ['linePrice', 'line_price']),
         skuDimensions: projectDimensions(decodedGoods, rawSkus),
         skus: rawSkus.map(projectSku),
+        goodsProperties: projectGoodsProperties(decodedGoods),
         visitedObjects: decodedSearch.visited,
       } : null,
     };
@@ -516,6 +536,9 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
   data.sourceReferencePriceCents = skuSnapshot.sourceReferencePriceCents;
   data.skuDimensions = skuSnapshot.skuDimensions;
   data.skus = skuSnapshot.skus;
+  data.goodsProperties = Array.isArray(selectedSkuSource?.goodsProperties)
+    ? selectedSkuSource.goodsProperties
+    : [];
 
   // 空壳页是出口 IP/页面渲染降级，不是消费者账号降级。必须先于价格/SKU
   // 脱敏判断处理，否则会被误报为 E_RISK_CONTROL_SOFT 并删除消费者登录态。

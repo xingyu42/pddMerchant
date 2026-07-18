@@ -1,6 +1,9 @@
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
-import { normalizeSourceSkuSnapshot } from '../src/adapter/goods-publish/source-sku-normalizer.js';
+import {
+  buildSkuPreviewPlan,
+  normalizeSourceSkuSnapshot,
+} from '../src/adapter/goods-publish/source-sku-normalizer.js';
 
 function decodedGoods(overrides = {}) {
   return {
@@ -17,6 +20,7 @@ function decodedGoods(overrides = {}) {
         normalPrice: '25.8',
         marketPrice: 0,
         quantity: 0,
+        thumbUrl: 'https://img.pddpic.com/red.jpg',
         specValues: { 颜色: '红色', 尺码: '90' },
       },
       {
@@ -25,6 +29,7 @@ function decodedGoods(overrides = {}) {
         normalPrice: '26.8',
         marketPrice: 0,
         quantity: 12,
+        thumbUrl: 'https://img.pddpic.com/blue.jpg',
         specValues: { 颜色: '蓝色', 尺码: '90' },
       },
     ],
@@ -46,6 +51,7 @@ describe('normalizeSourceSkuSnapshot', () => {
       sourcePriceCents: 1470,
       sourceNormalPriceCents: 2580,
       stock: 0,
+      thumbUrl: 'https://img.pddpic.com/red.jpg',
     });
   });
 
@@ -159,5 +165,59 @@ describe('normalizeSourceSkuSnapshot', () => {
 
     assert.equal(result.complete, true);
     assert.deepEqual(result.skus[0].specValues, { 颜色: '红色' });
+  });
+});
+
+describe('buildSkuPreviewPlan', () => {
+  it('groups six sizes per color into one deterministic preview image', () => {
+    const colors = ['灰色', '蓝色', '黄色'];
+    const sizes = ['80', '90', '100', '110', '120', '130'];
+    const snapshot = {
+      skuDimensions: [
+        { name: '颜色', values: colors.map((text) => ({ id: text, text })) },
+        { name: '尺码', values: sizes.map((text) => ({ id: text, text })) },
+      ],
+      skus: colors.flatMap((color) => sizes.map((size) => ({
+        specValues: { 颜色: color, 尺码: size },
+        thumbUrl: `https://img.pddpic.com/${color}.jpg`,
+      }))),
+    };
+
+    const result = buildSkuPreviewPlan(snapshot);
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.issues, []);
+    assert.deepEqual(result.plan, colors.map((merchantColor) => ({
+      merchantColor,
+      sourceImageUrl: `https://img.pddpic.com/${merchantColor}.jpg`,
+    })));
+  });
+
+  it('fails closed when a color is missing an image or has conflicting images', () => {
+    const base = {
+      skuDimensions: [{ name: '颜色分类', values: ['红色', '蓝色'] }],
+      skus: [
+        { specValues: { 颜色分类: '红色' }, thumbUrl: '' },
+        { specValues: { 颜色分类: '蓝色' }, thumbUrl: 'https://img.pddpic.com/blue-a.jpg' },
+        { specValues: { 颜色分类: '蓝色' }, thumbUrl: 'https://img.pddpic.com/blue-b.jpg' },
+      ],
+    };
+
+    const result = buildSkuPreviewPlan(base);
+
+    assert.equal(result.ok, false);
+    assert.ok(result.issues.includes('sku_preview_mapping_missing'));
+    assert.ok(result.issues.includes('sku_preview_mapping_ambiguous'));
+    assert.deepEqual(result.plan, []);
+  });
+
+  it('does not guess a color dimension', () => {
+    const result = buildSkuPreviewPlan({
+      skuDimensions: [{ name: '尺码', values: ['90'] }],
+      skus: [{ specValues: { 尺码: '90' }, thumbUrl: 'https://img.pddpic.com/90.jpg' }],
+    });
+
+    assert.equal(result.ok, false);
+    assert.deepEqual(result.issues, ['sku_preview_color_dimension_missing']);
   });
 });

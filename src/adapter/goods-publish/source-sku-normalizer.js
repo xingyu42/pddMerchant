@@ -88,7 +88,21 @@ function normalizeReferencePriceCents(source) {
   return parseYuanToCents(source?.linePrice ?? source?.line_price);
 }
 
-function normalizeSku(rawSku) {
+function normalizeThumbUrl(value, issues) {
+  if (value == null || value === '') return '';
+  if (typeof value !== 'string') {
+    issues.add('sku_thumb_url_invalid');
+    return '';
+  }
+  const normalized = value.trim();
+  if (normalized.length > 2048) {
+    issues.add('sku_thumb_url_invalid');
+    return '';
+  }
+  return normalized;
+}
+
+function normalizeSku(rawSku, issues) {
   const sourceSkuId = String(rawSku?.sourceSkuId ?? rawSku?.skuID ?? rawSku?.skuId ?? '').trim();
   const sourcePriceCents = normalizePriceCents(
     rawSku,
@@ -107,6 +121,7 @@ function normalizeSku(rawSku) {
     sourcePriceCents,
     sourceNormalPriceCents,
     stock,
+    thumbUrl: normalizeThumbUrl(rawSku?.thumbUrl ?? rawSku?.thumb_url, issues),
   };
 }
 
@@ -140,7 +155,7 @@ export function normalizeSourceSkuSnapshot(source) {
   const rawSkus = Array.isArray(source?.skus) ? source.skus : [];
   const sourceReferencePriceCents = normalizeReferencePriceCents(source);
   if (rawSkus.length > MAX_SOURCE_SKUS) issues.add('source_sku_limit_exceeded');
-  const skus = rawSkus.slice(0, MAX_SOURCE_SKUS).map(normalizeSku);
+  const skus = rawSkus.slice(0, MAX_SOURCE_SKUS).map((sku) => normalizeSku(sku, issues));
   if (skuDimensions.length === 0 && skus.length === 1 && !skus[0].specValues) {
     skus[0].specValues = {};
   }
@@ -171,4 +186,50 @@ export function normalizeSourceSkuSnapshot(source) {
     skuDimensions,
     skus,
   };
+}
+
+function dimensionValueText(value) {
+  return String(asObject(value)?.text ?? asObject(value)?.name ?? asObject(value)?.value ?? value ?? '').trim();
+}
+
+export function buildSkuPreviewPlan(snapshot) {
+  const dimensions = Array.isArray(snapshot?.skuDimensions) ? snapshot.skuDimensions : [];
+  const colorDimensions = dimensions.filter((dimension) => /颜色|花色/.test(String(dimension?.name ?? '')));
+  if (colorDimensions.length === 0) {
+    return { ok: false, issues: ['sku_preview_color_dimension_missing'], plan: [] };
+  }
+  if (colorDimensions.length !== 1) {
+    return { ok: false, issues: ['sku_preview_color_dimension_ambiguous'], plan: [] };
+  }
+
+  const issues = new Set();
+  const colorDimension = colorDimensions[0];
+  const colorName = String(colorDimension.name).trim();
+  const colors = (Array.isArray(colorDimension.values) ? colorDimension.values : [])
+    .map(dimensionValueText)
+    .filter(Boolean);
+  const groupedUrls = new Map(colors.map((color) => [color, new Set()]));
+  for (const sku of Array.isArray(snapshot?.skus) ? snapshot.skus : []) {
+    const color = String(sku?.specValues?.[colorName] ?? '').trim();
+    if (!groupedUrls.has(color)) {
+      issues.add('sku_preview_mapping_missing');
+      continue;
+    }
+    const thumbUrl = typeof sku?.thumbUrl === 'string' ? sku.thumbUrl.trim() : '';
+    if (thumbUrl) groupedUrls.get(color).add(thumbUrl);
+  }
+
+  const plan = [];
+  for (const color of colors) {
+    const urls = [...groupedUrls.get(color)];
+    if (urls.length === 0) issues.add('sku_preview_mapping_missing');
+    else if (urls.length !== 1) issues.add('sku_preview_mapping_ambiguous');
+    else plan.push({ merchantColor: color, sourceImageUrl: urls[0] });
+  }
+  const reusedUrls = new Set();
+  for (const item of plan) {
+    if (reusedUrls.has(item.sourceImageUrl)) issues.add('sku_preview_mapping_ambiguous');
+    reusedUrls.add(item.sourceImageUrl);
+  }
+  return { ok: issues.size === 0, issues: [...issues], plan: issues.size === 0 ? plan : [] };
 }

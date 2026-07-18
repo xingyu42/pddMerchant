@@ -1,4 +1,5 @@
 import { evaluateInMainWorld } from '../browser.js';
+import { normalizeGoodsPropertyTemplate } from '../goods-publish/property-mapper.js';
 
 export function mapPublishBusinessError(raw) {
   const code = raw?.error_code ?? raw?.errorCode;
@@ -60,12 +61,9 @@ export const GOODS_PUBLISH_TEMPLATE = {
   trigger: async () => {
     // 页面导航到编辑页时自动加载属性模板
   },
-  normalize: (raw) => {
-    const modules = raw?.modules ?? [];
-    const propertys_tid = modules[0]?.id ?? null;
-    return { modules, propertys_tid, raw };
-  },
-  isSuccess: (raw) => Array.isArray(raw?.modules),
+  normalize: normalizeGoodsPropertyTemplate,
+  isSuccess: (raw) => normalizeGoodsPropertyTemplate(raw).ok,
+  errorMapper: mapPublishBusinessError,
 };
 
 export const GOODS_PUBLISH_EDIT_DRAFT = {

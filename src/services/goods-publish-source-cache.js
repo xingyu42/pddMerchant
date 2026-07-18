@@ -2,10 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { validateScrapedData } from '../adapter/goods-publish/source-scraper.js';
-import { normalizeSourceSkuSnapshot } from '../adapter/goods-publish/source-sku-normalizer.js';
+import {
+  buildSkuPreviewPlan,
+  normalizeSourceSkuSnapshot,
+} from '../adapter/goods-publish/source-sku-normalizer.js';
+import { normalizeSourceGoodsProperties } from '../adapter/goods-publish/property-mapper.js';
 import { GOODS_PUBLISH_SOURCE_CACHE_DIR } from '../infra/paths.js';
 
-const CACHE_VERSION = 3;
+const CACHE_VERSION = 4;
 const GOODS_ID_RE = /^\d+$/;
 
 function cacheError(code, reason) {
@@ -53,6 +57,14 @@ function normalizeSource(goodsId, source) {
   if (!skuSnapshot.complete) {
     throw cacheError('E_SOURCE_CACHE_INVALID', `structured SKU data is incomplete: ${skuSnapshot.issues.join(',')}`);
   }
+  const skuPreviewPlan = buildSkuPreviewPlan(skuSnapshot);
+  if (!skuPreviewPlan.ok) {
+    throw cacheError('E_SOURCE_CACHE_INVALID', `SKU preview mapping is incomplete: ${skuPreviewPlan.issues.join(',')}`);
+  }
+  const goodsProperties = normalizeSourceGoodsProperties(source.goodsProperties ?? source.goodsProperty);
+  if (goodsProperties.length === 0) {
+    throw cacheError('E_SOURCE_CACHE_INVALID', 'structured goods properties are required');
+  }
 
   const normalized = {
     goodsID: source.goodsID == null ? goodsId : String(source.goodsID),
@@ -67,6 +79,7 @@ function normalizeSource(goodsId, source) {
     skuText: source.skuText ?? '',
     skuDimensions: skuSnapshot.skuDimensions,
     skus: skuSnapshot.skus,
+    goodsProperties,
     properties: source.properties ?? '',
     detailImgs: source.detailImgs === undefined
       ? []

@@ -267,6 +267,7 @@ vi.mock('../src/adapter/goods-publish/source-scraper.js', async (importOriginal)
       const outcome = sourceScraperMockState.outcomes.shift();
       if (outcome?.error) throw outcome.error;
       return outcome?.value ?? {
+        goodsID: '918867803697',
         goodsName: '测试商品',
         catID3: '15000',
         catID1: '100',
@@ -274,6 +275,17 @@ vi.mock('../src/adapter/goods-publish/source-scraper.js', async (importOriginal)
         carousel: ['https://img.pddpic.com/test.jpg'],
         price: '8.22',
         skuText: '颜色分类\n红色',
+        sourceReferencePriceCents: 1200,
+        skuDimensions: [{ name: '颜色分类', values: [{ id: 'red', text: '红色' }] }],
+        skus: [{
+          sourceSkuId: 'sku-red',
+          specValues: { 颜色分类: '红色' },
+          sourcePriceCents: 822,
+          sourceNormalPriceCents: 899,
+          stock: 10,
+          thumbUrl: 'https://img.pddpic.com/red.jpg',
+        }],
+        goodsProperties: [{ name: '品牌', values: ['测试品牌'], refPid: '310', referenceId: '1' }],
         properties: '品牌: 无品牌',
         detailImages: [],
       };
@@ -323,6 +335,17 @@ const formFillerMockState = vi.hoisted(() => ({
   saveCalls: [],
   selectCalls: 0,
   fillCalls: 0,
+  fillOptions: [],
+  propertyRefillPlans: [],
+  disableSizeChartCalls: 0,
+  disableSizeChartError: null,
+}));
+
+const dynamicPropertyTemplateMockState = vi.hoisted(() => ({ responses: [] }));
+
+vi.mock('../src/adapter/goods-publish/dynamic-property-template.js', () => ({
+  readDynamicPropertyTemplate: vi.fn(async (_page, baseTemplate) =>
+    dynamicPropertyTemplateMockState.responses.shift() ?? baseTemplate),
 }));
 
 vi.mock('../src/adapter/goods-publish/form-filler.js', () => ({
@@ -330,8 +353,23 @@ vi.mock('../src/adapter/goods-publish/form-filler.js', () => ({
     formFillerMockState.selectCalls += 1;
     return { goodsId: '123456', goodsCommitId: 'abc789' };
   }),
-  fillGoodsForm: vi.fn(async () => {
+  fillGoodsForm: vi.fn(async (_page, _source, _warnings, options) => {
     formFillerMockState.fillCalls += 1;
+    formFillerMockState.fillOptions.push(options);
+    return {
+      uploadedSkuPreviewPlan: [{
+        merchantColor: '红色',
+        uploadedImageUrl: 'https://img.pddpic.com/uploaded-red.jpg',
+      }],
+    };
+  }),
+  fillGoodsProperties: vi.fn(async (_page, plan) => {
+    formFillerMockState.propertyRefillPlans.push(plan);
+  }),
+  disableSizeChart: vi.fn(async () => {
+    formFillerMockState.disableSizeChartCalls += 1;
+    if (formFillerMockState.disableSizeChartError) throw formFillerMockState.disableSizeChartError;
+    return { changed: true, disabled: true };
   }),
   clickSaveDraft: vi.fn(async (_page, _goodsCommitId, options = {}) => {
     formFillerMockState.saveCalls.push(options);
@@ -374,6 +412,8 @@ const endpointMockState = vi.hoisted(() => ({
   response: {
     templates: [{ id: 544142245494784, name: '全国包邮', free_province_need: 0 }],
   },
+  templateResponse: null,
+  templateResponses: [],
   calls: [],
 }));
 
@@ -381,6 +421,11 @@ vi.mock('../src/adapter/run-endpoint.js', () => ({
   runEndpoint: vi.fn(async (_page, meta) => {
     endpointMockState.calls.push(meta?.name);
     if (meta?.name === 'goods.publish.submit') return { success: true };
+    if (meta?.name === 'goods.publish.template') {
+      return endpointMockState.templateResponses.length > 0
+        ? endpointMockState.templateResponses.shift()
+        : endpointMockState.templateResponse;
+    }
     return endpointMockState.response;
   }),
 }));
@@ -389,6 +434,27 @@ function resetEndpointMock() {
   endpointMockState.response = {
     templates: [{ id: 544142245494784, name: '全国包邮', free_province_need: 0 }],
   };
+  const templateResponse = {
+    ok: true,
+    issues: [],
+    propertysTid: 72984,
+    properties: [{
+      templateModuleId: 72984,
+      templatePid: 471216,
+      pid: 5,
+      refPid: '310',
+      name: '品牌',
+      required: false,
+      important: true,
+      chooseMaxNum: 1,
+      values: [
+        { vid: 4643510, value: '测试品牌' },
+        { vid: 4643511, value: '缓存品牌' },
+      ],
+    }],
+  };
+  endpointMockState.templateResponse = templateResponse;
+  endpointMockState.templateResponses = [];
   endpointMockState.calls = [];
 }
 
@@ -398,6 +464,11 @@ function resetFormFillerMock() {
   formFillerMockState.saveCalls = [];
   formFillerMockState.selectCalls = 0;
   formFillerMockState.fillCalls = 0;
+  formFillerMockState.fillOptions = [];
+  formFillerMockState.propertyRefillPlans = [];
+  formFillerMockState.disableSizeChartCalls = 0;
+  formFillerMockState.disableSizeChartError = null;
+  dynamicPropertyTemplateMockState.responses = [];
 }
 
 function resetSourceProxyMocks() {
@@ -444,6 +515,17 @@ function cachedSourceData(overrides = {}) {
     carousel: ['https://img.pddpic.com/cached.jpg'],
     price: '8.22',
     skuText: '颜色分类\n红色',
+    sourceReferencePriceCents: 1200,
+    skuDimensions: [{ name: '颜色分类', values: [{ id: 'red', text: '红色' }] }],
+    skus: [{
+      sourceSkuId: 'sku-red',
+      specValues: { 颜色分类: '红色' },
+      sourcePriceCents: 822,
+      sourceNormalPriceCents: 899,
+      stock: 10,
+      thumbUrl: 'https://img.pddpic.com/red.jpg',
+    }],
+    goodsProperties: [{ name: '品牌', values: ['缓存品牌'], refPid: '310', referenceId: '1' }],
     properties: '品牌: 缓存品牌',
     detailImgs: [],
     ...overrides,
@@ -728,10 +810,22 @@ describe('save draft cost template injection', () => {
           singlePrice: '18.90',
           stock: 7,
         }],
+        expectedPropertyPlan: [{
+          templatePid: 471217,
+          templateModuleId: 72984,
+          pid: 7,
+          values: [{ vid: 100, value: '棉' }],
+        }],
+        expectedSkuPreviewPlan: [{
+          merchantColor: '红色',
+          uploadedImageUrl: 'https://img.pddpic.com/uploaded-red.jpg',
+        }],
       }),
       (err) => {
         assert.equal(err.code, 'E_BUSINESS');
         assert.ok(err.detail.issues.includes('sku_group_price_mismatch'));
+        assert.ok(err.detail.issues.includes('goods_properties_missing'));
+        assert.ok(err.detail.issues.includes('sku_thumb_url_missing'));
         return true;
       },
     );
@@ -818,6 +912,172 @@ describe('publishGoodsFromLink: save draft failure handling', () => {
     assert.equal(result.source_title, '测试商品');
     assert.equal(result.category_path, '服饰 > 童装 > 上衣');
     assert.equal(formFillerMockState.saveCalls[0].strictVerify, true);
+    assert.ok(endpointMockState.calls.includes('goods.publish.template'));
+    assert.equal(formFillerMockState.fillOptions[0].propertyPlan.length, 1);
+    assert.equal(formFillerMockState.propertyRefillPlans.length, 0);
+    assert.equal(formFillerMockState.fillOptions[0].skuPreviewPlan.length, 1);
+    assert.equal(formFillerMockState.disableSizeChartCalls, 1);
+    assert.equal(formFillerMockState.saveCalls[0].expectedPropertyPlan.length, 1);
+    assert.equal(formFillerMockState.saveCalls[0].expectedSkuPreviewPlan[0].merchantColor, '红色');
+  });
+
+  it('refreshes dependent properties and saves material plus composition content', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    formFillerMockState.saveShouldThrow = false;
+    sourceCacheMockState.entries.set('918867803697', cachedSourceData({
+      goodsProperties: [
+        { name: '面料/材质', values: ['棉/棉'], refPid: '-6045', referenceId: '0' },
+        { name: '成分含量', values: ['50%（含）-70%（不含）'], refPid: '396', referenceId: '0' },
+      ],
+    }));
+    const fabricName = {
+      templateModuleId: 72430,
+      templatePid: 466501,
+      pid: 7,
+      refPid: '349',
+      name: '面料俗称',
+      required: false,
+      important: true,
+      controlType: 1,
+      valueType: 0,
+      chooseMaxNum: 1,
+      values: [{ vid: 10348, value: '棉' }],
+    };
+    const initialTemplateResponse = {
+      ok: true,
+      issues: [],
+      propertysTid: 53413,
+      properties: [fabricName],
+    };
+    const refreshedTemplateResponse = {
+      ok: true,
+      issues: [],
+      propertysTid: 53413,
+      properties: [
+        fabricName,
+        {
+          ...fabricName,
+          templatePid: 466502,
+          pid: 16,
+          refPid: '317',
+          name: '材质',
+          required: true,
+          important: false,
+          values: [{ vid: 10571, value: '棉' }],
+        },
+        {
+          ...fabricName,
+          templatePid: 466523,
+          pid: 56,
+          refPid: '396',
+          name: '成分含量',
+          required: true,
+          important: false,
+          valueType: 1,
+          values: [{ vid: 4291987, value: '50%(含)-70%(不含)' }],
+        },
+      ],
+    };
+    endpointMockState.templateResponse = initialTemplateResponse;
+    dynamicPropertyTemplateMockState.responses = [refreshedTemplateResponse];
+
+    const result = await publishGoodsFromLink({
+      page: {},
+      context: { browser: () => ({}) },
+      log: { info: () => {}, warn: () => {}, debug: () => {} },
+    }, '918867803697');
+
+    assert.deepEqual(
+      formFillerMockState.fillOptions[0].propertyPlan.map((property) => property.name),
+      ['面料俗称'],
+    );
+    assert.deepEqual(
+      formFillerMockState.propertyRefillPlans[0].map((property) => property.name),
+      ['材质', '成分含量'],
+    );
+    assert.deepEqual(
+      formFillerMockState.saveCalls[0].expectedPropertyPlan.map((property) => property.name),
+      ['面料俗称', '材质', '成分含量'],
+    );
+    assert.equal(formFillerMockState.saveCalls.length, 1);
+    assert.equal(formFillerMockState.saveCalls[0].strictVerify, true);
+    assert.equal(Object.hasOwn(formFillerMockState.saveCalls[0], 'allowCanonicalSkuPreviewUrl'), false);
+    assert.deepEqual(
+      endpointMockState.calls.filter((name) => name === 'goods.publish.template'),
+      ['goods.publish.template'],
+    );
+    assert.deepEqual(result.property_mapping, { mapped_count: 3, skipped_count: 0 });
+  });
+
+  it('stops without saving when the visible dynamic property model is invalid', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    formFillerMockState.saveShouldThrow = false;
+    sourceCacheMockState.entries.set('918867803697', cachedSourceData());
+    dynamicPropertyTemplateMockState.responses = [{
+      ok: false,
+      issues: ['dynamic_property_template_invalid'],
+      propertysTid: 72984,
+      properties: [],
+    }];
+
+    await assert.rejects(
+      () => publishGoodsFromLink({
+        page: {},
+        context: { browser: () => ({}) },
+        log: { info: () => {}, warn: () => {}, debug: () => {} },
+      }, '918867803697'),
+      (error) => error.code === 'E_BUSINESS'
+        && error.detail.issues.includes('dynamic_property_template_invalid'),
+    );
+
+    assert.equal(formFillerMockState.fillCalls, 1);
+    assert.equal(formFillerMockState.saveCalls.length, 0);
+  });
+
+  it('stops without saving when the generated size chart cannot be disabled', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    formFillerMockState.saveShouldThrow = false;
+    sourceCacheMockState.entries.set('918867803697', cachedSourceData());
+    formFillerMockState.disableSizeChartError = Object.assign(new Error('尺码表停用状态读回失败'), {
+      code: 'E_BUSINESS',
+    });
+
+    await assert.rejects(
+      () => publishGoodsFromLink({
+        page: {},
+        context: { browser: () => ({}) },
+        log: { info: () => {}, warn: () => {}, debug: () => {} },
+      }, '918867803697'),
+      (error) => error.code === 'E_BUSINESS',
+    );
+
+    assert.equal(formFillerMockState.disableSizeChartCalls, 1);
+    assert.equal(formFillerMockState.saveCalls.length, 0);
+  });
+
+  it('stops before form fill when an important template property cannot be mapped', async () => {
+    const { publishGoodsFromLink } = await import('../src/services/goods-publish.js');
+    endpointMockState.templateResponse = {
+      ...endpointMockState.templateResponse,
+      properties: [{
+        ...endpointMockState.templateResponse.properties[0],
+        values: [{ vid: 1, value: '其他品牌' }],
+      }],
+    };
+    const mockCtx = {
+      page: {},
+      context: { browser: () => ({}) },
+      log: { info: () => {}, warn: () => {}, debug: () => {} },
+    };
+
+    await assert.rejects(
+      () => publishGoodsFromLink(mockCtx, '918867803697'),
+      (error) => error.code === 'E_BUSINESS'
+        && error.detail.issues.includes('important_property_unmapped'),
+    );
+    assert.equal(formFillerMockState.selectCalls, 1);
+    assert.equal(formFillerMockState.fillCalls, 0);
+    assert.equal(formFillerMockState.saveCalls.length, 0);
   });
 
   it('propagates draft verification unavailability through the warnings channel', async () => {

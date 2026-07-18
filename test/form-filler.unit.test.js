@@ -42,18 +42,81 @@ describe('validateDraftEditPayload', () => {
     singlePrice: '18.90',
     stock: 7,
   }];
+  const expectedPropertyPlan = [{
+    templatePid: 471217,
+    templateModuleId: 72984,
+    pid: 7,
+    controlType: 1,
+    values: [{ vid: 100, value: '棉' }],
+  }];
+  const expectedSkuPreviewPlan = [{
+    merchantColor: '红色',
+    uploadedImageUrl: 'https://img.pddpic.com/uploaded-red.jpg',
+  }];
 
   it('accepts a complete payload whose SKU values match the source plan', () => {
     const result = validateDraftEditPayload({
       goods_name: '测试商品',
       gallery: ['image'],
       cost_template_id: 123,
-      skus: [{ spec: '红色,90', multi_price: 1690, price: 1890, quantity_delta: 7 }],
-    }, { expectedCostTemplateId: 123, expectedSkuPricing });
+      goods_properties: [{
+        template_pid: 471217,
+        template_module_id: 72984,
+        pid: 7,
+        vid: 100,
+        value: '平台格式化显示文本',
+      }],
+      skus: [{
+        spec: '红色,90',
+        multi_price: 1690,
+        price: 1890,
+        quantity_delta: 7,
+        thumb_url: 'https://img.pddpic.com/uploaded-red.jpg',
+      }],
+    }, {
+      expectedCostTemplateId: 123,
+      expectedSkuPricing,
+      expectedPropertyPlan,
+      expectedSkuPreviewPlan,
+    });
 
     assert.equal(result.ok, true);
     assert.deepEqual(result.issues, []);
-    assert.deepEqual(result.summary, { gallery_count: 1, sku_count: 1 });
+    assert.deepEqual(result.summary, {
+      gallery_count: 1,
+      goods_property_count: 1,
+      goods_property_expected_value_count: 1,
+      goods_property_expected_enumerated_value_count: 1,
+      goods_property_matched_value_count: 1,
+      sku_count: 1,
+      sku_thumb_count: 1,
+    });
+  });
+
+  it('still requires text for non-enumerated properties', () => {
+    const result = validateDraftEditPayload({
+      goods_name: '测试商品',
+      gallery: ['image'],
+      cost_template_id: 123,
+      goods_properties: [{
+        template_pid: 471218,
+        template_module_id: 72984,
+        pid: 8,
+        vid: 0,
+        value: '',
+      }],
+      skus: [{ spec: '红色,90', multi_price: 1690, price: 1890, quantity_delta: 7 }],
+    }, {
+      expectedPropertyPlan: [{
+        templatePid: 471218,
+        templateModuleId: 72984,
+        pid: 8,
+        controlType: 0,
+        values: [{ vid: 0, value: '货号-001' }],
+      }],
+    });
+
+    assert.ok(result.issues.includes('goods_property_mismatch'));
   });
 
   it('rejects zero prices, missing stock, and mismatched source combinations', () => {
@@ -70,6 +133,52 @@ describe('validateDraftEditPayload', () => {
     assert.ok(result.issues.includes('sku_stock_missing'));
     assert.ok(result.issues.includes('sku_combination_mismatch'));
   });
+
+  it('rejects missing/mismatched properties and SKU preview images', () => {
+    const result = validateDraftEditPayload({
+      goods_name: '测试商品',
+      gallery: ['image'],
+      cost_template_id: 123,
+      goods_properties: [],
+      skus: [{
+        spec: '红色,90',
+        multi_price: 1690,
+        price: 1890,
+        quantity_delta: 7,
+        thumb_url: 'https://img.pddpic.com/wrong.jpg',
+      }],
+    }, {
+      expectedCostTemplateId: 123,
+      expectedSkuPricing,
+      expectedPropertyPlan,
+      expectedSkuPreviewPlan,
+    });
+
+    assert.equal(result.ok, false);
+    assert.ok(result.issues.includes('goods_properties_missing'));
+    assert.ok(result.issues.includes('goods_property_mismatch'));
+    assert.ok(result.issues.includes('sku_thumb_url_mismatch'));
+  });
+
+  it('rejects an empty SKU thumb without exposing its expected URL in issues', () => {
+    const result = validateDraftEditPayload({
+      goods_name: '测试商品',
+      gallery: ['image'],
+      cost_template_id: 123,
+      goods_properties: [{
+        template_pid: 471217,
+        template_module_id: 72984,
+        pid: 7,
+        vid: 100,
+        value: '棉',
+      }],
+      skus: [{ spec: '红色,90', multi_price: 1690, price: 1890, quantity_delta: 7, thumb_url: '' }],
+    }, { expectedSkuPricing, expectedPropertyPlan, expectedSkuPreviewPlan });
+
+    assert.ok(result.issues.includes('sku_thumb_url_missing'));
+    assert.equal(JSON.stringify(result).includes('uploaded-red.jpg'), false);
+  });
+
 });
 
 describe('matchSkuPricingToTableRows', () => {

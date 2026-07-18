@@ -28,7 +28,7 @@ export async function downloadImagesToTemp(urls) {
     const url = urls[i];
 
     if (!isAllowedUrl(url)) {
-      warnings.push(`跳过非白名单图片 URL: ${url}`);
+      warnings.push(`image_url_not_allowed:${i}`);
       continue;
     }
 
@@ -39,7 +39,7 @@ export async function downloadImagesToTemp(urls) {
       await pipeline(Readable.fromWeb(response.body), createWriteStream(destPath));
       filePaths.push(destPath);
     } catch {
-      warnings.push(`图片下载失败，已跳过: ${url}`);
+      warnings.push(`image_download_failed:${i}`);
     }
   }
 
@@ -58,7 +58,7 @@ async function extractUploadedUrls(responses) {
   for (const resp of responses) {
     try {
       const json = await resp.json();
-      const url = json?.img_url ?? json?.result?.img_url ?? '';
+      const url = json?.url ?? json?.img_url ?? json?.result?.img_url ?? '';
       if (url) urls.push(url);
     } catch { /* ignore parse failures */ }
   }
@@ -144,4 +144,109 @@ export async function uploadDetailImages(page, filePaths) {
     completed,
     warnings: completed < filePaths.length ? ['detail_image_upload_partial'] : [],
   };
+}
+
+function skuPreviewError(issue, message, detail = {}) {
+  return new PddCliError({
+    code: 'E_BUSINESS',
+    message,
+    hint: 'SKU 颜色预览图未能安全对应到商家表单，已停止保存草稿',
+    detail: { issue, ...detail },
+    exitCode: ExitCodes.BUSINESS,
+  });
+}
+
+async function resolveSkuPreviewRows(page, previewPlan) {
+  const containers = page.locator('.goods-sku-row.standard-spec .new-spec-single-color');
+  const colorRows = new Map();
+  for (let index = 0; index < await containers.count(); index += 1) {
+    const container = containers.nth(index);
+    const colorInputs = container.locator('input[placeholder="选择或输入主色"]');
+    if (await colorInputs.count() !== 1) continue;
+    const color = (await colorInputs.first().inputValue()).trim();
+    if (!color) continue;
+    if (!colorRows.has(color)) colorRows.set(color, []);
+    colorRows.get(color).push(container);
+  }
+
+  return previewPlan.map((item) => {
+    const matches = colorRows.get(item.merchantColor) ?? [];
+    if (matches.length !== 1) {
+      throw skuPreviewError('sku_preview_color_row_unmapped', 'SKU 颜色行无法唯一匹配', {
+        color_row_match_count: matches.length,
+      });
+    }
+    return { item, container: matches[0] };
+  });
+}
+
+async function waitForPreviewReadback(page, container) {
+  const preview = container.locator('img[src], [style*="background-image"]');
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    if (await preview.count() > 0) return true;
+    await page.waitForTimeout?.(100);
+  }
+  return false;
+}
+
+export async function uploadSkuPreviewImages(page, previewPlan, {
+  downloadImages = downloadImagesToTemp,
+} = {}) {
+  if (!Array.isArray(previewPlan) || previewPlan.length === 0) {
+    throw skuPreviewError('sku_preview_plan_missing', 'SKU 颜色预览图计划为空');
+  }
+  const rows = await resolveSkuPreviewRows(page, previewPlan);
+  for (const { container } of rows) {
+    const inputs = container.locator('input[type="file"][accept*="image"]');
+    if (await inputs.count() !== 1) {
+      throw skuPreviewError('sku_preview_file_input_unmapped', 'SKU 颜色预览图上传控件无法唯一匹配');
+    }
+  }
+
+  let downloaded;
+  try {
+    downloaded = await downloadImages(previewPlan.map((item) => item.sourceImageUrl));
+  } catch {
+    throw skuPreviewError('sku_preview_download_incomplete', 'SKU 颜色预览图下载失败', {
+      expected_count: previewPlan.length,
+      downloaded_count: 0,
+    });
+  }
+  try {
+    if (downloaded.filePaths.length !== previewPlan.length) {
+      throw skuPreviewError('sku_preview_download_incomplete', 'SKU 颜色预览图下载不完整', {
+        expected_count: previewPlan.length,
+        downloaded_count: downloaded.filePaths.length,
+      });
+    }
+
+    const seenResponses = new WeakSet();
+    const uploadedPlan = [];
+    for (let index = 0; index < rows.length; index += 1) {
+      const { item, container } = rows[index];
+      let uploadedUrls;
+      try {
+        const uploadResponse = page.waitForResponse((response) => {
+          if (!isUploadCompletionResponse(response) || seenResponses.has(response)) return false;
+          seenResponses.add(response);
+          return true;
+        }, { timeout: 30000 });
+        await container.locator('input[type="file"][accept*="image"]').first()
+          .setInputFiles(downloaded.filePaths[index]);
+        uploadedUrls = await extractUploadedUrls([await uploadResponse]);
+      } catch {
+        throw skuPreviewError('sku_preview_upload_incomplete', 'SKU 颜色预览图上传失败');
+      }
+      if (uploadedUrls.length !== 1) {
+        throw skuPreviewError('sku_preview_upload_incomplete', 'SKU 颜色预览图上传结果不完整');
+      }
+      if (!(await waitForPreviewReadback(page, container))) {
+        throw skuPreviewError('sku_preview_readback_mismatch', 'SKU 颜色预览图页面读回失败');
+      }
+      uploadedPlan.push({ merchantColor: item.merchantColor, uploadedImageUrl: uploadedUrls[0] });
+    }
+    return uploadedPlan;
+  } finally {
+    downloaded.cleanup();
+  }
 }

@@ -1,10 +1,16 @@
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { getLogger } from '../../infra/logger.js';
-import { downloadImagesToTemp, uploadDetailImages } from './image-handler.js';
+import {
+  downloadImagesToTemp,
+  uploadDetailImages,
+  uploadSkuPreviewImages,
+} from './image-handler.js';
 import { parseSkuText } from './source-scraper.js';
 import { evaluateInMainWorld } from '../browser.js';
 
 const CATEGORY_URL = 'https://mms.pinduoduo.com/goods/category?msfrom=mms_sidenav';
+const SIZE_CHART_DISABLE_SELECTOR = 'a[data-tracking-click-viewid="disable_size_chart"]';
+const SIZE_CHART_TABLE_SELECTOR = '[class*="sizeChart_sizeTable"]';
 
 const SELECTORS = {
   categorySearch: [
@@ -381,7 +387,276 @@ async function fillSkuDimensions(page, skuDims, expectedCount, log) {
   log.info({ dimensionCount: skuDims.length, skuCount: expectedCount }, 'goods-publish: SKU dimensions selected');
 }
 
-export async function fillGoodsForm(page, source, warnings, pricing) {
+function normalizePropertyText(value) {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .replace(/[‐‑‒–—―]/g, '-')
+    .replace(/\s+/g, '')
+    .replace(/^重要/, '')
+    .trim();
+}
+
+export function matchPropertyRowIndex(labels, targetName) {
+  const expected = normalizePropertyText(targetName);
+  const matches = (Array.isArray(labels) ? labels : [])
+    .map((label, index) => ({ label: normalizePropertyText(label), index }))
+    .filter((item) => item.label === expected);
+  return matches.length === 1 ? matches[0].index : -1;
+}
+
+function propertyFillError(issue, message, property, detail = {}) {
+  return new PddCliError({
+    code: 'E_BUSINESS',
+    message,
+    hint: '商家后台属性控件或候选值与模板不一致，已停止保存草稿',
+    detail: {
+      issue,
+      property_name: property?.name ?? null,
+      expected_values: Array.isArray(property?.values)
+        ? property.values.map((item) => item?.value).filter(Boolean)
+        : [],
+      template_pid: property?.templatePid ?? null,
+      template_module_id: property?.templateModuleId ?? null,
+      required: property?.required === true,
+      important: property?.important === true,
+      ...detail,
+    },
+    exitCode: ExitCodes.BUSINESS,
+  });
+}
+
+async function resolvePropertyRow(page, property) {
+  const rows = page.locator('.property-list');
+  const labels = await rows.evaluateAll((elements) => elements.map((element) =>
+    element.querySelector('label')?.innerText ?? ''
+  ));
+  const rowIndex = matchPropertyRowIndex(labels, property.name);
+  if (rowIndex < 0) {
+    const matchCount = labels.filter((label) =>
+      normalizePropertyText(label) === normalizePropertyText(property.name)
+    ).length;
+    throw propertyFillError('property_row_unmapped', '商品属性行无法唯一匹配', property, {
+      row_match_count: matchCount,
+    });
+  }
+  return rows.nth(rowIndex);
+}
+
+async function selectPropertyValue(page, property, expectedValue) {
+  const row = await resolvePropertyRow(page, property);
+  const inputSelector = property.name === '品牌'
+    ? 'input[placeholder*="请输入品牌名称搜索"]'
+    : 'input[placeholder="请选择"]';
+  let inputs = row.locator(inputSelector);
+  if (property.name !== '品牌' && property.controlType === 1 && await inputs.count() === 0) {
+    inputs = row.locator('input[type="text"]');
+  }
+  if (await inputs.count() !== 1) {
+    throw propertyFillError('property_input_unmapped', '商品属性输入框无法唯一匹配', property, {
+      input_match_count: await inputs.count(),
+    });
+  }
+  const input = inputs.first();
+  try {
+    await input.click();
+  } catch {
+    throw propertyFillError('property_input_write_failed', '商品属性候选值输入失败', property);
+  }
+  try {
+    if (typeof input.pressSequentially === 'function') {
+      const currentValue = typeof input.inputValue === 'function'
+        ? await input.inputValue()
+        : '';
+      if (currentValue) {
+        await input.press('Control+A');
+        await input.press('Backspace');
+      }
+      await input.pressSequentially(expectedValue, { delay: 40 });
+    } else {
+      await input.fill(expectedValue);
+    }
+  } catch {
+    // Some merchant select controls auto-select and replace the input while
+    // real key events are still in flight. The exact visible option/readback
+    // checks below remain authoritative after that React re-render.
+  }
+
+  const options = page.locator('ul[role="listbox"]:visible li[role="option"]:visible');
+  const expected = normalizePropertyText(expectedValue);
+  let matchCount = 0;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    if (typeof options.evaluateAll === 'function') {
+      matchCount = await options.evaluateAll((elements, target) => elements.filter((element) =>
+        String(element.innerText ?? '')
+          .normalize('NFKC')
+          .replace(/[‐‑‒–—―]/g, '-')
+          .replace(/\s+/g, '')
+          .replace(/^重要/, '')
+          .trim() === target
+      ).length, expected);
+    } else {
+      const texts = await options.allInnerTexts();
+      matchCount = texts.filter((text) => normalizePropertyText(text) === expected).length;
+    }
+    if (matchCount > 0) break;
+    await page.waitForTimeout(100);
+  }
+  if (matchCount !== 1) {
+    throw propertyFillError('property_option_unmapped', '商品属性候选值无法唯一匹配', property, {
+      option_match_count: matchCount,
+    });
+  }
+  try {
+    const texts = await options.allInnerTexts();
+    const matches = texts
+      .map((text, index) => ({ text: normalizePropertyText(text), index }))
+      .filter((item) => item.text === expected);
+    if (matches.length !== 1) throw new Error('exact option changed during click');
+    // A real pointer click is required: scripted element.click() updates the
+    // visible selection but does not trigger PDD's dependent-property chain.
+    await options.nth(matches[0].index).click();
+  } catch {
+    throw propertyFillError('property_option_click_failed', '商品属性候选值点击失败', property);
+  }
+  try { await page.keyboard?.press?.('Escape'); } catch { /* best-effort close */ }
+  await page.waitForTimeout(100);
+}
+
+async function readPropertyValues(page, property) {
+  const row = await resolvePropertyRow(page, property);
+  const inputLocator = row.locator('input');
+  const chipLocator = row.locator('[class*="Tag"], [class*="tag"], [class*="token"]');
+  const [inputValues, inputPlaceholders, chipTexts, rowText] = await Promise.all([
+    typeof inputLocator.evaluateAll === 'function'
+      ? inputLocator.evaluateAll((inputs) => inputs.map((input) => input.value)).catch(() => [])
+      : typeof inputLocator.allInputValues === 'function'
+        ? inputLocator.allInputValues().catch(() => [])
+        : [],
+    typeof inputLocator.evaluateAll === 'function'
+      ? inputLocator.evaluateAll((inputs) => inputs.map((input) => input.getAttribute('placeholder') ?? '')).catch(() => [])
+      : [],
+    typeof chipLocator.allInnerTexts === 'function'
+      ? chipLocator.allInnerTexts().catch(() => [])
+      : [],
+    row.innerText().catch(() => ''),
+  ]);
+  const exactValues = [...inputValues, ...inputPlaceholders, ...chipTexts]
+    .map(normalizePropertyText)
+    .filter(Boolean);
+  const normalizedRowText = normalizePropertyText(rowText)
+    .replace(normalizePropertyText(property.name), '');
+  return property.values.every((item) => {
+    const expected = normalizePropertyText(item.value);
+    return exactValues.includes(expected) || normalizedRowText.includes(expected);
+  });
+}
+
+async function waitForPropertyValues(page, property, { attempts = 30, intervalMs = 100 } = {}) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (await readPropertyValues(page, property)) return true;
+    if (attempt < attempts - 1) await page.waitForTimeout(intervalMs);
+  }
+  return false;
+}
+
+export async function fillGoodsProperties(page, propertyPlan) {
+  if (!Array.isArray(propertyPlan) || propertyPlan.length === 0) {
+    throw propertyFillError('property_plan_missing', '商品属性填写计划为空');
+  }
+  for (const property of propertyPlan) {
+    if (await readPropertyValues(page, property)) continue;
+    for (const value of property.values) {
+      await selectPropertyValue(page, property, value.value);
+    }
+    if (!(await waitForPropertyValues(page, property))) {
+      throw propertyFillError('property_readback_mismatch', '商品属性页面读回失败', property);
+    }
+  }
+}
+
+function sizeChartDisableError(issue, message, detail = {}) {
+  return new PddCliError({
+    code: 'E_BUSINESS',
+    message,
+    hint: '商家尺码表仍处于启用状态，已在保存草稿前停止',
+    detail: { issue, ...detail },
+    exitCode: ExitCodes.BUSINESS,
+  });
+}
+
+async function waitForUniqueLocator(page, locator, attempts, intervalMs) {
+  let count = 0;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    count = await locator.count();
+    if (count !== 0) return count;
+    if (attempt < attempts - 1) await page.waitForTimeout(intervalMs);
+  }
+  return count;
+}
+
+async function waitForSizeChartRemoval(page, disableLink, sizeChartTable, attempts, intervalMs) {
+  let linkCount = 1;
+  let tableCount = 1;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    [linkCount, tableCount] = await Promise.all([
+      disableLink.count(),
+      sizeChartTable.count(),
+    ]);
+    if (linkCount === 0 && tableCount === 0) return { removed: true, linkCount, tableCount };
+    if (attempt < attempts - 1) await page.waitForTimeout(intervalMs);
+  }
+  return { removed: false, linkCount, tableCount };
+}
+
+export async function disableSizeChart(page, options = {}) {
+  const confirmAttempts = options.confirmAttempts ?? 30;
+  const readbackAttempts = options.readbackAttempts ?? 30;
+  const intervalMs = options.intervalMs ?? 100;
+  const disableLink = page.locator(SIZE_CHART_DISABLE_SELECTOR);
+  const sizeChartTable = page.locator(SIZE_CHART_TABLE_SELECTOR);
+  const [initialLinkCount, initialTableCount] = await Promise.all([
+    disableLink.count(),
+    sizeChartTable.count(),
+  ]);
+
+  if (initialLinkCount === 0 && initialTableCount === 0) {
+    return { changed: false, disabled: true };
+  }
+  if (initialLinkCount !== 1) {
+    throw sizeChartDisableError(
+      'size_chart_disable_control_unmapped',
+      '尺码表停用入口无法唯一匹配',
+      { control_count: initialLinkCount, table_count: initialTableCount },
+    );
+  }
+
+  await disableLink.click();
+  const confirmButton = page.getByRole('button', { name: '确认停用', exact: true });
+  const confirmCount = await waitForUniqueLocator(
+    page, confirmButton, confirmAttempts, intervalMs,
+  );
+  if (confirmCount !== 1) {
+    throw sizeChartDisableError(
+      'size_chart_disable_confirmation_missing',
+      '尺码表停用确认按钮无法唯一匹配',
+      { confirmation_count: confirmCount },
+    );
+  }
+
+  await confirmButton.click();
+  const readback = await waitForSizeChartRemoval(
+    page, disableLink, sizeChartTable, readbackAttempts, intervalMs,
+  );
+  if (readback.removed) return { changed: true, disabled: true };
+
+  throw sizeChartDisableError(
+    'size_chart_disable_readback_mismatch',
+    '尺码表停用状态读回失败',
+    { control_count: readback.linkCount, table_count: readback.tableCount },
+  );
+}
+
+export async function fillGoodsForm(page, source, warnings, options = {}) {
   const log = getLogger();
   const skuDims = Array.isArray(source.skuDimensions) && source.skuDimensions.length > 0
     ? source.skuDimensions
@@ -393,6 +668,7 @@ export async function fillGoodsForm(page, source, warnings, pricing) {
   await page.waitForTimeout(3000);
   await dismissOverlays(page);
   await fillSkuDimensions(page, skuDims, skuCount, log);
+  const uploadedSkuPreviewPlan = await uploadSkuPreviewImages(page, options.skuPreviewPlan);
 
   const name = source.goodsName || '';
   const titleInput = await findFirst(page, SELECTORS.goodsTitle);
@@ -416,13 +692,11 @@ export async function fillGoodsForm(page, source, warnings, pricing) {
     warnings.push(...result.warnings);
   }
 
-  await fillPrices(page, pricing, warnings, log);
-
-  // 目前只解析属性用于诊断，不猜测商家后台动态字段，避免填入同名但错误的输入框。
-  if (source.properties) {
-    const props = parseProperties(source.properties);
-    if (props.length > 0) warnings.push('property_mapping_unavailable');
-  }
+  await fillPrices(page, options, warnings, log);
+  // Image/SKU/price writes trigger broad React form re-renders. Fill merchant
+  // properties last so a later render cannot restore a stale attribute vid.
+  await fillGoodsProperties(page, options.propertyPlan);
+  return { uploadedSkuPreviewPlan };
 }
 
 export async function fillPrices(page, pricing, warnings, log) {
@@ -551,10 +825,37 @@ function matchExpectedSku(rawSkus, expectedSku, usedIndexes) {
   return -1;
 }
 
+function scalarValues(value) {
+  if (Array.isArray(value)) return value.flatMap(scalarValues);
+  if (value && typeof value === 'object') return Object.values(value).flatMap(scalarValues);
+  if (value == null) return [];
+  return [String(value)];
+}
+
+function rawPropertyMatches(rawProperty, expectedProperty, expectedValue) {
+  const idsMatch = String(rawProperty?.template_pid ?? '') === String(expectedProperty.templatePid)
+    && String(rawProperty?.template_module_id ?? '') === String(expectedProperty.templateModuleId)
+    && String(rawProperty?.pid ?? '') === String(expectedProperty.pid);
+  if (!idsMatch) return false;
+  const vids = scalarValues(rawProperty?.vid);
+  const values = scalarValues(rawProperty?.value).map(normalizePropertyText).filter(Boolean);
+  const valueMatches = values.includes(normalizePropertyText(expectedValue.value));
+  const enumeratedValueUsesVidOnly = expectedProperty.controlType === 1;
+  return vids.includes(String(expectedValue.vid))
+    && (valueMatches || enumeratedValueUsesVidOnly);
+}
+
+function expectedSkuColor(expectedSku) {
+  const entries = Object.entries(expectedSku?.specValues ?? {})
+    .filter(([name]) => /颜色|花色/.test(name));
+  return entries.length === 1 ? normalizeSkuSpecValue(entries[0][1]) : '';
+}
+
 export function validateDraftEditPayload(body, options = {}) {
   const issues = new Set();
   const payload = typeof body === 'string' ? JSON.parse(body) : body;
   const gallery = Array.isArray(payload?.gallery) ? payload.gallery : [];
+  const goodsProperties = Array.isArray(payload?.goods_properties) ? payload.goods_properties : [];
   const skus = Array.isArray(payload?.skus) ? payload.skus : [];
   if (!String(payload?.goods_name ?? '').trim()) issues.add('title_empty');
   if (gallery.length === 0) issues.add('no_images');
@@ -571,7 +872,34 @@ export function validateDraftEditPayload(body, options = {}) {
     if (!Number.isSafeInteger(Number(stock)) || Number(stock) < 0) issues.add('sku_stock_missing');
   }
 
+  const expectedProperties = Array.isArray(options.expectedPropertyPlan)
+    ? options.expectedPropertyPlan
+    : null;
+  let expectedPropertyValueCount = 0;
+  let matchedPropertyValueCount = 0;
+  let expectedEnumeratedPropertyValueCount = 0;
+  if (expectedProperties) {
+    if (goodsProperties.length === 0) issues.add('goods_properties_missing');
+    for (const property of expectedProperties) {
+      for (const value of property.values ?? []) {
+        expectedPropertyValueCount += 1;
+        if (property.controlType === 1) expectedEnumeratedPropertyValueCount += 1;
+        if (goodsProperties.some((rawProperty) => rawPropertyMatches(rawProperty, property, value))) {
+          matchedPropertyValueCount += 1;
+        } else {
+          issues.add('goods_property_mismatch');
+        }
+      }
+    }
+  }
+
   const expectedSkus = Array.isArray(options.expectedSkuPricing) ? options.expectedSkuPricing : null;
+  const expectedPreview = Array.isArray(options.expectedSkuPreviewPlan)
+    ? new Map(options.expectedSkuPreviewPlan.map((item) => [
+        normalizeSkuSpecValue(item.merchantColor),
+        String(item.uploadedImageUrl ?? '').trim(),
+      ]))
+    : null;
   if (expectedSkus) {
     if (expectedSkus.length !== skus.length) issues.add('sku_combination_count_mismatch');
     const usedIndexes = new Set();
@@ -587,12 +915,30 @@ export function validateDraftEditPayload(body, options = {}) {
       if (Number(rawSku.price) !== toPriceCents(expectedSku.singlePrice)) issues.add('sku_single_price_mismatch');
       const stock = Number(rawSku.quantity_delta ?? rawSku.quantity);
       if (stock !== expectedSku.stock) issues.add('sku_stock_mismatch');
+      if (expectedPreview) {
+        const expectedThumb = expectedPreview.get(expectedSkuColor(expectedSku)) ?? '';
+        const actualThumb = String(rawSku.thumb_url ?? '').trim();
+        if (!actualThumb) issues.add('sku_thumb_url_missing');
+        else if (!expectedThumb || actualThumb !== expectedThumb) {
+          issues.add('sku_thumb_url_mismatch');
+        }
+      }
     }
+  } else if (expectedPreview) {
+    issues.add('sku_thumb_url_mismatch');
   }
   return {
     ok: issues.size === 0,
     issues: [...issues],
-    summary: { gallery_count: gallery.length, sku_count: skus.length },
+    summary: {
+      gallery_count: gallery.length,
+      goods_property_count: goodsProperties.length,
+      goods_property_expected_value_count: expectedPropertyValueCount,
+      goods_property_expected_enumerated_value_count: expectedEnumeratedPropertyValueCount,
+      goods_property_matched_value_count: matchedPropertyValueCount,
+      sku_count: skus.length,
+      sku_thumb_count: skus.filter((sku) => String(sku?.thumb_url ?? '').trim()).length,
+    },
   };
 }
 
@@ -617,6 +963,8 @@ async function routeSaveDraftWithCostTemplate(page, options, run) {
         payloadValidation = validateDraftEditPayload(nextPostData, {
           expectedCostTemplateId: costTemplateId,
           expectedSkuPricing: options.expectedSkuPricing,
+          expectedPropertyPlan: options.expectedPropertyPlan,
+          expectedSkuPreviewPlan: options.expectedSkuPreviewPlan,
         });
         if (!payloadValidation.ok) {
           throw new PddCliError({
