@@ -195,7 +195,8 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
       earlyScore = scored.score;
     }
     if (scored.snapshot.complete) break;
-    if (typeof page.waitForTimeout === 'function') await page.waitForTimeout(150);
+    // page mock 可能无 waitForTimeout；生产 Playwright page 始终有。
+    await page.waitForTimeout?.(150);
   }
 
   // Phase 2: Warm-up
@@ -219,17 +220,13 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
   // Phase 3: Extract
   function extractPageData(nodeGoodsId) {
     function unwrapObservable(value) {
-      let current = value;
-      for (let depth = 0; depth < 3; depth += 1) {
-        if (!current || typeof current !== 'object' || Array.isArray(current)) break;
-        const isObservableValue = Object.hasOwn(current, 'value')
-          && (Object.hasOwn(current, 'observers')
-            || Object.hasOwn(current, 'enhancer')
-            || Object.hasOwn(current, 'diffValue'));
-        if (!isObservableValue) break;
-        current = current.value;
-      }
-      return current;
+      // MobX 包装通常只有一层；多层循环属于过度假设。
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+      const isObservableValue = Object.hasOwn(value, 'value')
+        && (Object.hasOwn(value, 'observers')
+          || Object.hasOwn(value, 'enhancer')
+          || Object.hasOwn(value, 'diffValue'));
+      return isObservableValue ? value.value : value;
     }
 
     function readValue(record, keys) {
@@ -366,21 +363,32 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
       }).filter((property) => property?.name && property.values.length > 0);
     }
 
+    function pushReactRoot(roots, element) {
+      if (!element) return;
+      for (const key of Object.getOwnPropertyNames(element)) {
+        if (!key.startsWith('__reactFiber')
+          && !key.startsWith('__reactContainer')
+          && !key.startsWith('__reactInternalInstance')) continue;
+        const root = element[key];
+        if (root && typeof root === 'object') roots.push(root);
+        break;
+      }
+    }
+
     function collectRuntimeRoots() {
       const roots = [];
       if (globalThis.rawData && typeof globalThis.rawData === 'object') roots.push(globalThis.rawData);
+      // 优先已知挂载点，避免一上来扫全文档。
+      for (const id of ['main', 'app', 'root']) {
+        pushReactRoot(roots, document.getElementById(id));
+      }
+      if (roots.length > 1) return roots;
+
       let scannedElements = 0;
       for (const element of document.querySelectorAll('*')) {
         scannedElements += 1;
-        if (scannedElements > 10000 || roots.length >= 200) break;
-        for (const key of Object.getOwnPropertyNames(element)) {
-          if (!key.startsWith('__reactFiber')
-            && !key.startsWith('__reactContainer')
-            && !key.startsWith('__reactInternalInstance')) continue;
-          const root = element[key];
-          if (root && typeof root === 'object') roots.push(root);
-          break;
-        }
+        if (scannedElements > 3000 || roots.length >= 50) break;
+        pushReactRoot(roots, element);
       }
       return roots;
     }
@@ -393,7 +401,7 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
       let fallback = null;
       let bestGoods = null;
       let bestSkuCount = 0;
-      while (queue.length > 0 && visited < 15000) {
+      while (queue.length > 0 && visited < 8000) {
         const current = queue.shift();
         const value = current?.value;
         if (!value || typeof value !== 'object') continue;
@@ -413,14 +421,14 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
           }
           fallback ??= value;
         }
-        if (current.depth >= 14) continue;
+        if (current.depth >= 10) continue;
         const descriptors = Object.getOwnPropertyDescriptors(value);
         let childCount = 0;
         for (const descriptor of Object.values(descriptors)) {
           const child = descriptor?.value;
           if (child && typeof child === 'object') queue.push({ value: child, depth: current.depth + 1 });
           childCount += 1;
-          if (childCount >= 300) break;
+          if (childCount >= 120) break;
         }
       }
       return { goods: bestGoods ?? fallback, looseSkus: [...looseSkus.values()], visited };

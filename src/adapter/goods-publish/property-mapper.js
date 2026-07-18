@@ -24,6 +24,8 @@ function normalizePropertyName(value) {
 
 function normalizeSourceValue(value) {
   const normalized = normalizeText(value);
+  // 仅处理源站偶发的 “棉/棉” 重复写法；无斜杠时直接返回。
+  if (!normalized.includes('/')) return normalized;
   const parts = normalized.split('/').map(normalizeText).filter(Boolean);
   if (parts.length > 1 && new Set(parts).size === 1) return parts[0];
   return normalized;

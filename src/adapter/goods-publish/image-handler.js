@@ -66,15 +66,12 @@ async function extractUploadedUrls(responses) {
 }
 
 function isUploadCompletionResponse(response) {
-  try {
-    const { hostname, pathname } = new URL(response.url());
-    const isCompletionPath = pathname.includes('upload_complete')
-      || (hostname === 'file.pinduoduo.com' && pathname === '/v3/store_image');
-    const status = typeof response.status === 'function' ? response.status() : 200;
-    return isCompletionPath && status >= 200 && status < 300;
-  } catch {
-    return false;
-  }
+  const url = response.url();
+  const isCompletionPath = url.includes('upload_complete')
+    || url.includes('file.pinduoduo.com/v3/store_image');
+  if (!isCompletionPath) return false;
+  const status = response.status();
+  return status >= 200 && status < 300;
 }
 
 function waitForDistinctUploadResponses(page, count) {
@@ -182,8 +179,10 @@ async function resolveSkuPreviewRows(page, previewPlan) {
 
 async function waitForPreviewReadback(page, container) {
   const preview = container.locator('img[src], [style*="background-image"]');
-  for (let attempt = 0; attempt < 30; attempt += 1) {
+  // 上传完成响应已确认；读回只需短等待，不必 3s 空转。
+  for (let attempt = 0; attempt < 10; attempt += 1) {
     if (await preview.count() > 0) return true;
+    // page mock 可能无 waitForTimeout；生产 Playwright page 始终有。
     await page.waitForTimeout?.(100);
   }
   return false;

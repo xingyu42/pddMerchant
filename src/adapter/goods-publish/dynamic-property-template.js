@@ -2,8 +2,8 @@ import { evaluateInMainWorld } from '../browser.js';
 import { normalizeGoodsPropertyTemplate } from './property-mapper.js';
 
 const MAX_VISIBLE_PROPERTY_ROWS = 100;
-const MAX_REACT_OBJECTS = 10_000;
-const MAX_REACT_DEPTH = 10;
+const MAX_REACT_OBJECTS = 4_000;
+const MAX_REACT_DEPTH = 8;
 const MAX_TEMPLATE_VALUES = 200;
 
 function invalidDynamicTemplate(baseTemplate) {
@@ -115,7 +115,15 @@ function projectVisiblePropertyDefinitions(limits) {
       if (queue.length + visitedObjectCount >= maxReactObjects) return;
       queue.push({ value, depth, moduleId });
     };
-    for (const element of [row, ...row.querySelectorAll('*')]) {
+    // 先从行根取 React 句柄；没有再浅扫交互子节点，避免每个属性行扫全子树。
+    const seedElements = [row];
+    const rowHasReact = Object.getOwnPropertyNames(row).some((key) => key.startsWith('__react'));
+    if (!rowHasReact) {
+      seedElements.push(
+        ...row.querySelectorAll('input, select, [class*="Select"], [class*="select"], [class*="property"]'),
+      );
+    }
+    for (const element of seedElements) {
       for (const key of Object.getOwnPropertyNames(element)) {
         if (!key.startsWith('__react')) continue;
         try {

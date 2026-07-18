@@ -2,6 +2,7 @@ import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { getLogger } from '../../infra/logger.js';
 import {
   downloadImagesToTemp,
+  uploadCarouselImages,
   uploadDetailImages,
   uploadSkuPreviewImages,
 } from './image-handler.js';
@@ -212,8 +213,7 @@ async function assertCategorySelected(page, pickedText) {
 export async function selectCategory(page, searchText) {
   const log = getLogger();
   await page.goto(CATEGORY_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(2000);
-
+  // findFirst 已对搜索框做可见等待，不必再固定 sleep 2s。
   const searchInput = await findFirst(page, SELECTORS.categorySearch, 10000);
   if (!searchInput) {
     throw new PddCliError({ code: 'E_BUSINESS', message: '分类搜索框未找到', exitCode: ExitCodes.BUSINESS });
@@ -279,7 +279,8 @@ export async function dismissOverlays(page) {
     document.querySelectorAll('[data-testid="beast-core-modal"]').forEach(el => el.remove());
     document.querySelectorAll('[class*="MDL_outerWrapper"]').forEach(el => el.remove());
   });
-  await page.waitForTimeout(500);
+  // DOM 已同步移除；仅给 React 一次微帧收敛，避免固定 500ms 空转。
+  await page.waitForTimeout(100);
 }
 
 function classifySkuDimensions(skuDims) {
@@ -315,13 +316,13 @@ async function selectColorValues(page, root, dimension) {
     const items = page.locator('.spec-color-menu:visible .menu-item');
     const expected = normalizeSkuSpecValue(value);
     let matches = [];
-    // 新建草稿页的标准色数据可能晚于输入框出现。每轮都重新派发真实键盘事件，
-    // 不能只盯着第一次输入后的空菜单等待，否则数据就绪后也不会重新查询。
-    for (let queryAttempt = 0; queryAttempt < 3 && matches.length === 0; queryAttempt += 1) {
+    // 新建草稿页的标准色数据可能晚于输入框；最多重输一次并短轮询，
+    // 避免 3×30×100ms 的空转上限。
+    for (let queryAttempt = 0; queryAttempt < 2 && matches.length === 0; queryAttempt += 1) {
       await input.click();
       await input.fill('');
-      await input.pressSequentially(value, { delay: 80 });
-      for (let pollAttempt = 0; pollAttempt < 30; pollAttempt += 1) {
+      await input.pressSequentially(value, { delay: 40 });
+      for (let pollAttempt = 0; pollAttempt < 15; pollAttempt += 1) {
         const itemTexts = await items.allInnerTexts();
         matches = itemTexts
           .map((text, index) => ({ text: normalizeSkuSpecValue(text), index }))
@@ -374,7 +375,8 @@ async function selectSizeValues(root, dimension) {
 async function waitForSkuRows(page, expectedCount) {
   let tableFound = false;
   let actualCount = 0;
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+  // 规格勾选后表格通常在数秒内展开；30×200ms 足够，避免 12s 盲等。
+  for (let attempt = 0; attempt < 30; attempt += 1) {
     const table = await findSkuTable(page);
     tableFound = Boolean(table);
     actualCount = table ? await table.locator('tbody tr').count() : 0;
@@ -482,45 +484,22 @@ async function selectPropertyValue(page, property, expectedValue) {
   const input = inputs.first();
   try {
     await input.click();
-  } catch {
-    throw propertyFillError('property_input_write_failed', '商品属性候选值输入失败', property);
-  }
-  try {
-    if (typeof input.pressSequentially === 'function') {
-      const currentValue = typeof input.inputValue === 'function'
-        ? await input.inputValue()
-        : '';
-      if (currentValue) {
-        await input.press('Control+A');
-        await input.press('Backspace');
-      }
-      await input.pressSequentially(expectedValue, { delay: 40 });
-    } else {
-      await input.fill(expectedValue);
+    const currentValue = await input.inputValue();
+    if (currentValue) {
+      await input.press('Control+A');
+      await input.press('Backspace');
     }
+    await input.pressSequentially(expectedValue, { delay: 40 });
   } catch {
-    // Some merchant select controls auto-select and replace the input while
-    // real key events are still in flight. The exact visible option/readback
-    // checks below remain authoritative after that React re-render.
+    // 部分商家下拉在按键过程中会替换输入框；后续可见选项与读回仍是权威判定。
   }
 
   const options = page.locator('ul[role="listbox"]:visible li[role="option"]:visible');
   const expected = normalizePropertyText(expectedValue);
   let matchCount = 0;
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    if (typeof options.evaluateAll === 'function') {
-      matchCount = await options.evaluateAll((elements, target) => elements.filter((element) =>
-        String(element.innerText ?? '')
-          .normalize('NFKC')
-          .replace(/[‐‑‒–—―]/g, '-')
-          .replace(/\s+/g, '')
-          .replace(/^重要/, '')
-          .trim() === target
-      ).length, expected);
-    } else {
-      const texts = await options.allInnerTexts();
-      matchCount = texts.filter((text) => normalizePropertyText(text) === expected).length;
-    }
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    const texts = await options.allInnerTexts();
+    matchCount = texts.filter((text) => normalizePropertyText(text) === expected).length;
     if (matchCount > 0) break;
     await page.waitForTimeout(100);
   }
@@ -550,17 +529,9 @@ async function readPropertyValues(page, property) {
   const inputLocator = row.locator('input');
   const chipLocator = row.locator('[class*="Tag"], [class*="tag"], [class*="token"]');
   const [inputValues, inputPlaceholders, chipTexts, rowText] = await Promise.all([
-    typeof inputLocator.evaluateAll === 'function'
-      ? inputLocator.evaluateAll((inputs) => inputs.map((input) => input.value)).catch(() => [])
-      : typeof inputLocator.allInputValues === 'function'
-        ? inputLocator.allInputValues().catch(() => [])
-        : [],
-    typeof inputLocator.evaluateAll === 'function'
-      ? inputLocator.evaluateAll((inputs) => inputs.map((input) => input.getAttribute('placeholder') ?? '')).catch(() => [])
-      : [],
-    typeof chipLocator.allInnerTexts === 'function'
-      ? chipLocator.allInnerTexts().catch(() => [])
-      : [],
+    inputLocator.evaluateAll((inputs) => inputs.map((input) => input.value)).catch(() => []),
+    inputLocator.evaluateAll((inputs) => inputs.map((input) => input.getAttribute('placeholder') ?? '')).catch(() => []),
+    chipLocator.allInnerTexts().catch(() => []),
     row.innerText().catch(() => ''),
   ]);
   const exactValues = [...inputValues, ...inputPlaceholders, ...chipTexts]
@@ -574,7 +545,7 @@ async function readPropertyValues(page, property) {
   });
 }
 
-async function waitForPropertyValues(page, property, { attempts = 30, intervalMs = 100 } = {}) {
+async function waitForPropertyValues(page, property, { attempts = 15, intervalMs = 100 } = {}) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (await readPropertyValues(page, property)) return true;
     if (attempt < attempts - 1) await page.waitForTimeout(intervalMs);
@@ -632,8 +603,8 @@ async function waitForSizeChartRemoval(page, disableLink, sizeChartTable, attemp
 }
 
 export async function disableSizeChart(page, options = {}) {
-  const confirmAttempts = options.confirmAttempts ?? 30;
-  const readbackAttempts = options.readbackAttempts ?? 30;
+  const confirmAttempts = options.confirmAttempts ?? 15;
+  const readbackAttempts = options.readbackAttempts ?? 15;
   const intervalMs = options.intervalMs ?? 100;
   const disableLink = page.locator(SIZE_CHART_DISABLE_SELECTOR);
   const sizeChartTable = page.locator(SIZE_CHART_TABLE_SELECTOR);
@@ -688,7 +659,8 @@ export async function fillGoodsForm(page, source, warnings, options = {}) {
     ? source.skus.length
     : countSkuCombinations(skuDims);
 
-  await page.waitForTimeout(3000);
+  // 等草稿壳就绪（标题框）代替固定 3s；后续步骤自身仍有 fail-closed 校验。
+  await findFirst(page, SELECTORS.goodsTitle, 8000);
   await dismissOverlays(page);
   await fillSkuDimensions(page, skuDims, skuCount, log);
   const uploadedSkuPreviewPlan = await uploadSkuPreviewImages(page, options.skuPreviewPlan);
@@ -737,7 +709,7 @@ export async function fillFullCountDiscount(page, discountRate, log = getLogger(
 
   const displayValue = (payloadValue / 10).toFixed(1);
   await input.fill(displayValue);
-  if (typeof input.blur === 'function') await input.blur();
+  await input.blur();
   const actualValue = Number(await input.inputValue());
   if (!Number.isFinite(actualValue) || Math.abs(actualValue - (payloadValue / 10)) >= 1e-9) {
     throw new PddCliError({
@@ -785,17 +757,19 @@ async function uploadCarouselViaForm(page, urls, log) {
   const imgResult = await downloadImagesToTemp(urls);
   try {
     if (imgResult.filePaths.length === 0) return;
-    const fileInput = page.locator('input[type="file"][accept*="image"]').first();
-    await fileInput.setInputFiles(imgResult.filePaths);
-    log.info({ count: imgResult.filePaths.length }, 'goods-publish: carousel files set');
-    await page.waitForTimeout(5000);
+    // 与详情图一致：按上传完成响应确认，不用固定 sleep。
+    const uploadedUrls = await uploadCarouselImages(page, imgResult.filePaths);
+    log.info({
+      requested: imgResult.filePaths.length,
+      completed: uploadedUrls.length,
+    }, 'goods-publish: carousel uploaded');
   } finally {
     imgResult.cleanup();
   }
 }
 
-// 详情图上传：下载到临时目录后委托 image-handler.uploadDetailImages（定位第 8 个
-// 文件输入，即详情图区域）。下载与上传解耦，临时文件始终清理。
+// 详情图上传：下载到临时目录后委托 image-handler.uploadDetailImages
+// （快捷编辑区文件输入）。下载与上传解耦，临时文件始终清理。
 async function uploadDetailImagesViaForm(page, urls, log) {
   const imgResult = await downloadImagesToTemp(urls);
   try {
@@ -1308,20 +1282,74 @@ async function findSkuTable(page) {
   return null;
 }
 
-async function fillSkuCell(row, domCellIndex, value) {
-  if (!Number.isInteger(domCellIndex) || domCellIndex < 0) return { ok: false, actual: null };
-  const input = row.locator('td').nth(domCellIndex).locator('input').first();
-  if (await input.count() === 0) return { ok: false, actual: null };
-  const expected = String(value);
-  await input.fill(expected);
-  const actual = await input.inputValue();
-  const actualNumber = Number(actual);
-  const expectedNumber = Number(expected);
-  const numericallyEqual = actual.trim() !== ''
+function skuValuesMatch(actual, expected) {
+  const actualText = String(actual ?? '');
+  const expectedText = String(expected ?? '');
+  if (actualText === expectedText) return true;
+  const actualNumber = Number(actualText);
+  const expectedNumber = Number(expectedText);
+  return actualText.trim() !== ''
     && Number.isFinite(actualNumber)
     && Number.isFinite(expectedNumber)
     && actualNumber === expectedNumber;
-  return { ok: actual === expected || numericallyEqual, actual };
+}
+
+export async function fillSkuCell(inputLocator, value) {
+  if (!inputLocator || await inputLocator.count() === 0) return { ok: false, actual: null };
+  const expected = String(value);
+  await inputLocator.fill(expected);
+  const actual = await inputLocator.inputValue();
+  return { ok: skuValuesMatch(actual, expected), actual };
+}
+
+function skuRowFieldSpecs(rowModel, columns, sku) {
+  return [
+    { key: 'stock', domCellIndex: rowModel.domCellIndexes[columns.stock], value: sku.stock },
+    { key: 'group_price', domCellIndex: rowModel.domCellIndexes[columns.groupPrice], value: sku.groupPrice },
+    { key: 'single_price', domCellIndex: rowModel.domCellIndexes[columns.singlePrice], value: sku.singlePrice },
+  ];
+}
+
+function skuCellLocator(row, domCellIndex) {
+  if (!Number.isInteger(domCellIndex) || domCellIndex < 0) return null;
+  return row.locator('td').nth(domCellIndex).locator('input').first();
+}
+
+/**
+ * 同一行的库存/拼单价/单买价：
+ * 1. 三个输入都已挂载时先并行写入（快路径）
+ * 2. 读回失败则回退串行（React 局部重绘时并行可能命中同一 input）
+ */
+export async function fillSkuRowFields(row, rowModel, columns, sku) {
+  const fields = skuRowFieldSpecs(rowModel, columns, sku);
+  const locators = fields.map((field) => skuCellLocator(row, field.domCellIndex));
+  if (locators.some((locator) => locator == null)) {
+    return {
+      ok: false,
+      mode: 'invalid',
+      results: fields.map(() => ({ ok: false, actual: null })),
+    };
+  }
+
+  const counts = await Promise.all(locators.map((locator) => locator.count()));
+  if (counts.every((count) => count === 1)) {
+    const parallel = await Promise.all(
+      locators.map((locator, index) => fillSkuCell(locator, fields[index].value)),
+    );
+    if (parallel.every((result) => result.ok)) {
+      return { ok: true, mode: 'parallel', results: parallel };
+    }
+  }
+
+  const sequential = [];
+  for (let index = 0; index < fields.length; index += 1) {
+    sequential.push(await fillSkuCell(locators[index], fields[index].value));
+  }
+  return {
+    ok: sequential.every((result) => result.ok),
+    mode: 'sequential',
+    results: sequential,
+  };
 }
 
 async function readSkuTableRows(rows) {
@@ -1400,22 +1428,18 @@ async function fillSkuTableRows(page, skuPricing, log) {
     const row = rows.nth(rowIndex);
     const rowModel = rowModels[rowIndex];
     const sku = skuPricing[pricingIndex];
-    // React 会在每次单元格变更后重绘当前行；并行 fill 会让多个 locator 在重绘
-    // 中命中同一输入框，出现库存串入拼单价。必须按列顺序写入并逐项读回。
-    const results = [];
-    results.push(await fillSkuCell(row, rowModel.domCellIndexes[columns.stock], sku.stock));
-    results.push(await fillSkuCell(row, rowModel.domCellIndexes[columns.groupPrice], sku.groupPrice));
-    results.push(await fillSkuCell(row, rowModel.domCellIndexes[columns.singlePrice], sku.singlePrice));
-    if (results.some((result) => !result.ok)) {
+    const filled = await fillSkuRowFields(row, rowModel, columns, sku);
+    if (!filled.ok) {
       throw new PddCliError({
         code: 'E_BUSINESS',
         message: 'SKU 价格或库存填写后读回失败',
         detail: {
           sku_index: pricingIndex,
+          fill_mode: filled.mode,
           fields: {
-            stock: results[0].ok,
-            group_price: results[1].ok,
-            single_price: results[2].ok,
+            stock: filled.results[0]?.ok === true,
+            group_price: filled.results[1]?.ok === true,
+            single_price: filled.results[2]?.ok === true,
           },
         },
         exitCode: ExitCodes.BUSINESS,

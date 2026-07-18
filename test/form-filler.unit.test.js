@@ -5,6 +5,7 @@ import {
   countSkuCombinations,
   fillFullCountDiscount,
   fillPrices,
+  fillSkuRowFields,
   mapSkuTableColumns,
   matchSkuPricingToTableRows,
   parseProperties,
@@ -358,10 +359,78 @@ describe('fillPrices single-SKU form contract', () => {
       pricingValidation: { ok: true, errors: [], warnings: [] },
     }, warnings, { info: () => {} });
 
-    assert.deepEqual(fills, [[0, '0'], [1, '19.30'], [2, '21.85']]);
-    assert.equal(maxConcurrentFills, 1);
+    assert.deepEqual(
+      [...fills].sort((left, right) => left[0] - right[0]),
+      [[0, '0'], [1, '19.30'], [2, '21.85']],
+    );
+    // 稳定 locator 下走并行快路径；三个字段应同时 fill。
+    assert.equal(maxConcurrentFills, 3);
     assert.equal(marketPrice, '34.20');
     assert.deepEqual(warnings, []);
+  });
+});
+
+describe('fillSkuRowFields', () => {
+  function createSkuRow({ crossWireOnParallel = false } = {}) {
+    const values = ['', '', ''];
+    let activeFills = 0;
+    let maxConcurrentFills = 0;
+    let fillCalls = 0;
+    const inputs = [0, 1, 2].map((cellIndex) => ({
+      count: async () => 1,
+      fill: async (value) => {
+        fillCalls += 1;
+        activeFills += 1;
+        maxConcurrentFills = Math.max(maxConcurrentFills, activeFills);
+        await Promise.resolve();
+        if (crossWireOnParallel && activeFills > 1) {
+          // 模拟并行时 React 重绘导致多个 locator 打到同一输入。
+          values[0] = String(value);
+        } else {
+          values[cellIndex] = String(value);
+        }
+        activeFills -= 1;
+      },
+      inputValue: async () => values[cellIndex],
+    }));
+    const row = {
+      locator: () => ({
+        nth: (cellIndex) => ({
+          locator: () => ({ first: () => inputs[cellIndex] }),
+        }),
+      }),
+    };
+    return {
+      row,
+      stats: () => ({ maxConcurrentFills, fillCalls, values: [...values] }),
+    };
+  }
+
+  const columns = { stock: 0, groupPrice: 1, singlePrice: 2 };
+  const rowModel = { texts: ['红色', '90'], domCellIndexes: [0, 1, 2] };
+  const sku = { stock: 7, groupPrice: '16.90', singlePrice: '18.90' };
+
+  it('uses the parallel fast path when every cell locator is stable', async () => {
+    const fixture = createSkuRow();
+    const result = await fillSkuRowFields(fixture.row, rowModel, columns, sku);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.mode, 'parallel');
+    assert.equal(fixture.stats().maxConcurrentFills, 3);
+    assert.equal(fixture.stats().fillCalls, 3);
+    assert.deepEqual(fixture.stats().values, ['7', '16.90', '18.90']);
+  });
+
+  it('falls back to sequential fill when parallel write/readback cross-wires', async () => {
+    const fixture = createSkuRow({ crossWireOnParallel: true });
+    const result = await fillSkuRowFields(fixture.row, rowModel, columns, sku);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.mode, 'sequential');
+    assert.equal(fixture.stats().maxConcurrentFills, 3);
+    // 并行 3 次 + 串行 3 次
+    assert.equal(fixture.stats().fillCalls, 6);
+    assert.deepEqual(fixture.stats().values, ['7', '16.90', '18.90']);
   });
 });
 
