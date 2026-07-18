@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { gen, property } from './_harness.js';
 import { applyCooldownAttribution } from '../../src/commands/runner/batch-executor.js';
 import { getSharedClient, _resetSharedClient } from '../../src/adapter/rate-limiter-singleton.js';
+import { TEST_RUNTIME_CONFIG } from '../helpers/runtime-config.js';
 import { batchExitCode, ExitCodes } from '../../src/infra/errors.js';
 
 const COOLDOWN_PREFIX = 'cooldown_inherited_from:';
@@ -192,7 +193,7 @@ describe('cooldown attribution PBT', () => {
         const clients = new Set();
         const limiters = new Set();
         for (let i = 0; i < accountCount; i += 1) {
-          const client = getSharedClient();
+          const client = getSharedClient(TEST_RUNTIME_CONFIG);
           clients.add(client);
           limiters.add(client._limiter);
         }

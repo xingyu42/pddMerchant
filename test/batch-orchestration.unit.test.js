@@ -95,12 +95,11 @@ describe('batch orchestration invariants', () => {
     assert.equal(batchMocks.emit.mock.calls.length, 0);
   });
 
-  it('rejects PDD_AUTH_STATE_PATH with --all-accounts before daemon, account iteration, or emit', async () => {
-    process.env.PDD_AUTH_STATE_PATH = 'D:/tmp/auth-state.json';
+  it('rejects configured authStatePath with --all-accounts before daemon, account iteration, or emit', async () => {
     const cmd = makeBatchCommand();
 
     await assert.rejects(
-      () => cmd({ allAccounts: true, json: true, noColor: true }),
+      () => cmd({ allAccounts: true, authStatePath: 'D:/tmp/auth-state.json', json: true, noColor: true }),
       (err) => err.code === 'E_USAGE' && err.exitCode === ExitCodes.USAGE,
     );
 

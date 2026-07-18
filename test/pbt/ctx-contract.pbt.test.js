@@ -5,6 +5,7 @@
 import { vi, describe, it, beforeEach, afterEach } from 'vitest';
 import assert from 'node:assert/strict';
 import { gen, property } from './_harness.js';
+import { TEST_RUNTIME_CONFIG } from '../helpers/runtime-config.js';
 
 const fakes = vi.hoisted(() => ({
   fakePage: { __fake: 'page' },
@@ -47,6 +48,7 @@ const { getSharedClient } = await import('../../src/adapter/rate-limiter-singlet
 const FIXTURE_CTX_KEYS = [
   'client', 'page', 'mallCtx', 'mallId', 'authPath', 'account', 'accountSlug',
   'config', 'log', 'correlation_id', 'warnings', 'signal', 'deadlineAt',
+  'runtimeConfig',
 ].sort();
 const LIVE_CTX_KEYS = [...FIXTURE_CTX_KEYS, 'context', 'pageSession'].sort();
 
@@ -91,7 +93,7 @@ describe('ctx contract PBT (PROP-CTX-1)', () => {
       const envelope = await executeSingle(
         spec,
         { json, noColor, ...(hasTimeout ? { timeoutMs: 30000 } : {}) },
-        { emitResult: false, skipDaemonStart: true },
+        { emitResult: false, skipDaemonStart: true, runtimeConfig: TEST_RUNTIME_CONFIG },
       );
       assert.equal(envelope.ok, true, `probe must succeed, got error: ${envelope.error?.code}`);
       assert.ok(captured, 'run(ctx) must be invoked');
@@ -112,7 +114,7 @@ describe('ctx contract PBT (PROP-CTX-1)', () => {
       const envelope = await executeSingle(
         spec,
         { json, noColor, ...(hasTimeout ? { timeoutMs: 30000 } : {}) },
-        { emitResult: false, skipDaemonStart: true },
+        { emitResult: false, skipDaemonStart: true, runtimeConfig: TEST_RUNTIME_CONFIG },
       );
       assert.equal(envelope.ok, true, `probe must succeed, got error: ${envelope.error?.code}`);
       assert.ok(captured, 'run(ctx) must be invoked');

@@ -9,7 +9,6 @@ import {
 import {
   captureConsumerQr,
   waitForConsumerLogin,
-  CONSUMER_LOGIN_URL,
 } from '../adapter/consumer-qr-login.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
@@ -91,7 +90,14 @@ export async function performHeadedLogin({ authStatePath, timeoutMs }) {
   }
 }
 
-export async function performConsumerQrLogin({ authStatePath, timeoutMs, headed = false, onQrCaptured }) {
+export async function performConsumerQrLogin({
+  authStatePath,
+  timeoutMs,
+  headed = false,
+  onQrCaptured,
+  consumerLoginUrl,
+  scrapeCooldownConfig,
+}) {
   const log = getLogger();
   let browser = null;
   try {
@@ -100,7 +106,7 @@ export async function performConsumerQrLogin({ authStatePath, timeoutMs, headed 
     const consumer = await createConsumerContext(browser);
 
     log.info({ headed }, '消费端：抓取登录二维码中');
-    const pngBuffer = await captureConsumerQr(consumer.page);
+    const pngBuffer = await captureConsumerQr(consumer.page, { loginUrl: consumerLoginUrl });
     const imagePath = await saveQrPng(pngBuffer);
     const qrContent = decodeQrContent(pngBuffer);
 
@@ -118,14 +124,19 @@ export async function performConsumerQrLogin({ authStatePath, timeoutMs, headed 
     }
 
     const savedPath = await saveAuthState(consumer.context, authStatePath);
-    getSharedScrapeCooldown().recordSuccess();
+    getSharedScrapeCooldown(scrapeCooldownConfig).recordSuccess();
     return { path: savedPath, url: result.url, mode: 'consumer-qr', qrImagePath: imagePath };
   } finally {
     await closeBrowser(browser);
   }
 }
 
-export async function performConsumerHeadedLogin({ authStatePath, timeoutMs }) {
+export async function performConsumerHeadedLogin({
+  authStatePath,
+  timeoutMs,
+  consumerLoginUrl,
+  scrapeCooldownConfig,
+}) {
   const log = getLogger();
   let browser = null;
   try {
@@ -133,7 +144,7 @@ export async function performConsumerHeadedLogin({ authStatePath, timeoutMs }) {
     browser = launched.browser;
     const { context, page } = launched;
 
-    await page.goto(CONSUMER_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.NAV });
+    await page.goto(consumerLoginUrl, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.NAV });
     log.info(`消费端：等待手动登录（最长 ${Math.round(timeoutMs / 60000)} 分钟）`);
 
     const result = await waitForConsumerLogin(page, { timeoutMs });
@@ -147,7 +158,7 @@ export async function performConsumerHeadedLogin({ authStatePath, timeoutMs }) {
     }
 
     const savedPath = await saveAuthState(context, authStatePath);
-    getSharedScrapeCooldown().recordSuccess();
+    getSharedScrapeCooldown(scrapeCooldownConfig).recordSuccess();
     return { path: savedPath, url: result.url, mode: 'consumer-headed' };
   } finally {
     await closeBrowser(browser);

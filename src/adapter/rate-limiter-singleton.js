@@ -1,35 +1,20 @@
 import { createRateLimiter } from './rate-limiter.js';
 import { PlaywrightEndpointClient } from './endpoint-client.js';
+import { PddCliError, ExitCodes } from '../infra/errors.js';
 
-const DEFAULT_QPS = 2;
-const DEFAULT_BURST = 3;
-const DEFAULT_COOLDOWN_THRESHOLD = 3;
-const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
-
-function readNonNegativeFloat(envKey, fallback) {
-  const raw = process.env[envKey];
-  if (raw === undefined || raw === '') return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : fallback;
-}
-
-function readPositiveInt(envKey, fallback) {
-  const raw = process.env[envKey];
-  if (raw === undefined || raw === '') return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) && Number.isInteger(n) && n > 0 ? n : fallback;
-}
-
-function readPositiveFloat(envKey, fallback) {
-  const raw = process.env[envKey];
-  if (raw === undefined || raw === '') return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
+function missingRuntimeConfig(fields) {
+  return new PddCliError({
+    code: 'E_CONFIG_INVALID',
+    message: 'Runtime configuration was not provided to the endpoint client',
+    hint: 'Load config through the CLI runtime before creating shared adapters',
+    detail: { source: 'runtime', reason: 'fields_missing', fields },
+    exitCode: ExitCodes.GENERAL,
+  });
 }
 
 export const _cooldownConfig = {
-  threshold: readPositiveInt('PDD_COOLDOWN_THRESHOLD', DEFAULT_COOLDOWN_THRESHOLD),
-  ms: readPositiveFloat('PDD_COOLDOWN_MS', DEFAULT_COOLDOWN_MS),
+  threshold: undefined,
+  ms: undefined,
 };
 
 const _cooldownState = {
@@ -42,20 +27,38 @@ const _cooldownState = {
 
 let _limiter = null;
 let _client = null;
+let _runtimeConfig = null;
 
-export function getSharedLimiter() {
+function resolveRuntimeConfig(runtimeConfig, fields) {
+  if (runtimeConfig) _runtimeConfig = runtimeConfig;
+  const resolved = runtimeConfig ?? _runtimeConfig;
+  const missing = fields.filter((field) => resolved?.[field] == null);
+  if (missing.length > 0) throw missingRuntimeConfig(missing);
+  return resolved;
+}
+
+export function getSharedLimiter(runtimeConfig) {
   if (!_limiter) {
-    const qps = readNonNegativeFloat('PDD_RATE_LIMIT_QPS', DEFAULT_QPS);
-    const burst = readPositiveInt('PDD_RATE_LIMIT_BURST', DEFAULT_BURST);
-    _limiter = createRateLimiter({ qps, burst });
+    const resolved = resolveRuntimeConfig(runtimeConfig, ['rateLimitQps', 'rateLimitBurst']);
+    _limiter = createRateLimiter({
+      qps: resolved.rateLimitQps,
+      burst: resolved.rateLimitBurst,
+    });
   }
   return _limiter;
 }
 
-export function getSharedClient() {
+export function getSharedClient(runtimeConfig) {
   if (!_client) {
+    const resolved = resolveRuntimeConfig(runtimeConfig, ['cooldownThreshold', 'cooldownMs']);
+    if (runtimeConfig || _cooldownConfig.threshold == null) {
+      _cooldownConfig.threshold = resolved.cooldownThreshold;
+    }
+    if (runtimeConfig || _cooldownConfig.ms == null) {
+      _cooldownConfig.ms = resolved.cooldownMs;
+    }
     _client = new PlaywrightEndpointClient({
-      limiter: getSharedLimiter(),
+      limiter: getSharedLimiter(resolved),
       cooldownState: _cooldownState,
     });
   }

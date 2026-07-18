@@ -17,6 +17,7 @@ export function buildCommandCtx(runtime, { client, page, mallCtx, ...extra }) {
     account: runtime.accountCtx?.account ?? null,
     accountSlug: runtime.accountCtx?.slug ?? null,
     config: runtime.opts,
+    runtimeConfig: runtime.runtimeConfig ?? null,
     log: runtime.log,
     correlation_id: runtime.correlationId,
     warnings: runtime.warnings,

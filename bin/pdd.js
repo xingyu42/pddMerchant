@@ -3,8 +3,10 @@ import { Command } from 'commander';
 import { emit } from '../src/infra/output.js';
 import { ExitCodes, mapErrorToExit, errorToEnvelope } from '../src/infra/errors.js';
 import { createLogger, redactRecursive } from '../src/infra/logger.js';
+import { prepareCommandRuntime } from '../src/commands/runtime-options.js';
 import { closeAllBrowsers } from '../src/adapter/browser.js';
 import { register as registerCore } from '../src/commands/registry/core.js';
+import { register as registerConfig } from '../src/commands/registry/config.js';
 import { register as registerShops } from '../src/commands/registry/shops.js';
 import { register as registerOrders } from '../src/commands/registry/orders.js';
 import { register as registerGoods } from '../src/commands/registry/goods.js';
@@ -14,7 +16,6 @@ import { register as registerAction } from '../src/commands/registry/action.js';
 import { register as registerAccount } from '../src/commands/registry/account.js';
 import { register as registerDaemon } from '../src/commands/registry/daemon.js';
 
-// --- Signal Handlers (C1) ---
 let shuttingDown = false;
 function onSignal(signal) {
   if (shuttingDown) return;
@@ -26,7 +27,6 @@ function onSignal(signal) {
 process.on('SIGINT', () => onSignal('SIGINT'));
 process.on('SIGTERM', () => onSignal('SIGTERM'));
 
-// --- Global Exception Handlers (W6) ---
 let fatalEmitted = false;
 process.on('unhandledRejection', (reason) => {
   if (fatalEmitted) return;
@@ -112,12 +112,19 @@ function mergeOptions(commanderCmd) {
   };
 }
 
-function wireAction(cmd, commandName, runFn) {
-  cmd.action(async function action(_localOpts, commanderCmd) {
+function wireAction(cmd, commandName, runFn, { runtimeConfigPolicy = 'required' } = {}) {
+  cmd.action(async function action(...actionArgs) {
+    const commanderCmd = actionArgs.at(-1) ?? this;
     const opts = mergeOptions(commanderCmd ?? this);
-    createLogger({ verbose: opts.verbose });
+    const positionalArgs = actionArgs.slice(0, -2);
+    if (positionalArgs.length > 0) opts.args = positionalArgs;
     try {
-      const envelope = await runFn(opts);
+      const runtimeConfig = runtimeConfigPolicy === 'required'
+        ? await prepareCommandRuntime(opts)
+        : null;
+      if (runtimeConfig) createLogger({ level: runtimeConfig.logLevel, config: runtimeConfig });
+      else createLogger({ level: 'silent' });
+      const envelope = await runFn(opts, { runtimeConfig });
       if (process.exitCode === 130) {
         // SIGINT already set by batch handler — preserve it
       } else if (envelope && envelope.ok === false) {
@@ -138,8 +145,8 @@ function wireAction(cmd, commandName, runFn) {
   });
 }
 
-// 固定注册顺序 = help 分组顺序（design D-3）；全局 option 已先于此挂载
 registerCore(program, wireAction);
+registerConfig(program, wireAction);
 registerShops(program, wireAction);
 registerOrders(program, wireAction);
 registerGoods(program, wireAction);
@@ -148,7 +155,6 @@ registerDiagnose(program, wireAction);
 registerAction(program, wireAction);
 registerAccount(program, wireAction);
 registerDaemon(program, wireAction);
-
 async function main() {
   try {
     await program.parseAsync(process.argv);

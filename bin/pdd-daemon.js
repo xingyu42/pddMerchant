@@ -213,8 +213,9 @@ async function main() {
 
   config = await loadRuntimeConfig();
   log = createLogger({
-    verbose: true,
-    ...(isForeground ? {} : { destination: DAEMON_LOG_PATH }),
+    level: config.logLevel,
+    config,
+    ...(!config.logDestination && !isForeground ? { destination: DAEMON_LOG_PATH } : {}),
   });
 
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

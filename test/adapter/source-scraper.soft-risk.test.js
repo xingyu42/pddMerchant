@@ -198,12 +198,14 @@ describe('scrapeSourceGoods 软风控脱敏检测', () => {
       catID2: '2',
       catID3: '15000',
       linePrice: '12',
+      goodsProperty: [{ key: '品牌', values: ['测试品牌'], ref_pid: 310, reference_id: 1 }],
       skuDimensions: [{ name: '颜色', values: [{ id: 'red', text: '红色' }] }],
       skus: [{
         skuID: 'target-sku',
         groupPrice: '8.22',
         normalPrice: '8.99',
         quantity: 0,
+        thumbUrl: 'https://img.pddpic.com/red.jpg',
         specValues: { 颜色: '红色' },
       }],
     };
@@ -223,7 +225,14 @@ describe('scrapeSourceGoods 软风控脱敏检测', () => {
     assert.equal(data.goodsID, '1');
     assert.equal(data.skus.length, 1);
     assert.equal(data.skus[0].sourceSkuId, 'target-sku');
+    assert.equal(data.skus[0].thumbUrl, 'https://img.pddpic.com/red.jpg');
     assert.equal(data.skus[0].stock, 0);
+    assert.deepEqual(data.goodsProperties, [{
+      name: '品牌',
+      values: ['测试品牌'],
+      refPid: 310,
+      referenceId: 1,
+    }]);
     assert.equal(data.sourceReferencePriceCents, 1200);
     assert.equal(health.calls.recordSuccess, 1);
   });

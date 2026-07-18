@@ -1,0 +1,16 @@
+{
+  "logLevel": "warn",
+  "rateLimitQps": 2,
+  "rateLimitBurst": 3,
+  "cooldownThreshold": 3,
+  "cooldownMs": 300000,
+  "refreshIntervalMs": 600000,
+  "refreshJitterMs": 120000,
+  "writeRateTokensPerMinute": 20,
+  "scrapeSoftBlockThreshold": 2,
+  "scrapeSoftBlockCooldownMs": 7200000,
+  "categoryApiBase": "https://api.gj.dangxun.com",
+  "consumerLoginUrl": "https://mobile.yangkeduo.com/login.html",
+  "mallIdStrictParse": true,
+  "titleRewrite": true
+}

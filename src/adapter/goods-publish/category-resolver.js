@@ -2,7 +2,6 @@ import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { isMockEnabled, loadFixture } from '../mock-dispatcher.js';
 import { getLogger } from '../../infra/logger.js';
 
-const CATEGORY_API_BASE = process.env.PDD_CATEGORY_API_BASE || 'https://api.gj.dangxun.com';
 const TIMEOUT_MS = 10_000;
 const MAX_RETRIES = 2;
 const RETRY_DELAYS = [1000, 2000];
@@ -24,8 +23,8 @@ function checkCategoryCircuit() {
   }
 }
 
-async function fetchCategoryWithRetry(catId3, log) {
-  const url = `${CATEGORY_API_BASE}/api/v1/crx/PddCate?last_cate_id=${catId3}`;
+async function fetchCategoryWithRetry(catId3, log, apiBase) {
+  const url = `${apiBase}/api/v1/crx/PddCate?last_cate_id=${catId3}`;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const controller = new AbortController();
@@ -62,13 +61,13 @@ async function fetchCategoryWithRetry(catId3, log) {
   }
 }
 
-export async function resolvePddCategory(catId3, catId1, catId2) {
+export async function resolvePddCategory(catId3, catId1, catId2, { apiBase } = {}) {
   if (isMockEnabled()) return loadFixture('goods-publish/category.json');
 
   const log = getLogger();
   checkCategoryCircuit();
 
-  const body = await fetchCategoryWithRetry(catId3, log);
+  const body = await fetchCategoryWithRetry(catId3, log, apiBase);
 
   if (body.code !== 1 || !body.data) {
     throw new PddCliError({

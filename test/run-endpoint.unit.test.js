@@ -8,6 +8,10 @@ import {
   _cooldownRemainingMs,
   _RATE_LIMIT_CONFIG,
 } from '../src/adapter/run-endpoint.js';
+import { getSharedClient } from '../src/adapter/rate-limiter-singleton.js';
+import { TEST_RUNTIME_CONFIG } from './helpers/runtime-config.js';
+
+getSharedClient(TEST_RUNTIME_CONFIG);
 
 function createFakePage({ respondBy, navSelector = true, navSucceeds = true } = {}) {
   const listeners = [];

@@ -152,7 +152,7 @@ test('optionSelectorsFor escapes special characters in mallId', () => {
 test('switchTo real: rejects invalid mallId (non-numeric)', async () => {
   delete process.env.PDD_TEST_ADAPTER;
   await assert.rejects(
-    () => switchTo({}, 'abc!@#'),
+    () => switchTo({}, 'abc!@#', { strict: true }),
     (err) => err.code === 'E_USAGE',
   );
 });
@@ -160,7 +160,7 @@ test('switchTo real: rejects invalid mallId (non-numeric)', async () => {
 test('switchTo real: rejects empty string mallId', async () => {
   delete process.env.PDD_TEST_ADAPTER;
   await assert.rejects(
-    () => switchTo({}, ''),
+    () => switchTo({}, '', { strict: true }),
     (err) => err.code === 'E_USAGE',
   );
 });

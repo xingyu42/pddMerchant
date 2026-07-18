@@ -79,11 +79,11 @@ async function assertAuthValid(page, { signal, deadlineAt }) {
   }
 }
 
-async function resolveLiveMall(needsMall, page, opts) {
+async function resolveLiveMall(needsMall, page, opts, runtimeConfig) {
   if (needsMall !== 'current' && needsMall !== 'switch') return null;
   let mallCtx = await resolveMallContext(page);
   if (needsMall === 'switch' && opts.mall) {
-    await switchTo(page, opts.mall);
+    await switchTo(page, opts.mall, { strict: runtimeConfig?.mallIdStrictParse });
     mallCtx = await resolveMallContext(page);
   }
   return mallCtx;
@@ -106,10 +106,10 @@ function executeLive(spec, runtime) {
       }
     }
 
-    const mallCtx = await resolveLiveMall(spec.needsMall, page, opts);
+    const mallCtx = await resolveLiveMall(spec.needsMall, page, opts, runtime.runtimeConfig);
     const pageSession = createPageSession(context);
     const ctx = buildCommandCtx(runtime, {
-      client: getSharedClient(),
+      client: getSharedClient(runtime.runtimeConfig),
       page,
       mallCtx,
       context,
@@ -127,7 +127,12 @@ function executeLive(spec, runtime) {
   }).catch((err) => finalizeError(spec, runtime, err));
 }
 
-export async function executeSingle(spec, opts = {}, { emitResult = true, skipDaemonStart = false, parentSignal } = {}) {
+export async function executeSingle(spec, opts = {}, {
+  emitResult = true,
+  skipDaemonStart = false,
+  parentSignal,
+  runtimeConfig,
+} = {}) {
   const { name, needsAuth = true, needsMall = 'current', run, render } = spec;
   const normSpec = { name, needsAuth, needsMall, run, render };
   const startedAt = Date.now();
@@ -153,6 +158,7 @@ export async function executeSingle(spec, opts = {}, { emitResult = true, skipDa
     accountCtx,
     signal,
     deadlineAt,
+    runtimeConfig,
   };
 
   try {

@@ -70,7 +70,7 @@ export function mergePayload(origPostData, payload) {
 export class PlaywrightEndpointClient {
   constructor({ limiter, cooldownState, pageSession } = {}) {
     this._limiter = limiter;
-    this._cooldownState = cooldownState ?? { map: new Map(), threshold: 3, ms: 5 * 60 * 1000 };
+    this._cooldownState = cooldownState ?? { map: new Map(), threshold: undefined, ms: undefined };
     this._pageSession = pageSession;
   }
 
@@ -138,6 +138,15 @@ export class PlaywrightEndpointClient {
   }
 
   _recordRateLimitFailure(name) {
+    if (!Number.isInteger(this._cooldownState.threshold) || this._cooldownState.threshold <= 0
+      || !Number.isFinite(this._cooldownState.ms) || this._cooldownState.ms <= 0) {
+      throw new PddCliError({
+        code: 'E_CONFIG_INVALID',
+        message: 'Endpoint cooldown runtime configuration is missing',
+        detail: { source: 'runtime', reason: 'fields_missing', fields: ['cooldownThreshold', 'cooldownMs'] },
+        exitCode: ExitCodes.GENERAL,
+      });
+    }
     const prev = this._cooldownState.map.get(name);
     const failures = (prev?.consecutiveFailures ?? 0) + 1;
     const state = { consecutiveFailures: failures, cooldownUntil: prev?.cooldownUntil ?? 0 };

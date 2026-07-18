@@ -4,7 +4,14 @@ const STRICT_PATTERN = /^[0-9]{1,15}$/;
 const RELAXED_MAX_LEN = 64;
 
 export function parseMallId(input, { strict } = {}) {
-  const useStrict = strict !== false && process.env.PDD_MALL_ID_STRICT_PARSE !== '0';
+  if (typeof strict !== 'boolean') {
+    throw new PddCliError({
+      code: 'E_CONFIG_INVALID',
+      message: 'mallIdStrictParse runtime configuration is required',
+      detail: { source: 'runtime', reason: 'field_missing', field: 'mallIdStrictParse' },
+      exitCode: ExitCodes.GENERAL,
+    });
+  }
 
   if (typeof input === 'number') {
     if (!Number.isSafeInteger(input) || input < 0) {
@@ -19,7 +26,7 @@ export function parseMallId(input, { strict } = {}) {
 
   const trimmed = input.trim();
 
-  if (useStrict) {
+  if (strict) {
     if (input !== trimmed) {
       return { value: null, reason: 'mall_id contains leading/trailing whitespace' };
     }

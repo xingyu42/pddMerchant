@@ -1,6 +1,6 @@
 // PROP-HELP-1（refactor-arch-review-remediation task 6.2）：
 // bin/pdd.js 注册拆分（R2b）后，全部 help 输出与 post-R1 基线（task 2.6 采集）逐字节相等。
-// 基线：test/fixtures/help/baseline.json，44 项 = root + 9 个分组 + 34 个子命令。
+// 基线：test/fixtures/help/baseline.json，键集由 capture.mjs 的 INVOCATIONS 生成。
 // 同时守卫 bin/pdd.js 薄 facade 行数，防止注册代码回流。
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';

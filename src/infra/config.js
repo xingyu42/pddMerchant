@@ -1,152 +1,309 @@
 import { readFile } from 'node:fs/promises';
-import { isAbsolute } from 'node:path';
+import { basename, relative } from 'node:path';
 import { z } from 'zod';
-import { CONFIG_PATH as DEFAULT_CONFIG_PATH } from './paths.js';
+import {
+  CONFIG_EXAMPLE_PATH as DEFAULT_CONFIG_EXAMPLE_PATH,
+  CONFIG_PATH as DEFAULT_CONFIG_PATH,
+  PROJECT_ROOT,
+} from './paths.js';
 import { PddCliError, ExitCodes } from './errors.js';
-
-const ConfigSchema = z.object({
-  apiBase: z.string().url().optional(),
-  mallId: z.string().optional(),
-  profileDir: z.string().optional(),
-  timeoutMs: z.number().int().positive().optional(),
-  logLevel: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).optional(),
-  defaultMall: z.string().optional(),
-  rateLimitQps: z.number().finite().optional(),
-  rateLimitBurst: z.number().int().positive().optional(),
-  cooldownThreshold: z.number().int().positive().optional(),
-  cooldownMs: z.number().int().positive().optional(),
-  authStatePath: z.string().optional(),
-  logDestination: z.string().optional(),
-  refreshIntervalMs: z.number().int().positive().optional(),
-  refreshJitterMs: z.number().int().nonnegative().optional(),
-}).partial();
 
 const REJECTED_LOG_DESTINATIONS = new Set(['stdout', 'stderr', '-', ':console']);
 
-const ENV_KEY_MAP = {
-  PDD_API_BASE: 'apiBase',
-  PDD_MALL_ID: 'mallId',
-  PDD_PROFILE_DIR: 'profileDir',
-  PDD_TIMEOUT_MS: 'timeoutMs',
-  PDD_LOG_LEVEL: 'logLevel',
-  PDD_DEFAULT_MALL: 'defaultMall',
-  PDD_RATE_LIMIT_QPS: 'rateLimitQps',
-  PDD_RATE_LIMIT_BURST: 'rateLimitBurst',
-  PDD_COOLDOWN_THRESHOLD: 'cooldownThreshold',
-  PDD_COOLDOWN_MS: 'cooldownMs',
-  PDD_AUTH_STATE_PATH: 'authStatePath',
-  PDD_LOG_DESTINATION: 'logDestination',
-  PDD_REFRESH_INTERVAL_MS: 'refreshIntervalMs',
-  PDD_REFRESH_JITTER_MS: 'refreshJitterMs',
-};
+const qpsSchema = z.number().finite().refine(
+  (value) => value === 0 || value >= 0.01,
+  { message: 'must be 0 or at least 0.01' },
+);
 
-const NUMERIC_KEYS = new Set([
-  'timeoutMs', 'rateLimitQps', 'rateLimitBurst',
-  'cooldownThreshold', 'cooldownMs',
-  'refreshIntervalMs', 'refreshJitterMs',
-]);
+const logDestinationSchema = z.string().min(1).refine(
+  (value) => !REJECTED_LOG_DESTINATIONS.has(value.toLowerCase()),
+  { message: 'console destinations are not allowed' },
+);
 
-function readEnv(env = process.env) {
-  const out = {};
-  for (const [envKey, cfgKey] of Object.entries(ENV_KEY_MAP)) {
-    const v = env[envKey];
-    if (v == null || v === '') continue;
-    if (NUMERIC_KEYS.has(cfgKey)) {
-      const n = Number(v);
-      if (Number.isFinite(n)) out[cfgKey] = n;
-    } else {
-      out[cfgKey] = v;
-    }
+const CONFIG_FIELD_DEFINITIONS = Object.freeze({
+  logLevel: { schema: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']), env: 'PDD_LOG_LEVEL', kind: 'string', required: true },
+  rateLimitQps: { schema: qpsSchema, env: 'PDD_RATE_LIMIT_QPS', kind: 'number', required: true },
+  rateLimitBurst: { schema: z.number().int().positive(), env: 'PDD_RATE_LIMIT_BURST', kind: 'number', required: true },
+  cooldownThreshold: { schema: z.number().int().positive(), env: 'PDD_COOLDOWN_THRESHOLD', kind: 'number', required: true },
+  cooldownMs: { schema: z.number().int().positive(), env: 'PDD_COOLDOWN_MS', kind: 'number', required: true },
+  refreshIntervalMs: { schema: z.number().int().positive(), env: 'PDD_REFRESH_INTERVAL_MS', kind: 'number', required: true },
+  refreshJitterMs: { schema: z.number().int().nonnegative(), env: 'PDD_REFRESH_JITTER_MS', kind: 'number', required: true },
+  writeRateTokensPerMinute: { schema: z.number().int().positive(), env: 'PDD_WRITE_RATE_TPM', kind: 'number', required: true },
+  scrapeSoftBlockThreshold: { schema: z.number().int().positive(), env: 'PDD_SCRAPE_SOFTBLOCK_THRESHOLD', kind: 'number', required: true },
+  scrapeSoftBlockCooldownMs: { schema: z.number().int().positive(), env: 'PDD_SCRAPE_SOFTBLOCK_COOLDOWN_MS', kind: 'number', required: true },
+  categoryApiBase: { schema: z.string().url(), env: 'PDD_CATEGORY_API_BASE', kind: 'string', required: true },
+  consumerLoginUrl: { schema: z.string().url(), env: 'PDD_CONSUMER_LOGIN_URL', kind: 'string', required: true },
+  mallIdStrictParse: { schema: z.boolean(), env: 'PDD_MALL_ID_STRICT_PARSE', kind: 'boolean', required: true },
+  titleRewrite: { schema: z.boolean(), env: 'PDD_TITLE_REWRITE', kind: 'boolean', required: true },
+  timeoutMs: { schema: z.number().int().positive(), env: 'PDD_TIMEOUT_MS', kind: 'number', required: false },
+  defaultMall: { schema: z.string().min(1), env: 'PDD_DEFAULT_MALL', kind: 'string', required: false },
+  authStatePath: { schema: z.string().min(1), env: 'PDD_AUTH_STATE_PATH', kind: 'string', required: false },
+  logDestination: { schema: logDestinationSchema, env: 'PDD_LOG_DESTINATION', kind: 'string', required: false },
+});
+
+const optionalShape = Object.fromEntries(
+  Object.entries(CONFIG_FIELD_DEFINITIONS).map(([key, definition]) => [key, definition.schema.optional()]),
+);
+
+const runtimeShape = Object.fromEntries(
+  Object.entries(CONFIG_FIELD_DEFINITIONS).map(([key, definition]) => [
+    key,
+    definition.required ? definition.schema : definition.schema.optional(),
+  ]),
+);
+
+const ConfigSchema = z.object(optionalShape).strict();
+const RuntimeConfigSchema = z.object(runtimeShape).strict();
+
+function displayConfigPath(path) {
+  const rel = relative(PROJECT_ROOT, path);
+  if (rel !== '' && !rel.startsWith('..') && !rel.includes(':')) {
+    return rel.replaceAll('\\', '/');
   }
-  return out;
+  return basename(path);
 }
 
-async function readFileConfig(path) {
-  try {
-    const raw = await readFile(path, 'utf8');
-    return JSON.parse(raw);
-  } catch (err) {
-    if (err && err.code === 'ENOENT') return {};
-    return {};
+function sanitizeIssues(issues = []) {
+  return issues.map((issue) => ({
+    path: issue.path.join('.'),
+    code: issue.code,
+    message: issue.message,
+  }));
+}
+
+function invalidConfigError({ source, path, reason, issues }) {
+  const isBaseline = source === 'baseline';
+  return new PddCliError({
+    code: 'E_CONFIG_INVALID',
+    message: isBaseline
+      ? 'Required baseline configuration is missing or invalid'
+      : `${source} configuration is invalid`,
+    hint: isBaseline
+      ? 'Restore config/config.example.json from the repository'
+      : 'Fix the reported configuration fields and retry',
+    detail: {
+      source,
+      ...(path ? { path: displayConfigPath(path) } : {}),
+      reason,
+      ...(issues?.length ? { issues: sanitizeIssues(issues) } : {}),
+    },
+    exitCode: ExitCodes.GENERAL,
+  });
+}
+
+function validateLayer(value, schema, { source, path, reason = 'schema_invalid' }) {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) {
+    throw invalidConfigError({ source, path, reason, issues: parsed.error.issues });
   }
+  return parsed.data;
+}
+
+async function readJsonLayer(path, { required, source, schema }) {
+  let raw;
+  try {
+    raw = await readFile(path, 'utf8');
+  } catch (error) {
+    if (!required && error?.code === 'ENOENT') return {};
+    throw invalidConfigError({
+      source,
+      path,
+      reason: error?.code === 'ENOENT' ? 'file_missing' : 'file_unreadable',
+    });
+  }
+
+  let value;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw invalidConfigError({ source, path, reason: 'json_invalid' });
+  }
+
+  return validateLayer(value, schema, { source, path });
+}
+
+function coerceEnvValue(raw, kind) {
+  const text = String(raw).trim();
+  if (kind === 'number') {
+    if (!/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(text)) return raw;
+    const parsed = Number(text);
+    return Number.isFinite(parsed) ? parsed : raw;
+  }
+  if (kind === 'boolean') {
+    if (text === '1' || text.toLowerCase() === 'true') return true;
+    if (text === '0' || text.toLowerCase() === 'false') return false;
+    return raw;
+  }
+  return raw;
+}
+
+function readEnvLayer(env = process.env) {
+  const values = {};
+  for (const [key, definition] of Object.entries(CONFIG_FIELD_DEFINITIONS)) {
+    const raw = env[definition.env];
+    if (raw == null || raw === '') continue;
+    values[key] = coerceEnvValue(raw, definition.kind);
+  }
+  return validateLayer(values, ConfigSchema, { source: 'environment' });
+}
+
+function compactDefined(values) {
+  return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined));
+}
+
+export function parseWritableConfigField(key, rawValue) {
+  const definition = CONFIG_FIELD_DEFINITIONS[key];
+  if (!definition) {
+    throw invalidConfigError({
+      source: 'input',
+      reason: 'unknown_field',
+      issues: [{ path: [key], code: 'unrecognized_key', message: 'Unknown configuration field' }],
+    });
+  }
+  const value = coerceEnvValue(rawValue, definition.kind);
+  const parsed = definition.schema.safeParse(value);
+  if (!parsed.success) {
+    throw invalidConfigError({
+      source: 'input',
+      reason: 'field_invalid',
+      issues: parsed.error.issues.map((issue) => ({ ...issue, path: [key, ...issue.path] })),
+    });
+  }
+  return parsed.data;
+}
+
+export function validateLocalConfigCandidate(value) {
+  return validateLayer(value, ConfigSchema, { source: 'local' });
+}
+
+function inspectionIssue(error, fallbackLayer) {
+  const detail = error?.detail ?? {};
+  const layer = detail.source === 'environment' ? 'env' : (detail.source ?? fallbackLayer);
+  const issues = Array.isArray(detail.issues) && detail.issues.length > 0
+    ? detail.issues
+    : [{ path: '', code: detail.reason ?? 'invalid', message: error?.message ?? 'Configuration is invalid' }];
+  return issues.map((issue) => ({
+    layer,
+    ...(detail.path ? { path: detail.path } : {}),
+    field: issue.path ?? '',
+    code: issue.code ?? detail.reason ?? 'invalid',
+    message: issue.message ?? error?.message ?? 'Configuration is invalid',
+  }));
+}
+
+async function inspectLayer(layer, read) {
+  try {
+    return { valid: true, value: await read(), issues: [] };
+  } catch (error) {
+    return { valid: false, value: null, issues: inspectionIssue(error, layer) };
+  }
+}
+
+export async function inspectConfig({
+  cliFlags = {},
+  env = process.env,
+  baselinePath = DEFAULT_CONFIG_EXAMPLE_PATH,
+  configPath = DEFAULT_CONFIG_PATH,
+} = {}) {
+  const [baseline, local] = await Promise.all([
+    inspectLayer('baseline', () => readJsonLayer(baselinePath, {
+      required: true,
+      source: 'baseline',
+      schema: RuntimeConfigSchema,
+    })),
+    inspectLayer('local', () => readJsonLayer(configPath, {
+      required: false,
+      source: 'local',
+      schema: ConfigSchema,
+    })),
+  ]);
+  const environment = await inspectLayer('env', () => readEnvLayer(env));
+  const cli = await inspectLayer('cli', () => validateLayer(
+    compactDefined(cliFlags),
+    ConfigSchema,
+    { source: 'cli' },
+  ));
+
+  const layers = { baseline, local, environment, cli };
+  const prerequisitesValid = Object.values(layers).every((layer) => layer.valid);
+  let merged = { valid: false, value: null, issues: [] };
+  if (prerequisitesValid) {
+    merged = await inspectLayer('merged', () => validateLayer({
+      ...baseline.value,
+      ...local.value,
+      ...environment.value,
+      ...cli.value,
+    }, RuntimeConfigSchema, { source: 'merged' }));
+  }
+
+  const valid = prerequisitesValid && merged.valid;
+  const sources = {};
+  if (valid) {
+    for (const key of Object.keys(baseline.value)) sources[key] = 'baseline';
+    for (const key of Object.keys(local.value)) sources[key] = 'local';
+    for (const key of Object.keys(environment.value)) sources[key] = 'env';
+    for (const key of Object.keys(cli.value)) sources[key] = 'cli';
+  }
+
+  return {
+    valid,
+    runtimeConfig: valid ? Object.freeze({ ...merged.value }) : null,
+    localOverrides: local.valid ? { ...local.value } : null,
+    sources,
+    layers: { ...layers, merged },
+    issues: [...baseline.issues, ...local.issues, ...environment.issues, ...cli.issues, ...merged.issues],
+  };
+}
+
+export function configInspectionError(inspection) {
+  return new PddCliError({
+    code: 'E_CONFIG_INVALID',
+    message: 'Runtime configuration is invalid',
+    hint: 'Run "pdd config validate --json" to inspect configuration layers',
+    detail: {
+      source: 'inspection',
+      reason: 'layers_invalid',
+      issues: inspection?.issues ?? [],
+    },
+    exitCode: ExitCodes.GENERAL,
+  });
 }
 
 export async function loadConfig({
   cliFlags = {},
   env = process.env,
+  baselinePath = DEFAULT_CONFIG_EXAMPLE_PATH,
   configPath = DEFAULT_CONFIG_PATH,
 } = {}) {
-  const fileCfg = await readFileConfig(configPath);
-  const envCfg = readEnv(env);
-  const merged = {
-    ...fileCfg,
-    ...envCfg,
-    ...cliFlags,
+  const baseline = await readJsonLayer(baselinePath, {
+    required: true,
+    source: 'baseline',
+    schema: RuntimeConfigSchema,
+  });
+  const local = await readJsonLayer(configPath, {
+    required: false,
+    source: 'local',
+    schema: ConfigSchema,
+  });
+  const environment = readEnvLayer(env);
+  const cli = validateLayer(compactDefined(cliFlags), ConfigSchema, { source: 'cli' });
+  const config = validateLayer(
+    { ...baseline, ...local, ...environment, ...cli },
+    RuntimeConfigSchema,
+    { source: 'merged' },
+  );
+
+  return {
+    config,
+    valid: true,
+    issues: [],
+    layers: { baseline, local, environment, cli },
   };
-  const parsed = ConfigSchema.safeParse(merged);
-  if (!parsed.success) {
-    return { config: merged, valid: false, issues: parsed.error.issues };
-  }
-  return { config: parsed.data, valid: true, issues: [] };
-}
-
-const RUNTIME_DEFAULTS = Object.freeze({
-  rateLimitQps: 2,
-  rateLimitBurst: 3,
-  cooldownThreshold: 3,
-  cooldownMs: 5 * 60 * 1000,
-  refreshIntervalMs: 10 * 60 * 1000,
-  refreshJitterMs: 2 * 60 * 1000,
-});
-
-function validateLogDestination(dest) {
-  if (dest == null || dest === '') return undefined;
-  if (REJECTED_LOG_DESTINATIONS.has(dest.toLowerCase())) {
-    throw new PddCliError({
-      code: 'E_USAGE',
-      message: `PDD_LOG_DESTINATION="${dest}" is not allowed — use an absolute or project-relative file path`,
-      exitCode: ExitCodes.USAGE,
-    });
-  }
-  return dest;
 }
 
 export async function loadRuntimeConfig(options) {
   const { config } = await loadConfig(options);
-  const logDestination = validateLogDestination(config.logDestination);
-  const runtime = Object.freeze({
-    ...config,
-    rateLimitQps: validQpsOrDefault(config.rateLimitQps, RUNTIME_DEFAULTS.rateLimitQps),
-    rateLimitBurst: validIntPositiveOrDefault(config.rateLimitBurst, RUNTIME_DEFAULTS.rateLimitBurst),
-    cooldownThreshold: validIntPositiveOrDefault(config.cooldownThreshold, RUNTIME_DEFAULTS.cooldownThreshold),
-    cooldownMs: validIntPositiveOrDefault(config.cooldownMs, RUNTIME_DEFAULTS.cooldownMs),
-    logDestination,
-    refreshIntervalMs: validIntPositiveOrDefault(config.refreshIntervalMs, RUNTIME_DEFAULTS.refreshIntervalMs),
-    refreshJitterMs: validIntNonNegOrDefault(config.refreshJitterMs, RUNTIME_DEFAULTS.refreshJitterMs),
-    testAdapter: (options?.env ?? process.env).PDD_TEST_ADAPTER || null,
-  });
-  return runtime;
-}
-
-function validQpsOrDefault(v, fallback) {
-  if (v === 0) return 0;
-  if (typeof v === 'number' && Number.isFinite(v) && v >= 0.01) return v;
-  return fallback;
-}
-
-function validFinitePositiveOrDefault(v, fallback) {
-  if (typeof v === 'number' && Number.isFinite(v) && v >= 0.01) return v;
-  return fallback;
-}
-
-function validIntPositiveOrDefault(v, fallback) {
-  if (typeof v === 'number' && Number.isInteger(v) && v > 0) return v;
-  return fallback;
-}
-
-function validIntNonNegOrDefault(v, fallback) {
-  if (typeof v === 'number' && Number.isInteger(v) && v >= 0) return v;
-  return fallback;
+  return Object.freeze({ ...config });
 }
 
 const DEFAULT_FULL_COUNT_DISCOUNT_RATE = 0.95;
@@ -177,4 +334,12 @@ export function readFullCountDiscountRate(env = process.env) {
   return parsed;
 }
 
-export { ConfigSchema, DEFAULT_CONFIG_PATH, RUNTIME_DEFAULTS, REJECTED_LOG_DESTINATIONS, DEFAULT_FULL_COUNT_DISCOUNT_RATE };
+export {
+  ConfigSchema,
+  RuntimeConfigSchema,
+  CONFIG_FIELD_DEFINITIONS,
+  DEFAULT_CONFIG_EXAMPLE_PATH,
+  DEFAULT_CONFIG_PATH,
+  REJECTED_LOG_DESTINATIONS,
+  DEFAULT_FULL_COUNT_DISCOUNT_RATE,
+};

@@ -55,6 +55,7 @@ src/infra/           envelope/errors/logger/timeouts
 | **diagnose** | `shop` / `orders` / `inventory` / `promo` / `funnel` |
 | **action** | `plan` |
 | **shops** | `list` / `current` |
+| **config** | `show` / `set <key> <value>` / `unset <key>` / `validate` |
 | **account** | `add` / `list` / `default` / `remove` |
 | **daemon** | `start` / `stop` / `status` |
 | **utility** | `init` / `login` / `doctor` |
@@ -115,9 +116,22 @@ cp -r skills/pdd-cli ~/.openclaw/skills/
 
 ---
 
+## 运行配置
+
+`config/config.example.json` 是仓库提交的必需运行基线；本机差异写入被 Git 忽略的 `config/config.json`，只需保存需要覆盖的字段。配置优先级为：基线 → 本地配置 → 环境变量 → 本次 CLI 参数。
+
+```bash
+pdd config show                         # 查看有效值、本地覆盖和来源
+pdd config set rateLimitQps 4           # 类型校验后原子写入本地覆盖
+pdd config unset rateLimitQps           # 删除本地覆盖，回退到环境变量或基线
+pdd config validate --json              # 分层校验；配置损坏时仍可执行
+```
+
+配置命令只管理项目内公开字段，不写 `.env`，也不会自动重启 daemon。修改刷新间隔、日志或 daemon 鉴权路径后，结果会提示显式重启。代理 AuthKey、主密码、测试和安全开关继续只允许通过环境变量安全注入。
+
 ## 环境变量
 
-常用：`PDD_AUTH_STATE_PATH` / `PDD_LOG_DESTINATION` / `PDD_TEST_ADAPTER=fixture`（Mock 模式）
+常用覆盖：`PDD_AUTH_STATE_PATH` / `PDD_LOG_DESTINATION` / `PDD_TEST_ADAPTER=fixture`（Mock 模式）。完整公开映射和受限变量见 `.env.example`。
 
 `goods publish --url` 可选择仅为消费者端源商品抓取启用青果短效 HTTP 代理：
 

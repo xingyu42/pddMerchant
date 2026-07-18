@@ -1,5 +1,6 @@
 import { describe, it, beforeEach, afterEach, vi } from 'vitest';
 import assert from 'node:assert/strict';
+import { TEST_RUNTIME_CONFIG } from './helpers/runtime-config.js';
 
 vi.mock('../src/adapter/mock-dispatcher.js', () => ({
   isMockEnabled: () => false,
@@ -13,7 +14,9 @@ describe('category-resolver circuit breaker', () => {
   beforeEach(async () => {
     vi.useFakeTimers();
     const mod = await import('../src/adapter/goods-publish/category-resolver.js');
-    resolvePddCategory = mod.resolvePddCategory;
+    resolvePddCategory = (...args) => mod.resolvePddCategory(...args, {
+      apiBase: TEST_RUNTIME_CONFIG.categoryApiBase,
+    });
     _resetCategoryCircuit = mod._resetCategoryCircuit;
     _resetCategoryCircuit();
 
@@ -114,7 +117,9 @@ describe('category-resolver: response.ok=false increments failure counter', () =
   beforeEach(async () => {
     vi.useFakeTimers();
     const mod = await import('../src/adapter/goods-publish/category-resolver.js');
-    resolvePddCategory = mod.resolvePddCategory;
+    resolvePddCategory = (...args) => mod.resolvePddCategory(...args, {
+      apiBase: TEST_RUNTIME_CONFIG.categoryApiBase,
+    });
     _resetCategoryCircuit = mod._resetCategoryCircuit;
     _resetCategoryCircuit();
   });

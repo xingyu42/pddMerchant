@@ -12,9 +12,9 @@ import { PddCliError, ExitCodes, errorToEnvelope } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 
-export async function run(options = {}) {
+export async function run(options = {}, { runtimeConfig } = {}) {
   if (options.consumer) {
-    return runConsumerLogin(options);
+    return runConsumerLogin(options, runtimeConfig);
   }
 
   const authStatePath = await resolveAuthPath(options);
@@ -29,9 +29,10 @@ export async function resolveAuthPath(opts) {
 
 export default run;
 
-async function runConsumerLogin(opts) {
+async function runConsumerLogin(opts, runtimeConfig) {
   const command = 'login.consumer';
   const startedAt = Date.now();
+  const consumerLoginUrl = runtimeConfig?.consumerLoginUrl;
 
   if (opts.password) {
     const envelope = errorToEnvelope(command, new PddCliError({
@@ -54,7 +55,7 @@ async function runConsumerLogin(opts) {
     const envelope = {
       ok: true,
       command,
-      data: { path: authStatePath, url: 'https://mobile.yangkeduo.com/', mode, message: '消费端授权成功（mock）' },
+      data: { path: authStatePath, url: consumerLoginUrl, mode, message: '消费端授权成功（mock）' },
       meta: { latency_ms: Date.now() - startedAt, warnings: [] },
     };
     emit(envelope, { json: opts.json, noColor: opts.noColor });
@@ -68,12 +69,25 @@ async function runConsumerLogin(opts) {
         authStatePath,
         timeoutMs,
         headed,
+        consumerLoginUrl,
+        scrapeCooldownConfig: {
+          threshold: runtimeConfig?.scrapeSoftBlockThreshold,
+          cooldownMs: runtimeConfig?.scrapeSoftBlockCooldownMs,
+        },
         onQrCaptured: async ({ imagePath, qrContent }) => {
           if (qrContent) await renderQrToStream(qrContent);
         },
       });
     } else {
-      result = await performConsumerHeadedLogin({ authStatePath, timeoutMs });
+      result = await performConsumerHeadedLogin({
+        authStatePath,
+        timeoutMs,
+        consumerLoginUrl,
+        scrapeCooldownConfig: {
+          threshold: runtimeConfig?.scrapeSoftBlockThreshold,
+          cooldownMs: runtimeConfig?.scrapeSoftBlockCooldownMs,
+        },
+      });
     }
 
     const envelope = {

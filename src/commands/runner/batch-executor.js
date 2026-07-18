@@ -65,10 +65,10 @@ function validateBatchOptions(opts) {
       exitCode: ExitCodes.USAGE,
     });
   }
-  if (opts.authStatePath || process.env.PDD_AUTH_STATE_PATH) {
+  if (opts.authStatePath) {
     throw new PddCliError({
       code: 'E_USAGE',
-      message: '--all-accounts and --auth-state-path / PDD_AUTH_STATE_PATH are mutually exclusive',
+      message: '--all-accounts and a custom auth state path are mutually exclusive',
       hint: 'Use --all-accounts alone to iterate registered accounts',
       exitCode: ExitCodes.USAGE,
     });
@@ -92,7 +92,7 @@ function batchJitterMs(random = Math.random) {
   return BATCH_JITTER_MIN + Math.floor(random() * (BATCH_JITTER_MAX - BATCH_JITTER_MIN));
 }
 
-async function runOneAccount(spec, opts, slug, batch) {
+async function runOneAccount(spec, opts, slug, batch, runtimeConfig) {
   const perOpts = buildPerAccountOptions(opts, slug, batch);
   const perAccountCorrelation = perOpts._correlationId;
 
@@ -100,6 +100,7 @@ async function runOneAccount(spec, opts, slug, batch) {
     emitResult: false,
     skipDaemonStart: true,
     parentSignal: batch.signal,
+    ...(runtimeConfig ? { runtimeConfig } : {}),
   }).catch((err) => errorToEnvelope(spec.name, err, {
     latency_ms: Date.now() - batch.startedAt,
     correlation_id: perAccountCorrelation,
@@ -116,7 +117,7 @@ async function runOneAccount(spec, opts, slug, batch) {
   };
 }
 
-async function runAccountLoop(spec, opts, accounts, batch) {
+async function runAccountLoop(spec, opts, accounts, batch, runtimeConfig) {
   const accountResults = {};
   let cooldownSources = {};
   for (let i = 0; i < accounts.length; i++) {
@@ -125,7 +126,7 @@ async function runAccountLoop(spec, opts, accounts, batch) {
     const slug = accounts[i].slug;
     batch.log.info({ slug, index: i, total: accounts.length }, 'batch: executing account');
 
-    const result = await runOneAccount(spec, opts, slug, batch);
+    const result = await runOneAccount(spec, opts, slug, batch, runtimeConfig);
     // 归因须先于 warnings 上抛：继承警告借下方既有复制循环进入 batchWarnings。
     cooldownSources = applyCooldownAttribution(result, slug, cooldownSources);
     accountResults[slug] = result;
@@ -171,7 +172,7 @@ function finalizeBatch(spec, opts, accountResults, batch) {
   return batchEnvelope;
 }
 
-async function executeBatch(spec, opts) {
+async function executeBatch(spec, opts, runtimeConfig) {
   const startedAt = Date.now();
   const correlationId = randomUUID();
 
@@ -204,7 +205,7 @@ async function executeBatch(spec, opts) {
   const batch = { startedAt, correlationId, warnings, log, signal: abortController.signal };
   let accountResults;
   try {
-    accountResults = await runAccountLoop(spec, opts, accounts, batch);
+    accountResults = await runAccountLoop(spec, opts, accounts, batch, runtimeConfig);
   } finally {
     process.removeListener('SIGINT', onSigint);
   }
@@ -221,7 +222,7 @@ export function withCommand({
   render,
 }) {
   const spec = { name, needsAuth, needsMall, run, render };
-  return function executeCommand(opts = {}) {
+  return function executeCommand(opts = {}, { runtimeConfig } = {}) {
     if (opts.allAccounts && !allowAllAccounts) {
       throw new PddCliError({
         code: 'E_USAGE',
@@ -231,8 +232,12 @@ export function withCommand({
       });
     }
     if (opts.allAccounts && needsAuth) {
-      return executeBatch(spec, opts);
+      return executeBatch(spec, opts, runtimeConfig);
     }
-    return executeSingle(spec, opts, { emitResult: true, skipDaemonStart: false });
+    return executeSingle(spec, opts, {
+      emitResult: true,
+      skipDaemonStart: false,
+      ...(runtimeConfig ? { runtimeConfig } : {}),
+    });
   };
 }

@@ -1,8 +1,5 @@
 import { boxMullerZ } from '../infra/random-utils.js';
 
-const DEFAULT_QPS = 2;
-const DEFAULT_BURST = 3;
-
 export function lognormalJitter(baseMs, sigma = 0.5, random = Math.random) {
   if (sigma <= 0 || baseMs <= 0) return 0;
   const z = boxMullerZ(random);
@@ -10,14 +7,17 @@ export function lognormalJitter(baseMs, sigma = 0.5, random = Math.random) {
 }
 
 export function createRateLimiter({
-  qps = DEFAULT_QPS,
-  burst = DEFAULT_BURST,
+  qps,
+  burst,
   jitterSigma = 0,
   healthMultiplier = null,
   now = Date.now,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   random = Math.random,
 } = {}) {
+  if (!Number.isFinite(qps) || qps < 0 || (qps > 0 && qps < 0.01)) {
+    throw new TypeError('qps must be 0 or at least 0.01');
+  }
   if (qps === 0) {
     return {
       async acquire(_label) {
@@ -26,6 +26,9 @@ export function createRateLimiter({
       },
       _reset() {},
     };
+  }
+  if (!Number.isInteger(burst) || burst <= 0) {
+    throw new TypeError('burst must be a positive integer');
   }
 
   let tokens = burst;

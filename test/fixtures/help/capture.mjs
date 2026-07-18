@@ -1,5 +1,5 @@
 // 采集 post-R1 help 基线（refactor-arch-review-remediation task 2.6）。
-// 覆盖 root + 9 个分组 + 34 个子命令，共 44 项；PROP-HELP-1（task 6.2）
+// 覆盖 root、命令分组及其子命令；PROP-HELP-1（task 6.2）
 // 在 bin/pdd.js 注册拆分后以本基线做逐字节对比。
 // 用法：node test/fixtures/help/capture.mjs
 // 确定性：spawnSync 管道模式下 stdout 非 TTY，commander 以固定宽度换行；
@@ -15,11 +15,12 @@ const BIN = join(PROJECT_ROOT, 'bin', 'pdd.js');
 
 const GROUPS = [
   ['shops'], ['orders'], ['goods'], ['goods', 'update'],
-  ['promo'], ['diagnose'], ['action'], ['account'], ['daemon'],
+  ['config'], ['promo'], ['diagnose'], ['action'], ['account'], ['daemon'],
 ];
 
 const SUBCOMMANDS = [
   ['init'], ['login'], ['doctor'],
+  ['config', 'show'], ['config', 'set'], ['config', 'unset'], ['config', 'validate'],
   ['shops', 'list'], ['shops', 'current'],
   ['orders', 'list'], ['orders', 'detail'], ['orders', 'stats'],
   ['goods', 'list'], ['goods', 'stock'], ['goods', 'segment'], ['goods', 'publish'], ['goods', 'templates'],

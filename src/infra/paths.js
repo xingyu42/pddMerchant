@@ -11,13 +11,8 @@ export const CONFIG_DIR = join(PROJECT_ROOT, 'config');
 
 export const LEGACY_AUTH_STATE_PATH = join(DATA_DIR, 'auth-state.json');
 
-function resolveDefaultAuthStatePath() {
-  const authEnv = process.env.PDD_AUTH_STATE_PATH;
-  if (authEnv && authEnv.length > 0) return authEnv;
-  return join(DATA_DIR, 'auth-state.json');
-}
-
-export const AUTH_STATE_PATH = resolveDefaultAuthStatePath();
+export const AUTH_STATE_PATH = join(DATA_DIR, 'auth-state.json');
+export const CONFIG_EXAMPLE_PATH = join(CONFIG_DIR, 'config.example.json');
 export const CONFIG_PATH = join(CONFIG_DIR, 'config.json');
 export const DAEMON_STATE_PATH = join(DATA_DIR, 'daemon-state.json');
 export const DAEMON_LOG_PATH = join(DATA_DIR, 'daemon.log');

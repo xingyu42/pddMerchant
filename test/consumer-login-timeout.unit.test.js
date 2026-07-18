@@ -28,7 +28,6 @@ vi.mock('../src/adapter/consumer-qr-login.js', () => ({
     success: false,
     url: 'https://mobile.yangkeduo.com/login.html',
   })),
-  CONSUMER_LOGIN_URL: 'https://mobile.yangkeduo.com/login.html',
 }));
 
 vi.mock('../src/adapter/qr-login.js', () => ({
@@ -65,6 +64,7 @@ describe('consumer-login: E_AUTH_TIMEOUT path', () => {
         authStatePath: '/tmp/test-auth.json',
         timeoutMs: 1000,
         headed: false,
+        consumerLoginUrl: 'https://mobile.yangkeduo.com/login.html',
         onQrCaptured: null,
       }),
       (err) => {
@@ -82,6 +82,7 @@ describe('consumer-login: E_AUTH_TIMEOUT path', () => {
       () => performConsumerHeadedLogin({
         authStatePath: '/tmp/test-auth.json',
         timeoutMs: 1000,
+        consumerLoginUrl: 'https://mobile.yangkeduo.com/login.html',
       }),
       (err) => {
         assert.equal(err.code, 'E_AUTH_TIMEOUT');
@@ -99,6 +100,7 @@ describe('consumer-login: E_AUTH_TIMEOUT path', () => {
         authStatePath: '/tmp/test-auth.json',
         timeoutMs: 500,
         headed: false,
+        consumerLoginUrl: 'https://mobile.yangkeduo.com/login.html',
       });
       assert.fail('should have thrown');
     } catch (err) {
@@ -118,6 +120,7 @@ describe('consumer-login: E_AUTH_TIMEOUT path', () => {
     const result = await performConsumerHeadedLogin({
       authStatePath: '/tmp/test-auth.json',
       timeoutMs: 1000,
+      consumerLoginUrl: 'https://mobile.yangkeduo.com/login.html',
     });
 
     assert.equal(result.mode, 'consumer-headed');

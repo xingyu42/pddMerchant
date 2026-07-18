@@ -54,11 +54,11 @@ describe('parseMallId unit', () => {
   });
 
   it('requireMallId throws on invalid', () => {
-    assert.throws(() => requireMallId('abc'), (err) => err.code === 'E_USAGE');
+    assert.throws(() => requireMallId('abc', { strict: true }), (err) => err.code === 'E_USAGE');
   });
 
   it('requireMallId returns value on valid', () => {
-    assert.strictEqual(requireMallId('123'), '123');
+    assert.strictEqual(requireMallId('123', { strict: true }), '123');
   });
 });
 

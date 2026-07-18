@@ -16,7 +16,7 @@ export async function runEndpoint(page, meta, params = {}, ctx = {}) {
     });
   }
 
-  const client = getSharedClient();
+  const client = ctx.client ?? getSharedClient(ctx.runtimeConfig);
   const { data } = await client.execute(meta, params, {
     ...ctx,
     page,

@@ -6,7 +6,8 @@ node_modules/
 data/*
 !data/forbidden-words.json
 !data/synonyms.json
-config/
+config/*
+!config/config.example.json
 coverage/
 *.log
 .DS_Store

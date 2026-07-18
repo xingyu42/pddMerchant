@@ -123,9 +123,9 @@ function buildDestination(config) {
 let currentLogger = null;
 
 export function createLogger({ verbose = false, level, destination, config } = {}) {
-  const resolvedLevel = level ?? (verbose ? 'debug' : 'warn');
+  const resolvedLevel = level ?? (verbose ? 'debug' : undefined);
   const opts = {
-    level: resolvedLevel,
+    ...(resolvedLevel ? { level: resolvedLevel } : {}),
     serializers: {
       err: (err) => redactRecursive(err),
     },
@@ -160,7 +160,7 @@ export function createLogger({ verbose = false, level, destination, config } = {
 }
 
 export function getLogger() {
-  if (!currentLogger) currentLogger = createLogger();
+  if (!currentLogger) currentLogger = createLogger({ level: 'silent' });
   return currentLogger;
 }
 

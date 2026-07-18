@@ -51,10 +51,10 @@ async function clickMallOption(page, mallId) {
   return null;
 }
 
-export async function switchTo(page, mallId) {
+export async function switchTo(page, mallId, { strict } = {}) {
   if (isMockEnabled()) return mockSwitchTo(mallId);
 
-  const validatedId = requireMallId(mallId);
+  const validatedId = requireMallId(mallId, { strict });
 
   const before = await currentMall(page).catch(() => null);
   if (before && before.id === validatedId) return before;

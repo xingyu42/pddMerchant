@@ -5,6 +5,7 @@ import {
   getSharedLimiter,
   _resetSharedClient,
 } from '../src/adapter/rate-limiter-singleton.js';
+import { TEST_RUNTIME_CONFIG } from './helpers/runtime-config.js';
 
 function spyOnAcquire(limiter) {
   const calls = [];
@@ -21,7 +22,7 @@ test('fixture mode → runEndpoint does not acquire any token', async () => {
   const prevFixtureDir = process.env.PDD_TEST_FIXTURE_DIR;
   process.env.PDD_TEST_ADAPTER = 'fixture';
   _resetSharedClient();
-  const limiter = getSharedLimiter();
+  const limiter = getSharedLimiter(TEST_RUNTIME_CONFIG);
   const { calls, restore } = spyOnAcquire(limiter);
 
   try {
@@ -31,7 +32,7 @@ test('fixture mode → runEndpoint does not acquire any token', async () => {
       nav: { url: 'http://host/fake' },
       isSuccess: () => true,
     };
-    await runEndpoint({ __fake: true }, meta, {}, {});
+    await runEndpoint({ __fake: true }, meta, {}, { runtimeConfig: TEST_RUNTIME_CONFIG });
     assert.equal(calls.length, 0, 'fixture-mode runEndpoint MUST NOT acquire tokens');
   } finally {
     restore();
@@ -46,7 +47,7 @@ test('live mode → runEndpoint acquires exactly one token per call before nav f
   const prev = process.env.PDD_TEST_ADAPTER;
   if (process.env.PDD_TEST_ADAPTER === 'fixture') delete process.env.PDD_TEST_ADAPTER;
   _resetSharedClient();
-  const limiter = getSharedLimiter();
+  const limiter = getSharedLimiter(TEST_RUNTIME_CONFIG);
   const { calls, restore } = spyOnAcquire(limiter);
 
   const failingPage = {
@@ -64,7 +65,7 @@ test('live mode → runEndpoint acquires exactly one token per call before nav f
   };
 
   try {
-    await runEndpoint(failingPage, meta, {}, {});
+    await runEndpoint(failingPage, meta, {}, { runtimeConfig: TEST_RUNTIME_CONFIG });
     assert.fail('runEndpoint should have thrown');
   } catch (err) {
     assert.equal(err.code, 'E_NETWORK', `expected E_NETWORK, got ${err.code}`);
@@ -81,7 +82,7 @@ test('live mode → N live calls produce exactly N acquires', async () => {
   const prev = process.env.PDD_TEST_ADAPTER;
   if (process.env.PDD_TEST_ADAPTER === 'fixture') delete process.env.PDD_TEST_ADAPTER;
   _resetSharedClient();
-  const limiter = getSharedLimiter();
+  const limiter = getSharedLimiter(TEST_RUNTIME_CONFIG);
   const { calls, restore } = spyOnAcquire(limiter);
 
   const failingPage = {
@@ -100,7 +101,7 @@ test('live mode → N live calls produce exactly N acquires', async () => {
 
   try {
     for (let i = 0; i < 3; i += 1) {
-      await runEndpoint(failingPage, meta, {}, {}).catch(() => {});
+      await runEndpoint(failingPage, meta, {}, { runtimeConfig: TEST_RUNTIME_CONFIG }).catch(() => {});
     }
     assert.equal(calls.length, 3);
   } finally {

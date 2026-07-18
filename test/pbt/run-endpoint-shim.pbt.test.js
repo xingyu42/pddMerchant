@@ -8,16 +8,18 @@ import {
   _RATE_LIMIT_CONFIG,
 } from '../../src/adapter/run-endpoint.js';
 import {
+  getSharedClient,
   getSharedLimiter,
   _resetSharedClient,
 } from '../../src/adapter/rate-limiter-singleton.js';
 import { property, gen } from './_harness.js';
 import { createEndpointPage, withInstantTimers } from './_fake-pages.js';
+import { TEST_RUNTIME_CONFIG } from '../helpers/runtime-config.js';
 
 const PATTERN = /\/fake\/endpoint/;
 
 function spyAcquire() {
-  const limiter = getSharedLimiter();
+  const limiter = getSharedLimiter(TEST_RUNTIME_CONFIG);
   const calls = [];
   const orig = limiter.acquire.bind(limiter);
   limiter.acquire = (label) => {
@@ -55,7 +57,7 @@ test('PROP-SHIM-1 / PROP-LIMIT-2: fixture mode yields 0 acquires', async () => {
           isSuccess: () => true,
         };
         for (let i = 0; i < n; i += 1) {
-          await runEndpoint({ __fake: true }, meta, {}, {});
+          await runEndpoint({ __fake: true }, meta, {}, { runtimeConfig: TEST_RUNTIME_CONFIG });
         }
         return calls.length === startCalls;
       },
@@ -88,7 +90,7 @@ test('PROP-SHIM-2 / PROP-LIMIT-1: live mode returns data and acquires exactly on
           });
           let results = [];
           for (let i = 0; i < n; i += 1) {
-            results.push(await runEndpoint(page, meta, {}, {}));
+            results.push(await runEndpoint(page, meta, {}, { runtimeConfig: TEST_RUNTIME_CONFIG }));
           }
           if (results.length !== n) return false;
           for (const r of results) {
@@ -115,6 +117,7 @@ test('PROP-COOLDOWN-1: legacy exports observe cooldown state set by the shim', a
     async (extra) => {
       const name = `pbt.shim.cooldown.${extra}.${Math.random().toString(36).slice(2, 6)}`;
       _resetRateLimitState();
+      getSharedClient(TEST_RUNTIME_CONFIG);
       for (let i = 0; i < _RATE_LIMIT_CONFIG.cooldownThreshold + extra; i += 1) {
         _recordRateLimitFailure(name);
       }

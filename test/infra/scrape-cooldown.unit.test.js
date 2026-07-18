@@ -119,15 +119,15 @@ describe('getSharedScrapeCooldown 单例', () => {
   afterEach(() => _resetSharedScrapeCooldown());
 
   it('返回同一实例', () => {
-    const a = getSharedScrapeCooldown({ statePath: null });
+    const a = getSharedScrapeCooldown({ statePath: null, threshold: 2, cooldownMs: COOLDOWN_MS });
     const b = getSharedScrapeCooldown({ statePath: null });
     assert.equal(a, b);
   });
 
   it('_reset 后创建新实例', () => {
-    const a = getSharedScrapeCooldown({ statePath: null });
+    const a = getSharedScrapeCooldown({ statePath: null, threshold: 2, cooldownMs: COOLDOWN_MS });
     _resetSharedScrapeCooldown();
-    const b = getSharedScrapeCooldown({ statePath: null });
+    const b = getSharedScrapeCooldown({ statePath: null, threshold: 2, cooldownMs: COOLDOWN_MS });
     assert.notEqual(a, b);
   });
 });

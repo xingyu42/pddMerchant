@@ -2,6 +2,7 @@ import { describe, it, beforeEach, afterEach, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import { timeoutError } from '../src/infra/abort.js';
 import { ExitCodes } from '../src/infra/errors.js';
+import { TEST_RUNTIME_CONFIG } from './helpers/runtime-config.js';
 
 const outputMock = vi.hoisted(() => ({
   emit: vi.fn(),
@@ -56,6 +57,8 @@ vi.mock('../src/adapter/page-session.js', async (importOriginal) => ({
 }));
 
 const { executeSingle } = await import('../src/commands/_runner.js');
+const { getSharedClient } = await import('../src/adapter/rate-limiter-singleton.js');
+getSharedClient(TEST_RUNTIME_CONFIG);
 
 function makeSpec(overrides = {}) {
   return {

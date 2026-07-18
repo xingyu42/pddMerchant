@@ -4,13 +4,12 @@ import { accountNotFound, accountRequired } from './errors.js';
 import { loadAccountRegistry, getAccount, listAccounts } from './account-registry.js';
 
 export async function resolveAccountContext({ account, authStatePath, needsAuth = true, warnings = [] } = {}) {
-  const envAuthPath = process.env.PDD_AUTH_STATE_PATH;
-  const hasExplicitPath = Boolean(authStatePath) || Boolean(envAuthPath);
+  const hasExplicitPath = Boolean(authStatePath);
 
   if (hasExplicitPath && account) {
     throw new PddCliError({
       code: 'E_USAGE',
-      message: '--account and PDD_AUTH_STATE_PATH / --auth-state-path are mutually exclusive',
+      message: '--account and a custom auth state path are mutually exclusive',
       hint: 'Use one or the other, not both',
       exitCode: ExitCodes.USAGE,
     });

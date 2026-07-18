@@ -13,12 +13,6 @@ import {
   QR_SELECTORS,
 } from './qr-login.js';
 
-function resolveConsumerLoginUrl() {
-  return process.env.PDD_CONSUMER_LOGIN_URL || 'https://mobile.yangkeduo.com/login.html';
-}
-
-export const CONSUMER_LOGIN_URL = resolveConsumerLoginUrl();
-
 const CONSUMER_QR_SELECTORS = [
   '[class*="qr-code"] canvas',
   '[class*="qrcode"] canvas',
@@ -36,17 +30,16 @@ const CONSUMER_QR_TAB_SELECTORS = [
   '[class*="qrcode-tab"]',
 ];
 
-export async function captureConsumerQr(page, { timeout = TIMEOUTS.QR_CAPTURE } = {}) {
+export async function captureConsumerQr(page, { loginUrl, timeout = TIMEOUTS.QR_CAPTURE } = {}) {
   if (isMockEnabled()) return Buffer.alloc(64);
 
   const log = getLogger();
-  const loginUrl = resolveConsumerLoginUrl();
 
   try {
     await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.NAV });
   } catch {
     log.debug({ loginUrl }, 'consumer-qr: primary URL failed, retrying');
-    await page.goto('https://mobile.yangkeduo.com', { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.NAV });
+    await page.goto(new URL(loginUrl).origin, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.NAV });
   }
 
   await page.waitForTimeout(1500);

@@ -11,6 +11,7 @@ import {
 } from '../src/adapter/fixture-parity-diagnostics.js';
 import { ORDER_LIST } from '../src/adapter/endpoints/orders.js';
 import { allEndpointSpecs } from './_endpoint-specs.js';
+import { TEST_RUNTIME_CONFIG } from './helpers/runtime-config.js';
 
 const FIXTURE_ENDPOINT_DIR = join(process.cwd(), 'test', 'fixtures', 'endpoints');
 
@@ -33,7 +34,7 @@ function warningsByCode(reports, code) {
 }
 
 function spyAcquire() {
-  const limiter = getSharedLimiter();
+  const limiter = getSharedLimiter(TEST_RUNTIME_CONFIG);
   const calls = [];
   const original = limiter.acquire.bind(limiter);
   limiter.acquire = (label) => {

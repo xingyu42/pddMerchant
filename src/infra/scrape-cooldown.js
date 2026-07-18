@@ -10,30 +10,13 @@
 // 记住封锁状态：连续软封达阈值 → 进入长冷却；冷却期内 check() 直接短路退避，不再发请求，
 // 让风控分随时间自然恢复。纯防御退避，不做任何绕过。
 //
-// 设计参照：category-resolver.js（模块级冷却）、rate-limiter-singleton.js（env 读取 +
+// 设计参照：category-resolver.js（模块级冷却）、rate-limiter-singleton.js（运行时配置 +
 // 单例）、session-health.js（getShared* 单例与注入）、daemon-state.json（落盘）。
 
 import { readFileSync, writeFileSync, renameSync, rmSync } from 'node:fs';
 import { SCRAPE_COOLDOWN_PATH } from './paths.js';
 import { getLogger } from './logger.js';
 import { scrapeCooldownActive } from './errors.js';
-
-const DEFAULT_THRESHOLD = 2;                  // 连续软封多少次后进入冷却
-const DEFAULT_COOLDOWN_MS = 2 * 60 * 60 * 1000; // 默认冷却 2 小时
-
-function readPositiveInt(envKey, fallback) {
-  const raw = process.env[envKey];
-  if (raw === undefined || raw === '') return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) && Number.isInteger(n) && n > 0 ? n : fallback;
-}
-
-function readPositiveFloat(envKey, fallback) {
-  const raw = process.env[envKey];
-  if (raw === undefined || raw === '') return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
 
 function warn(obj, msg) {
   try { getLogger().warn(obj, msg); } catch { /* logger 不可用时静默 */ }
@@ -49,9 +32,15 @@ function warn(obj, msg) {
 export function createScrapeCooldown({
   now = Date.now,
   statePath = SCRAPE_COOLDOWN_PATH,
-  threshold = readPositiveInt('PDD_SCRAPE_SOFTBLOCK_THRESHOLD', DEFAULT_THRESHOLD),
-  cooldownMs = readPositiveFloat('PDD_SCRAPE_SOFTBLOCK_COOLDOWN_MS', DEFAULT_COOLDOWN_MS),
+  threshold,
+  cooldownMs,
 } = {}) {
+  if (!Number.isInteger(threshold) || threshold <= 0) {
+    throw new TypeError('threshold must be a positive integer');
+  }
+  if (!Number.isFinite(cooldownMs) || cooldownMs <= 0) {
+    throw new TypeError('cooldownMs must be a positive number');
+  }
   let state = { consecutiveSoftBlock: 0, cooldownUntil: 0 };
 
   // 从磁盘读取最新状态到内存。check/record 前均重读，以感知其它进程写入的冷却

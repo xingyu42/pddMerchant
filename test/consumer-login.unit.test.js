@@ -1,13 +1,13 @@
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
-import { CONSUMER_LOGIN_URL } from '../src/adapter/consumer-qr-login.js';
 import { CONSUMER_AUTH_STATE_PATH } from '../src/infra/paths.js';
 import { CONSUMER_HOME } from '../src/adapter/auth-state.js';
+import { CONFIG_FIELD_DEFINITIONS } from '../src/infra/config.js';
 
 describe('consumer-login constants', () => {
-  it('CONSUMER_LOGIN_URL defaults to mobile.yangkeduo.com', () => {
-    assert.ok(CONSUMER_LOGIN_URL.includes('yangkeduo.com'), `expected yangkeduo.com in ${CONSUMER_LOGIN_URL}`);
-    assert.ok(CONSUMER_LOGIN_URL.includes('login'), `expected /login in ${CONSUMER_LOGIN_URL}`);
+  it('consumer login URL is owned by unified runtime config', () => {
+    assert.equal(CONFIG_FIELD_DEFINITIONS.consumerLoginUrl.env, 'PDD_CONSUMER_LOGIN_URL');
+    assert.equal(CONFIG_FIELD_DEFINITIONS.consumerLoginUrl.required, true);
   });
 
   it('CONSUMER_AUTH_STATE_PATH ends with consumer-auth-state.json', () => {

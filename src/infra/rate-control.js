@@ -1,14 +1,17 @@
 const DEFAULT_SLEEP = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export function createRateControl({
-  tokensPerMinute = 20,
+  tokensPerMinute,
   burst = 2,
   jitterMs = [2000, 8000],
   now = Date.now,
   sleep = DEFAULT_SLEEP,
   random = Math.random,
 } = {}) {
-  const effectiveTPM = Math.max(1, Number.isFinite(tokensPerMinute) ? tokensPerMinute : 20);
+  if (!Number.isInteger(tokensPerMinute) || tokensPerMinute <= 0) {
+    throw new TypeError('tokensPerMinute must be a positive integer');
+  }
+  const effectiveTPM = tokensPerMinute;
   let tokens = burst;
   let lastRefill = now();
   const interval = 60_000 / effectiveTPM;
@@ -56,11 +59,7 @@ let _shared = null;
 
 export function getSharedWriteRateControl(opts) {
   if (!_shared) {
-    const tpm = parseInt(process.env.PDD_WRITE_RATE_TPM, 10);
-    _shared = createRateControl({
-      ...opts,
-      tokensPerMinute: Number.isFinite(tpm) ? tpm : undefined,
-    });
+    _shared = createRateControl(opts);
   }
   return _shared;
 }
@@ -70,7 +69,9 @@ export function _resetSharedRateControl() {
 }
 
 export async function withWriteRateControl(label, fn, options = {}) {
-  const rc = options.rateControl ?? getSharedWriteRateControl();
+  const rc = options.rateControl ?? getSharedWriteRateControl({
+    tokensPerMinute: options.tokensPerMinute,
+  });
   await rc.acquire(label);
   try {
     const result = await fn();
