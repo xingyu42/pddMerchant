@@ -1,6 +1,6 @@
 ---
 name: pdd-cli
-description: 通过 pdd CLI 操作拼多多商家后台 — 订单/商品/推广/诊断/上货/多账号，输出统一 envelope JSON 供 AI 消费
+description: 通过 pdd CLI 操作拼多多商家后台 — 订单/商品/推广/诊断/上货/多账号/运行配置，输出统一 envelope JSON 供 AI 消费
 user-invocable: true
 metadata:
   openclaw:
@@ -21,6 +21,7 @@ metadata:
 - 拉取**推广报表**与 ROI 诊断
 - 做**店铺健康诊断**（总分 / 订单 / 库存 / 推广 / 漏斗维度）
 - **多账号 / 多店铺**切换与批量执行
+- 查看、校验和修改项目内**运行配置**
 - 生成**运营动作清单**
 - 鉴权（首次登录 / 重新登录 / 环境自检 / 后台自动续期）
 
@@ -89,6 +90,21 @@ node bin/pdd.js init [--qr]                 # 首次交互式登录（默认弹�
 node bin/pdd.js login [--qr|--consumer]  # 重新登录刷新 auth-state
 node bin/pdd.js doctor [--probe xhr]        # 环境自检（Chromium / auth-state / 登录态）
 ```
+
+### 🛠️ 运行配置 config
+
+```bash
+node bin/pdd.js config show --json                  # 查看有效配置、本地覆盖和字段来源
+node bin/pdd.js config set rateLimitQps 4 --json   # 校验后写入本地稀疏覆盖
+node bin/pdd.js config unset rateLimitQps --json   # 删除本地覆盖并回退到高优先级环境变量或基线
+node bin/pdd.js config validate --json              # 分层校验；配置损坏时仍可执行
+```
+
+配置优先级为：`config/config.example.json` 基线 → 可选的稀疏 `config/config.json` → 映射环境变量 → 显式 CLI 参数。
+
+- `config set <key> <value>` 先按公开字段 Schema 校验；`config/config.json` 不存在时会原子创建，只保存本地覆盖项。字段或值非法时不会创建或覆盖文件。
+- `config unset <key>` 只删除本地覆盖；文件或字段不存在时是稳定 no-op，不会创建空文件。
+- config 命令不接受或显示 AuthKey、主密码、代理 token 等秘密字段，也不会自动重启 daemon。
 
 ### 📦 订单 orders
 
@@ -204,7 +220,8 @@ node bin/pdd.js goods publish --url <链接> --cost-template <id> --confirm --js
 | `PDD_TEST_ADAPTER=fixture` | Mock 模式（跳过真实浏览器，测试用） |
 | `PDD_TEST_FIXTURE_DIR=<path>` | fixture 数据目录 |
 | `PDD_AUTH_STATE_PATH=<path>` | 覆盖 auth-state 文件位置（默认 `data/auth-state.json`） |
-| `PDD_LOG_DESTINATION=<path>` | 日志输出目标（`stdout`/`stderr`/文件） |
+| `PDD_LOG_DESTINATION=<path>` | 日志文件路径；拒绝 `stdout`、`stderr`、`-` 和 `:console` |
+| `PDD_CONSUMER_LOGIN_URL=<url>` | 覆盖消费者端登录页地址 |
 | `PDD_MALL_ID_STRICT_PARSE=0` | 放宽 mall ID 到 64 字符（默认 1-15 位数字） |
 | `PDD_SCRAPE_SIMULATE=0` | 关闭抓取时的人类行为模拟（默认开启） |
 | `PDD_SCRAPE_SOFTBLOCK_THRESHOLD` | IP 软封连续命中阈值进入冷却（默认 2） |
@@ -216,6 +233,7 @@ node bin/pdd.js goods publish --url <链接> --cost-template <id> --confirm --js
 - **写操作默认 dry-run**：`goods update *` 不加 `--confirm` 只预演，不改线上数据；确认参数后再加 `--confirm`。
 - **价格单位是分**：`--price 2999` = 29.99 元。
 - **鉴权失效（退出码 3）** → 重新 `login`。**限流（退出码 4）** → 等待冷却后重试。
+- 本地运行差异优先用 `config set` 写入稀疏 `config/config.json`；秘密、安全和测试开关仍只通过环境变量注入。
 - `goods list` 的 `goods_id` 可能为 `null`，库存匹配会回退到 `goods_name`，`matched_by='mixed'` 是正常现象。
 - Mock 模式：设 `PDD_TEST_ADAPTER=fixture` + `PDD_TEST_FIXTURE_DIR=<dir>` 可在无浏览器/无真实账号下跑通命令，适合演示与调试。
 - 敏感字段（cookie、authorization、anti_content、手机号、地址等）在日志中自动 SHA256 脱敏。
