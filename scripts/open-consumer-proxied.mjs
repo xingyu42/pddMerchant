@@ -19,7 +19,8 @@
  *     node scripts/open-consumer-proxied.mjs
  *   选项：
  *     --direct          强制直连（忽略代理配置，用于对照观察）
- *     --keep <sec>      自动关闭前保持打开的秒数，默认 600（0=一直挂起直到 Ctrl-C）
+ *     --keep <sec>      自动关闭前保持打开的秒数，默认 600（0=直连时一直挂起）
+ *                       代理模式不会超过当前租约的剩余有效期
  *   环境：
  *     消费端登录态可选（data/consumer-auth-state.json 或 PDD_CONSUMER_AUTH_STATE_PATH）
  */
@@ -27,7 +28,11 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { launchBrowser, closeBrowser } from '../src/adapter/browser.js';
+import {
+  launchBrowser,
+  createConsumerContext,
+  closeBrowser,
+} from '../src/adapter/browser.js';
 import {
   readSourceProxyConfig,
   acquireQingguoProxyLease,
@@ -80,12 +85,15 @@ async function resolveProxy(direct) {
     return null;
   }
   const lease = await acquireQingguoProxyLease(config);
-  const remainingSec = Math.max(0, Math.round((lease.expiresAt - Date.now()) / 1000));
+  const remainingSec = Math.max(0, Math.floor((lease.expiresAt - Date.now()) / 1000));
   console.error(
     `[open] 青果代理已获取: area=${lease.area ?? '-'} ` +
     `isp=${lease.isp ?? '-'} 剩余=${remainingSec}s reqIdHash=${lease.requestIdHash ?? '-'}`,
   );
-  return { server: lease.server };
+  return {
+    contextProxy: { server: lease.server },
+    expiresAt: lease.expiresAt,
+  };
 }
 
 async function main() {
@@ -96,39 +104,61 @@ async function main() {
     process.exit(2);
   }
 
-  const proxy = await resolveProxy(args.direct);
+  const proxyLease = await resolveProxy(args.direct);
+  const proxy = proxyLease?.contextProxy ?? null;
 
-  // 复用 launchBrowser 内建的 context+page（避免另建 context 导致多一个空白页）。
-  // proxy 走 extraContextOptions 注入 newContext，与 createConsumerContext 语义一致。
-  const { browser, page } = await launchBrowser({
-    headed: true,
-    storageStatePath: process.env.PDD_CONSUMER_AUTH_STATE_PATH || CONSUMER_AUTH_STATE_PATH,
-    extraContextOptions: proxy ? { proxy } : {},
-  });
+  // launchBrowser 只负责建立统一的 Browser RuntimeProfile。关闭它的初始空 Context 后，
+  // 通过生产路径同款 createConsumerContext 创建仅消费端使用的代理 Context。
+  const { browser, context: bootstrapContext } = await launchBrowser({ headed: true });
+  let consumer = null;
+  let page = null;
 
   let interrupted = false;
   let stopReason = null;
   const stop = (reason) => () => { interrupted = true; stopReason ??= reason; };
-  process.once('SIGINT', stop('sigint'));
-  // 关闭窗口即退出：page.close（关标签页）与 browser.disconnected（关整个窗口）均触发
-  page.once('close', stop('page-close'));
-  browser.once('disconnected', stop('browser-disconnected'));
+  const onSigint = stop('sigint');
 
   try {
+    await bootstrapContext.close();
+    consumer = await createConsumerContext(browser, {
+      storageStatePath: process.env.PDD_CONSUMER_AUTH_STATE_PATH || CONSUMER_AUTH_STATE_PATH,
+      ...(proxy ? { proxy } : {}),
+    });
+    page = consumer.page;
+
+    process.once('SIGINT', onSigint);
+    // 关闭窗口即退出：page.close（关标签页）与 browser.disconnected（关整个窗口）均触发
+    page.once('close', stop('page-close'));
+    browser.once('disconnected', stop('browser-disconnected'));
+
     console.error(`[open] 导航首页: ${CONSUMER_HOME_URL}`);
     await page.goto(CONSUMER_HOME_URL, { waitUntil: 'domcontentloaded' });
+    // 挂起：代理模式以租约的绝对截止时间为硬上限，导航耗时也计入租约。
+    const keepDeadline = args.keep === 0 ? Infinity : Date.now() + args.keep * 1000;
+    const deadline = proxyLease
+      ? Math.min(keepDeadline, proxyLease.expiresAt)
+      : keepDeadline;
+    const effectiveKeepSec = Number.isFinite(deadline)
+      ? Math.max(0, Math.floor((deadline - Date.now()) / 1000))
+      : null;
     console.error(
       `[open] 首页已打开（${proxy ? '经青果代理' : '直连'}）。` +
-      (args.keep === 0 ? ' 挂起中，关闭窗口或 Ctrl-C 退出。' : ` ${args.keep}s 后自动关闭，或关闭窗口/Ctrl-C 提前退出。`),
+      (effectiveKeepSec == null
+        ? ' 挂起中，关闭窗口或 Ctrl-C 退出。'
+        : ` ${effectiveKeepSec}s 后自动关闭，或关闭窗口/Ctrl-C 提前退出。`),
     );
 
-    // 挂起：等待用户手动交互 / 关闭窗口 / Ctrl-C / 到期
-    const deadline = args.keep === 0 ? Infinity : Date.now() + args.keep * 1000;
     while (!interrupted && Date.now() < deadline) {
       await sleep(250);
     }
+    if (!interrupted) {
+      stopReason = proxyLease && proxyLease.expiresAt <= keepDeadline
+        ? 'proxy-expired'
+        : 'timeout';
+    }
   } finally {
-    process.removeAllListeners('SIGINT');
+    process.removeListener('SIGINT', onSigint);
+    try { await consumer?.close(); } catch { /* ignore */ }
     try { await closeBrowser(browser); } catch { /* ignore */ } // 关 browser 会级联关掉其 context/page
     console.error(`[open] 已关闭浏览器（原因: ${stopReason ?? 'timeout'}）`);
   }
