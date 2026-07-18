@@ -187,12 +187,14 @@ Output: [
 ### 4.3 表单填充 (`form-filler.js`)
 **当前实现**:
 ```javascript
-fillGoodsForm(page, source, pricing)
+fillGoodsForm(page, source, warnings, options)
   ↓
-1. fillTitle() → 填充商品标题
-2. uploadCarouselViaForm() → 上传轮播图（最多 10 张）
-3. fillPrices() → 填充价格（仅单 SKU）
-4. fillMarketPrice() → 填充参考价
+1. fillSkuDimensions() → 选择已验证的颜色/尺码规格并等待 SKU 表格
+2. uploadSkuPreviewImages() → 按颜色规格上传预览图
+3. 填充商品标题与轮播图
+4. uploadDetailImagesViaForm() → 上传详情图并等待独立完成响应
+5. fillPrices() → 按规格值唯一匹配 SKU 行，写入库存、拼单价、单买价与参考价
+6. fillGoodsProperties() → 最后填写商家属性，避免 React 重绘恢复旧值
 ```
 
 **选择器常量** (`SELECTORS`):
@@ -355,9 +357,9 @@ new PddCliError({
 | 功能 | 状态 | 影响 |
 |------|------|------|
 | 单 SKU 商品 | ✅ 完整支持 | 可正常发布 |
-| 多 SKU 规格配置 | ⛔ 安全阻断 | 缺少逐 SKU 价格和可靠行匹配时，在写表单前返回 `E_BUSINESS` |
-| 商品详情图上传 | ⚠️ 部分实现 | 校验详情图区、等待独立完成响应；部分失败给警告，全部失败停止保存 |
-| 商品属性映射 | ❌ 未实现 | 当前只解析源文本并给出 `property_mapping_unavailable`，不猜测动态表单字段 |
+| 多 SKU 规格配置 | ✅ 已验证（颜色/尺码） | 结构化 SKU 按规格值唯一匹配，逐行写入库存、拼单价和单买价；未知维度返回 `E_BUSINESS` |
+| 商品详情图上传 | ✅ 已实现并验证 | 下载后定位详情图区并逐张等待独立完成响应；部分失败给警告，全部失败停止保存，临时文件始终清理 |
+| 商品属性映射 | ✅ 已实现并验证 | 结构化源属性按实时平台模板唯一匹配；必填/重要属性失败关闭，可选属性非唯一时给部分告警 |
 | 满件折扣配置 | ❌ 未实现 | `@e86` 选择器和输入格式尚未经真实表单验证，不自动写入 |
 
 ### 9.2 技术债务
