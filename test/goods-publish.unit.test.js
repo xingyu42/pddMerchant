@@ -337,8 +337,10 @@ const formFillerMockState = vi.hoisted(() => ({
   fillCalls: 0,
   fillOptions: [],
   propertyRefillPlans: [],
+  discountRates: [],
   disableSizeChartCalls: 0,
   disableSizeChartError: null,
+  finalWriteOrder: [],
 }));
 
 const dynamicPropertyTemplateMockState = vi.hoisted(() => ({ responses: [] }));
@@ -366,13 +368,19 @@ vi.mock('../src/adapter/goods-publish/form-filler.js', () => ({
   fillGoodsProperties: vi.fn(async (_page, plan) => {
     formFillerMockState.propertyRefillPlans.push(plan);
   }),
+  fillFullCountDiscount: vi.fn(async (_page, rate) => {
+    formFillerMockState.discountRates.push(rate);
+    formFillerMockState.finalWriteOrder.push('discount');
+  }),
   disableSizeChart: vi.fn(async () => {
     formFillerMockState.disableSizeChartCalls += 1;
+    formFillerMockState.finalWriteOrder.push('size-chart');
     if (formFillerMockState.disableSizeChartError) throw formFillerMockState.disableSizeChartError;
     return { changed: true, disabled: true };
   }),
   clickSaveDraft: vi.fn(async (_page, _goodsCommitId, options = {}) => {
     formFillerMockState.saveCalls.push(options);
+    formFillerMockState.finalWriteOrder.push('save');
     if (formFillerMockState.saveShouldThrow) throw new Error('保存草稿按钮超时');
     if (options.strictVerify && formFillerMockState.saveVerification.ok === false) {
       const err = new Error('草稿校验失败');
@@ -466,8 +474,10 @@ function resetFormFillerMock() {
   formFillerMockState.fillCalls = 0;
   formFillerMockState.fillOptions = [];
   formFillerMockState.propertyRefillPlans = [];
+  formFillerMockState.discountRates = [];
   formFillerMockState.disableSizeChartCalls = 0;
   formFillerMockState.disableSizeChartError = null;
+  formFillerMockState.finalWriteOrder = [];
   dynamicPropertyTemplateMockState.responses = [];
 }
 
@@ -689,9 +699,13 @@ describe('save draft cost template injection', () => {
       evaluate: async () => ({ result: { goods_name: '测试商品', cost_template_id: 544142245494784, gallery: ['x'] } }),
     };
 
-    await clickSaveDraft(page, 'abc789', { costTemplateId: 544142245494784 });
+    const result = await clickSaveDraft(page, 'abc789', {
+      costTemplateId: 544142245494784,
+      expectedFullCountDiscountRate: 0.88,
+    });
 
     assert.equal(JSON.parse(continued.postData).cost_template_id, 544142245494784);
+    assert.equal(result.verification.ok, true);
     assert.equal(unrouted, true);
   });
 
@@ -820,18 +834,61 @@ describe('save draft cost template injection', () => {
           merchantColor: '红色',
           uploadedImageUrl: 'https://img.pddpic.com/uploaded-red.jpg',
         }],
+        expectedFullCountDiscountRate: 0.88,
       }),
       (err) => {
         assert.equal(err.code, 'E_BUSINESS');
         assert.ok(err.detail.issues.includes('sku_group_price_mismatch'));
         assert.ok(err.detail.issues.includes('goods_properties_missing'));
         assert.ok(err.detail.issues.includes('sku_thumb_url_missing'));
+        assert.ok(err.detail.issues.includes('full_count_discount_missing'));
         return true;
       },
     );
     assert.equal(continued, false);
     assert.equal(aborted, true);
     assert.equal(unrouted, true);
+  });
+
+  it('fails strict verification when draft detail returns a mismatched discount', async () => {
+    const { clickSaveDraft } = await vi.importActual('../src/adapter/goods-publish/form-filler.js');
+    const routed = [];
+    const page = {
+      waitForSelector: async () => ({
+        click: async () => {
+          await routed[0].handler({
+            request: () => ({ postData: () => '{"goods_id":123}' }),
+            continue: async () => {},
+            abort: async () => {},
+          });
+        },
+      }),
+      $: async () => null,
+      route: async (pattern, handler) => { routed.push({ pattern, handler }); },
+      unroute: async () => {},
+      waitForResponse: async () => ({ json: async () => ({ success: true }) }),
+      evaluate: async () => ({
+        result: {
+          goods_name: '测试商品',
+          cost_template_id: 544142245494784,
+          gallery: ['x'],
+          two_pieces_discount: 95,
+        },
+      }),
+    };
+
+    await assert.rejects(
+      () => clickSaveDraft(page, 'abc789', {
+        costTemplateId: 544142245494784,
+        expectedFullCountDiscountRate: 0.88,
+        strictVerify: true,
+      }),
+      (err) => {
+        assert.equal(err.code, 'E_BUSINESS');
+        assert.ok(err.detail.issues.includes('full_count_discount_mismatch'));
+        return true;
+      },
+    );
   });
 
   it('strict verification fails when saved draft misses required fields', async () => {
@@ -905,6 +962,7 @@ describe('publishGoodsFromLink: save draft failure handling', () => {
       page: {},
       context: { browser: () => ({}) },
       log: { info: () => {}, warn: () => {}, debug: () => {} },
+      runtimeConfig: { fullCountDiscountRate: 0.88 },
     };
 
     const result = await publishGoodsFromLink(mockCtx, '918867803697');
@@ -917,8 +975,11 @@ describe('publishGoodsFromLink: save draft failure handling', () => {
     assert.equal(formFillerMockState.propertyRefillPlans.length, 0);
     assert.equal(formFillerMockState.fillOptions[0].skuPreviewPlan.length, 1);
     assert.equal(formFillerMockState.disableSizeChartCalls, 1);
+    assert.deepEqual(formFillerMockState.discountRates, [0.88]);
+    assert.deepEqual(formFillerMockState.finalWriteOrder, ['size-chart', 'discount', 'save']);
     assert.equal(formFillerMockState.saveCalls[0].expectedPropertyPlan.length, 1);
     assert.equal(formFillerMockState.saveCalls[0].expectedSkuPreviewPlan[0].merchantColor, '红色');
+    assert.equal(formFillerMockState.saveCalls[0].expectedFullCountDiscountRate, 0.88);
   });
 
   it('refreshes dependent properties and saves material plus composition content', async () => {

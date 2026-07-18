@@ -46,10 +46,12 @@ describe('config management', () => {
     expect(parseWritableConfigField('logLevel', 'debug')).toBe('debug');
     expect(parseWritableConfigField('categoryApiBase', 'https://config.example.test')).toBe('https://config.example.test');
     expect(parseWritableConfigField('consumerLoginUrl', 'https://consumer.example.test/login')).toBe('https://consumer.example.test/login');
+    expect(parseWritableConfigField('fullCountDiscountRate', '88')).toBe(0.88);
     expect(() => parseWritableConfigField('rateLimitBurst', '2.5')).toThrowError(/configuration/i);
     expect(() => parseWritableConfigField('logLevel', 'verbose')).toThrowError(/configuration/i);
     expect(() => parseWritableConfigField('categoryApiBase', 'not-a-url')).toThrowError(/configuration/i);
     expect(() => parseWritableConfigField('consumerLoginUrl', 'not-a-url')).toThrowError(/configuration/i);
+    expect(() => parseWritableConfigField('fullCountDiscountRate', '49')).toThrowError(/configuration/i);
     expect(() => parseWritableConfigField('PDD_QINGGUO_AUTH_KEY', 'secret')).toThrowError(/configuration/i);
   });
 

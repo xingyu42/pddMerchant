@@ -11,6 +11,7 @@ import { evaluateInMainWorld } from '../browser.js';
 const CATEGORY_URL = 'https://mms.pinduoduo.com/goods/category?msfrom=mms_sidenav';
 const SIZE_CHART_DISABLE_SELECTOR = 'a[data-tracking-click-viewid="disable_size_chart"]';
 const SIZE_CHART_TABLE_SELECTOR = '[class*="sizeChart_sizeTable"]';
+const FULL_COUNT_DISCOUNT_SELECTOR = 'input[data-tracking-viewid="count_discount"]';
 
 const SELECTORS = {
   categorySearch: [
@@ -52,6 +53,28 @@ async function findFirst(page, selectors, timeout = 5000) {
     if (el) return el;
   }
   return null;
+}
+
+function fullCountDiscountConfigError(discountRate) {
+  return new PddCliError({
+    code: 'E_CONFIG_INVALID',
+    message: '满件折扣运行配置无效',
+    hint: '将 fullCountDiscountRate 配置为 0.50-0.99，步长 0.01',
+    detail: { field: 'fullCountDiscountRate', value_type: typeof discountRate },
+    exitCode: ExitCodes.GENERAL,
+  });
+}
+
+function fullCountDiscountPayloadValue(discountRate) {
+  const rate = Number(discountRate);
+  const payloadValue = Math.round(rate * 100);
+  if (!Number.isFinite(rate)
+    || rate < 0.5
+    || rate > 0.99
+    || Math.abs((rate * 100) - payloadValue) >= 1e-9) {
+    throw fullCountDiscountConfigError(discountRate);
+  }
+  return payloadValue;
 }
 
 export function normalizeCategoryText(s) {
@@ -699,6 +722,36 @@ export async function fillGoodsForm(page, source, warnings, options = {}) {
   return { uploadedSkuPreviewPlan };
 }
 
+export async function fillFullCountDiscount(page, discountRate, log = getLogger()) {
+  const payloadValue = fullCountDiscountPayloadValue(discountRate);
+  const input = page.locator(FULL_COUNT_DISCOUNT_SELECTOR);
+  const count = await input.count();
+  if (count !== 1) {
+    throw new PddCliError({
+      code: 'E_BUSINESS',
+      message: '满件折扣输入框无法唯一定位',
+      detail: { issue: 'full_count_discount_control_unmapped', control_count: count },
+      exitCode: ExitCodes.BUSINESS,
+    });
+  }
+
+  const displayValue = (payloadValue / 10).toFixed(1);
+  await input.fill(displayValue);
+  if (typeof input.blur === 'function') await input.blur();
+  const actualValue = Number(await input.inputValue());
+  if (!Number.isFinite(actualValue) || Math.abs(actualValue - (payloadValue / 10)) >= 1e-9) {
+    throw new PddCliError({
+      code: 'E_BUSINESS',
+      message: '满件折扣输入值读回不一致',
+      detail: { issue: 'full_count_discount_readback_mismatch' },
+      exitCode: ExitCodes.BUSINESS,
+    });
+  }
+
+  log.info({ full_count_discount_percent: payloadValue }, 'goods-publish: full-count discount filled');
+  return { rate: payloadValue / 100, displayValue, payloadValue };
+}
+
 export async function fillPrices(page, pricing, warnings, log) {
   const { pricingPlan, pricingValidation } = pricing ?? {};
   if (!pricingPlan || !pricingValidation) {
@@ -864,6 +917,15 @@ export function validateDraftEditPayload(body, options = {}) {
   else if (options.expectedCostTemplateId != null && String(templateId) !== String(options.expectedCostTemplateId)) {
     issues.add('cost_template_mismatch');
   }
+  if (options.expectedFullCountDiscountRate != null) {
+    const expectedDiscount = fullCountDiscountPayloadValue(options.expectedFullCountDiscountRate);
+    const actualDiscount = payload?.two_pieces_discount;
+    if (actualDiscount == null || actualDiscount === '') {
+      issues.add('full_count_discount_missing');
+    } else if (Number(actualDiscount) !== expectedDiscount) {
+      issues.add('full_count_discount_mismatch');
+    }
+  }
   if (skus.length === 0) issues.add('no_skus');
   for (const sku of skus) {
     if (!(Number(sku?.multi_price) > 0)) issues.add('sku_group_price_invalid');
@@ -965,6 +1027,7 @@ async function routeSaveDraftWithCostTemplate(page, options, run) {
           expectedSkuPricing: options.expectedSkuPricing,
           expectedPropertyPlan: options.expectedPropertyPlan,
           expectedSkuPreviewPlan: options.expectedSkuPreviewPlan,
+          expectedFullCountDiscountRate: options.expectedFullCountDiscountRate,
         });
         if (!payloadValidation.ok) {
           throw new PddCliError({
@@ -1038,6 +1101,7 @@ export async function clickSaveDraft(page, goodsCommitId, options = {}) {
   if (goodsCommitId) {
     verification = await verifyDraft(page, goodsCommitId, log, {
       expectedCostTemplateId: options.costTemplateId,
+      expectedFullCountDiscountRate: options.expectedFullCountDiscountRate,
     });
     if (options.strictVerify) assertDraftVerification(verification, goodsCommitId);
   }
@@ -1045,7 +1109,7 @@ export async function clickSaveDraft(page, goodsCommitId, options = {}) {
   return { ...result, payload_validation: routed.payloadValidation?.summary ?? null, verification };
 }
 
-function collectDraftIssues(d, expectedCostTemplateId) {
+function collectDraftIssues(d, expectedCostTemplateId, expectedFullCountDiscountRate) {
   const issues = [];
   if (!d.goods_name) issues.push('title_empty');
   const actualTemplateId = d.cost_template_id ?? d.costTemplateId;
@@ -1053,6 +1117,15 @@ function collectDraftIssues(d, expectedCostTemplateId) {
     issues.push('no_cost_template');
   } else if (expectedCostTemplateId != null && String(actualTemplateId) !== String(expectedCostTemplateId)) {
     issues.push('cost_template_mismatch');
+  }
+  if (expectedFullCountDiscountRate != null) {
+    const expectedDiscount = fullCountDiscountPayloadValue(expectedFullCountDiscountRate);
+    const hasActualDiscount = Object.hasOwn(d, 'two_pieces_discount')
+      || Object.hasOwn(d, 'twoPiecesDiscount');
+    const actualDiscount = d.two_pieces_discount ?? d.twoPiecesDiscount;
+    if (hasActualDiscount && Number(actualDiscount) !== expectedDiscount) {
+      issues.push('full_count_discount_mismatch');
+    }
   }
   if (!Array.isArray(d.gallery) || d.gallery.length === 0) issues.push('no_images');
   return issues;
@@ -1125,15 +1198,17 @@ export function normalizeDraftDetailResponse(response) {
     return { available: false, data: null, observation };
   }
 
-  return {
-    available: true,
-    data: {
-      goods_name: candidate.goods_name ?? candidate.goodsName ?? '',
-      cost_template_id: candidate.cost_template_id ?? candidate.costTemplateId ?? null,
-      gallery: candidate.gallery ?? [],
-    },
-    observation,
+  const data = {
+    goods_name: candidate.goods_name ?? candidate.goodsName ?? '',
+    cost_template_id: candidate.cost_template_id ?? candidate.costTemplateId ?? null,
+    gallery: candidate.gallery ?? [],
   };
+  if (Object.hasOwn(candidate, 'two_pieces_discount')) {
+    data.two_pieces_discount = candidate.two_pieces_discount;
+  } else if (Object.hasOwn(candidate, 'twoPiecesDiscount')) {
+    data.two_pieces_discount = candidate.twoPiecesDiscount;
+  }
+  return { available: true, data, observation };
 }
 
 function assertDraftVerification(verification, goodsCommitId) {
@@ -1178,7 +1253,11 @@ async function verifyDraft(page, goodsCommitId, log, options = {}) {
       };
     }
 
-    const issues = collectDraftIssues(normalized.data, options.expectedCostTemplateId);
+    const issues = collectDraftIssues(
+      normalized.data,
+      options.expectedCostTemplateId,
+      options.expectedFullCountDiscountRate,
+    );
 
     if (issues.length > 0) {
       log.warn({ issues, goodsCommitId }, 'goods-publish: draft verification found issues');

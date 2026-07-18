@@ -41,6 +41,7 @@ describe('runtime config', () => {
         PDD_RATE_LIMIT_QPS: '6',
         PDD_MALL_ID_STRICT_PARSE: '0',
         PDD_CONSUMER_LOGIN_URL: 'https://consumer.example.test/login',
+        PDD_FULL_COUNT_DISCOUNT_RATE: '88',
       },
       cliFlags: { rateLimitQps: 8 },
     });
@@ -49,12 +50,43 @@ describe('runtime config', () => {
     expect(result.config.titleRewrite).toBe(false);
     expect(result.config.mallIdStrictParse).toBe(false);
     expect(result.config.consumerLoginUrl).toBe('https://consumer.example.test/login');
+    expect(result.config.fullCountDiscountRate).toBe(0.88);
     expect(result.layers.environment).toEqual({
       rateLimitQps: 6,
       consumerLoginUrl: 'https://consumer.example.test/login',
       mallIdStrictParse: false,
+      fullCountDiscountRate: 0.88,
     });
   });
+
+  it.each([
+    ['0.5', 0.5],
+    ['0.99', 0.99],
+    ['50', 0.5],
+    ['95', 0.95],
+    ['99', 0.99],
+  ])('normalizes full-count discount environment value %s', async (raw, expected) => {
+    const runtime = await loadRuntimeConfig({
+      baselinePath,
+      configPath,
+      env: { PDD_FULL_COUNT_DISCOUNT_RATE: raw },
+    });
+    expect(runtime.fullCountDiscountRate).toBe(expected);
+  });
+
+  it.each(['0.49', '1', '49', '100', '0.955', 'not-a-number'])(
+    'rejects invalid full-count discount environment value %s',
+    async (raw) => {
+      await expect(loadRuntimeConfig({
+        baselinePath,
+        configPath,
+        env: { PDD_FULL_COUNT_DISCOUNT_RATE: raw },
+      })).rejects.toMatchObject({
+        code: 'E_CONFIG_INVALID',
+        detail: { source: 'environment' },
+      });
+    },
+  );
 
   it.each([
     ['missing', async () => rm(baselinePath)],

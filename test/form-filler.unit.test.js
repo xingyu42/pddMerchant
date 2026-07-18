@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   countSkuCombinations,
+  fillFullCountDiscount,
   fillPrices,
   mapSkuTableColumns,
   matchSkuPricingToTableRows,
@@ -59,6 +60,7 @@ describe('validateDraftEditPayload', () => {
       goods_name: '测试商品',
       gallery: ['image'],
       cost_template_id: 123,
+      two_pieces_discount: 95,
       goods_properties: [{
         template_pid: 471217,
         template_module_id: 72984,
@@ -78,6 +80,7 @@ describe('validateDraftEditPayload', () => {
       expectedSkuPricing,
       expectedPropertyPlan,
       expectedSkuPreviewPlan,
+      expectedFullCountDiscountRate: 0.95,
     });
 
     assert.equal(result.ok, true);
@@ -179,6 +182,77 @@ describe('validateDraftEditPayload', () => {
     assert.equal(JSON.stringify(result).includes('uploaded-red.jpg'), false);
   });
 
+  it('rejects a missing or mismatched full-count discount payload', () => {
+    const basePayload = {
+      goods_name: '测试商品',
+      gallery: ['image'],
+      cost_template_id: 123,
+      skus: [{ spec: '', multi_price: 1690, price: 1890, quantity_delta: 7 }],
+    };
+
+    const missing = validateDraftEditPayload(basePayload, {
+      expectedFullCountDiscountRate: 0.88,
+    });
+    assert.ok(missing.issues.includes('full_count_discount_missing'));
+
+    const mismatched = validateDraftEditPayload({
+      ...basePayload,
+      two_pieces_discount: 95,
+    }, { expectedFullCountDiscountRate: 0.88 });
+    assert.ok(mismatched.issues.includes('full_count_discount_mismatch'));
+  });
+
+});
+
+describe('fillFullCountDiscount', () => {
+  it('fills the verified UI value and reads it back', async () => {
+    let value = '9.5';
+    let blurCount = 0;
+    const input = {
+      count: async () => 1,
+      fill: async (next) => { value = String(next); },
+      blur: async () => { blurCount += 1; },
+      inputValue: async () => value,
+    };
+    const logs = [];
+
+    const result = await fillFullCountDiscount(
+      { locator: (selector) => {
+        assert.equal(selector, 'input[data-tracking-viewid="count_discount"]');
+        return input;
+      } },
+      0.88,
+      { info: (detail) => logs.push(detail) },
+    );
+
+    assert.equal(value, '8.8');
+    assert.equal(blurCount, 1);
+    assert.deepEqual(result, { rate: 0.88, displayValue: '8.8', payloadValue: 88 });
+    assert.deepEqual(logs, [{ full_count_discount_percent: 88 }]);
+  });
+
+  it.each([0, 2])('fails closed when the verified control count is %s', async (count) => {
+    await assert.rejects(
+      () => fillFullCountDiscount({ locator: () => ({ count: async () => count }) }, 0.95),
+      (error) => error.code === 'E_BUSINESS'
+        && error.detail.issue === 'full_count_discount_control_unmapped',
+    );
+  });
+
+  it('fails closed when the UI readback differs', async () => {
+    await assert.rejects(
+      () => fillFullCountDiscount({
+        locator: () => ({
+          count: async () => 1,
+          fill: async () => {},
+          blur: async () => {},
+          inputValue: async () => '9.5',
+        }),
+      }, 0.88),
+      (error) => error.code === 'E_BUSINESS'
+        && error.detail.issue === 'full_count_discount_readback_mismatch',
+    );
+  });
 });
 
 describe('matchSkuPricingToTableRows', () => {

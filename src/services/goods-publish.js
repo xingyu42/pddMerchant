@@ -18,6 +18,7 @@ import {
   selectCategory,
   fillGoodsForm,
   fillGoodsProperties,
+  fillFullCountDiscount,
   disableSizeChart,
   clickSaveDraft,
 } from '../adapter/goods-publish/form-filler.js';
@@ -522,6 +523,12 @@ export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
     log.info({ changed: result.changed }, 'goods-publish: size chart disabled before draft save');
     await assertNoRiskControl(ctx.page, { phase: 'form:size-chart-disabled' });
   });
+  await withWriteRateControl('publish.fill_full_count_discount', () =>
+    breaker.wrap('fill_full_count_discount', async () => {
+      await fillFullCountDiscount(ctx.page, ctx.runtimeConfig?.fullCountDiscountRate, log);
+      await assertNoRiskControl(ctx.page, { phase: 'form:full-count-discount' });
+    }), writeRateOptions
+  );
   for (const warning of propertyMapping.warnings) {
     if (!warnings.includes(warning)) warnings.push(warning);
   }
@@ -535,6 +542,7 @@ export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
           expectedSkuPricing: pricingPlan?.skuPricing,
           expectedPropertyPlan: propertyMapping.plan,
           expectedSkuPreviewPlan: uploadedSkuPreviewPlan,
+          expectedFullCountDiscountRate: ctx.runtimeConfig?.fullCountDiscountRate,
           strictPayload: true,
           strictVerify: true,
         });

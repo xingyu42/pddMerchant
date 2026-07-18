@@ -20,6 +20,17 @@ const logDestinationSchema = z.string().min(1).refine(
   { message: 'console destinations are not allowed' },
 );
 
+const fullCountDiscountRateSchema = z.number().finite()
+  .transform((value) => (value > 1 && value <= 99 ? value / 100 : value))
+  .refine(
+    (value) => value >= 0.5 && value <= 0.99,
+    { message: 'must be between 0.5 and 0.99, or between 50 and 99' },
+  )
+  .refine(
+    (value) => Math.abs((value * 100) - Math.round(value * 100)) < 1e-9,
+    { message: 'must use increments of 0.01' },
+  );
+
 const CONFIG_FIELD_DEFINITIONS = Object.freeze({
   logLevel: { schema: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']), env: 'PDD_LOG_LEVEL', kind: 'string', required: true },
   rateLimitQps: { schema: qpsSchema, env: 'PDD_RATE_LIMIT_QPS', kind: 'number', required: true },
@@ -35,6 +46,7 @@ const CONFIG_FIELD_DEFINITIONS = Object.freeze({
   consumerLoginUrl: { schema: z.string().url(), env: 'PDD_CONSUMER_LOGIN_URL', kind: 'string', required: true },
   mallIdStrictParse: { schema: z.boolean(), env: 'PDD_MALL_ID_STRICT_PARSE', kind: 'boolean', required: true },
   titleRewrite: { schema: z.boolean(), env: 'PDD_TITLE_REWRITE', kind: 'boolean', required: true },
+  fullCountDiscountRate: { schema: fullCountDiscountRateSchema, env: 'PDD_FULL_COUNT_DISCOUNT_RATE', kind: 'number', required: true },
   timeoutMs: { schema: z.number().int().positive(), env: 'PDD_TIMEOUT_MS', kind: 'number', required: false },
   defaultMall: { schema: z.string().min(1), env: 'PDD_DEFAULT_MALL', kind: 'string', required: false },
   authStatePath: { schema: z.string().min(1), env: 'PDD_AUTH_STATE_PATH', kind: 'string', required: false },
@@ -306,34 +318,6 @@ export async function loadRuntimeConfig(options) {
   return Object.freeze({ ...config });
 }
 
-const DEFAULT_FULL_COUNT_DISCOUNT_RATE = 0.95;
-
-export function readFullCountDiscountRate(env = process.env) {
-  const raw = env.PDD_FULL_COUNT_DISCOUNT_RATE;
-  if (raw == null || raw === '') {
-    return DEFAULT_FULL_COUNT_DISCOUNT_RATE;
-  }
-
-  const trimmed = String(raw).trim();
-  let parsed = Number(trimmed);
-
-  if (!Number.isFinite(parsed)) {
-    return DEFAULT_FULL_COUNT_DISCOUNT_RATE;
-  }
-
-  // 百分比形式转换：95 → 0.95
-  if (parsed > 1 && parsed <= 99) {
-    parsed = parsed / 100;
-  }
-
-  // 范围校验：0.5-0.99
-  if (parsed < 0.5 || parsed > 0.99) {
-    return DEFAULT_FULL_COUNT_DISCOUNT_RATE;
-  }
-
-  return parsed;
-}
-
 export {
   ConfigSchema,
   RuntimeConfigSchema,
@@ -341,5 +325,4 @@ export {
   DEFAULT_CONFIG_EXAMPLE_PATH,
   DEFAULT_CONFIG_PATH,
   REJECTED_LOG_DESTINATIONS,
-  DEFAULT_FULL_COUNT_DISCOUNT_RATE,
 };

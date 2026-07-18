@@ -12,5 +12,6 @@
   "categoryApiBase": "https://api.gj.dangxun.com",
   "consumerLoginUrl": "https://mobile.yangkeduo.com/login.html",
   "mallIdStrictParse": true,
-  "titleRewrite": true
+  "titleRewrite": true,
+  "fullCountDiscountRate": 0.95
 }
