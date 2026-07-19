@@ -49,13 +49,11 @@ const QR_TAB_SELECTORS = [
 
 export async function ensureQrTab(page, { tabSelectors = QR_TAB_SELECTORS } = {}) {
   for (const sel of tabSelectors) {
-    try {
-      const el = await page.$(sel);
-      if (el) {
-        await el.click({ timeout: 2000 });
-        return true;
-      }
-    } catch { /* try next */ }
+    const el = await page.$(sel);
+    if (el) {
+      await el.click({ timeout: 2000 }).catch(() => {});
+      return true;
+    }
   }
   return false;
 }

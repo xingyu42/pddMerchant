@@ -8,16 +8,10 @@ export async function prepareCommandRuntime(opts) {
     },
   });
 
-  if (opts.timeoutMs == null && runtimeConfig.timeoutMs != null) {
-    opts.timeout = runtimeConfig.timeoutMs;
-    opts.timeoutMs = runtimeConfig.timeoutMs;
-  }
-  if (opts.mall == null && runtimeConfig.defaultMall != null) {
-    opts.mall = runtimeConfig.defaultMall;
-  }
-  if (opts.authStatePath == null && runtimeConfig.authStatePath != null) {
-    opts.authStatePath = runtimeConfig.authStatePath;
-  }
+  opts.timeoutMs ??= runtimeConfig.timeoutMs;
+  opts.timeout ??= opts.timeoutMs;
+  opts.mall ??= runtimeConfig.defaultMall;
+  opts.authStatePath ??= runtimeConfig.authStatePath;
 
   return runtimeConfig;
 }

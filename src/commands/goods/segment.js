@@ -4,6 +4,7 @@ import { collectAllGoods } from '../../services/diagnose/goods-collector.js';
 import { collectOrdersForStaleAnalysis } from '../../services/diagnose/orders-collector.js';
 import { analyzePromoRoi } from '../../services/promo-roi.js';
 import { getPromoReport } from '../../services/promo.js';
+import { getLogger } from '../../infra/logger.js';
 
 export const run = withCommand({
   name: 'goods.segment',
@@ -18,6 +19,7 @@ export const run = withCommand({
       promo: usePromo = true,
     } = ctx.config;
     const page = ctx.page;
+    const log = ctx.log ?? getLogger();
 
     const hasContext = typeof page?.context === 'function';
     const ordersPage = hasContext ? await page.context().newPage() : page;
@@ -39,7 +41,10 @@ export const run = withCommand({
               { by: 'sku', breakEvenRoi: breakEven },
             );
           }
-        } catch { /* promo data optional */ }
+        } catch (err) {
+          // optional enrichment — segment still works without promo ROI
+          log.debug({ err: err?.message }, 'goods.segment: promo enrichment failed');
+        }
       }
 
       const result = segmentGoods(

@@ -948,8 +948,9 @@ describe('publishGoodsFromLink: save draft failure handling', () => {
     await assert.rejects(
       () => publishGoodsFromLink(mockCtx, '918867803697', { draftOnly: true }),
       (err) => {
-        assert.equal(err.code, 'E_BUSINESS');
-        assert.equal(err.exitCode, 6);
+        // Plain adapter errors propagate; do not rewrap as E_BUSINESS.
+        assert.equal(err.message, '保存草稿按钮超时');
+        assert.equal(err.code, undefined);
         return true;
       },
     );
@@ -1215,7 +1216,7 @@ describe('publishGoodsFromLink: temporary source cache', () => {
 
     await assert.rejects(
       () => publishGoodsFromLink(ctx, '918867803697'),
-      (error) => error.code === 'E_BUSINESS',
+      (error) => error.message === '保存草稿按钮超时',
     );
     assert.deepEqual(sourceCacheMockState.writeCalls, ['918867803697']);
     assert.deepEqual(sourceCacheMockState.removeCalls, []);
@@ -1356,7 +1357,7 @@ describe('publishGoodsFromLink: confirmed submit path', () => {
 
     await assert.rejects(
       () => publishGoodsFromLink(mockCtx, '918867803697', { draftOnly: false }),
-      (err) => err.code === 'E_BUSINESS',
+      (err) => err.message === '保存草稿按钮超时',
     );
     assert.equal(endpointMockState.calls.includes('goods.publish.submit'), false);
   });

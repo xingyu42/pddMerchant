@@ -11,7 +11,7 @@ export const run = withCommand({
   async run(ctx) {
     const mallId = ctx.mallCtx?.activeId ?? null;
     const input = await collectPromoInput(ctx.page, { mallId });
-    return scorePromoHealth(input ?? {});
+    return scorePromoHealth(input);
   },
 });
 

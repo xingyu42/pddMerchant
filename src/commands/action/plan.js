@@ -7,6 +7,16 @@ import { resolveCompareWindows, compareShopDiagnosis } from '../../services/diag
 import { collectOrdersInput, collectGoodsInput, collectPromoInput } from '../../services/diagnose/collectors.js';
 import { collectOrdersForStaleAnalysis } from '../../services/diagnose/orders-collector.js';
 import { getPromoReport } from '../../services/promo.js';
+import { getLogger } from '../../infra/logger.js';
+
+async function settleOptional(label, promise, log) {
+  try {
+    return await promise;
+  } catch (err) {
+    log.debug({ err: err?.message, step: label }, 'action.plan: optional step failed');
+    return null;
+  }
+}
 
 export const run = withCommand({
   name: 'action.plan',
@@ -22,6 +32,7 @@ export const run = withCommand({
       segment: useSegment = true,
     } = ctx.config;
     const page = ctx.page;
+    const log = ctx.log ?? getLogger();
 
     const hasContext = typeof page?.context === 'function';
     const goodsPage = hasContext ? await page.context().newPage() : page;
@@ -29,9 +40,9 @@ export const run = withCommand({
 
     try {
       const [orders, goodsInput, promoInput] = await Promise.all([
-        collectOrdersInput(page, ctx, { windowDays: days }),
-        collectGoodsInput(goodsPage, ctx),
-        collectPromoInput(promoPage, ctx),
+        settleOptional('orders', collectOrdersInput(page, ctx, { windowDays: days }), log),
+        settleOptional('goods', collectGoodsInput(goodsPage, ctx), log),
+        settleOptional('promo', collectPromoInput(promoPage, ctx), log),
       ]);
 
       const diagnosis = diagnoseShop({
@@ -43,22 +54,21 @@ export const run = withCommand({
 
       let promoRoi = null;
       if (usePromo && promoInput?.totals) {
-        try {
+        promoRoi = await settleOptional('promoRoi', (async () => {
           const report = await getPromoReport(page, {}, ctx);
-          if (report?.entities?.length > 0) {
-            promoRoi = analyzePromoRoi(
-              { entities: report.entities, totals: report.totals ?? {} },
-              { by: 'plan', breakEvenRoi: breakEven },
-            );
-          }
-        } catch { /* optional */ }
+          if (!(report?.entities?.length > 0)) return null;
+          return analyzePromoRoi(
+            { entities: report.entities, totals: report.totals ?? {} },
+            { by: 'plan', breakEvenRoi: breakEven },
+          );
+        })(), log);
       }
 
       let segmentation = null;
       if (useSegment && goodsInput) {
-        try {
+        segmentation = await settleOptional('segmentation', (async () => {
           const ordersResult = await collectOrdersForStaleAnalysis(page, ctx, { scanDays: 30 });
-          segmentation = segmentGoods(
+          return segmentGoods(
             {
               goods: goodsInput.goods ?? [],
               orders30d: ordersResult.orders,
@@ -68,12 +78,12 @@ export const run = withCommand({
             },
             { windowDays: 30, breakEvenRoi: breakEven },
           );
-        } catch { /* optional */ }
+        })(), log);
       }
 
       let comparison = null;
       if (doCompare) {
-        try {
+        comparison = await settleOptional('compare', (async () => {
           const nowSec = Math.floor(Date.now() / 1000);
           const windows = resolveCompareWindows({ nowSec, days });
           const [prevOrders, prevPromo] = await Promise.allSettled([
@@ -95,8 +105,8 @@ export const run = withCommand({
               ? { orderStats: prevOrders.value.listStats, windowDays: days }
               : undefined,
           });
-          comparison = compareShopDiagnosis({ current: diagnosis, previous: prevDiag });
-        } catch { /* comparison optional */ }
+          return compareShopDiagnosis({ current: diagnosis, previous: prevDiag });
+        })(), log);
       }
 
       const result = generateActionPlan(

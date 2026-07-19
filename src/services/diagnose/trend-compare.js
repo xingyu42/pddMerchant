@@ -14,8 +14,8 @@ function deltaPct(current, previous) {
   return Number(((current - previous) / previous * 100).toFixed(2));
 }
 
-export function compareShopDiagnosis(input) {
-  const { current, previous } = input ?? {};
+export function compareShopDiagnosis(input = {}) {
+  const { current, previous } = input;
   if (!current) return null;
 
   const currentScore = current.score;

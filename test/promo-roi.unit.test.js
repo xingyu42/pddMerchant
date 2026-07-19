@@ -204,9 +204,8 @@ test('analyzePromoRoi: empty entities → empty rows', () => {
   assert.equal(r.summary.total_rows, 0);
 });
 
-test('analyzePromoRoi: null input → empty rows', () => {
-  const r = analyzePromoRoi(null);
-  assert.equal(r.rows.length, 0);
+test('analyzePromoRoi: null input throws TypeError', () => {
+  assert.throws(() => analyzePromoRoi(null), TypeError);
 });
 
 // ---------- CTR calculation ----------

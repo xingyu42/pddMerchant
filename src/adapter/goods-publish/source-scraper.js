@@ -195,8 +195,7 @@ export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
       earlyScore = scored.score;
     }
     if (scored.snapshot.complete) break;
-    // page mock 可能无 waitForTimeout；生产 Playwright page 始终有。
-    await page.waitForTimeout?.(150);
+    await page.waitForTimeout(150);
   }
 
   // Phase 2: Warm-up

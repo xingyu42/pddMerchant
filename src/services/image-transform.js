@@ -65,26 +65,24 @@ export async function transformImages(filePaths, options = {}) {
   const tmpDir = join(tmpdir(), `pdd-img-transform-${randomUUID().slice(0, 8)}`);
   mkdirSync(tmpDir, { recursive: true });
 
-  const warnings = [];
   const stats = [];
   const outputPaths = [];
 
-  for (let i = 0; i < filePaths.length; i++) {
-    const outputPath = join(tmpDir, `${i}.jpg`);
-    try {
+  try {
+    for (let i = 0; i < filePaths.length; i++) {
+      const outputPath = join(tmpDir, `${i}.jpg`);
       const stat = await transformSingle(filePaths[i], outputPath, opts);
       stats.push(stat);
       outputPaths.push(outputPath);
-    } catch (err) {
-      warnings.push(`image_transform_failed: ${filePaths[i]} — ${err.message}`);
-      outputPaths.push(filePaths[i]);
     }
+  } catch (err) {
+    rmSync(tmpDir, { recursive: true, force: true });
+    throw new Error(`image transform failed for ${filePaths[stats.length]}: ${err.message}`, { cause: err });
   }
 
   return {
     filePaths: outputPaths,
     tmpDir,
-    warnings,
     stats,
     cleanup() {
       rmSync(tmpDir, { recursive: true, force: true });

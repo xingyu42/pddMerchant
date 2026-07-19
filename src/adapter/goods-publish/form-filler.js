@@ -1038,7 +1038,9 @@ async function routeSaveDraftWithCostTemplate(page, options, run) {
     if (!injected) throw costTemplateBodyError('未捕获到保存草稿请求，无法写入运费模板');
     return { result, payloadValidation };
   } finally {
-    await page.unroute(isSaveDraftUrl, handler).catch(() => {});
+    await page.unroute(isSaveDraftUrl, handler).catch((err) => {
+      getLogger().debug({ err: err?.message }, 'form-filler: save-draft unroute failed');
+    });
   }
 }
 

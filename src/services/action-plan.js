@@ -145,8 +145,8 @@ function addDiagnosisActions(actions, diagnosis) {
   }
 }
 
-export function generateActionPlan(input, options = {}) {
-  const { diagnosis, promoRoi, segmentation, compare } = input ?? {};
+export function generateActionPlan(input = {}, options = {}) {
+  const { diagnosis, promoRoi, segmentation, compare } = input;
   const { limit = 10 } = options;
 
   const rawActions = [];

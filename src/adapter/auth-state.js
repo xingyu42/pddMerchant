@@ -59,7 +59,9 @@ export async function saveAuthState(context, path, { skipLock = false } = {}) {
     return path;
   } finally {
     if (lockToken) {
-      await releaseLock(path, lockToken).catch(() => {});
+      await releaseLock(path, lockToken).catch((err) => {
+        getLogger().warn({ err: err?.message, path }, 'auth-state: lock release failed');
+      });
     }
   }
 }

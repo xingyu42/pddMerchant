@@ -287,13 +287,12 @@ export class PlaywrightEndpointClient {
     }
   }
 
-  async _runTrigger(meta, page, params, ctx, log, collector) {
+  async _runTrigger(meta, page, params, ctx, log) {
     if (typeof meta.trigger !== 'function') return;
     try {
       await meta.trigger(page, params, ctx);
     } catch (err) {
       if (meta.requiredTrigger) {
-        collector?.dispose();
         throw new PddCliError({
           code: 'E_GENERAL',
           message: `${meta.name}: required trigger failed: ${err?.message}`,
@@ -334,7 +333,9 @@ export class PlaywrightEndpointClient {
       },
       cleanupTransport: async (pg) => {
         if (routeHandler) {
-          await pg.unroute(meta.urlPattern, routeHandler).catch(() => {});
+          await pg.unroute(meta.urlPattern, routeHandler).catch((err) => {
+            log.debug({ err: err?.message, endpoint: meta?.name }, 'endpoint-client: unroute failed');
+          });
         }
       },
       runTrigger: this._runTrigger.bind(this),

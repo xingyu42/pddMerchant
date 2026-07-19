@@ -11,7 +11,8 @@ export const run = withCommand({
   async run(ctx) {
     const mallId = ctx.mallCtx?.activeId ?? null;
     const input = await collectGoodsInput(ctx.page, { mallId });
-    return scoreInventoryHealth(input ?? {});
+    // empty shop / no goods → collectors return undefined → partial score
+    return scoreInventoryHealth(input || {});
   },
 });
 

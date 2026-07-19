@@ -33,7 +33,7 @@ function groupLabel(entity, by) {
 }
 
 export function analyzePromoRoi(input, options = {}) {
-  const { entities = [], totals = {} } = input ?? {};
+  const { entities = [], totals = {} } = input;
   const {
     by = 'plan',
     breakEvenRoi = 1.0,

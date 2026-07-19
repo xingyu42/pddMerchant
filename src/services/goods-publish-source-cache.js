@@ -108,8 +108,11 @@ function normalizeSource(goodsId, source) {
 
   try {
     validateScrapedData(normalized);
-  } catch {
-    throw cacheError('E_SOURCE_CACHE_INVALID', 'source validation failed');
+  } catch (err) {
+    const detail = err?.message ? `: ${err.message}` : '';
+    const wrapped = cacheError('E_SOURCE_CACHE_INVALID', `source validation failed${detail}`);
+    wrapped.cause = err;
+    throw wrapped;
   }
   return normalized;
 }

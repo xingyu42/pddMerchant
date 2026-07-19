@@ -115,7 +115,7 @@ function mergeOptions(commanderCmd) {
 function wireAction(cmd, commandName, runFn, { runtimeConfigPolicy = 'required' } = {}) {
   cmd.action(async function action(...actionArgs) {
     const commanderCmd = actionArgs.at(-1) ?? this;
-    const opts = mergeOptions(commanderCmd ?? this);
+    const opts = mergeOptions(commanderCmd);
     const positionalArgs = actionArgs.slice(0, -2);
     if (positionalArgs.length > 0) opts.args = positionalArgs;
     try {

@@ -3,16 +3,27 @@ import { renderShopDashboard } from './_render.js';
 import { diagnoseShop } from '../../services/diagnose/index.js';
 import { collectOrdersInput, collectGoodsInput, collectPromoInput } from '../../services/diagnose/collectors.js';
 import { resolveCompareWindows, compareShopDiagnosis } from '../../services/diagnose/trend-compare.js';
+import { getLogger } from '../../infra/logger.js';
+
+async function settleDimension(label, promise, log) {
+  try {
+    return await promise;
+  } catch (err) {
+    log.debug({ err: err?.message, dimension: label }, 'diagnose.shop: dimension collection failed');
+    return undefined;
+  }
+}
 
 async function collectDiagnosis(page, ctx, { since, until, windowDays } = {}) {
   const hasContext = typeof page?.context === 'function';
   const goodsPage = hasContext ? await page.context().newPage() : page;
   const promoPage = hasContext ? await page.context().newPage() : page;
+  const log = ctx.log ?? getLogger();
   try {
     const [orders, goods, promo] = await Promise.all([
-      collectOrdersInput(page, ctx, { since, until, windowDays }),
-      collectGoodsInput(goodsPage, ctx),
-      collectPromoInput(promoPage, ctx, { since, until }),
+      settleDimension('orders', collectOrdersInput(page, ctx, { since, until, windowDays }), log),
+      settleDimension('goods', collectGoodsInput(goodsPage, ctx), log),
+      settleDimension('promo', collectPromoInput(promoPage, ctx, { since, until }), log),
     ]);
     return diagnoseShop({
       orders,

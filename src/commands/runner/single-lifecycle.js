@@ -30,19 +30,13 @@ function anySignal(signals) {
   return controller.signal;
 }
 
-async function resolveAccount(opts, needsAuth, warnings, log) {
-  try {
-    return await resolveAccountContext({
-      account: opts.account,
-      authStatePath: opts.authStatePath,
-      needsAuth,
-      warnings,
-    });
-  } catch (resolveErr) {
-    if (resolveErr instanceof PddCliError) throw resolveErr;
-    log.debug({ err: resolveErr?.message }, 'account resolution failed, falling back');
-    return null;
-  }
+async function resolveAccount(opts, needsAuth, warnings) {
+  return resolveAccountContext({
+    account: opts.account,
+    authStatePath: opts.authStatePath,
+    needsAuth,
+    warnings,
+  });
 }
 
 function armDeadline(opts, parentSignal, startedAt) {
@@ -143,7 +137,7 @@ export async function executeSingle(spec, opts = {}, {
     ? getLogger().withOp({ command: name, correlation_id: correlationId })
     : getLogger();
 
-  const accountCtx = await resolveAccount(opts, needsAuth, warnings, log);
+  const accountCtx = await resolveAccount(opts, needsAuth, warnings);
   const { signal, deadlineTimer, deadlineAt } = armDeadline(opts, parentSignal, startedAt);
 
   const runtime = {

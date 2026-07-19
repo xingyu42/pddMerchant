@@ -18,7 +18,6 @@ describe('image-transform', () => {
     assert.equal(lastResult.filePaths.length, 1);
     assert(existsSync(lastResult.filePaths[0]));
     assert.equal(lastResult.stats.length, 1);
-    assert.equal(lastResult.warnings.length, 0);
   });
 
   it('output is JPEG format', async () => {
@@ -39,12 +38,11 @@ describe('image-transform', () => {
     assert.equal(lastResult.stats.length, 2);
   });
 
-  it('falls back to original on transform error', async () => {
-    lastResult = await transformImages(['/nonexistent/image.png'], { random: () => 0.5 });
-    assert.equal(lastResult.filePaths.length, 1);
-    assert.equal(lastResult.filePaths[0], '/nonexistent/image.png');
-    assert(lastResult.warnings.length > 0);
-    assert(lastResult.warnings[0].includes('image_transform_failed'));
+  it('throws on transform error and cleans up temp dir', async () => {
+    await assert.rejects(
+      () => transformImages(['/nonexistent/image.png'], { random: () => 0.5 }),
+      /image transform failed for \/nonexistent\/image\.png/
+    );
   });
 
   it('cleanup removes temp directory', async () => {

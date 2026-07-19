@@ -133,11 +133,7 @@ export function createCollector(page, { pattern, count = 1, timeout = 15000, mul
       clearTimeout(timer);
       timer = null;
     }
-    if (typeof page.off === 'function') {
-      try { page.off('response', listener); } catch { /* ignore */ }
-    } else if (typeof page.removeListener === 'function') {
-      try { page.removeListener('response', listener); } catch { /* ignore */ }
-    }
+    page.off('response', listener);
     if (activeCollectors.get(page) === collectorRef) {
       activeCollectors.delete(page);
     }

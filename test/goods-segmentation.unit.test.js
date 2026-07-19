@@ -125,9 +125,8 @@ test('segmentGoods: empty goods → empty result', () => {
   assert.equal(r.summary.data_completeness, 'empty');
 });
 
-test('segmentGoods: null input → empty result', () => {
-  const r = segmentGoods(null);
-  assert.equal(r.items.length, 0);
+test('segmentGoods: null input throws TypeError', () => {
+  assert.throws(() => segmentGoods(null), TypeError);
 });
 
 // ---------- Tier mutual exclusivity and exhaustive ----------

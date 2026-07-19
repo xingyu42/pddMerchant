@@ -63,7 +63,7 @@ function detectMatchedBy(strategy, orderItems, goodsItems) {
 }
 
 export function segmentGoods(input, options = {}) {
-  const { goods = [], orders30d = [], promoRoi = null, truncated = false, ratelimited = false } = input ?? {};
+  const { goods = [], orders30d = [], promoRoi = null, truncated = false, ratelimited = false } = input;
   const { windowDays = 30, breakEvenRoi = 1.0 } = options;
 
   const warnings = [];

@@ -18,21 +18,17 @@ export const run = withCommand({
       ? ctx.config.days
       : DEFAULT_WINDOW_DAYS;
     const maxPages = Math.max(10, Math.ceil(windowDays / 7) * PAGES_PER_WEEK);
-    try {
-      const { orders, truncated } = await collectOrdersForStaleAnalysis(
-        ctx.page,
-        { mallId },
-        { scanDays: windowDays, maxPages, pageSize: STALE_PAGE_SIZE },
-      );
-      const orderStats = computeOrderStats(orders);
-      const result = scoreFunnelHealth({ orderStats, windowDays });
-      if (truncated) {
-        result.hints.push(`订单量超出采集上限（${maxPages * STALE_PAGE_SIZE} 条），统计基于部分数据`);
-      }
-      return result;
-    } catch {
-      return scoreFunnelHealth({});
+    const { orders, truncated } = await collectOrdersForStaleAnalysis(
+      ctx.page,
+      { mallId },
+      { scanDays: windowDays, maxPages, pageSize: STALE_PAGE_SIZE },
+    );
+    const orderStats = computeOrderStats(orders);
+    const result = scoreFunnelHealth({ orderStats, windowDays });
+    if (truncated) {
+      result.hints.push(`订单量超出采集上限（${maxPages * STALE_PAGE_SIZE} 条），统计基于部分数据`);
     }
+    return result;
   },
 });
 

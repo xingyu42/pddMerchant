@@ -11,7 +11,8 @@ export const run = withCommand({
   async run(ctx) {
     const mallId = ctx.mallCtx?.activeId ?? null;
     const input = await collectOrdersInput(ctx.page, { mallId });
-    return scoreOrdersHealth(input ?? {});
+    // both stats+list missing without throw → partial score
+    return scoreOrdersHealth(input || {});
   },
 });
 

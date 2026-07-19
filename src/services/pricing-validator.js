@@ -67,19 +67,26 @@ export function validatePricingPlan(plan, constraints = {}) {
   const errors = [];
   const warnings = [];
 
-  const group = parseFloat(plan.groupPrice) || 0;
-  const single = parseFloat(plan.singlePrice) || 0;
-  const market = parseFloat(plan.marketPrice) || 0;
+  const group = Number.parseFloat(plan.groupPrice);
+  const single = Number.parseFloat(plan.singlePrice);
+  const market = Number.parseFloat(plan.marketPrice);
+  if (!Number.isFinite(group)) errors.push(`groupPrice (${plan.groupPrice}) is not a number`);
+  if (!Number.isFinite(single)) errors.push(`singlePrice (${plan.singlePrice}) is not a number`);
+  if (!Number.isFinite(market)) errors.push(`marketPrice (${plan.marketPrice}) is not a number`);
 
   if (Array.isArray(plan.skuPricing)) {
     if (plan.skuPricing.length === 0) errors.push('source SKU pricing missing');
     const combinations = new Set();
     for (const sku of plan.skuPricing) {
-      const skuGroup = parseFloat(sku.groupPrice) || 0;
-      const skuSingle = parseFloat(sku.singlePrice) || 0;
+      const skuGroup = Number.parseFloat(sku.groupPrice);
+      const skuSingle = Number.parseFloat(sku.singlePrice);
       if (!sku.sourceSkuId) errors.push('source SKU id missing');
-      if (skuGroup <= 0 || skuSingle <= 0) errors.push(`SKU price invalid (${sku.sourceSkuId ?? 'unknown'})`);
-      if (skuGroup > skuSingle) errors.push(`SKU groupPrice > singlePrice (${sku.sourceSkuId ?? 'unknown'})`);
+      if (!Number.isFinite(skuGroup) || !Number.isFinite(skuSingle) || skuGroup <= 0 || skuSingle <= 0) {
+        errors.push(`SKU price invalid (${sku.sourceSkuId ?? 'unknown'})`);
+      }
+      if (Number.isFinite(skuGroup) && Number.isFinite(skuSingle) && skuGroup > skuSingle) {
+        errors.push(`SKU groupPrice > singlePrice (${sku.sourceSkuId ?? 'unknown'})`);
+      }
       if (!Number.isSafeInteger(sku.stock) || sku.stock < 0) {
         errors.push(`SKU stock missing (${sku.sourceSkuId ?? 'unknown'})`);
       }
@@ -97,21 +104,26 @@ export function validatePricingPlan(plan, constraints = {}) {
     }
   }
 
-  if (group > single) errors.push(`groupPrice (${plan.groupPrice}) > singlePrice (${plan.singlePrice})`);
+  if (Number.isFinite(group) && Number.isFinite(single) && group > single) {
+    errors.push(`groupPrice (${plan.groupPrice}) > singlePrice (${plan.singlePrice})`);
+  }
   const maxSinglePrice = Math.max(
-    single,
+    Number.isFinite(single) ? single : 0,
     ...(Array.isArray(plan.skuPricing)
-      ? plan.skuPricing.map((sku) => Number(sku.singlePrice) || 0)
+      ? plan.skuPricing.map((sku) => {
+        const value = Number.parseFloat(sku.singlePrice);
+        return Number.isFinite(value) ? value : 0;
+      })
       : []),
   );
-  if (market <= 0) {
+  if (!Number.isFinite(market) || market <= 0) {
     errors.push(`marketPrice (${plan.marketPrice}) must be positive`);
   } else if (market <= maxSinglePrice) {
     errors.push(`marketPrice (${plan.marketPrice}) must be greater than max singlePrice (${maxSinglePrice.toFixed(2)})`);
   }
 
   if (plan.skuPrices && plan.skuPrices.length > 1) {
-    const prices = plan.skuPrices.map(p => parseFloat(p)).filter(p => p > 0);
+    const prices = plan.skuPrices.map((p) => Number.parseFloat(p)).filter((p) => Number.isFinite(p) && p > 0);
     if (prices.length > 1) {
       const max = Math.max(...prices);
       const min = Math.min(...prices);

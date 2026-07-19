@@ -50,7 +50,8 @@ const SOURCE_PROXY_RETRY_DELAYS = [500, 1000];
 
 export async function listCostTemplates(ctx) {
   const result = await runEndpoint(ctx.page, GOODS_PUBLISH_COST_TEMPLATE_LIST, {}, ctx);
-  const templates = result.templates ?? result.cost_template_list ?? result.result?.cost_template_list ?? result.result?.list ?? [];
+  // normalize() already maps endpoint variants into `templates`.
+  const templates = result.templates ?? [];
   return templates.map(t => ({
     id: t.id ?? t.cost_template_id ?? t.costTemplateId ?? null,
     name: t.name ?? t.costTemplateName ?? '',
@@ -70,7 +71,7 @@ export async function resolvePublishCostTemplate(ctx, requestedId = null) {
   }
 
   if (requestedId == null || String(requestedId).trim() === '') return templates[0];
-  const selected = templates.find(t => String(t.id ?? '') === String(requestedId ?? ''));
+  const selected = templates.find(t => String(t.id ?? '') === String(requestedId));
   if (selected) return selected;
 
   throw new PddCliError({
@@ -126,23 +127,9 @@ function assertSubmitSucceeded(result) {
   });
 }
 
-function wrapSaveDraftError(err) {
-  if (err?.exitCode === ExitCodes.RATE_LIMIT || err?.exitCode === ExitCodes.AUTH) throw err;
-  if (err instanceof PddCliError) throw err;
-  throw new PddCliError({
-    code: 'E_BUSINESS',
-    message: err?.message || '保存草稿失败，已停止发布流程',
-    exitCode: ExitCodes.BUSINESS,
-  });
-}
-
 function isRetryableProxyAttemptError(err) {
   return err?.code === 'E_PROXY_UNAVAILABLE'
     || err?.code === 'E_PROXY_NETWORK';
-}
-
-function isProxyInfrastructureError(err) {
-  return err?.code === 'E_PROXY_UNAVAILABLE' || err?.code === 'E_PROXY_NETWORK';
 }
 
 function mapProxyBrowserError(err) {
@@ -256,12 +243,8 @@ async function scrapeSourceWithProxy(ctx, goodsId, proxyConfig, warnings) {
       return source;
     } catch (err) {
       if (!isRetryableProxyAttemptError(err)) throw err;
-      if (attempt === SOURCE_PROXY_MAX_ATTEMPTS) {
-        throw err;
-      }
-      if (isProxyInfrastructureError(err)) {
-        await abortableSleep(SOURCE_PROXY_RETRY_DELAYS[attempt - 1], ctx.signal);
-      }
+      if (attempt === SOURCE_PROXY_MAX_ATTEMPTS) throw err;
+      await abortableSleep(SOURCE_PROXY_RETRY_DELAYS[attempt - 1], ctx.signal);
     }
   }
   throw new PddCliError({
@@ -533,28 +516,23 @@ export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
     if (!warnings.includes(warning)) warnings.push(warning);
   }
 
-  try {
-    await withWriteRateControl('publish.save_draft', () =>
-      breaker.wrap('save_draft', async () => {
-        log.info({ costTemplateId: selectedTemplate.id }, 'goods-publish: Phase E — saving draft');
-        const saved = await clickSaveDraft(ctx.page, draft.goodsCommitId, {
-          costTemplateId: selectedTemplate.id,
-          expectedSkuPricing: pricingPlan?.skuPricing,
-          expectedPropertyPlan: propertyMapping.plan,
-          expectedSkuPreviewPlan: uploadedSkuPreviewPlan,
-          expectedFullCountDiscountRate: ctx.runtimeConfig?.fullCountDiscountRate,
-          strictPayload: true,
-          strictVerify: true,
-        });
-        for (const warning of saved.verification?.warnings ?? []) {
-          if (!warnings.includes(warning)) warnings.push(warning);
-        }
-      }), writeRateOptions
-    );
-  } catch (err) {
-    log.warn({ err: err?.message }, 'goods-publish: save draft failed');
-    wrapSaveDraftError(err);
-  }
+  await withWriteRateControl('publish.save_draft', () =>
+    breaker.wrap('save_draft', async () => {
+      log.info({ costTemplateId: selectedTemplate.id }, 'goods-publish: Phase E — saving draft');
+      const saved = await clickSaveDraft(ctx.page, draft.goodsCommitId, {
+        costTemplateId: selectedTemplate.id,
+        expectedSkuPricing: pricingPlan?.skuPricing,
+        expectedPropertyPlan: propertyMapping.plan,
+        expectedSkuPreviewPlan: uploadedSkuPreviewPlan,
+        expectedFullCountDiscountRate: ctx.runtimeConfig?.fullCountDiscountRate,
+        strictPayload: true,
+        strictVerify: true,
+      });
+      for (const warning of saved.verification?.warnings ?? []) {
+        if (!warnings.includes(warning)) warnings.push(warning);
+      }
+    }), writeRateOptions
+  );
 
   let submit = null;
   if (!draftOnly) {

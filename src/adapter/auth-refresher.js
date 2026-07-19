@@ -7,11 +7,6 @@ import { isMockEnabled } from './mock-dispatcher.js';
 import { getLogger } from '../infra/logger.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 
-function checkAborted(signal) {
-  if (signal?.aborted) return true;
-  return false;
-}
-
 const HEARTBEAT_URL = 'https://mms.pinduoduo.com/janus/api/informSeller/queryInformSellerTabList';
 
 async function heartbeat(page, { timeoutMs = 10_000 } = {}) {
@@ -40,7 +35,7 @@ export async function refreshAuth({ authStatePath, log, signal } = {}) {
     return { success: false, reason: 'auth_missing' };
   }
 
-  if (checkAborted(signal)) {
+  if (signal?.aborted) {
     return { success: false, reason: 'aborted' };
   }
 
@@ -58,7 +53,7 @@ export async function refreshAuth({ authStatePath, log, signal } = {}) {
       headed: false,
       storageStatePath: authStatePath,
     }, async ({ context, page }) => {
-      if (checkAborted(signal)) {
+      if (signal?.aborted) {
         return { success: false, reason: 'aborted' };
       }
 
@@ -67,7 +62,7 @@ export async function refreshAuth({ authStatePath, log, signal } = {}) {
         timeout: TIMEOUTS.AUTH_REFRESH,
       });
 
-      if (checkAborted(signal)) {
+      if (signal?.aborted) {
         return { success: false, reason: 'aborted' };
       }
 
@@ -82,7 +77,7 @@ export async function refreshAuth({ authStatePath, log, signal } = {}) {
       log.debug('auth-refresher: heartbeat failed, falling back to full validation');
       const valid = await isAuthValid(page, { timeoutMs: TIMEOUTS.AUTH_REFRESH });
 
-      if (checkAborted(signal)) {
+      if (signal?.aborted) {
         return { success: false, reason: 'aborted' };
       }
 
@@ -104,7 +99,7 @@ export async function refreshAuth({ authStatePath, log, signal } = {}) {
       }
     });
   } catch (err) {
-    if (checkAborted(signal)) {
+    if (signal?.aborted) {
       return { success: false, reason: 'aborted' };
     }
     log.error({ err: err?.message }, 'auth-refresher: refresh failed');

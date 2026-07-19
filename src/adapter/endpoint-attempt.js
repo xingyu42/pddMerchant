@@ -2,6 +2,7 @@ import { createCollector } from './xhr-collector.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 import { throwIfAborted, remainingMs } from '../infra/abort.js';
+import { getLogger } from '../infra/logger.js';
 
 /**
  * Shared lifecycle for a single endpoint attempt.
@@ -27,7 +28,7 @@ import { throwIfAborted, remainingMs } from '../infra/abort.js';
  * @param {object|null} config.pageSession - Resolved page session (already includes client fallback)
  * @param {function} config.prepareTransport - Setup hook: async (page, meta, params, ctx) => void
  * @param {function} config.cleanupTransport - Cleanup hook: async (page, meta) => void
- * @param {function} config.runTrigger - Trigger executor: async (meta, page, params, ctx, log, collector) => void
+ * @param {function} config.runTrigger - Trigger executor: async (meta, page, params, ctx, log) => void
  * @returns {Promise<Response>} First XHR response matching urlPattern
  */
 export async function executeAttempt({
@@ -85,7 +86,7 @@ export async function executeAttempt({
       }
     }
 
-    await runTrigger(meta, page, params, ctx, log, collector);
+    await runTrigger(meta, page, params, ctx, log);
 
     const responses = await collector.waitFor();
     return responses[0];
@@ -100,6 +101,8 @@ export async function executeAttempt({
       exitCode: ExitCodes.NETWORK,
     });
   } finally {
-    await cleanupTransport(page, meta).catch(() => {});
+    await cleanupTransport(page, meta).catch((err) => {
+      getLogger().debug({ err: err?.message, endpoint: meta?.name }, 'endpoint-attempt: cleanupTransport failed');
+    });
   }
 }

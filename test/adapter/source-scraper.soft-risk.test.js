@@ -10,6 +10,7 @@ function makePage(evaluateResult, { url = 'https://mobile.yangkeduo.com/goods.ht
     goto: async () => null,
     waitForResponse: async () => null,
     waitForSelector: async () => null,
+    waitForTimeout: async () => null,
     locator: () => ({ first: () => ({ isVisible: async () => false }) }),
     evaluate: async () => { page.evaluated += 1; return evaluateResult; },
   };
