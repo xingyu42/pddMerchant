@@ -131,7 +131,7 @@ pdd config validate --json              # 分层校验；配置损坏时仍可�
 
 ## 环境变量
 
-常用覆盖：`PDD_AUTH_STATE_PATH` / `PDD_LOG_DESTINATION` / `PDD_TEST_ADAPTER=fixture`（Mock 模式）。完整公开映射和受限变量见 `.env.example`。
+常用覆盖：`PDD_AUTH_STATE_PATH` / `PDD_TEST_ADAPTER=fixture`（Mock 模式）。运行日志固定写入 `log/cli/YYYY-MM-DD.log`（CLI）与 `log/daemon/YYYY-MM-DD.log`（后台 daemon），按本地日轮转、路径不可配置。完整公开映射和受限变量见 `.env.example`。
 
 `goods publish --url` 可选择仅为消费者端源商品抓取启用青果短效 HTTP 代理：
 

@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import pino from 'pino';
+import { CLI_LOG_DIR, DAEMON_LOG_DIR } from './paths.js';
 
 const REDACT_KEYS = [
   'cookies',
@@ -113,16 +116,140 @@ function redactRecursive(value, seen) {
   return out;
 }
 
-function buildDestination(config) {
-  if (config?.logDestination) {
-    return pino.destination({ dest: config.logDestination, sync: false });
+function pad2(value) {
+  return String(value).padStart(2, '0');
+}
+
+/** Local calendar date key YYYY-MM-DD (not UTC). */
+export function formatLocalDateKey(date = new Date()) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+/**
+ * Resolve a dated log file under a dedicated directory:
+ *   resolveDatedLogPath(log/cli, date) -> log/cli/2026-07-20.log
+ * Optional basename: resolveDatedLogPath(dir, date, 'pdd') -> dir/pdd-2026-07-20.log
+ * When basename is omitted/null, file is simply YYYY-MM-DD.log inside the directory.
+ */
+export function resolveDatedLogPath(logDirectory, date = new Date(), basename = null) {
+  const dateKey = formatLocalDateKey(date);
+  const fileName = basename
+    ? `${basename}-${dateKey}.log`
+    : `${dateKey}.log`;
+  return join(logDirectory, fileName);
+}
+
+function closeStreamBestEffort(stream) {
+  if (!stream) return;
+  try {
+    if (typeof stream.end === 'function') stream.end();
+  } catch {
+    /* best effort */
   }
+  try {
+    if (typeof stream.destroy === 'function') stream.destroy();
+  } catch {
+    /* best effort */
+  }
+}
+
+/**
+ * pino-compatible destination that writes under a dedicated log directory
+ * as YYYY-MM-DD.log and switches on local calendar day change without restart.
+ */
+export class DailyRotatingFileDestination {
+  constructor(logDirectory, { now = () => new Date(), basename = null } = {}) {
+    this.logDirectory = logDirectory;
+    this.basename = basename;
+    this.now = now;
+    this.dayKey = null;
+    this.currentPath = null;
+    this.stream = null;
+  }
+
+  #ensureStream() {
+    const dayKey = formatLocalDateKey(this.now());
+    if (this.stream && this.dayKey === dayKey) return this.stream;
+
+    const previous = this.stream;
+    const datedPath = resolveDatedLogPath(this.logDirectory, this.now(), this.basename);
+    mkdirSync(this.logDirectory, { recursive: true });
+    // sync:true keeps short CLI/daemon writes durable without relying on process exit flush.
+    this.stream = pino.destination({ dest: datedPath, sync: true });
+    this.dayKey = dayKey;
+    this.currentPath = datedPath;
+    closeStreamBestEffort(previous);
+    return this.stream;
+  }
+
+  write(chunk) {
+    return this.#ensureStream().write(chunk);
+  }
+
+  flushSync() {
+    const stream = this.stream ?? this.#ensureStream();
+    if (typeof stream.flushSync !== 'function') return;
+    try {
+      stream.flushSync();
+    } catch (err) {
+      // sonic-boom may throw "not ready yet" during open; next write still persists with sync:true
+      if (!String(err?.message || err).includes('not ready yet')) throw err;
+    }
+  }
+
+  end() {
+    closeStreamBestEffort(this.stream);
+    this.stream = null;
+    this.dayKey = null;
+  }
+
+  destroy() {
+    this.end();
+  }
+}
+
+function isWritableDestination(value) {
+  return value != null
+    && typeof value === 'object'
+    && typeof value.write === 'function';
+}
+
+function buildFileDestination(logDirectory, { now, basename = null } = {}) {
+  return new DailyRotatingFileDestination(logDirectory, { now, basename });
+}
+
+export function resolveDefaultLogDirectory({ config, channel } = {}) {
+  if (channel === 'foreground') return null;
+  if (channel === 'daemon') return DAEMON_LOG_DIR;
+  if (config) return CLI_LOG_DIR;
+  return null;
+}
+
+/**
+ * destination selection:
+ * - writable stream/object (tests): use as-is
+ * - string path treated as log *directory* (internal/test only)
+ * - channel 'foreground': stderr
+ * - channel 'daemon': log/daemon/
+ * - config present (CLI): log/cli/
+ * - no config: stderr (bootstrap/silent)
+ * logDestination / PDD_LOG_DESTINATION is intentionally unsupported.
+ */
+function buildDestination({ destination, config, now, channel } = {}) {
+  if (isWritableDestination(destination)) {
+    return destination;
+  }
+  if (typeof destination === 'string' && destination.length > 0) {
+    return buildFileDestination(destination, { now });
+  }
+  const logDirectory = resolveDefaultLogDirectory({ config, channel });
+  if (logDirectory) return buildFileDestination(logDirectory, { now });
   return pino.destination({ dest: process.stderr.fd, sync: false });
 }
 
 let currentLogger = null;
 
-export function createLogger({ verbose = false, level, destination, config } = {}) {
+export function createLogger({ verbose = false, level, destination, config, now, channel } = {}) {
   const resolvedLevel = level ?? (verbose ? 'debug' : undefined);
   const opts = {
     ...(resolvedLevel ? { level: resolvedLevel } : {}),
@@ -137,7 +264,7 @@ export function createLogger({ verbose = false, level, destination, config } = {
     base: undefined,
     timestamp: pino.stdTimeFunctions.isoTime,
   };
-  const dest = destination ?? buildDestination(config);
+  const dest = buildDestination({ destination, config, now, channel });
   const logger = pino(opts, dest);
 
   logger.withOp = function withOp(ctx) {

@@ -5,7 +5,7 @@ import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { loadRuntimeConfig } from '../src/infra/config.js';
 import { createLogger } from '../src/infra/logger.js';
-import { AUTH_STATE_PATH, DAEMON_STATE_PATH, DAEMON_LOG_PATH } from '../src/infra/paths.js';
+import { AUTH_STATE_PATH, DAEMON_STATE_PATH } from '../src/infra/paths.js';
 import { refreshAuth } from '../src/adapter/auth-refresher.js';
 import { closeAllBrowsers } from '../src/adapter/browser.js';
 import { loadAccountRegistry, listAccounts, upsertAccount } from '../src/infra/account-registry.js';
@@ -215,7 +215,7 @@ async function main() {
   log = createLogger({
     level: config.logLevel,
     config,
-    ...(!config.logDestination && !isForeground ? { destination: DAEMON_LOG_PATH } : {}),
+    channel: isForeground ? 'foreground' : 'daemon',
   });
 
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

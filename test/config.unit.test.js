@@ -125,18 +125,4 @@ describe('runtime config', () => {
     });
   });
 
-  it('does not echo a rejected log destination in the error', async () => {
-    let error;
-    try {
-      await loadRuntimeConfig({
-        baselinePath,
-        configPath,
-        env: { PDD_LOG_DESTINATION: 'stdout' },
-      });
-    } catch (caught) {
-      error = caught;
-    }
-    expect(error?.code).toBe('E_CONFIG_INVALID');
-    expect(JSON.stringify(error)).not.toContain('stdout');
-  });
 });

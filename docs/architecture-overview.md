@@ -246,7 +246,7 @@ PDD_TEST_FIXTURE_DIR=./test/fixtures
 | 变量                       | 用途                                                       | 默认值                 |
 | -------------------------- | ---------------------------------------------------------- | ---------------------- |
 | `PDD_AUTH_STATE_PATH`      | 鉴权状态文件路径                                           | `data/auth-state.json` |
-| `PDD_LOG_DESTINATION`      | 日志输出目标                                               | `stdout`               |
+| （固定路径，无 env）           | 运行日志目录（按日轮转）                                     | `log/cli/` / `log/daemon/` |
 | `PDD_DEBUG_RAW`            | 输出原始 payload（JSONL）                                  | `0`                    |
 | `PDD_MALL_ID_STRICT_PARSE` | 严格校验店铺 ID                                            | `1`                    |
 | `PLAYWRIGHT_DOWNLOAD_HOST` | Patchright 浏览器下载镜像（沿用 Playwright-core 环境变量） | —                      |

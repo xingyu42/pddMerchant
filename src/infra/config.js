@@ -8,16 +8,9 @@ import {
 } from './paths.js';
 import { PddCliError, ExitCodes } from './errors.js';
 
-const REJECTED_LOG_DESTINATIONS = new Set(['stdout', 'stderr', '-', ':console']);
-
 const qpsSchema = z.number().finite().refine(
   (value) => value === 0 || value >= 0.01,
   { message: 'must be 0 or at least 0.01' },
-);
-
-const logDestinationSchema = z.string().min(1).refine(
-  (value) => !REJECTED_LOG_DESTINATIONS.has(value.toLowerCase()),
-  { message: 'console destinations are not allowed' },
 );
 
 const fullCountDiscountRateSchema = z.number().finite()
@@ -49,7 +42,6 @@ const CONFIG_FIELD_DEFINITIONS = Object.freeze({
   timeoutMs: { schema: z.number().int().positive(), env: 'PDD_TIMEOUT_MS', kind: 'number', required: false },
   defaultMall: { schema: z.string().min(1), env: 'PDD_DEFAULT_MALL', kind: 'string', required: false },
   authStatePath: { schema: z.string().min(1), env: 'PDD_AUTH_STATE_PATH', kind: 'string', required: false },
-  logDestination: { schema: logDestinationSchema, env: 'PDD_LOG_DESTINATION', kind: 'string', required: false },
 });
 
 const optionalShape = Object.fromEntries(
@@ -323,5 +315,4 @@ export {
   CONFIG_FIELD_DEFINITIONS,
   DEFAULT_CONFIG_EXAMPLE_PATH,
   DEFAULT_CONFIG_PATH,
-  REJECTED_LOG_DESTINATIONS,
 };

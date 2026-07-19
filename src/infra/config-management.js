@@ -27,7 +27,6 @@ import { PddCliError, ExitCodes } from './errors.js';
 const DEFAULT_IO = Object.freeze({ lstat, mkdir, open, readFile, realpath, rename, rm });
 const DAEMON_CONFIG_KEYS = new Set([
   'logLevel',
-  'logDestination',
   'authStatePath',
   'refreshIntervalMs',
   'refreshJitterMs',
