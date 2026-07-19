@@ -239,14 +239,14 @@ vi.mock('../src/adapter/browser.js', () => ({
   createConsumerContext: vi.fn(async () => ({
     page: {},
     context: {},
-    close: async () => {},
+    close: async () => { },
   })),
   launchBrowser: vi.fn(async () => ({
-    browser: { close: async () => {} },
+    browser: { close: async () => { } },
     context: {},
     page: {},
   })),
-  closeBrowser: vi.fn(async () => {}),
+  closeBrowser: vi.fn(async () => { }),
 }));
 
 vi.mock('../src/adapter/auth-state.js', async (importOriginal) => {
@@ -397,7 +397,7 @@ vi.mock('../src/infra/circuit-breaker.js', () => ({
     wrap: (name, fn) => fn(),
   }),
   CircuitBreaker: class { wrap(name, fn) { return fn(); } },
-  _resetSharedBreaker: () => {},
+  _resetSharedBreaker: () => { },
 }));
 
 vi.mock('../src/infra/rate-control.js', () => ({
@@ -408,12 +408,12 @@ vi.mock('../src/infra/rate-control.js', () => ({
 // 单测里 stub 为 no-op，隔离磁盘状态，避免真实冷却态导致偶发失败。
 vi.mock('../src/infra/scrape-cooldown.js', () => ({
   getSharedScrapeCooldown: () => ({
-    check() {},
+    check() { },
     recordSoftBlock: () => ({ cooldownTriggered: false, cooldownRemainingMs: 0 }),
-    recordSuccess() {},
+    recordSuccess() { },
   }),
-  createScrapeCooldown: () => ({ check() {}, recordSoftBlock: () => ({}), recordSuccess() {} }),
-  _resetSharedScrapeCooldown: () => {},
+  createScrapeCooldown: () => ({ check() { }, recordSoftBlock: () => ({}), recordSuccess() { } }),
+  _resetSharedScrapeCooldown: () => { },
 }));
 
 const endpointMockState = vi.hoisted(() => ({
@@ -679,7 +679,7 @@ describe('save draft cost template injection', () => {
           await routed[0].handler({
             request: () => ({ postData: () => '{"goods_id":123}' }),
             continue: async (options) => { continued = options; },
-            abort: async () => {},
+            abort: async () => { },
           });
         },
       }),
@@ -713,9 +713,9 @@ describe('save draft cost template injection', () => {
     const { clickSaveDraft } = await vi.importActual('../src/adapter/goods-publish/form-filler.js');
     let unrouted = false;
     const page = {
-      waitForSelector: async () => ({ click: async () => {} }),
+      waitForSelector: async () => ({ click: async () => { } }),
       $: async () => null,
-      route: async () => {},
+      route: async () => { },
       unroute: async () => { unrouted = true; },
       waitForResponse: async () => ({ json: async () => ({ success: true }) }),
       evaluate: async () => ({ result: { goods_name: '测试商品', cost_template_id: 544142245494784, gallery: ['x'] } }),
@@ -732,9 +732,9 @@ describe('save draft cost template injection', () => {
     const { clickSaveDraft } = await vi.importActual('../src/adapter/goods-publish/form-filler.js');
     let unrouted = false;
     const page = {
-      waitForSelector: async () => ({ click: async () => {} }),
+      waitForSelector: async () => ({ click: async () => { } }),
       $: async () => null,
-      route: async () => {},
+      route: async () => { },
       unroute: async () => { unrouted = true; },
       waitForResponse: async () => { throw new Error('timeout waiting for save'); },
       evaluate: async () => ({ result: { goods_name: '测试商品', cost_template_id: 544142245494784, gallery: ['x'] } }),
@@ -761,7 +761,7 @@ describe('save draft cost template injection', () => {
         click: async () => {
           await routed[0].handler({
             request: () => ({ postData: () => '' }),
-            continue: async () => {},
+            continue: async () => { },
             abort: async () => { aborted = true; },
           });
         },
@@ -771,7 +771,7 @@ describe('save draft cost template injection', () => {
       unroute: async (_pattern, handler) => {
         unrouted = routed.some(item => item.handler === handler);
       },
-      waitForResponse: async () => new Promise(() => {}),
+      waitForResponse: async () => new Promise(() => { }),
       evaluate: async () => ({ result: { goods_name: '测试商品', cost_template_id: 544142245494784, gallery: ['x'] } }),
     };
 
@@ -810,7 +810,7 @@ describe('save draft cost template injection', () => {
       unroute: async (_pattern, handler) => {
         unrouted = routed.some(item => item.handler === handler);
       },
-      waitForResponse: async () => new Promise(() => {}),
+      waitForResponse: async () => new Promise(() => { }),
     };
 
     await assert.rejects(
@@ -858,14 +858,14 @@ describe('save draft cost template injection', () => {
         click: async () => {
           await routed[0].handler({
             request: () => ({ postData: () => '{"goods_id":123}' }),
-            continue: async () => {},
-            abort: async () => {},
+            continue: async () => { },
+            abort: async () => { },
           });
         },
       }),
       $: async () => null,
       route: async (pattern, handler) => { routed.push({ pattern, handler }); },
-      unroute: async () => {},
+      unroute: async () => { },
       waitForResponse: async () => ({ json: async () => ({ success: true }) }),
       evaluate: async () => ({
         result: {
@@ -899,14 +899,14 @@ describe('save draft cost template injection', () => {
         click: async () => {
           await routed[0].handler({
             request: () => ({ postData: () => '{"goods_id":123}' }),
-            continue: async () => {},
-            abort: async () => {},
+            continue: async () => { },
+            abort: async () => { },
           });
         },
       }),
       $: async () => null,
       route: async (pattern, handler) => { routed.push({ pattern, handler }); },
-      unroute: async () => {},
+      unroute: async () => { },
       waitForResponse: async () => ({ json: async () => ({ success: true }) }),
       evaluate: async () => ({ result: { goods_name: '测试商品', gallery: ['x'] } }),
     };
@@ -939,9 +939,9 @@ describe('publishGoodsFromLink: save draft failure handling', () => {
       page: {},
       context: { browser: () => ({}) },
       log: {
-        info: () => {},
-        warn: () => {},
-        debug: () => {},
+        info: () => { },
+        warn: () => { },
+        debug: () => { },
       },
     };
 
@@ -962,7 +962,7 @@ describe('publishGoodsFromLink: save draft failure handling', () => {
     const mockCtx = {
       page: {},
       context: { browser: () => ({}) },
-      log: { info: () => {}, warn: () => {}, debug: () => {} },
+      log: { info: () => { }, warn: () => { }, debug: () => { } },
       runtimeConfig: { fullCountDiscountRate: 0.88 },
     };
 
@@ -1046,7 +1046,7 @@ describe('publishGoodsFromLink: save draft failure handling', () => {
     const result = await publishGoodsFromLink({
       page: {},
       context: { browser: () => ({}) },
-      log: { info: () => {}, warn: () => {}, debug: () => {} },
+      log: { info: () => { }, warn: () => { }, debug: () => { } },
     }, '918867803697');
 
     assert.deepEqual(
@@ -1086,7 +1086,7 @@ describe('publishGoodsFromLink: save draft failure handling', () => {
       () => publishGoodsFromLink({
         page: {},
         context: { browser: () => ({}) },
-        log: { info: () => {}, warn: () => {}, debug: () => {} },
+        log: { info: () => { }, warn: () => { }, debug: () => { } },
       }, '918867803697'),
       (error) => error.code === 'E_BUSINESS'
         && error.detail.issues.includes('dynamic_property_template_invalid'),
@@ -1108,7 +1108,7 @@ describe('publishGoodsFromLink: save draft failure handling', () => {
       () => publishGoodsFromLink({
         page: {},
         context: { browser: () => ({}) },
-        log: { info: () => {}, warn: () => {}, debug: () => {} },
+        log: { info: () => { }, warn: () => { }, debug: () => { } },
       }, '918867803697'),
       (error) => error.code === 'E_BUSINESS',
     );
@@ -1129,7 +1129,7 @@ describe('publishGoodsFromLink: save draft failure handling', () => {
     const mockCtx = {
       page: {},
       context: { browser: () => ({}) },
-      log: { info: () => {}, warn: () => {}, debug: () => {} },
+      log: { info: () => { }, warn: () => { }, debug: () => { } },
     };
 
     await assert.rejects(
@@ -1154,7 +1154,7 @@ describe('publishGoodsFromLink: save draft failure handling', () => {
     const mockCtx = {
       page: {},
       context: { browser: () => ({}) },
-      log: { info: () => {}, warn: () => {}, debug: () => {} },
+      log: { info: () => { }, warn: () => { }, debug: () => { } },
     };
 
     const result = await publishGoodsFromLink(mockCtx, '918867803697');
@@ -1279,7 +1279,7 @@ describe('publishGoodsFromLink: IP 软封早短路', () => {
     const mockCtx = {
       page: {},
       context: { browser: () => { browserCalls += 1; return {}; } },
-      log: { info: () => {}, warn: () => {}, debug: () => {} },
+      log: { info: () => { }, warn: () => { }, debug: () => { } },
       scrapeCooldown: {
         check() {
           const err = new Error('IP 软风控冷却中');
@@ -1289,7 +1289,7 @@ describe('publishGoodsFromLink: IP 软封早短路', () => {
           throw err;
         },
         recordSoftBlock: () => ({}),
-        recordSuccess: () => {},
+        recordSuccess: () => { },
       },
     };
     await assert.rejects(
@@ -1318,7 +1318,7 @@ describe('publishGoodsFromLink: confirmed submit path', () => {
     const mockCtx = {
       page: {},
       context: { browser: () => ({}) },
-      log: { info: () => {}, warn: () => {}, debug: () => {} },
+      log: { info: () => { }, warn: () => { }, debug: () => { } },
     };
 
     const result = await publishGoodsFromLink(mockCtx, '918867803697', { draftOnly: false });
@@ -1337,7 +1337,7 @@ describe('publishGoodsFromLink: confirmed submit path', () => {
     const mockCtx = {
       page: {},
       context: { browser: () => ({}) },
-      log: { info: () => {}, warn: () => {}, debug: () => {} },
+      log: { info: () => { }, warn: () => { }, debug: () => { } },
     };
 
     await assert.rejects(
@@ -1352,7 +1352,7 @@ describe('publishGoodsFromLink: confirmed submit path', () => {
     const mockCtx = {
       page: {},
       context: { browser: () => ({}) },
-      log: { info: () => {}, warn: () => {}, debug: () => {} },
+      log: { info: () => { }, warn: () => { }, debug: () => { } },
     };
 
     await assert.rejects(
@@ -1368,7 +1368,6 @@ describe('publishGoodsFromLink: Qingguo source proxy retries', () => {
     'PDD_SOURCE_PROXY_PROVIDER',
     'PDD_QINGGUO_AUTH_KEY',
     'PDD_CONSUMER_AUTH_STATE_PATH',
-    'PDD_TITLE_REWRITE',
   ];
   let previousEnv;
 
@@ -1377,7 +1376,6 @@ describe('publishGoodsFromLink: Qingguo source proxy retries', () => {
     process.env.PDD_SOURCE_PROXY_PROVIDER = 'qingguo';
     process.env.PDD_QINGGUO_AUTH_KEY = 'test-auth-key';
     process.env.PDD_CONSUMER_AUTH_STATE_PATH = 'test-consumer-auth-state.json';
-    process.env.PDD_TITLE_REWRITE = '0';
     vi.clearAllMocks();
     resetEndpointMock();
     resetFormFillerMock();
@@ -1397,14 +1395,18 @@ describe('publishGoodsFromLink: Qingguo source proxy retries', () => {
     const { createConsumerContext } = await import('../src/adapter/browser.js');
     const { scrapeSourceGoods } = await import('../src/adapter/goods-publish/source-scraper.js');
     sourceProxyMockState.outcomes = [
-      { value: {
-        provider: 'qingguo', server: 'http://127.0.0.1:8001',
-        expiresAt: Date.now() + 60_000, area: '广东', isp: '电信', requestIdHash: 'fp:11111111',
-      } },
-      { value: {
-        provider: 'qingguo', server: 'http://127.0.0.1:8002',
-        expiresAt: Date.now() + 60_000, area: '浙江', isp: '联通', requestIdHash: 'fp:22222222',
-      } },
+      {
+        value: {
+          provider: 'qingguo', server: 'http://127.0.0.1:8001',
+          expiresAt: Date.now() + 60_000, area: '广东', isp: '电信', requestIdHash: 'fp:11111111',
+        }
+      },
+      {
+        value: {
+          provider: 'qingguo', server: 'http://127.0.0.1:8002',
+          expiresAt: Date.now() + 60_000, area: '浙江', isp: '联通', requestIdHash: 'fp:22222222',
+        }
+      },
     ];
     sourceScraperMockState.outcomes = [{
       error: new PddCliError({
@@ -1417,11 +1419,11 @@ describe('publishGoodsFromLink: Qingguo source proxy retries', () => {
     const mockCtx = {
       page: {},
       context: { browser: () => ({}) },
-      log: { info: () => {}, warn: () => {}, debug: () => {} },
+      log: { info: () => { }, warn: () => { }, debug: () => { } },
       scrapeCooldown: {
-        check() {},
+        check() { },
         recordSoftBlock(signal) { cooldownCalls.push(signal); return { cooldownTriggered: false, cooldownRemainingMs: 0 }; },
-        recordSuccess() {},
+        recordSuccess() { },
       },
     };
 
@@ -1443,8 +1445,8 @@ describe('publishGoodsFromLink: Qingguo source proxy retries', () => {
     const mockCtx = {
       page: {},
       context: { browser: () => ({}) },
-      log: { info: () => {}, warn: () => {}, debug: () => {} },
-      scrapeCooldown: { check() {}, recordSoftBlock() {}, recordSuccess() {} },
+      log: { info: () => { }, warn: () => { }, debug: () => { } },
+      scrapeCooldown: { check() { }, recordSoftBlock() { }, recordSuccess() { } },
     };
 
     await assert.rejects(
@@ -1470,14 +1472,14 @@ describe('publishGoodsFromLink: Qingguo source proxy retries', () => {
     const mockCtx = {
       page: {},
       context: { browser: () => ({}) },
-      log: { info: () => {}, warn: () => {}, debug: () => {} },
+      log: { info: () => { }, warn: () => { }, debug: () => { } },
       scrapeCooldown: {
-        check() {},
+        check() { },
         recordSoftBlock(signal) {
           cooldownCalls.push(signal);
           return { cooldownTriggered: true, cooldownRemainingMs: 7_200_000 };
         },
-        recordSuccess() {},
+        recordSuccess() { },
       },
     };
 
@@ -1512,8 +1514,8 @@ describe('publishGoodsFromLink: Qingguo source proxy retries', () => {
     const mockCtx = {
       page: {},
       context: { browser: () => ({}) },
-      log: { info: () => {}, warn: () => {}, debug: () => {} },
-      scrapeCooldown: { check() {}, recordSoftBlock() {}, recordSuccess() {} },
+      log: { info: () => { }, warn: () => { }, debug: () => { } },
+      scrapeCooldown: { check() { }, recordSoftBlock() { }, recordSuccess() { } },
     };
 
     await assert.rejects(
@@ -1543,8 +1545,8 @@ describe('publishGoodsFromLink: Qingguo source proxy retries', () => {
     const mockCtx = {
       page: {},
       context: { browser: () => ({}) },
-      log: { info: () => {}, warn: () => {}, debug: () => {} },
-      scrapeCooldown: { check() {}, recordSoftBlock() {}, recordSuccess() {} },
+      log: { info: () => { }, warn: () => { }, debug: () => { } },
+      scrapeCooldown: { check() { }, recordSoftBlock() { }, recordSuccess() { } },
     };
 
     await assert.rejects(
@@ -1561,7 +1563,7 @@ describe('publishGoodsFromLink: Qingguo source proxy retries', () => {
     const mockCtx = {
       page: {},
       context: { browser: () => ({}) },
-      log: { info: () => {}, warn: () => {}, debug: () => {} },
+      log: { info: () => { }, warn: () => { }, debug: () => { } },
     };
 
     await assert.rejects(

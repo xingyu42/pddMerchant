@@ -67,17 +67,16 @@ daemon.js    → daemon start / daemon stop / daemon status
 ### 3.2 服务层 (`src/services/`)
 **核心服务模块**:
 
-| 模块 | 职责 | 关键导出 |
-|------|------|---------|
-| `auth.js` | 鉴权管理 | `ensureAuthenticated()` |
-| `orders.js` | 订单查询 | `listRecentOrders()`, `getOrderDetail()` |
-| `goods.js` | 商品管理 | `listGoods()`, `getGoodsDetail()` |
-| `promo.js` | 推广报表 | `getPromoSummary()`, `getPromoDetail()` |
-| `goods-publish.js` | **商品发布** | `publishGoodsFromSource()` |
-| `diagnose/` | 店铺诊断 | 7 个子模块（订单/商品/漏斗/趋势健康度） |
-| `pricing-validator.js` | 定价策略 | `buildPricingPlan()`, `validatePricingPlan()` |
-| `title-rewriter.js` | 标题改写 | `rewriteTitle()` |
-| `image-transform.js` | 图片处理 | `transformImages()` |
+| 模块                   | 职责         | 关键导出                                      |
+| ---------------------- | ------------ | --------------------------------------------- |
+| `auth.js`              | 鉴权管理     | `ensureAuthenticated()`                       |
+| `orders.js`            | 订单查询     | `listRecentOrders()`, `getOrderDetail()`      |
+| `goods.js`             | 商品管理     | `listGoods()`, `getGoodsDetail()`             |
+| `promo.js`             | 推广报表     | `getPromoSummary()`, `getPromoDetail()`       |
+| `goods-publish.js`     | **商品发布** | `publishGoodsFromSource()`                    |
+| `diagnose/`            | 店铺诊断     | 7 个子模块（订单/商品/漏斗/趋势健康度）       |
+| `pricing-validator.js` | 定价策略     | `buildPricingPlan()`, `validatePricingPlan()` |
+| `image-transform.js`   | 图片处理     | `transformImages()`                           |
 
 ---
 
@@ -115,12 +114,12 @@ export const ORDERS_LIST = {
 ```
 
 #### 3.3.3 商品发布子模块 (`adapter/goods-publish/`)
-| 文件 | 职责 |
-|------|------|
-| `source-scraper.js` | 抓取源商品数据（标题/图片/SKU/价格） |
-| `category-resolver.js` | 匹配拼多多类目树 |
-| `form-filler.js` | **表单填充核心** |
-| `risk-detector.js` | 风控检测（弹窗拦截） |
+| 文件                   | 职责                                 |
+| ---------------------- | ------------------------------------ |
+| `source-scraper.js`    | 抓取源商品数据（标题/图片/SKU/价格） |
+| `category-resolver.js` | 匹配拼多多类目树                     |
+| `form-filler.js`       | **表单填充核心**                     |
+| `risk-detector.js`     | 风控检测（弹窗拦截）                 |
 
 **已移除**（Phase 2 API 路径，2026-07-10 清理）:
 - ~~`payload-builder.js`~~ / ~~`property-matcher.js`~~ / ~~`sku-mapper.js`~~ — API 发布路径未落地，活跃路径为 UI 自动化，已连同其测试 fixture 一并删除
@@ -129,16 +128,16 @@ export const ORDERS_LIST = {
 
 ### 3.4 基础设施层 (`src/infra/`)
 
-| 模块 | 职责 |
-|------|------|
-| `errors.js` | `PddCliError` + 8 种退出码映射 |
-| `envelope.js` | 统一输出合约 `{ ok, command, data, error, meta }` |
-| `logger.js` | pino + SHA256 redaction |
-| `circuit-breaker.js` | 熔断器（429 触发 5 分钟冷却） |
+| 模块                 | 职责                                               |
+| -------------------- | -------------------------------------------------- |
+| `errors.js`          | `PddCliError` + 8 种退出码映射                     |
+| `envelope.js`        | 统一输出合约 `{ ok, command, data, error, meta }`  |
+| `logger.js`          | pino + SHA256 redaction                            |
+| `circuit-breaker.js` | 熔断器（429 触发 5 分钟冷却）                      |
 | `scrape-cooldown.js` | 源抓取冷却（持久化到 `data/scrape-cooldown.json`） |
-| `rate-control.js` | 写操作限速（防止 429） |
-| `timeouts.js` | 超时配置 |
-| `abort.js` | AbortController 封装 |
+| `rate-control.js`    | 写操作限速（防止 429）                             |
+| `timeouts.js`        | 超时配置                                           |
+| `abort.js`           | AbortController 封装                               |
 
 ---
 
@@ -244,30 +243,30 @@ PDD_TEST_FIXTURE_DIR=./test/fixtures
 ## 六、环境变量配置
 
 ### 6.1 核心配置
-| 变量 | 用途 | 默认值 |
-|------|------|--------|
-| `PDD_AUTH_STATE_PATH` | 鉴权状态文件路径 | `data/auth-state.json` |
-| `PDD_LOG_DESTINATION` | 日志输出目标 | `stdout` |
-| `PDD_DEBUG_RAW` | 输出原始 payload（JSONL） | `0` |
-| `PDD_MALL_ID_STRICT_PARSE` | 严格校验店铺 ID | `1` |
-| `PLAYWRIGHT_DOWNLOAD_HOST` | Patchright 浏览器下载镜像（沿用 Playwright-core 环境变量） | — |
+| 变量                       | 用途                                                       | 默认值                 |
+| -------------------------- | ---------------------------------------------------------- | ---------------------- |
+| `PDD_AUTH_STATE_PATH`      | 鉴权状态文件路径                                           | `data/auth-state.json` |
+| `PDD_LOG_DESTINATION`      | 日志输出目标                                               | `stdout`               |
+| `PDD_DEBUG_RAW`            | 输出原始 payload（JSONL）                                  | `0`                    |
+| `PDD_MALL_ID_STRICT_PARSE` | 严格校验店铺 ID                                            | `1`                    |
+| `PLAYWRIGHT_DOWNLOAD_HOST` | Patchright 浏览器下载镜像（沿用 Playwright-core 环境变量） | —                      |
 
 ### 6.2 抓取控制
-| 变量 | 用途 | 默认值 |
-|------|------|--------|
-| `PDD_SCRAPE_SIMULATE` | 人类行为模拟 | `1` |
-| `PDD_SCRAPE_SOFTBLOCK_THRESHOLD` | 软封阈值 | `2` |
-| `PDD_SCRAPE_SOFTBLOCK_COOLDOWN_MS` | 软封冷却时长 | `7200000` (2h) |
-| `PDD_SOURCE_PROXY_PROVIDER` | 源商品抓取代理供应商；仅支持 `qingguo` | 未启用（直连） |
-| `PDD_QINGGUO_AUTH_KEY` | 青果代理提取接口 AuthKey（映射为 `/get` 的 `key` 参数） | — |
+| 变量                               | 用途                                                    | 默认值         |
+| ---------------------------------- | ------------------------------------------------------- | -------------- |
+| `PDD_SCRAPE_SIMULATE`              | 人类行为模拟                                            | `1`            |
+| `PDD_SCRAPE_SOFTBLOCK_THRESHOLD`   | 软封阈值                                                | `2`            |
+| `PDD_SCRAPE_SOFTBLOCK_COOLDOWN_MS` | 软封冷却时长                                            | `7200000` (2h) |
+| `PDD_SOURCE_PROXY_PROVIDER`        | 源商品抓取代理供应商；仅支持 `qingguo`                  | 未启用（直连） |
+| `PDD_QINGGUO_AUTH_KEY`             | 青果代理提取接口 AuthKey（映射为 `/get` 的 `key` 参数） | —              |
 
 ### 6.3 测试模式
-| 变量 | 用途 |
-|------|------|
-| `PDD_TEST_ADAPTER` | `fixture` 启用 Mock 模式 |
-| `PDD_TEST_FIXTURE_DIR` | Fixture 数据目录 |
-| `PBT_SEED` | PBT 种子（可复现） |
-| `PBT_RUNS` | PBT 样本量 |
+| 变量                   | 用途                     |
+| ---------------------- | ------------------------ |
+| `PDD_TEST_ADAPTER`     | `fixture` 启用 Mock 模式 |
+| `PDD_TEST_FIXTURE_DIR` | Fixture 数据目录         |
+| `PBT_SEED`             | PBT 种子（可复现）       |
+| `PBT_RUNS`             | PBT 样本量               |
 
 ---
 
@@ -354,13 +353,13 @@ new PddCliError({
 ## 九、当前限制与待实现
 
 ### 9.1 商品发布限制（已验证）
-| 功能 | 状态 | 影响 |
-|------|------|------|
-| 单 SKU 商品 | ✅ 完整支持 | 可正常发布 |
-| 多 SKU 规格配置 | ✅ 已验证（颜色/尺码） | 结构化 SKU 按规格值唯一匹配，逐行写入库存、拼单价和单买价；未知维度返回 `E_BUSINESS` |
-| 商品详情图上传 | ✅ 已实现并验证 | 下载后定位详情图区并逐张等待独立完成响应；部分失败给警告，全部失败停止保存，临时文件始终清理 |
-| 商品属性映射 | ✅ 已实现并验证 | 结构化源属性按实时平台模板唯一匹配；必填/重要属性失败关闭，可选属性非唯一时给部分告警 |
-| 满件折扣配置 | ✅ 已实现并验证 | 统一配置 `fullCountDiscountRate`（默认 `0.95`）；唯一定位 `count_discount` 输入框，按 `9.5` 折写入并读回，保存请求严格校验 `two_pieces_discount: 95` |
+| 功能            | 状态                  | 影响                                                                                                                                                 |
+| --------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 单 SKU 商品     | ✅ 完整支持            | 可正常发布                                                                                                                                           |
+| 多 SKU 规格配置 | ✅ 已验证（颜色/尺码） | 结构化 SKU 按规格值唯一匹配，逐行写入库存、拼单价和单买价；未知维度返回 `E_BUSINESS`                                                                 |
+| 商品详情图上传  | ✅ 已实现并验证        | 下载后定位详情图区并逐张等待独立完成响应；部分失败给警告，全部失败停止保存，临时文件始终清理                                                         |
+| 商品属性映射    | ✅ 已实现并验证        | 结构化源属性按实时平台模板唯一匹配；必填/重要属性失败关闭，可选属性非唯一时给部分告警                                                                |
+| 满件折扣配置    | ✅ 已实现并验证        | 统一配置 `fullCountDiscountRate`（默认 `0.95`）；唯一定位 `count_discount` 输入框，按 `9.5` 折写入并读回，保存请求严格校验 `two_pieces_discount: 95` |
 
 ### 9.2 技术债务
 - `goods.list` 接口 `goods_id: null` 兼容逻辑（`matched_by='mixed'`）

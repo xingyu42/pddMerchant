@@ -41,7 +41,7 @@ describe('config management', () => {
 
   it('parses values by the single shared field schema', () => {
     expect(parseWritableConfigField('rateLimitQps', '2.5')).toBe(2.5);
-    expect(parseWritableConfigField('titleRewrite', '0')).toBe(false);
+    expect(parseWritableConfigField('mallIdStrictParse', '0')).toBe(false);
     expect(parseWritableConfigField('mallIdStrictParse', 'true')).toBe(true);
     expect(parseWritableConfigField('logLevel', 'debug')).toBe('debug');
     expect(parseWritableConfigField('categoryApiBase', 'https://config.example.test')).toBe('https://config.example.test');
@@ -56,7 +56,7 @@ describe('config management', () => {
   });
 
   it('reports effective sources and local overrides without secret-only fields', async () => {
-    await writeFile(configPath, JSON.stringify({ rateLimitQps: 4, titleRewrite: false }), 'utf8');
+    await writeFile(configPath, JSON.stringify({ rateLimitQps: 4, mallIdStrictParse: false }), 'utf8');
     const inspection = await inspectManagedConfig({
       ...options,
       env: { PDD_RATE_LIMIT_QPS: '6', PDD_QINGGUO_AUTH_KEY: 'must-not-appear' },
@@ -65,7 +65,7 @@ describe('config management', () => {
     expect(inspection.valid).toBe(true);
     expect(inspection.runtimeConfig.rateLimitQps).toBe(6);
     expect(inspection.sources.rateLimitQps).toBe('env');
-    expect(inspection.sources.titleRewrite).toBe('local');
+    expect(inspection.sources.mallIdStrictParse).toBe('local');
     expect(publicConfigKeys()).not.toContain('PDD_QINGGUO_AUTH_KEY');
     expect(JSON.stringify(inspection)).not.toContain('must-not-appear');
   });
@@ -103,7 +103,7 @@ describe('config management', () => {
     expect(repaired.removed).toBe(true);
     expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual({});
 
-    const missing = await unsetLocalConfigValue('titleRewrite', options);
+    const missing = await unsetLocalConfigValue('mallIdStrictParse', options);
     expect(missing).toMatchObject({ removed: false, changed: false });
   });
 
@@ -116,7 +116,7 @@ describe('config management', () => {
 
   it('unset on an absent known key does not create config.json', async () => {
     await rm(configPath, { force: true });
-    const result = await unsetLocalConfigValue('titleRewrite', options);
+    const result = await unsetLocalConfigValue('mallIdStrictParse', options);
     expect(result.removed).toBe(false);
     await expect(readFile(configPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   });
@@ -124,7 +124,7 @@ describe('config management', () => {
   it('does not overwrite damaged JSON', async () => {
     await writeFile(configPath, '{ damaged', 'utf8');
     const before = await readFile(configPath, 'utf8');
-    await expect(setLocalConfigValue('titleRewrite', 'false', options)).rejects.toMatchObject({
+    await expect(setLocalConfigValue('mallIdStrictParse', 'false', options)).rejects.toMatchObject({
       code: 'E_CONFIG_INVALID',
       detail: { reason: 'json_invalid' },
     });
@@ -139,7 +139,7 @@ describe('config management', () => {
     await writeFile(configPath, content, 'utf8');
     const before = await readFile(configPath, 'utf8');
 
-    await expect(setLocalConfigValue('titleRewrite', 'false', options)).rejects.toMatchObject({
+    await expect(setLocalConfigValue('mallIdStrictParse', 'false', options)).rejects.toMatchObject({
       code: 'E_CONFIG_INVALID',
       detail: { reason: 'root_not_object' },
     });
@@ -158,11 +158,11 @@ describe('config management', () => {
   });
 
   it('keeps a successful local edit when another layer is invalid', async () => {
-    const result = await setLocalConfigValue('titleRewrite', 'false', {
+    const result = await setLocalConfigValue('mallIdStrictParse', 'false', {
       ...options,
       env: { PDD_RATE_LIMIT_QPS: 'invalid' },
     });
-    expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual({ titleRewrite: false });
+    expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual({ mallIdStrictParse: false });
     expect(result.runtimeValid).toBe(false);
     expect(result.warnings).toContain('runtime_invalid_after_edit');
     expect(result.issues[0]).not.toHaveProperty('value');
@@ -170,8 +170,8 @@ describe('config management', () => {
 
   it('keeps a successful local edit when the baseline is damaged', async () => {
     await writeFile(baselinePath, '{ damaged', 'utf8');
-    const result = await setLocalConfigValue('titleRewrite', 'false', options);
-    expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual({ titleRewrite: false });
+    const result = await setLocalConfigValue('mallIdStrictParse', 'false', options);
+    expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual({ mallIdStrictParse: false });
     expect(result.runtimeValid).toBe(false);
     expect(result.warnings).toContain('runtime_invalid_after_edit');
     expect(result.issues).toEqual(expect.arrayContaining([
@@ -186,9 +186,9 @@ describe('config management', () => {
   });
 
   it('preserves the original file and cleans temp files when rename fails', async () => {
-    await writeFile(configPath, '{\n  "titleRewrite": true\n}\n', 'utf8');
+    await writeFile(configPath, '{\n  "mallIdStrictParse": true\n}\n', 'utf8');
     const before = await readFile(configPath, 'utf8');
-    await expect(setLocalConfigValue('titleRewrite', 'false', {
+    await expect(setLocalConfigValue('mallIdStrictParse', 'false', {
       ...options,
       io: { rename: async () => { throw new Error('simulated rename failure'); } },
     })).rejects.toMatchObject({ code: 'E_CONFIG_INVALID', detail: { reason: 'atomic_write_failed' } });
@@ -206,7 +206,7 @@ describe('config management', () => {
         baselinePath: join(outsideRoot, 'config.example.json'),
         configPath: join(outsideRoot, 'config.json'),
       };
-      await expect(setLocalConfigValue('titleRewrite', 'false', outsideOptions)).rejects.toMatchObject({
+      await expect(setLocalConfigValue('mallIdStrictParse', 'false', outsideOptions)).rejects.toMatchObject({
         code: 'E_CONFIG_INVALID',
         detail: { reason: 'project_escape' },
       });
@@ -221,7 +221,7 @@ describe('config management', () => {
     await rm(configDir, { recursive: true, force: true });
     try {
       await symlink(outsideRoot, configDir, 'junction');
-      await expect(setLocalConfigValue('titleRewrite', 'false', options)).rejects.toMatchObject({
+      await expect(setLocalConfigValue('mallIdStrictParse', 'false', options)).rejects.toMatchObject({
         code: 'E_CONFIG_INVALID',
         detail: { reason: 'config_directory_unsafe' },
       });
@@ -234,11 +234,11 @@ describe('config management', () => {
   it('rejects a config file symlink without modifying its outside target', async () => {
     const outsideRoot = await mkdtemp(join(tmpdir(), 'pdd-config-file-link-'));
     const outsideConfig = join(outsideRoot, 'outside.json');
-    const original = '{\n  "titleRewrite": true\n}\n';
+    const original = '{\n  "mallIdStrictParse": true\n}\n';
     await writeFile(outsideConfig, original, 'utf8');
     try {
       await symlink(outsideConfig, configPath, 'file');
-      await expect(setLocalConfigValue('titleRewrite', 'false', options)).rejects.toMatchObject({
+      await expect(setLocalConfigValue('mallIdStrictParse', 'false', options)).rejects.toMatchObject({
         code: 'E_CONFIG_INVALID',
         detail: { reason: 'config_file_unsafe' },
       });

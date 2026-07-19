@@ -31,7 +31,6 @@ import {
 } from '../adapter/endpoints/goods-publish.js';
 import { withWriteRateControl } from '../infra/rate-control.js';
 import { assertNoRiskControl } from '../adapter/goods-publish/risk-detector.js';
-import { rewriteTitle } from './title-rewriter.js';
 import { transformImages } from './image-transform.js';
 import { buildPricingPlan, validatePricingPlan } from './pricing-validator.js';
 import { defaultSourceGoodsCache } from './goods-publish-source-cache.js';
@@ -398,24 +397,9 @@ export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
   });
   log.info({ categorySearchText }, 'goods-publish: category search text');
 
-  // Phase B+ — title rewrite
-  let sourceForForm = source;
-  if (ctx.runtimeConfig?.titleRewrite) {
-    const rewritten = await rewriteTitle(source, {
-      categoryPath: categorySearchText,
-      log,
-    });
-    if (rewritten?.changed) {
-      log.info({ original: source.goodsName, rewritten: rewritten.title, method: rewritten.method },
-        'goods-publish: title rewritten');
-      warnings.push(...(rewritten.warnings || []));
-    }
-    sourceForForm = { ...source, goodsName: rewritten?.title || source.goodsName };
-  }
-
   // NOTE: Image transform integration point (Phase C+).
   // transformImages() is available when PDD_IMAGE_TRANSFORM=1.
-  // Full integration requires form-filler to accept pre-transformed file paths via sourceForForm.carouselFiles.
+  // Full integration requires form-filler to accept pre-transformed file paths via source.carouselFiles.
 
   const draft = await withWriteRateControl('publish.create_draft', () =>
     breaker.wrap('create_draft', async () => {
@@ -441,9 +425,9 @@ export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
   await withWriteRateControl('publish.fill_form', () =>
     breaker.wrap('fill_form', async () => {
       log.info({ ...draft }, 'goods-publish: Phase D — filling form');
-      pricingPlan = buildPricingPlan(sourceForForm);
+      pricingPlan = buildPricingPlan(source);
       const pricingValidation = validatePricingPlan(pricingPlan);
-      const fillResult = await fillGoodsForm(ctx.page, sourceForForm, warnings, {
+      const fillResult = await fillGoodsForm(ctx.page, source, warnings, {
         pricingPlan,
         pricingValidation,
         propertyPlan: propertyMapping.plan,
@@ -564,7 +548,6 @@ export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
       skipped_count: propertyMapping.skippedCount,
     },
     sku_preview_count: uploadedSkuPreviewPlan.length,
-    rewritten_title: sourceForForm.goodsName !== source.goodsName ? sourceForForm.goodsName : undefined,
     image_transform: process.env.PDD_IMAGE_TRANSFORM === '1' ? 'enabled' : 'disabled',
     submit: submit ?? undefined,
     warnings,

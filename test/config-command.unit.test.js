@@ -36,16 +36,16 @@ describe('config command handlers', () => {
 
   it('set emits one JSON envelope and writes a typed value', async () => {
     const envelope = await configCommand.set(
-      { args: ['titleRewrite', 'false'], json: true, noColor: true },
+      { args: ['mallIdStrictParse', 'false'], json: true, noColor: true },
       { configOptions },
     );
     expect(envelope).toMatchObject({
       ok: true,
       command: 'config.set',
-      data: { key: 'titleRewrite', localValue: false, runtimeValid: true },
+      data: { key: 'mallIdStrictParse', localValue: false, runtimeValid: true },
     });
     expect(stdout.trim().split(/\r?\n/)).toHaveLength(1);
-    expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual({ titleRewrite: false });
+    expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual({ mallIdStrictParse: false });
   });
 
   it('show reports a local value as overridden by environment', async () => {

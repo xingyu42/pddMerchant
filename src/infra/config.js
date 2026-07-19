@@ -45,7 +45,6 @@ const CONFIG_FIELD_DEFINITIONS = Object.freeze({
   categoryApiBase: { schema: z.string().url(), env: 'PDD_CATEGORY_API_BASE', kind: 'string', required: true },
   consumerLoginUrl: { schema: z.string().url(), env: 'PDD_CONSUMER_LOGIN_URL', kind: 'string', required: true },
   mallIdStrictParse: { schema: z.boolean(), env: 'PDD_MALL_ID_STRICT_PARSE', kind: 'boolean', required: true },
-  titleRewrite: { schema: z.boolean(), env: 'PDD_TITLE_REWRITE', kind: 'boolean', required: true },
   fullCountDiscountRate: { schema: fullCountDiscountRateSchema, env: 'PDD_FULL_COUNT_DISCOUNT_RATE', kind: 'number', required: true },
   timeoutMs: { schema: z.number().int().positive(), env: 'PDD_TIMEOUT_MS', kind: 'number', required: false },
   defaultMall: { schema: z.string().min(1), env: 'PDD_DEFAULT_MALL', kind: 'string', required: false },

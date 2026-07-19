@@ -33,7 +33,7 @@ describe('runtime config', () => {
   });
 
   it('merges baseline, local, environment and CLI in order', async () => {
-    await writeFile(configPath, JSON.stringify({ rateLimitQps: 4, titleRewrite: false }), 'utf8');
+    await writeFile(configPath, JSON.stringify({ rateLimitQps: 4, mallIdStrictParse: true }), 'utf8');
     const result = await loadConfig({
       baselinePath,
       configPath,
@@ -47,7 +47,6 @@ describe('runtime config', () => {
     });
 
     expect(result.config.rateLimitQps).toBe(8);
-    expect(result.config.titleRewrite).toBe(false);
     expect(result.config.mallIdStrictParse).toBe(false);
     expect(result.config.consumerLoginUrl).toBe('https://consumer.example.test/login');
     expect(result.config.fullCountDiscountRate).toBe(0.88);
