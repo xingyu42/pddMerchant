@@ -128,4 +128,24 @@ describe('daemon command lifecycle invariants', () => {
     const lines = stdout.split(/\r?\n/).filter(Boolean);
     assert.equal(lines.length, 1, `expected one stdout JSON line, got ${lines.length}: ${stdout}`);
   });
+
+  it('daemon start reports failure when startup is unconfirmed even without a started pid', async () => {
+    const statePath = await tempStatePath();
+    const daemon = await importDaemonCommand({
+      statePath,
+      ensureResult: { started: false, confirmed: false },
+    });
+
+    const restore = captureStdout();
+    const envelope = await daemon.start({ json: true, noColor: true });
+    const stdout = restore();
+
+    assert.equal(envelope.ok, false);
+    assert.equal(envelope.command, 'daemon.start');
+    assert.equal(envelope.error.code, 'E_DAEMON_START_FAILED');
+    assert.equal(envelope.meta.exit_code, 1);
+
+    const lines = stdout.split(/\r?\n/).filter(Boolean);
+    assert.equal(lines.length, 1, `expected one stdout JSON line, got ${lines.length}: ${stdout}`);
+  });
 });

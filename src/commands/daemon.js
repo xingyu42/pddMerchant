@@ -27,23 +27,23 @@ export async function start(opts = {}) {
 
   const result = await ensureDaemonRunning();
 
-  if (!result.started) {
-    const envelope = buildEnvelope({
-      ok: true,
-      command,
-      data: { pid: result.pid, already_running: true, stateFile: DAEMON_STATE_PATH },
-      meta: { latency_ms: Date.now() - startedAt },
-    });
-    emit(envelope, { json: opts.json, noColor: opts.noColor });
-    return envelope;
-  }
-
   if (result.confirmed === false) {
     const envelope = buildEnvelope({
       ok: false,
       command,
       error: { code: 'E_DAEMON_START_FAILED', message: 'Daemon did not confirm startup within 5s' },
       meta: { latency_ms: Date.now() - startedAt, exit_code: ExitCodes.GENERAL },
+    });
+    emit(envelope, { json: opts.json, noColor: opts.noColor });
+    return envelope;
+  }
+
+  if (!result.started) {
+    const envelope = buildEnvelope({
+      ok: true,
+      command,
+      data: { pid: result.pid, already_running: true, stateFile: DAEMON_STATE_PATH },
+      meta: { latency_ms: Date.now() - startedAt },
     });
     emit(envelope, { json: opts.json, noColor: opts.noColor });
     return envelope;

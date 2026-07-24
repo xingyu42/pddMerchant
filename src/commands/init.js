@@ -4,6 +4,8 @@ import { errorToEnvelope } from '../infra/errors.js';
 import { AUTH_STATE_PATH as DEFAULT_AUTH_STATE_PATH } from '../infra/paths.js';
 import { resolveAccountContext } from '../infra/account-resolver.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
+import { ensureDaemonRunning } from '../infra/daemon-launcher.js';
+import { getLogger } from '../infra/logger.js';
 
 function buildQrCallback({ json, command, timeoutMs }) {
   return async ({ imagePath, qrContent }) => {
@@ -25,6 +27,16 @@ function buildQrCallback({ json, command, timeoutMs }) {
     process.stderr.write(`🖼️  QR 图片本地路径：${imagePath}\n`);
     process.stderr.write(`⏳ 等待扫码（超时 ${Math.round(timeoutMs / 1000)}s）...\n\n`);
   };
+}
+
+async function startDaemonAfterLogin() {
+  try {
+    const result = await ensureDaemonRunning();
+    return result.confirmed === false ? ['daemon_start_unconfirmed'] : [];
+  } catch (err) {
+    getLogger().warn({ code: err?.code ?? null }, 'login: daemon auto-start failed');
+    return ['daemon_start_failed'];
+  }
 }
 
 export async function runInteractiveLogin(options = {}) {
@@ -68,6 +80,7 @@ export async function runInteractiveLogin(options = {}) {
         timeoutMs: effectiveTimeout,
       });
     }
+    const warnings = await startDaemonAfterLogin();
     return emit({
       ok: true,
       command,
@@ -79,7 +92,7 @@ export async function runInteractiveLogin(options = {}) {
         ...(result.qrContentPresent !== undefined ? { qrContentPresent: result.qrContentPresent } : {}),
         message: '授权成功，试试 pdd orders list',
       },
-      meta: { latency_ms: Date.now() - startedAt },
+      meta: { latency_ms: Date.now() - startedAt, warnings },
     }, { json });
   } catch (err) {
     const envelope = errorToEnvelope(command, err, { latency_ms: Date.now() - startedAt });
