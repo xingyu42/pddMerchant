@@ -2,6 +2,7 @@ import { chmod, copyFile, mkdir, readFile, rename, unlink, writeFile } from 'nod
 import { existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { platform } from 'node:os';
+import { createHash } from 'node:crypto';
 import { getLogger } from '../infra/logger.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { isMockEnabled, mockIsAuthValid, mockIsConsumerAuthValid } from './mock-dispatcher.js';
@@ -21,6 +22,16 @@ function validateShape(state) {
   if (!Array.isArray(state.cookies)) return false;
   if (!Array.isArray(state.origins)) return false;
   return true;
+}
+
+export async function getAuthStateRevision(path) {
+  try {
+    const raw = await readFile(path);
+    return createHash('sha256').update(raw).digest('hex');
+  } catch (err) {
+    if (err?.code === 'ENOENT') return null;
+    throw err;
+  }
 }
 
 export async function saveAuthState(context, path, { skipLock = false } = {}) {
@@ -63,6 +74,25 @@ export async function saveAuthState(context, path, { skipLock = false } = {}) {
         getLogger().warn({ err: err?.message, path }, 'auth-state: lock release failed');
       });
     }
+  }
+}
+
+export async function saveAuthStateIfCurrent(context, path, expectedRevision) {
+  await mkdir(dirname(path), { recursive: true });
+  const lock = await acquireLock(path, { timeoutMs: 15_000 });
+
+  try {
+    const currentRevision = await getAuthStateRevision(path);
+    if (currentRevision !== expectedRevision) {
+      return { saved: false, reason: 'conflict' };
+    }
+
+    await saveAuthState(context, path, { skipLock: true });
+    return { saved: true, reason: 'saved' };
+  } finally {
+    await releaseLock(path, lock.token).catch((err) => {
+      getLogger().warn({ err: err?.message, path }, 'auth-state: lock release failed');
+    });
   }
 }
 

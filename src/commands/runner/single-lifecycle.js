@@ -2,7 +2,12 @@
 // live 浏览器流程（auth 校验、daemon 自启、mall 解析/切换、pageSession）。
 import { randomUUID } from 'node:crypto';
 import { withBrowser } from '../../adapter/browser.js';
-import { isAuthValid, migrateLegacyAuthStateIfNeeded } from '../../adapter/auth-state.js';
+import {
+  getAuthStateRevision,
+  isAuthValid,
+  migrateLegacyAuthStateIfNeeded,
+  saveAuthStateIfCurrent,
+} from '../../adapter/auth-state.js';
 import { resolveMallContext } from '../../adapter/mall-reader.js';
 import { switchTo } from '../../adapter/mall-writer.js';
 import { isMockEnabled } from '../../adapter/mock-dispatcher.js';
@@ -83,10 +88,26 @@ async function resolveLiveMall(needsMall, page, opts, runtimeConfig) {
   return mallCtx;
 }
 
-// 非 async 包装：promise 在创建时即返回调用方（executeSingle 的 finally 随之执行），
-// 与拆分前 `return withBrowser(...)` 的 deadlineTimer 清理时序逐字一致。
-function executeLive(spec, runtime) {
+async function persistAuthStateAfterSuccess(spec, runtime, context, initialRevision) {
+  if (!spec.needsAuth) return;
+
+  try {
+    const result = await saveAuthStateIfCurrent(context, runtime.authPath, initialRevision);
+    if (!result.saved && result.reason === 'conflict') {
+      runtime.warnings.push('auth_state_persist_conflict');
+    }
+  } catch (err) {
+    runtime.log.warn({ code: err?.code ?? null }, 'auth-state: persist after command failed');
+    runtime.warnings.push('auth_state_persist_failed');
+  }
+}
+
+async function executeLiveOperation(spec, runtime) {
   const { opts, log } = runtime;
+  const initialRevision = spec.needsAuth
+    ? await getAuthStateRevision(runtime.authPath)
+    : null;
+
   return withBrowser({
     headed: opts.headed,
     storageStatePath: runtime.authPath,
@@ -116,9 +137,16 @@ function executeLive(spec, runtime) {
     // normalize/warnings 快照随 finalizeSuccess 移至 closeAll 之后（Phase-3 审查裁决）：
     // closeAll 逐页吞错且不持有 warnings 引用，顺序交换无可观察差异。
     await pageSession.closeAll();
+    await persistAuthStateAfterSuccess(spec, runtime, context, initialRevision);
 
     return finalizeSuccess(spec, runtime, result);
-  }).catch((err) => finalizeError(spec, runtime, err));
+  });
+}
+
+// 非 async 包装：promise 在创建时即返回调用方（executeSingle 的 finally 随之执行），
+// 与拆分前 `return withBrowser(...)` 的 deadlineTimer 清理时序一致。
+function executeLive(spec, runtime) {
+  return executeLiveOperation(spec, runtime).catch((err) => finalizeError(spec, runtime, err));
 }
 
 export async function executeSingle(spec, opts = {}, {

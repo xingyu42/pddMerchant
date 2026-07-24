@@ -12,9 +12,11 @@ const liveMocks = vi.hoisted(() => ({
   fakePage: { __fake: 'page' },
   fakeContext: { __fake: 'context' },
   closeAll: vi.fn(async () => {}),
+  getAuthStateRevision: vi.fn(async () => 'revision-1'),
   isAuthValid: vi.fn(async () => true),
   migrateLegacyAuthStateIfNeeded: vi.fn(async () => {}),
   resolveMallContext: vi.fn(async () => ({ activeId: '445301049', activeName: 'probe-mall', malls: [], source: 'probe' })),
+  saveAuthStateIfCurrent: vi.fn(async () => ({ saved: true, reason: 'saved' })),
 }));
 
 vi.mock('../src/infra/output.js', async (importOriginal) => ({
@@ -33,8 +35,10 @@ vi.mock('../src/adapter/browser.js', async (importOriginal) => ({
 
 vi.mock('../src/adapter/auth-state.js', async (importOriginal) => ({
   ...(await importOriginal()),
+  getAuthStateRevision: liveMocks.getAuthStateRevision,
   isAuthValid: liveMocks.isAuthValid,
   migrateLegacyAuthStateIfNeeded: liveMocks.migrateLegacyAuthStateIfNeeded,
+  saveAuthStateIfCurrent: liveMocks.saveAuthStateIfCurrent,
 }));
 
 vi.mock('../src/adapter/mall-reader.js', async (importOriginal) => ({
@@ -82,9 +86,13 @@ describe('runner contract invariants', () => {
     outputMock.emit.mockClear();
     liveMocks.closeAll.mockReset();
     liveMocks.closeAll.mockResolvedValue(undefined);
+    liveMocks.getAuthStateRevision.mockReset();
+    liveMocks.getAuthStateRevision.mockResolvedValue('revision-1');
     liveMocks.isAuthValid.mockClear();
     liveMocks.migrateLegacyAuthStateIfNeeded.mockClear();
     liveMocks.resolveMallContext.mockClear();
+    liveMocks.saveAuthStateIfCurrent.mockReset();
+    liveMocks.saveAuthStateIfCurrent.mockResolvedValue({ saved: true, reason: 'saved' });
   });
 
   afterEach(() => {
@@ -188,6 +196,96 @@ describe('runner contract invariants', () => {
     assert.equal(liveMocks.closeAll.mock.calls.length, 1);
     assert.equal(outputMock.emit.mock.calls.length, 1);
     assert.deepEqual(outputMock.emit.mock.calls[0][0], envelope);
+  });
+
+  it('persists refreshed auth state after a successful live authenticated command', async () => {
+    delete process.env.PDD_TEST_ADAPTER;
+
+    const envelope = await executeSingle(
+      makeSpec({ name: 'runner.auth.persist', needsAuth: true }),
+      { json: true, noColor: true, authStatePath: 'D:/tmp/auth-state.json' },
+      { emitResult: false, skipDaemonStart: true },
+    );
+
+    assert.equal(envelope.ok, true);
+    assert.equal(liveMocks.getAuthStateRevision.mock.calls.length, 1);
+    assert.equal(liveMocks.saveAuthStateIfCurrent.mock.calls.length, 1);
+    assert.deepEqual(liveMocks.saveAuthStateIfCurrent.mock.calls[0], [
+      liveMocks.fakeContext,
+      'D:/tmp/auth-state.json',
+      'revision-1',
+    ]);
+  });
+
+  it('keeps command success and emits a warning when auth persistence conflicts', async () => {
+    delete process.env.PDD_TEST_ADAPTER;
+    liveMocks.saveAuthStateIfCurrent.mockResolvedValueOnce({ saved: false, reason: 'conflict' });
+
+    const envelope = await executeSingle(
+      makeSpec({ name: 'runner.auth.persist.conflict', needsAuth: true }),
+      { json: true, noColor: true, authStatePath: 'D:/tmp/auth-state.json' },
+      { emitResult: false, skipDaemonStart: true },
+    );
+
+    assert.equal(envelope.ok, true);
+    assert.deepEqual(envelope.meta.warnings, ['auth_state_persist_conflict']);
+  });
+
+  it('keeps command success and emits a warning when auth persistence fails', async () => {
+    delete process.env.PDD_TEST_ADAPTER;
+    liveMocks.saveAuthStateIfCurrent.mockRejectedValueOnce(new Error('disk unavailable'));
+
+    const envelope = await executeSingle(
+      makeSpec({ name: 'runner.auth.persist.failure', needsAuth: true }),
+      { json: true, noColor: true, authStatePath: 'D:/tmp/auth-state.json' },
+      { emitResult: false, skipDaemonStart: true },
+    );
+
+    assert.equal(envelope.ok, true);
+    assert.deepEqual(envelope.meta.warnings, ['auth_state_persist_failed']);
+  });
+
+  it('does not persist auth state after a failed live command', async () => {
+    delete process.env.PDD_TEST_ADAPTER;
+
+    const envelope = await executeSingle(
+      makeSpec({
+        name: 'runner.auth.persist.error',
+        needsAuth: true,
+        async run() { throw new Error('business failed'); },
+      }),
+      { json: true, noColor: true, authStatePath: 'D:/tmp/auth-state.json' },
+      { emitResult: false, skipDaemonStart: true },
+    );
+
+    assert.equal(envelope.ok, false);
+    assert.equal(liveMocks.saveAuthStateIfCurrent.mock.calls.length, 0);
+  });
+
+  it('does not read or persist auth state for a live command that does not need auth', async () => {
+    delete process.env.PDD_TEST_ADAPTER;
+
+    const envelope = await executeSingle(
+      makeSpec({ name: 'runner.auth.persist.not-required' }),
+      { json: true, noColor: true, authStatePath: 'D:/tmp/auth-state.json' },
+      { emitResult: false, skipDaemonStart: true },
+    );
+
+    assert.equal(envelope.ok, true);
+    assert.equal(liveMocks.getAuthStateRevision.mock.calls.length, 0);
+    assert.equal(liveMocks.saveAuthStateIfCurrent.mock.calls.length, 0);
+  });
+
+  it('does not read or persist real auth state in fixture mode', async () => {
+    const envelope = await executeSingle(
+      makeSpec({ name: 'runner.auth.persist.fixture', needsAuth: true }),
+      { json: true, noColor: true, authStatePath: 'D:/tmp/auth-state.json' },
+      { emitResult: false, skipDaemonStart: true },
+    );
+
+    assert.equal(envelope.ok, true);
+    assert.equal(liveMocks.getAuthStateRevision.mock.calls.length, 0);
+    assert.equal(liveMocks.saveAuthStateIfCurrent.mock.calls.length, 0);
   });
 
   it('finalizes an already-aborted parentSignal through the standard error envelope path', async () => {

@@ -9,18 +9,31 @@ import { TIMEOUTS } from '../infra/timeouts.js';
 
 const HEARTBEAT_URL = 'https://mms.pinduoduo.com/janus/api/informSeller/queryInformSellerTabList';
 
-async function heartbeat(page, { timeoutMs = 10_000 } = {}) {
+function isLoginUrl(value) {
+  try {
+    return new URL(value).pathname.startsWith('/login');
+  } catch {
+    return false;
+  }
+}
+
+async function heartbeat(page) {
   const result = await evaluateInMainWorld(page, async (url) => {
     try {
       const resp = await fetch(url, { credentials: 'include' });
-      return { status: resp.status, ok: resp.ok };
+      return {
+        status: resp.status,
+        ok: resp.ok,
+        redirected: resp.redirected,
+        url: resp.url,
+      };
     } catch (e) {
-      return { status: 0, ok: false, error: e.message };
+      return { status: 0, ok: false, redirected: false, url: '', error: e.message };
     }
   }, HEARTBEAT_URL);
+  if (result.redirected || isLoginUrl(result.url)) return false;
   if (result.status === 401 || result.status === 403) return false;
-  if (result.status === 302) return false;
-  return result.ok || (result.status >= 200 && result.status < 400);
+  return result.ok && result.status >= 200 && result.status < 300;
 }
 
 export async function refreshAuth({ authStatePath, log, signal } = {}) {
@@ -66,7 +79,7 @@ export async function refreshAuth({ authStatePath, log, signal } = {}) {
         return { success: false, reason: 'aborted' };
       }
 
-      const alive = await heartbeat(page);
+      const alive = !isLoginUrl(page.url()) && await heartbeat(page);
 
       if (alive) {
         await saveAuthState(context, authStatePath, { skipLock: true });

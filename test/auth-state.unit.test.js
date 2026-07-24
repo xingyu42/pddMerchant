@@ -3,7 +3,13 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { deleteAuthState, isAuthValid, isConsumerAuthValid } from '../src/adapter/auth-state.js';
+import {
+  deleteAuthState,
+  getAuthStateRevision,
+  isAuthValid,
+  isConsumerAuthValid,
+  saveAuthStateIfCurrent,
+} from '../src/adapter/auth-state.js';
 
 function createResponse({ ok = true, status = 200 } = {}) {
   return {
@@ -139,6 +145,66 @@ test('deleteAuthState: treats an already-missing snapshot as removed', async () 
   try {
     const result = await deleteAuthState(join(root, 'missing.json'));
     assert.deepEqual(result, { removed: true, existed: false });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('saveAuthStateIfCurrent: saves the latest context state when revision is unchanged', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pdd-auth-save-current-'));
+  const path = join(root, 'auth-state.json');
+  try {
+    await writeFile(path, '{"cookies":[],"origins":[]}', 'utf8');
+    const revision = await getAuthStateRevision(path);
+    const nextState = {
+      cookies: [{ name: 'sid', value: 'new-value', domain: '.example.test', path: '/' }],
+      origins: [],
+    };
+    const context = {
+      async storageState({ path: outputPath }) {
+        await writeFile(outputPath, JSON.stringify(nextState), 'utf8');
+      },
+    };
+
+    const result = await saveAuthStateIfCurrent(context, path, revision);
+
+    assert.deepEqual(result, { saved: true, reason: 'saved' });
+    assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), nextState);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('getAuthStateRevision: returns null for a missing auth-state file', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pdd-auth-revision-missing-'));
+  try {
+    assert.equal(await getAuthStateRevision(join(root, 'missing.json')), null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('saveAuthStateIfCurrent: skips stale context state after concurrent auth update', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pdd-auth-save-conflict-'));
+  const path = join(root, 'auth-state.json');
+  try {
+    await writeFile(path, '{"cookies":[],"origins":[]}', 'utf8');
+    const revision = await getAuthStateRevision(path);
+    const concurrentState = {
+      cookies: [{ name: 'sid', value: 'keep-newer', domain: '.example.test', path: '/' }],
+      origins: [],
+    };
+    await writeFile(path, JSON.stringify(concurrentState), 'utf8');
+    const context = {
+      async storageState() {
+        throw new Error('stale context must not be serialized');
+      },
+    };
+
+    const result = await saveAuthStateIfCurrent(context, path, revision);
+
+    assert.deepEqual(result, { saved: false, reason: 'conflict' });
+    assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), concurrentState);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
