@@ -29,7 +29,7 @@
 
 ### 勘误（docs）
 
-- **auth-state 默认路径**：V0.3 笔记所述"默认位置移至 OS 用户目录"已于后续提交（c8c0d9e）回退——当前默认始终为项目内 `data/auth-state.json`，`PDD_AUTH_STATE_PATH` 覆盖语义不变。请勿按 V0.3 笔记寻找 `~/.pdd-cli/`。
+- **auth-state 当前默认路径**：商家登录态按 `data/merchant/stores/<店铺名>/` 归档，消费者登录态按 `data/consumer/accounts/<手机号或昵称>/` 归档；显式路径环境变量覆盖语义不变。旧根级登录态不再自动迁移。
 
 ---
 

@@ -30,6 +30,13 @@ vi.mock('../src/adapter/consumer-qr-login.js', () => ({
   })),
 }));
 
+vi.mock('../src/adapter/consumer-identity.js', () => ({
+  createConsumerIdentityObserver: vi.fn(() => ({
+    wait: vi.fn(async () => ({ uid: 'fixture-user', nickname: 'fixture-user' })),
+    dispose: vi.fn(),
+  })),
+}));
+
 vi.mock('../src/adapter/qr-login.js', () => ({
   captureQrElement: vi.fn(async () => Buffer.from('fake-png')),
   saveQrPng: vi.fn(async () => '/tmp/fake-qr.png'),

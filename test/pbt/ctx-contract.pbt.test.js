@@ -20,7 +20,6 @@ vi.mock('../../src/adapter/browser.js', async (importOriginal) => ({
 vi.mock('../../src/adapter/auth-state.js', async (importOriginal) => ({
   ...(await importOriginal()),
   isAuthValid: async () => true,
-  migrateLegacyAuthStateIfNeeded: async () => {},
 }));
 vi.mock('../../src/adapter/mall-reader.js', async (importOriginal) => ({
   ...(await importOriginal()),

@@ -40,7 +40,7 @@ export async function resolveAccountContext({ account, authStatePath, needsAuth 
   }
 
   if (!reg || Object.keys(reg.accounts).length === 0) {
-    return { slug: null, displayName: null, authPath: AUTH_STATE_PATH, account: null, source: 'legacy-fallback', warnings };
+    return { slug: null, displayName: null, authPath: AUTH_STATE_PATH, account: null, source: 'unregistered-default', warnings };
   }
 
   if (reg.defaultAccount && reg.accounts[reg.defaultAccount]) {
@@ -72,7 +72,7 @@ export async function resolveAccountContext({ account, authStatePath, needsAuth 
     throw accountRequired();
   }
 
-  return { slug: null, displayName: null, authPath: AUTH_STATE_PATH, account: null, source: 'legacy-fallback', warnings };
+  return { slug: null, displayName: null, authPath: AUTH_STATE_PATH, account: null, source: 'unregistered-default', warnings };
 }
 
 export function accountMetaForEnvelope(accountContext) {

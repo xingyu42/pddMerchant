@@ -5,7 +5,6 @@ import { withBrowser } from '../../adapter/browser.js';
 import {
   getAuthStateRevision,
   isAuthValid,
-  migrateLegacyAuthStateIfNeeded,
   saveAuthStateIfCurrent,
 } from '../../adapter/auth-state.js';
 import { resolveMallContext } from '../../adapter/mall-reader.js';
@@ -184,10 +183,6 @@ export async function executeSingle(spec, opts = {}, {
   };
 
   try {
-    await migrateLegacyAuthStateIfNeeded(runtime.authPath, warnings).catch((err) => {
-      log.debug({ err: err?.message }, 'legacy auth migration check failed');
-    });
-
     if (needsMall === 'none' && opts.mall) {
       log.warn({ mall: opts.mall }, 'command does not use --mall flag');
       warnings.push('unused_flag_mall');

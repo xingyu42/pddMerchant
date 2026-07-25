@@ -1,35 +1,25 @@
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
-import { resolveAuthPath } from '../src/commands/login.js';
-import { resolveAccountContext } from '../src/infra/account-resolver.js';
+import { resolveLoginAuthTarget } from '../src/commands/init.js';
 
-// Regression guard for commit 9cb1f6e:
-// Before the fix, `pdd login --qr` (no --account) returned undefined here and
-// runInteractiveLogin fell back to data/auth-state.json, mismatching the path
-// every business command reads via resolveAccountContext({}).
-// This suite locks login's resolution in step with the resolver — if anyone
-// reintroduces a divergent fallback, parity breaks and CI catches it.
-describe('login.resolveAuthPath', () => {
+describe('login auth target', () => {
   it('explicit authStatePath short-circuits without touching the resolver', async () => {
-    const path = await resolveAuthPath({ authStatePath: '/explicit/auth.json' });
-    assert.equal(path, '/explicit/auth.json');
+    const target = await resolveLoginAuthTarget({ authStatePath: '/explicit/auth.json' }, 'fixed-token');
+    assert.equal(target.authPath, '/explicit/auth.json');
+    assert.equal(target.accountContext.source, 'explicit-path');
   });
 
-  it('no flags → identical path to resolveAccountContext({})', async () => {
-    const fromLogin = await resolveAuthPath({});
-    const fromResolver = await resolveAccountContext({});
-    assert.equal(fromLogin, fromResolver.authPath);
-    assert.ok(fromLogin, 'must never return undefined (the original bug)');
+  it('no flags writes to merchant pending storage before identity is known', async () => {
+    const target = await resolveLoginAuthTarget({}, 'fixed-token');
+    assert.ok(target.authPath.replaceAll('\\', '/').endsWith('/merchant/stores/_pending/fixed-token.json'));
+    assert.equal(target.accountContext.source, 'pending');
   });
 
-  it('account flag forwarded to resolver — both reject identically for unknown slug', async () => {
+  it('account flag still rejects an unknown registered account', async () => {
     const unknown = '__nonexistent_login_test_slug__';
-    let loginErr;
-    let resolverErr;
-    try { await resolveAuthPath({ account: unknown }); } catch (e) { loginErr = e; }
-    try { await resolveAccountContext({ account: unknown }); } catch (e) { resolverErr = e; }
-    assert.ok(loginErr, 'login must reject unknown account');
-    assert.ok(resolverErr, 'resolver must reject unknown account');
-    assert.equal(loginErr.code, resolverErr.code);
+    await assert.rejects(
+      resolveLoginAuthTarget({ account: unknown }, 'fixed-token'),
+      (error) => error.code === 'E_ACCOUNT_NOT_FOUND',
+    );
   });
 });

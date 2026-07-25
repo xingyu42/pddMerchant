@@ -100,7 +100,7 @@ async function doRefresh() {
 
     if (accounts.length === 0) {
       const authStatePath = config.authStatePath || AUTH_STATE_PATH;
-      log.info('no registered accounts, refreshing legacy auth');
+      log.info('no registered accounts, refreshing configured auth');
       const result = await refreshAuth({ authStatePath, log, signal: abortController.signal });
       refreshCount++;
       if (!result.success) failureCount++;

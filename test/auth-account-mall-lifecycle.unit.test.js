@@ -108,12 +108,12 @@ describe('auth/account/mall lifecycle invariants', () => {
     );
   });
 
-  it('falls back to legacy auth path without account metadata when registry is missing', async () => {
+  it('uses the unregistered business default path without account metadata when registry is missing', async () => {
     const { resolveAccountContext, accountMetaForEnvelope, AUTH_STATE_PATH } = await loadAccountModules();
 
     const ctx = await resolveAccountContext({});
 
-    assert.equal(ctx.source, 'legacy-fallback');
+    assert.equal(ctx.source, 'unregistered-default');
     assert.equal(ctx.slug, null);
     assert.equal(ctx.account, null);
     assert.equal(ctx.authPath, AUTH_STATE_PATH);

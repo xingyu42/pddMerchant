@@ -14,6 +14,8 @@ import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 import { getLogger } from '../infra/logger.js';
 import { getSharedScrapeCooldown } from '../infra/scrape-cooldown.js';
+import { resolveMallContext } from '../adapter/mall-reader.js';
+import { createConsumerIdentityObserver } from '../adapter/consumer-identity.js';
 
 async function waitForMmsLogin(page, { timeoutMs }) {
   try {
@@ -28,6 +30,18 @@ async function waitForMmsLogin(page, { timeoutMs }) {
   } catch (err) {
     return { success: false, url: page.url(), error: err?.message || 'timeout' };
   }
+}
+
+async function resolveMerchantLoginIdentity(page) {
+  const mallContext = await resolveMallContext(page);
+  const mallId = mallContext?.activeId ?? null;
+  const activeMall = Array.isArray(mallContext?.malls)
+    ? mallContext.malls.find((mall) => String(mall.id) === String(mallId))
+    : null;
+  return {
+    mallId,
+    displayName: mallContext?.activeName || activeMall?.name || '',
+  };
 }
 
 export async function performQrLogin({ authStatePath, timeoutMs, headed = false, qrCaptureTimeoutMs, onQrCaptured }) {
@@ -56,8 +70,9 @@ export async function performQrLogin({ authStatePath, timeoutMs, headed = false,
       });
     }
 
+    const identity = await resolveMerchantLoginIdentity(page);
     const savedPath = await saveAuthState(context, authStatePath);
-    return { path: savedPath, url: result.url, mode: 'qr', qrImagePath: imagePath, qrContentPresent: Boolean(qrContent) };
+    return { path: savedPath, identity, url: result.url, mode: 'qr', qrImagePath: imagePath, qrContentPresent: Boolean(qrContent) };
   } finally {
     await closeBrowser(browser);
   }
@@ -83,8 +98,9 @@ export async function performHeadedLogin({ authStatePath, timeoutMs }) {
       });
     }
 
+    const identity = await resolveMerchantLoginIdentity(page);
     const savedPath = await saveAuthState(context, authStatePath);
-    return { path: savedPath, url: result.url, mode: 'headed' };
+    return { path: savedPath, identity, url: result.url, mode: 'headed' };
   } finally {
     await closeBrowser(browser);
   }
@@ -100,10 +116,12 @@ export async function performConsumerQrLogin({
 }) {
   const log = getLogger();
   let browser = null;
+  let identityObserver = null;
   try {
     const launched = await launchBrowser({ headed });
     browser = launched.browser;
     const consumer = await createConsumerContext(browser);
+    identityObserver = createConsumerIdentityObserver(consumer.page);
 
     log.info({ headed }, '消费端：抓取登录二维码中');
     const pngBuffer = await captureConsumerQr(consumer.page, { loginUrl: consumerLoginUrl });
@@ -123,10 +141,12 @@ export async function performConsumerQrLogin({
       });
     }
 
+    const identity = await identityObserver.wait();
     const savedPath = await saveAuthState(consumer.context, authStatePath);
     getSharedScrapeCooldown(scrapeCooldownConfig).recordSuccess();
-    return { path: savedPath, url: result.url, mode: 'consumer-qr', qrImagePath: imagePath };
+    return { path: savedPath, identity, url: result.url, mode: 'consumer-qr', qrImagePath: imagePath };
   } finally {
+    identityObserver?.dispose();
     await closeBrowser(browser);
   }
 }
@@ -139,10 +159,12 @@ export async function performConsumerHeadedLogin({
 }) {
   const log = getLogger();
   let browser = null;
+  let identityObserver = null;
   try {
     const launched = await launchBrowser({ headed: true, storageStatePath: null });
     browser = launched.browser;
     const { context, page } = launched;
+    identityObserver = createConsumerIdentityObserver(page);
 
     await page.goto(consumerLoginUrl, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.NAV });
     log.info(`消费端：等待手动登录（最长 ${Math.round(timeoutMs / 60000)} 分钟）`);
@@ -157,10 +179,12 @@ export async function performConsumerHeadedLogin({
       });
     }
 
+    const identity = await identityObserver.wait();
     const savedPath = await saveAuthState(context, authStatePath);
     getSharedScrapeCooldown(scrapeCooldownConfig).recordSuccess();
-    return { path: savedPath, url: result.url, mode: 'consumer-headed' };
+    return { path: savedPath, identity, url: result.url, mode: 'consumer-headed' };
   } finally {
+    identityObserver?.dispose();
     await closeBrowser(browser);
   }
 }

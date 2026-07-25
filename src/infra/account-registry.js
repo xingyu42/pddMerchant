@@ -1,41 +1,20 @@
-import { readFile, writeFile, rename, cp, rm, mkdir, access, chmod } from 'node:fs/promises';
+import { readFile, writeFile, rename, rm, chmod } from 'node:fs/promises';
 import { platform } from 'node:os';
-import { createHash } from 'node:crypto';
-import { join, dirname } from 'node:path';
+import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { ACCOUNT_REGISTRY_PATH, ACCOUNTS_DIR, accountDir, accountAuthStatePath, AUTH_STATE_PATH, ensureDir } from './paths.js';
+import { ACCOUNT_REGISTRY_PATH, accountDir, ensureDir } from './paths.js';
 import { accountNotFound, accountAmbiguous, accountRegistryCorrupt } from './errors.js';
 import { acquireLock, releaseLock } from './auth-lock.js';
+import { SAFE_STORAGE_SLUG_RE, slugifyStorageName } from './path-slug.js';
 
-const WINDOWS_RESERVED = new Set([
-  'con', 'prn', 'aux', 'nul',
-  'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
-  'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9',
-]);
-
-const SLUG_RE = /^[a-z0-9一-鿿_-]{1,32}$/;
+const SLUG_RE = SAFE_STORAGE_SLUG_RE;
 
 function emptyRegistry() {
   return { version: 1, defaultAccount: null, updatedAt: new Date().toISOString(), accounts: {} };
 }
 
 export function slugifyAccountName(displayName, { existingSlugs, mallId } = {}) {
-  let slug = displayName.normalize('NFKC');
-  slug = slug.toLowerCase();
-  slug = slug.replace(/[^a-z0-9一-鿿_-]/g, '-');
-  slug = slug.replace(/[-_]{2,}/g, '-');
-  slug = slug.replace(/^[-_]+|[-_]+$/g, '');
-  slug = slug.slice(0, 32);
-  if (!slug) slug = 'account';
-  if (WINDOWS_RESERVED.has(slug)) slug = `_${slug}`;
-  if (existingSlugs instanceof Set && existingSlugs.has(slug)) {
-    const hash = createHash('sha256')
-      .update(`${displayName}:${mallId ?? ''}`)
-      .digest('hex')
-      .slice(0, 6);
-    slug = `${slug.slice(0, 25)}-${hash}`;
-  }
-  return slug;
+  return slugifyStorageName(displayName, { existingSlugs, stableId: mallId });
 }
 
 export async function loadAccountRegistry({ path = ACCOUNT_REGISTRY_PATH, createIfMissing = false } = {}) {
@@ -116,6 +95,12 @@ export async function getAccount(ref, { allowDisplayName = false, path } = {}) {
   throw accountNotFound(ref);
 }
 
+export async function findAccountByMallId(mallId, { path } = {}) {
+  const registry = await loadAccountRegistry({ path });
+  if (!registry || mallId == null) return null;
+  return Object.values(registry.accounts).find((account) => String(account.mallId ?? '') === String(mallId)) ?? null;
+}
+
 export async function upsertAccount(input, { setDefault = false, path = ACCOUNT_REGISTRY_PATH } = {}) {
   if (!input.slug || !SLUG_RE.test(input.slug)) {
     throw accountRegistryCorrupt(`Invalid slug: "${input.slug}"`);
@@ -149,6 +134,26 @@ export async function upsertAccount(input, { setDefault = false, path = ACCOUNT_
   }, { path });
 }
 
+export async function rekeyAccount(oldSlug, input, { setDefault = false, path = ACCOUNT_REGISTRY_PATH } = {}) {
+  if (!input.slug || !SLUG_RE.test(input.slug)) {
+    throw accountRegistryCorrupt('Invalid replacement slug');
+  }
+  return withRegistryLock(async () => {
+    const registry = await loadAccountRegistry({ path, createIfMissing: true });
+    const existing = registry.accounts[oldSlug];
+    if (!existing) throw accountNotFound(oldSlug);
+    if (oldSlug !== input.slug && registry.accounts[input.slug]) {
+      throw accountRegistryCorrupt('Replacement slug already exists');
+    }
+    const now = new Date().toISOString();
+    delete registry.accounts[oldSlug];
+    registry.accounts[input.slug] = { ...existing, ...input, slug: input.slug, updatedAt: now };
+    if (setDefault || registry.defaultAccount === oldSlug) registry.defaultAccount = input.slug;
+    await saveAccountRegistry(registry, { path });
+    return registry.accounts[input.slug];
+  }, { path });
+}
+
 export async function removeAccount(slug, { removeFiles = false, path = ACCOUNT_REGISTRY_PATH } = {}) {
   return withRegistryLock(async () => {
     const reg = await loadAccountRegistry({ path });
@@ -171,49 +176,4 @@ export async function setDefaultAccount(slug, { path = ACCOUNT_REGISTRY_PATH } =
     reg.defaultAccount = slug;
     await saveAccountRegistry(reg, { path });
   }, { path });
-}
-
-async function fileExists(p) {
-  try { await access(p); return true; } catch { return false; }
-}
-
-export async function migrateLegacyToDefaultAccount({ warnings = [], path = ACCOUNT_REGISTRY_PATH } = {}) {
-  const reg = await loadAccountRegistry({ path, createIfMissing: true });
-  if (Object.keys(reg.accounts).length > 0) return false;
-
-  const legacyPath = AUTH_STATE_PATH;
-  if (!(await fileExists(legacyPath))) return false;
-
-  let raw;
-  try {
-    raw = await readFile(legacyPath, 'utf8');
-    JSON.parse(raw);
-  } catch {
-    return false;
-  }
-
-  const slug = 'default';
-  const destDir = accountDir(slug);
-  const destPath = accountAuthStatePath(slug);
-  await ensureDir(destDir);
-  await cp(legacyPath, destPath);
-
-  const now = new Date().toISOString();
-  reg.accounts[slug] = {
-    slug,
-    displayName: 'default',
-    mallId: null,
-    credential: null,
-    createdAt: now,
-    updatedAt: now,
-    lastLoginAt: null,
-    lastRefreshAt: null,
-    disabled: false,
-    migratedFrom: 'legacy-auth-state',
-  };
-  reg.defaultAccount = slug;
-  await saveAccountRegistry(reg, { path });
-
-  warnings.push('auth_state_migrated_to_default_account');
-  return true;
 }

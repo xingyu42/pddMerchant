@@ -10,8 +10,8 @@ describe('consumer-login constants', () => {
     assert.equal(CONFIG_FIELD_DEFINITIONS.consumerLoginUrl.required, true);
   });
 
-  it('CONSUMER_AUTH_STATE_PATH ends with consumer-auth-state.json', () => {
-    assert.ok(CONSUMER_AUTH_STATE_PATH.endsWith('consumer-auth-state.json'));
+  it('CONSUMER_AUTH_STATE_PATH uses the consumer accounts default directory', () => {
+    assert.ok(CONSUMER_AUTH_STATE_PATH.replaceAll('\\', '/').endsWith('data/consumer/accounts/default/auth-state.json'));
   });
 
   it('CONSUMER_HOME is mobile.yangkeduo.com', () => {

@@ -23,10 +23,10 @@ describe('resolveAccountContext', () => {
     assert.equal(ctx.slug, null);
   });
 
-  it('no registry falls back to legacy path', async () => {
+  it('no registry uses the unregistered business default path', async () => {
     const ctx = await resolveAccountContext({});
     assert.ok(ctx.authPath);
-    assert.ok(['legacy-fallback', 'default', 'auto-single'].includes(ctx.source));
+    assert.ok(['unregistered-default', 'default', 'auto-single'].includes(ctx.source));
   });
 });
 

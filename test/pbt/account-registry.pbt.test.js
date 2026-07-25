@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from 'vitest';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile, readFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -14,7 +14,6 @@ import {
   listAccounts,
   getAccount,
   setDefaultAccount,
-  migrateLegacyToDefaultAccount,
 } from '../../src/infra/account-registry.js';
 
 const SLUG_RE = /^[a-z0-9一-鿿_-]{1,32}$/;
@@ -172,27 +171,5 @@ describe('account-registry CRUD', () => {
       },
       { runs: 20 },
     );
-  });
-});
-
-describe('migrateLegacyToDefaultAccount', () => {
-  let tmpDir;
-  let regPath;
-
-  beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), 'pdd-mig-'));
-    regPath = join(tmpDir, 'accounts.json');
-  });
-
-  afterEach(async () => {
-    await removeTempDir(tmpDir);
-  });
-
-  it('skips when registry already has accounts', async () => {
-    await upsertAccount({ slug: 'existing' }, { path: regPath });
-    const warnings = [];
-    const result = await migrateLegacyToDefaultAccount({ warnings, path: regPath });
-    assert.equal(result, false);
-    assert.equal(warnings.length, 0);
   });
 });

@@ -2,7 +2,7 @@
 
 拼多多商家后台命令行工具，面向 AI Agent 与人类运营。Patchright 驱动 Chromium、拦截 XHR 响应，输出统一 envelope JSON。
 
-**风险声明**：仅限本人店铺运营，滥用可能导致封禁。`data/auth-state.json` 勿上传公共仓库。
+**风险声明**：仅限本人店铺运营，滥用可能导致封禁。`data/merchant/`、`data/consumer/` 下的登录数据勿上传公共仓库。
 
 ---
 
@@ -131,7 +131,7 @@ pdd config validate --json              # 分层校验；配置损坏时仍可�
 
 ## 环境变量
 
-常用覆盖：`PDD_AUTH_STATE_PATH` / `PDD_TEST_ADAPTER=fixture`（Mock 模式）。运行日志固定写入 `log/cli/YYYY-MM-DD.log`（CLI）与 `log/daemon/YYYY-MM-DD.log`（后台 daemon），按本地日轮转、路径不可配置。完整公开映射和受限变量见 `.env.example`。
+登录态默认按业务归档：商家位于 `data/merchant/stores/<店铺名>/auth-state.json`，消费者位于 `data/consumer/accounts/<手机号或昵称>/auth-state.json`。常用覆盖：`PDD_AUTH_STATE_PATH` / `PDD_CONSUMER_AUTH_STATE_PATH` / `PDD_TEST_ADAPTER=fixture`（Mock 模式）。运行日志固定写入 `log/cli/YYYY-MM-DD.log`（CLI）与 `log/daemon/YYYY-MM-DD.log`（后台 daemon），按本地日轮转、路径不可配置。完整公开映射和受限变量见 `.env.example`。
 
 `goods publish --url` 可选择仅为消费者端源商品抓取启用青果短效 HTTP 代理：
 

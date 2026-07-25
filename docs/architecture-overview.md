@@ -245,7 +245,10 @@ PDD_TEST_FIXTURE_DIR=./test/fixtures
 ### 6.1 核心配置
 | 变量                       | 用途                                                       | 默认值                 |
 | -------------------------- | ---------------------------------------------------------- | ---------------------- |
-| `PDD_AUTH_STATE_PATH`      | 鉴权状态文件路径                                           | `data/auth-state.json` |
+| `PDD_AUTH_STATE_PATH`      | 显式商家鉴权文件覆盖                                       | 自动归档到 `data/merchant/stores/<店铺名>/` |
+| `PDD_CONSUMER_AUTH_STATE_PATH` | 显式消费者鉴权文件覆盖                                | 自动归档到 `data/consumer/accounts/<账号名>/` |
+| `PDD_ACCOUNTS_DIR` / `PDD_ACCOUNT_REGISTRY_PATH` | 商家店铺目录/注册表覆盖              | `data/merchant/stores/` / `registry.json` |
+| `PDD_CONSUMER_ACCOUNTS_DIR` / `PDD_CONSUMER_ACCOUNT_REGISTRY_PATH` | 消费者账号目录/注册表覆盖 | `data/consumer/accounts/` / `registry.json` |
 | （固定路径，无 env）           | 运行日志目录（按日轮转）                                     | `log/cli/` / `log/daemon/` |
 | `PDD_DEBUG_RAW`            | 输出原始 payload（JSONL）                                  | `0`                    |
 | `PDD_MALL_ID_STRICT_PARSE` | 严格校验店铺 ID                                            | `1`                    |
@@ -275,13 +278,16 @@ PDD_TEST_FIXTURE_DIR=./test/fixtures
 ### 7.1 文件结构
 ```
 data/
-├── auth-state.json              # Patchright storageState（Cookies + localStorage）
+├── merchant/
+│   └── stores/
+│       ├── registry.json
+│       └── <店铺名>/auth-state.json
+├── consumer/
+│   └── accounts/
+│       ├── registry.json
+│       └── <手机号或昵称>/auth-state.json
 ├── scrape-cooldown.json         # 源抓取冷却状态
-└── accounts/                    # 多账号模式
-    ├── default/
-    │   └── auth-state.json
-    └── shop2/
-        └── auth-state.json
+└── daemon-state.json            # daemon 运行状态，不属于登录目录
 ```
 
 ### 7.2 auth-state.json 结构

@@ -7,7 +7,7 @@ test('e2e: login --consumer --qr --json returns ok envelope in mock mode', () =>
   assert.equal(status, 0, `stderr: ${stderr}`);
   assertOkEnvelope(envelope, 'login.consumer');
   assert.equal(envelope.data.mode, 'qr');
-  assert.ok(envelope.data.path.includes('consumer-auth-state'));
+  assert.equal(envelope.data.path, undefined);
   assert.ok(envelope.data.message.includes('消费端'));
 });
 
@@ -16,5 +16,5 @@ test('e2e: login --consumer --json returns ok envelope in mock mode (headed fall
   assert.equal(status, 0, `stderr: ${stderr}`);
   assertOkEnvelope(envelope, 'login.consumer');
   assert.equal(envelope.data.mode, 'headed');
-  assert.ok(envelope.data.path.includes('consumer-auth-state'));
+  assert.equal(envelope.data.path, undefined);
 });

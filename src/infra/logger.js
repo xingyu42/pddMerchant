@@ -39,6 +39,8 @@ const REDACT_KEYS = [
   'ciphertext',
   'qrContent',
   'qr_content',
+  'auth_path',
+  'authStatePath',
 ];
 
 const REDACT_KEY_SET = new Set(REDACT_KEYS);

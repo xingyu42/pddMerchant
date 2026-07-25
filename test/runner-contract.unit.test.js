@@ -14,7 +14,6 @@ const liveMocks = vi.hoisted(() => ({
   closeAll: vi.fn(async () => {}),
   getAuthStateRevision: vi.fn(async () => 'revision-1'),
   isAuthValid: vi.fn(async () => true),
-  migrateLegacyAuthStateIfNeeded: vi.fn(async () => {}),
   resolveMallContext: vi.fn(async () => ({ activeId: '445301049', activeName: 'probe-mall', malls: [], source: 'probe' })),
   saveAuthStateIfCurrent: vi.fn(async () => ({ saved: true, reason: 'saved' })),
 }));
@@ -37,7 +36,6 @@ vi.mock('../src/adapter/auth-state.js', async (importOriginal) => ({
   ...(await importOriginal()),
   getAuthStateRevision: liveMocks.getAuthStateRevision,
   isAuthValid: liveMocks.isAuthValid,
-  migrateLegacyAuthStateIfNeeded: liveMocks.migrateLegacyAuthStateIfNeeded,
   saveAuthStateIfCurrent: liveMocks.saveAuthStateIfCurrent,
 }));
 
@@ -89,7 +87,6 @@ describe('runner contract invariants', () => {
     liveMocks.getAuthStateRevision.mockReset();
     liveMocks.getAuthStateRevision.mockResolvedValue('revision-1');
     liveMocks.isAuthValid.mockClear();
-    liveMocks.migrateLegacyAuthStateIfNeeded.mockClear();
     liveMocks.resolveMallContext.mockClear();
     liveMocks.saveAuthStateIfCurrent.mockReset();
     liveMocks.saveAuthStateIfCurrent.mockResolvedValue({ saved: true, reason: 'saved' });

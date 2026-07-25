@@ -5,26 +5,21 @@ import {
   renderQrToStream,
 } from '../services/auth.js';
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
-import { CONSUMER_AUTH_STATE_PATH } from '../infra/paths.js';
-import { resolveAccountContext } from '../infra/account-resolver.js';
+import { consumerPendingAuthStatePath } from '../infra/paths.js';
 import { emit } from '../infra/output.js';
 import { PddCliError, ExitCodes, errorToEnvelope } from '../infra/errors.js';
-import { getLogger } from '../infra/logger.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
+import { provisionConsumerAuth } from '../services/auth-account-storage.js';
+import { redactValue } from '../infra/logger.js';
+import { resolveConsumerAccountContext } from '../infra/consumer-account-resolver.js';
+import { randomUUID } from 'node:crypto';
 
 export async function run(options = {}, { runtimeConfig } = {}) {
   if (options.consumer) {
     return runConsumerLogin(options, runtimeConfig);
   }
 
-  const authStatePath = await resolveAuthPath(options);
-  return runInteractiveLogin({ ...options, command: 'login', authStatePath });
-}
-
-export async function resolveAuthPath(opts) {
-  if (opts.authStatePath) return opts.authStatePath;
-  const ctx = await resolveAccountContext(opts.account ? { account: opts.account } : {});
-  return ctx.authPath;
+  return runInteractiveLogin({ ...options, command: 'login' });
 }
 
 export default run;
@@ -45,7 +40,8 @@ async function runConsumerLogin(opts, runtimeConfig) {
     return envelope;
   }
 
-  const authStatePath = process.env.PDD_CONSUMER_AUTH_STATE_PATH || CONSUMER_AUTH_STATE_PATH;
+  const explicitAuthPath = process.env.PDD_CONSUMER_AUTH_STATE_PATH || null;
+  const authStatePath = explicitAuthPath || consumerPendingAuthStatePath(randomUUID());
   const headed = opts.headed ?? false;
   const qr = opts.qr ?? false;
   const timeoutMs = opts.timeoutMs ?? (qr ? TIMEOUTS.LOGIN_QR : TIMEOUTS.LOGIN_HEADED);
@@ -55,7 +51,7 @@ async function runConsumerLogin(opts, runtimeConfig) {
     const envelope = {
       ok: true,
       command,
-      data: { path: authStatePath, url: consumerLoginUrl, mode, message: '消费端授权成功（mock）' },
+      data: { url: consumerLoginUrl, mode, message: '消费端授权成功（mock）' },
       meta: { latency_ms: Date.now() - startedAt, warnings: [] },
     };
     emit(envelope, { json: opts.json, noColor: opts.noColor });
@@ -63,6 +59,9 @@ async function runConsumerLogin(opts, runtimeConfig) {
   }
 
   try {
+    const selectedAccount = opts.consumerAccount
+      ? await resolveConsumerAccountContext({ account: opts.consumerAccount })
+      : null;
     let result;
     if (qr) {
       result = await performConsumerQrLogin({
@@ -90,10 +89,26 @@ async function runConsumerLogin(opts, runtimeConfig) {
       });
     }
 
+    if (selectedAccount?.account
+      && String(selectedAccount.account.uid ?? '') !== String(result.identity?.uid ?? '')) {
+      throw new PddCliError({
+        code: 'E_CONSUMER_ACCOUNT_IDENTITY_MISMATCH',
+        message: '登录后的消费者账号与所选账号不一致',
+        hint: '切换到正确账号后重试，或不传 --consumer-account 让系统自动识别',
+        exitCode: ExitCodes.AUTH,
+      });
+    }
+    const provisioned = explicitAuthPath ? null : await provisionConsumerAuth(result.path, result.identity);
     const envelope = {
       ok: true,
       command,
-      data: { path: result.path, url: result.url, mode: result.mode, ...(result.qrImagePath ? { qrImagePath: result.qrImagePath } : {}), message: '消费端授权成功' },
+      data: {
+        url: result.url,
+        mode: result.mode,
+        ...(provisioned ? { account: redactValue(provisioned.account.uid) } : {}),
+        ...(result.qrImagePath ? { qrImagePath: result.qrImagePath } : {}),
+        message: '消费端授权成功',
+      },
       meta: { latency_ms: Date.now() - startedAt, warnings: [] },
     };
     emit(envelope, { json: opts.json, noColor: opts.noColor });

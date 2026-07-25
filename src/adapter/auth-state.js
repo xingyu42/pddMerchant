@@ -1,4 +1,4 @@
-import { chmod, copyFile, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rename, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { platform } from 'node:os';
@@ -7,15 +7,10 @@ import { getLogger } from '../infra/logger.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { isMockEnabled, mockIsAuthValid, mockIsConsumerAuthValid } from './mock-dispatcher.js';
 import { acquireLock, releaseLock } from '../infra/auth-lock.js';
-import { LEGACY_AUTH_STATE_PATH } from '../infra/paths.js';
 
 const PDD_HOME = 'https://mms.pinduoduo.com';
 
 let _tmpSeq = 0;
-
-function legacyAuthStatePath() {
-  return LEGACY_AUTH_STATE_PATH;
-}
 
 function validateShape(state) {
   if (!state || typeof state !== 'object') return false;
@@ -57,12 +52,13 @@ export async function saveAuthState(context, path, { skipLock = false } = {}) {
         if (!allowInsecure) {
           throw new PddCliError({
             code: 'E_AUTH_STATE_INSECURE',
-            message: `chmod 600 failed on ${tmpPath}: ${err?.message}`,
+            message: '登录凭据文件权限设置失败',
             hint: 'Set PDD_ALLOW_INSECURE_AUTH_STATE=1 to bypass (not recommended)',
+            detail: { fs_code: err?.code ?? null },
             exitCode: ExitCodes.AUTH,
           });
         }
-        getLogger().warn({ err: err?.message, path: tmpPath }, 'chmod 600 failed, continuing (insecure override)');
+        getLogger().warn({ code: err?.code ?? null, auth_path: tmpPath }, 'chmod 600 failed, continuing (insecure override)');
       }
     }
 
@@ -71,7 +67,7 @@ export async function saveAuthState(context, path, { skipLock = false } = {}) {
   } finally {
     if (lockToken) {
       await releaseLock(path, lockToken).catch((err) => {
-        getLogger().warn({ err: err?.message, path }, 'auth-state: lock release failed');
+        getLogger().warn({ code: err?.code ?? null, auth_path: path }, 'auth-state: lock release failed');
       });
     }
   }
@@ -91,7 +87,7 @@ export async function saveAuthStateIfCurrent(context, path, expectedRevision) {
     return { saved: true, reason: 'saved' };
   } finally {
     await releaseLock(path, lock.token).catch((err) => {
-      getLogger().warn({ err: err?.message, path }, 'auth-state: lock release failed');
+      getLogger().warn({ code: err?.code ?? null, auth_path: path }, 'auth-state: lock release failed');
     });
   }
 }
@@ -106,8 +102,9 @@ export async function loadAuthState(path) {
   if (!validateShape(state)) {
     throw new PddCliError({
       code: 'E_AUTH_STATE_CORRUPT',
-      message: `auth-state at ${path} has invalid shape (missing cookies or origins array)`,
+      message: '登录凭据格式无效（缺少 cookies 或 origins）',
       hint: '执行 pdd login 重新登录以生成有效的 auth-state',
+      detail: { reason: 'shape_invalid' },
       exitCode: ExitCodes.AUTH,
     });
   }
@@ -129,37 +126,6 @@ export async function deleteAuthState(path) {
       exitCode: ExitCodes.AUTH,
     });
   }
-}
-
-export async function migrateLegacyAuthStateIfNeeded(targetPath, warnings = []) {
-  const legacy = legacyAuthStatePath();
-  if (!existsSync(legacy)) return false;
-  if (existsSync(targetPath)) return false;
-
-  let legacyState;
-  try {
-    const raw = await readFile(legacy, 'utf8');
-    legacyState = JSON.parse(raw);
-  } catch {
-    warnings.push('auth_state_legacy_corrupt_skipped');
-    return false;
-  }
-
-  if (!validateShape(legacyState)) {
-    warnings.push('auth_state_legacy_corrupt_skipped');
-    return false;
-  }
-
-  await mkdir(dirname(targetPath), { recursive: true });
-  await copyFile(legacy, targetPath);
-
-  const isPosix = platform() !== 'win32';
-  if (isPosix) {
-    try { await chmod(targetPath, 0o600); } catch { /* best effort */ }
-  }
-
-  warnings.push('auth_state_migrated_from_legacy');
-  return true;
 }
 
 export async function isAuthValid(page, { timeoutMs = 15000, maxAttempts = 2 } = {}) {
@@ -186,7 +152,7 @@ export async function isAuthValid(page, { timeoutMs = 15000, maxAttempts = 2 } =
   return false;
 }
 
-export { PDD_HOME, legacyAuthStatePath, validateShape };
+export { PDD_HOME, validateShape };
 
 const CONSUMER_HOME = 'https://mobile.yangkeduo.com';
 

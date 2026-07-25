@@ -1,6 +1,7 @@
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
-import { validateShape, legacyAuthStatePath } from '../src/adapter/auth-state.js';
+import { validateShape } from '../src/adapter/auth-state.js';
+import { AUTH_STATE_PATH } from '../src/infra/paths.js';
 
 describe('auth-state validateShape', () => {
   it('accepts valid shape', () => {
@@ -41,9 +42,7 @@ describe('auth-state validateShape', () => {
 });
 
 describe('auth-state path resolution', () => {
-  it('legacyAuthStatePath returns project-local data path', () => {
-    const p = legacyAuthStatePath();
-    assert.ok(p.includes('data'));
-    assert.ok(p.endsWith('auth-state.json'));
+  it('AUTH_STATE_PATH uses the merchant stores default directory', () => {
+    assert.ok(AUTH_STATE_PATH.replaceAll('\\', '/').endsWith('data/merchant/stores/default/auth-state.json'));
   });
 });

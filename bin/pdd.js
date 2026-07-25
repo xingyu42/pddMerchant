@@ -49,7 +49,6 @@ process.on('uncaughtException', (err) => {
 });
 
 const program = new Command();
-
 program
   .name('pdd')
   .description('拼多多商家后台 CLI · Patchright Chromium 模式\n\n命令分组：\n  📦 orders    订单管理\n  🛍️ goods     商品管理\n  🚀 promo     推广报表\n  🩺 diagnose  店铺诊断\n  🏬 shops     店铺切换\n  ⚙️ init / login / doctor  鉴权与环境')
@@ -61,6 +60,7 @@ program
   .option('--headed', '以有头浏览器运行（调试）')
   .option('--verbose', '启用 debug 日志')
   .option('--account <slug>', '指定账号（多账号模式）')
+  .option('--consumer-account <ref>', '指定消费者账号（昵称、手机号或 slug）')
   .option('--all-accounts', '对所有注册账号执行命令')
   .showHelpAfterError(false);
 

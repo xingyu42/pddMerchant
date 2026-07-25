@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -22,6 +22,29 @@ function runDoctorWithMissingAuth() {
         PDD_TEST_ADAPTER: 'fixture',
         PDD_AUTH_STATE_PATH: join(root, 'missing-auth.json'),
         PDD_CONSUMER_AUTH_STATE_PATH: join(root, 'missing-consumer-auth.json'),
+        PDD_ACCOUNT_REGISTRY_PATH: join(root, 'missing-accounts.json'),
+        PDD_ACCOUNTS_DIR: join(root, 'accounts'),
+        NO_COLOR: '1',
+      },
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function runDoctorWithConsumerOnly() {
+  const root = mkdtempSync(join(tmpdir(), 'pdd-doctor-consumer-'));
+  const consumerAuthPath = join(root, 'consumer-auth.json');
+  writeFileSync(consumerAuthPath, JSON.stringify({ cookies: [], origins: [] }));
+  try {
+    return spawnSync(process.execPath, [BIN, 'doctor', '--json'], {
+      encoding: 'utf8',
+      timeout: 60_000,
+      env: {
+        ...process.env,
+        PDD_TEST_ADAPTER: 'fixture',
+        PDD_AUTH_STATE_PATH: join(root, 'missing-merchant-auth.json'),
+        PDD_CONSUMER_AUTH_STATE_PATH: consumerAuthPath,
         PDD_ACCOUNT_REGISTRY_PATH: join(root, 'missing-accounts.json'),
         PDD_ACCOUNTS_DIR: join(root, 'accounts'),
         NO_COLOR: '1',
@@ -88,4 +111,15 @@ test('pdd doctor exits with AUTH=3 when auth-state missing (exit code mapping)',
     3,
     `expected exit=3 (AUTH) for ${envelope.error.code}, got ${result.status}. mapErrorToExit bug regression?`
   );
+});
+
+test('pdd doctor reports consumer health even when merchant auth is missing', () => {
+  const result = runDoctorWithConsumerOnly();
+  const envelope = JSON.parse((result.stdout ?? '').trim());
+
+  assert.equal(result.status, 3);
+  assert.equal(envelope.error.code, 'E_AUTH_STATE_MISSING');
+  assert.equal(envelope.error.detail.auth_file.ok, false);
+  assert.equal(envelope.error.detail.consumer_auth_file.ok, true);
+  assert.equal(envelope.error.detail.consumer_logged_in.ok, true);
 });

@@ -219,7 +219,10 @@ node bin/pdd.js goods publish --url <链接> --cost-template <id> --confirm --js
 |------|------|
 | `PDD_TEST_ADAPTER=fixture` | Mock 模式（跳过真实浏览器，测试用） |
 | `PDD_TEST_FIXTURE_DIR=<path>` | fixture 数据目录 |
-| `PDD_AUTH_STATE_PATH=<path>` | 覆盖 auth-state 文件位置（默认 `data/auth-state.json`） |
+| `PDD_AUTH_STATE_PATH=<path>` | 显式覆盖商家 auth-state；默认按 `data/merchant/stores/<店铺名>/` 自动归档 |
+| `PDD_CONSUMER_AUTH_STATE_PATH=<path>` | 显式覆盖消费者 auth-state；默认按 `data/consumer/accounts/<手机号或昵称>/` 自动归档 |
+| `PDD_ACCOUNTS_DIR` / `PDD_ACCOUNT_REGISTRY_PATH` | 覆盖商家店铺目录与注册表 |
+| `PDD_CONSUMER_ACCOUNTS_DIR` / `PDD_CONSUMER_ACCOUNT_REGISTRY_PATH` | 覆盖消费者账号目录与注册表 |
 | （固定）`log/cli/` / `log/daemon/` | 运行日志按 channel 分目录、按本地日轮转为 `YYYY-MM-DD.log`；路径不可配置 |
 | `PDD_CONSUMER_LOGIN_URL=<url>` | 覆盖消费者端登录页地址 |
 | `PDD_MALL_ID_STRICT_PARSE=0` | 放宽 mall ID 到 64 字符（默认 1-15 位数字） |

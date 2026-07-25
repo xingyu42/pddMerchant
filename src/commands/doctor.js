@@ -9,7 +9,6 @@ import { loadAuthState, isAuthValid, isConsumerAuthValid } from '../adapter/auth
 import { resolveMallContext } from '../adapter/mall-reader.js';
 import {
   AUTH_STATE_PATH,
-  CONSUMER_AUTH_STATE_PATH,
   DAEMON_STATE_PATH,
   accountAuthStatePath,
 } from '../infra/paths.js';
@@ -18,6 +17,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { isPidAlive } from '../infra/process-util.js';
 import { listAccounts } from '../infra/account-registry.js';
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
+import { resolveConsumerAccountContext } from '../infra/consumer-account-resolver.js';
 
 function checkDaemon() {
   if (!existsSync(DAEMON_STATE_PATH)) {
@@ -55,13 +55,13 @@ async function checkAuthFile(path) {
   try {
     const loaded = await loadAuthState(path);
     if (!loaded.exists) {
-      return { ok: false, detail: { path, exists: false } };
+      return { ok: false, detail: { exists: false } };
     }
     const cookies = Array.isArray(loaded.state?.cookies) ? loaded.state.cookies.length : 0;
     const origins = Array.isArray(loaded.state?.origins) ? loaded.state.origins.length : 0;
-    return { ok: true, detail: { path, exists: true, cookies, origins } };
+    return { ok: true, detail: { exists: true, cookies, origins } };
   } catch (err) {
-    return { ok: false, detail: { path, error: err?.message || '解析失败' } };
+    return { ok: false, detail: { error: err?.message || '解析失败' } };
   }
 }
 
@@ -100,17 +100,20 @@ async function checkLoginStates(authStatePath, consumerAuthStatePath, mallProbeO
   try {
     const launched = await launchBrowser({ headed: false, storageStatePath: authStatePath });
     browser = launched.browser;
-    const valid = await isAuthValid(launched.page);
-    const url = launched.page.url();
-    let shops = null;
-    let source = null;
-    if (valid) {
-      const ctx = await detectShopContext(launched.page, mallProbeOpts);
-      shops = ctx.shops;
-      source = ctx.source;
+    let merchant = { ok: false, detail: { configured: false } };
+    if (authStatePath) {
+      const valid = await isAuthValid(launched.page);
+      const url = launched.page.url();
+      let shops = null;
+      let source = null;
+      if (valid) {
+        const ctx = await detectShopContext(launched.page, mallProbeOpts);
+        shops = ctx.shops;
+        source = ctx.source;
+      }
+      merchant = { ok: valid, detail: { url, shops, mall_source: source } };
     }
-    const merchant = { ok: valid, detail: { url, shops, mall_source: source } };
-    const consumer = valid && consumerAuthStatePath
+    const consumer = consumerAuthStatePath
       ? await checkConsumerLoggedIn(browser, consumerAuthStatePath)
       : null;
     return { merchant, consumer };
@@ -159,7 +162,8 @@ export const run = withCommand({
   render: renderDoctor,
   async run(ctx) {
     const authStatePath = ctx.authPath ?? AUTH_STATE_PATH;
-    const consumerAuthStatePath = process.env.PDD_CONSUMER_AUTH_STATE_PATH || CONSUMER_AUTH_STATE_PATH;
+    const consumerAccount = await resolveConsumerAccountContext({ account: ctx.config?.consumerAccount });
+    const consumerAuthStatePath = consumerAccount.authPath;
     const probe = ctx.config?.probe ?? null;
     const mallProbeOpts = probe === 'xhr' ? { activeProbeReload: true } : {};
 
@@ -184,16 +188,6 @@ export const run = withCommand({
     }
 
     data.auth_file = await checkAuthFile(authStatePath);
-    if (!data.auth_file.ok) {
-      throw new PddCliError({
-        code: 'E_AUTH_STATE_MISSING',
-        message: '登录凭据缺失或损坏',
-        hint: '执行 pdd init 完成首次授权',
-        detail: data,
-        exitCode: ExitCodes.AUTH,
-      });
-    }
-
     data.consumer_auth_file = await checkAuthFile(consumerAuthStatePath);
     const consumerFileMissing = data.consumer_auth_file.detail?.exists === false;
     if (!data.consumer_auth_file.ok && !consumerFileMissing) {
@@ -207,12 +201,21 @@ export const run = withCommand({
     }
 
     const loginStates = await checkLoginStates(
-      authStatePath,
+      data.auth_file.ok ? authStatePath : null,
       data.consumer_auth_file.ok ? consumerAuthStatePath : null,
       mallProbeOpts
     );
     data.logged_in = loginStates.merchant;
     if (loginStates.consumer) data.consumer_logged_in = loginStates.consumer;
+    if (!data.auth_file.ok) {
+      throw new PddCliError({
+        code: 'E_AUTH_STATE_MISSING',
+        message: '登录凭据缺失或损坏',
+        hint: '执行 pdd init 完成首次授权',
+        detail: data,
+        exitCode: ExitCodes.AUTH,
+      });
+    }
     if (!data.logged_in.ok) {
       ctx.log.debug({ detail: data.logged_in.detail }, 'logged_in check failed');
       throw new PddCliError({

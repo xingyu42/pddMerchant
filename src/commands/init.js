@@ -1,11 +1,13 @@
 import { performQrLogin, performHeadedLogin, renderQrToStream } from '../services/auth.js';
 import { emit } from '../infra/output.js';
-import { errorToEnvelope } from '../infra/errors.js';
-import { AUTH_STATE_PATH as DEFAULT_AUTH_STATE_PATH } from '../infra/paths.js';
+import { PddCliError, ExitCodes, errorToEnvelope } from '../infra/errors.js';
+import { AUTH_STATE_PATH as DEFAULT_AUTH_STATE_PATH, merchantPendingAuthStatePath } from '../infra/paths.js';
 import { resolveAccountContext } from '../infra/account-resolver.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 import { ensureDaemonRunning } from '../infra/daemon-launcher.js';
 import { getLogger } from '../infra/logger.js';
+import { provisionMerchantAuth } from '../services/auth-account-storage.js';
+import { randomUUID } from 'node:crypto';
 
 function buildQrCallback({ json, command, timeoutMs }) {
   return async ({ imagePath, qrContent }) => {
@@ -39,6 +41,28 @@ async function startDaemonAfterLogin() {
   }
 }
 
+export async function resolveLoginAuthTarget({ account, authStatePath } = {}, token = randomUUID()) {
+  if (authStatePath) {
+    const accountContext = await resolveAccountContext({ account, authStatePath });
+    return { accountContext, authPath: accountContext.authPath };
+  }
+  const accountContext = account
+    ? await resolveAccountContext({ account })
+    : { account: null, source: 'pending' };
+  return { accountContext, authPath: merchantPendingAuthStatePath(token) };
+}
+
+function assertSelectedMerchantIdentity(accountContext, identity) {
+  if (!accountContext?.account) return;
+  if (String(accountContext.account.mallId ?? '') === String(identity?.mallId ?? '')) return;
+  throw new PddCliError({
+    code: 'E_ACCOUNT_IDENTITY_MISMATCH',
+    message: '登录后的店铺与所选账号不一致',
+    hint: '切换到正确店铺后重试，或不传 --account 让系统自动识别',
+    exitCode: ExitCodes.AUTH,
+  });
+}
+
 export async function runInteractiveLogin(options = {}) {
   const {
     json = false,
@@ -51,11 +75,7 @@ export async function runInteractiveLogin(options = {}) {
     account,
   } = options;
 
-  let resolvedAuthPath = authStatePath ?? DEFAULT_AUTH_STATE_PATH;
-  if (account && !authStatePath) {
-    const ctx = await resolveAccountContext({ account });
-    resolvedAuthPath = ctx.authPath;
-  }
+  const { accountContext, authPath: resolvedAuthPath } = await resolveLoginAuthTarget({ account, authStatePath });
 
   const globalTimeout = typeof timeout === 'number' && Number.isFinite(timeout) ? timeout : undefined;
   const effectiveTimeout = typeof timeoutMs === 'number' && Number.isFinite(timeoutMs)
@@ -80,14 +100,22 @@ export async function runInteractiveLogin(options = {}) {
         timeoutMs: effectiveTimeout,
       });
     }
+    assertSelectedMerchantIdentity(accountContext, result.identity);
+    const provisioned = accountContext.source === 'explicit-path'
+      ? null
+      : await provisionMerchantAuth(result.path, result.identity);
     const warnings = await startDaemonAfterLogin();
     return emit({
       ok: true,
       command,
       data: {
-        path: result.path,
         url: result.url,
         mode: result.mode,
+        ...(provisioned ? {
+          account: provisioned.account.slug,
+          displayName: provisioned.account.displayName,
+          mallId: provisioned.account.mallId,
+        } : {}),
         ...(result.qrImagePath ? { qrImagePath: result.qrImagePath } : {}),
         ...(result.qrContentPresent !== undefined ? { qrContentPresent: result.qrContentPresent } : {}),
         message: '授权成功，试试 pdd orders list',
