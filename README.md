@@ -70,41 +70,75 @@ src/infra/           envelope/errors/logger/timeouts
 
 ---
 
-## AI Agent / OpenClaw 集成
+## AI Agent 集成
 
-### OpenClaw Skills 安装
+本项目在 `skills/pdd-cli/SKILL.md` 中提供标准 AI Agent skill 定义，兼容多种 Agent 平台。
 
-本项目提供 `skills/pdd-cli/SKILL.md`，需手动安装到 OpenClaw：
+### 通用安装方式
 
-**推荐方式（本地安装）：**
+**方法 1：平台 CLI 安装**（推荐）
+
+如果你的 Agent 平台支持 skill 命令，通常可以这样安装：
 
 ```bash
 # 在项目根目录执行
-openclaw skills install ./skills/pdd-cli
+<your-agent-cli> skills install ./skills/pdd-cli
 
-# 全局安装（所有 agent 可用）
-openclaw skills install ./skills/pdd-cli --global
+# 或全局安装（所有 agent 可用）
+<your-agent-cli> skills install ./skills/pdd-cli --global
 
 # 验证安装
+<your-agent-cli> skills list | grep pdd-cli
+```
+
+**方法 2：手动复制**
+
+将 `skills/pdd-cli/` 目录复制到平台的 skills 目录：
+
+```bash
+# 查找平台 skills 目录（常见路径）
+# ~/.claude/skills/              (Claude Code)
+# ~/.openclaw/skills/            (OpenClaw)
+# <workspace>/skills/            (项目级 workspace)
+# ~/.config/<agent>/skills/      (XDG 标准路径)
+
+# 复制 skill
+cp -r skills/pdd-cli <平台-skills-目录>/
+```
+
+### 平台特定指南
+
+**Claude Code**
+
+```bash
+# 手动复制到 Claude Code 全局目录
+cp -r skills/pdd-cli ~/.claude/skills/
+
+# 验证（在 Claude Code 中执行）
+/pdd-cli
+```
+
+**OpenClaw**
+
+```bash
+# CLI 安装
+openclaw skills install ./skills/pdd-cli --global
+
+# 或从 ClawHub 安装（如果已发布）
+openclaw skills install @owner/pdd-cli
+
+# 验证
 openclaw skills list | grep pdd-cli
 openclaw skills check  # 确认 Node.js 依赖满足
 ```
 
-**从 ClawHub 安装**（如果已发布）：
+**其他 Agent 平台**
 
-```bash
-openclaw skills install @owner/pdd-cli
-```
+大多数 Agent 平台遵循 MCP (Model Context Protocol) 或类似的 skill 规范。查阅你所用平台的文档，通常支持：
 
-**手动复制**：
-
-```bash
-# 复制到 OpenClaw workspace
-cp -r skills/pdd-cli <openclaw-workspace>/skills/
-
-# 或复制到全局目录
-cp -r skills/pdd-cli ~/.openclaw/skills/
-```
+1. 直接读取项目内 `skills/` 目录（无需安装）
+2. 通过 CLI 命令安装外部 skill
+3. 手动复制到平台指定的 skills 目录
 
 ### Envelope 契约
 
