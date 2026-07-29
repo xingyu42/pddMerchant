@@ -1,5 +1,7 @@
 # Patchright 实际评价（截至 2026-07-12）
 
+> 历史研究快照：本文的依赖判断只代表 2026-07-12。当前仓库已直接依赖 `patchright@1.61.1`，安装命令为 `npx patchright install chromium`；下文关于当时 Playwright/Rebrowser 安装状态的描述不应作为当前配置依据。
+
 ## 结论
 
 Patchright 是目前 Node.js + Chromium 场景中迁移成本较低的 Playwright 分支，维护仍然活跃，也确实针对 Playwright/CDP 的部分明显自动化特征做了源码级修改。但没有可靠证据支持“不可检测”或“换上就能稳定绕过风控”。它适合作为受控 A/B 实验项，不适合未经回归测试直接替换生产浏览器层。

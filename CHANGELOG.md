@@ -29,7 +29,7 @@
 
 ### 勘误（docs）
 
-- **auth-state 当前默认路径**：商家登录态按 `data/merchant/stores/<店铺名>/` 归档，消费者登录态按 `data/consumer/accounts/<手机号或昵称>/` 归档；显式路径环境变量覆盖语义不变。旧根级登录态不再自动迁移。
+- **auth-state 当前默认路径**：无注册表时，商家和消费者分别使用 `data/merchant/stores/default/auth-state.json` 与 `data/consumer/accounts/default/auth-state.json`；注册身份后使用各自 registry 记录的 `<slug>/auth-state.json`。slug 由显示名生成并处理冲突，不等同于原始店铺名、昵称或手机号；显式路径环境变量覆盖语义不变。旧根级登录态不再自动迁移。
 
 ---
 

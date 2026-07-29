@@ -42,7 +42,7 @@ Phase C — 商家后台发布 (mms.pinduoduo.com)
 - **消费者端 (mobile.yangkeduo.com) 需要独立登录态**，与商家后台 (mms.pinduoduo.com) 不同体系
 - 未登录时会被 302 重定向到 `login.html`
 - 导航 URL 需附加 `refer_page_name=search_result&refer_page_id=10033&refer_page_sn=10033` 参数避免重定向
-- 消费者端登录态保存路径: `data/consumer/accounts/<手机号或昵称>/auth-state.json`；`registry.json` 记录默认账号，`goods publish` 使用解析后的消费者账号路径
+- 消费者端无注册表时回退到 `data/consumer/accounts/default/auth-state.json`；注册后按 `registry.json` 记录的安全 `<slug>/auth-state.json` 保存。昵称或手机号只用于账号查找，`goods publish` 使用解析后的消费者账号路径
 
 ### 2.0a 可选青果短效代理
 

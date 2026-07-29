@@ -79,6 +79,7 @@ node bin/pdd.js orders list --json
 | `--headed` | 有头浏览器（调试用） |
 | `--verbose` | 启用 debug 日志 |
 | `--account <slug>` | 指定账号（多账号模式） |
+| `--consumer-account <ref>` | 指定消费者账号（昵称、手机号或存储 slug） |
 | `--all-accounts` | 对所有注册账号执行 |
 
 ## 命令参考
@@ -120,7 +121,7 @@ node bin/pdd.js orders stats --size 50      # 远程 + 本地聚合 P50/P95
 ```bash
 node bin/pdd.js goods list --page 1 --size 10 --status onsale|offline
 node bin/pdd.js goods stock --threshold 10  # 低库存/缺货告警
-node bin/pdd.js goods segment --days 30 --break-even 1.0 [--no-promo]  # A/B/C/D 四象限分层
+node bin/pdd.js goods segment --days 30 --size 50 --max-pages 10 --break-even 1.0 [--no-promo]  # A/B/C/D 四象限分层
 ```
 
 **写操作（`goods update` 子组，默认 dry-run，须 `--confirm` 才真正执行）：**
@@ -144,7 +145,7 @@ node bin/pdd.js goods publish --url <链接或纯数字goods_id> [--cost-templat
 ### 🚀 推广 promo
 
 ```bash
-node bin/pdd.js promo roi --by plan|sku|channel --break-even 1.0 [--include-inactive]  # ROI 诊断
+node bin/pdd.js promo roi --by plan|sku|channel [--since YYYY-MM-DD] [--page 1] [--size 50] --break-even 1.0 [--include-inactive]  # ROI 诊断
 ```
 
 ### 🩺 诊断 diagnose
@@ -219,11 +220,12 @@ node bin/pdd.js goods publish --url <链接> --cost-template <id> --confirm --js
 |------|------|
 | `PDD_TEST_ADAPTER=fixture` | Mock 模式（跳过真实浏览器，测试用） |
 | `PDD_TEST_FIXTURE_DIR=<path>` | fixture 数据目录 |
-| `PDD_AUTH_STATE_PATH=<path>` | 显式覆盖商家 auth-state；默认按 `data/merchant/stores/<店铺名>/` 自动归档 |
-| `PDD_CONSUMER_AUTH_STATE_PATH=<path>` | 显式覆盖消费者 auth-state；默认按 `data/consumer/accounts/<手机号或昵称>/` 自动归档 |
+| `PDD_AUTH_STATE_PATH=<path>` | 显式覆盖商家 auth-state；无注册表时使用 `data/merchant/stores/default/auth-state.json`，注册后使用 registry 中的 slug |
+| `PDD_CONSUMER_AUTH_STATE_PATH=<path>` | 显式覆盖消费者 auth-state；无注册表时使用 `data/consumer/accounts/default/auth-state.json`，注册后使用 registry 中的 slug |
 | `PDD_ACCOUNTS_DIR` / `PDD_ACCOUNT_REGISTRY_PATH` | 覆盖商家店铺目录与注册表 |
 | `PDD_CONSUMER_ACCOUNTS_DIR` / `PDD_CONSUMER_ACCOUNT_REGISTRY_PATH` | 覆盖消费者账号目录与注册表 |
-| （固定）`log/cli/` / `log/daemon/` | 运行日志按 channel 分目录、按本地日轮转为 `YYYY-MM-DD.log`；路径不可配置 |
+| （固定）`log/cli/` / `log/daemon/` | CLI/daemon 日志按本地日轮转；foreground/bootstrap 写 stderr；路径不可配置 |
+| `PDD_ALLOW_INSECURE_AUTH_STATE=1` | POSIX 权限设为 0600 失败时仍继续（不推荐） |
 | `PDD_CONSUMER_LOGIN_URL=<url>` | 覆盖消费者端登录页地址 |
 | `PDD_MALL_ID_STRICT_PARSE=0` | 放宽 mall ID 到 64 字符（默认 1-15 位数字） |
 | `PDD_SCRAPE_SIMULATE=0` | 关闭抓取时的人类行为模拟（默认开启） |
@@ -236,6 +238,7 @@ node bin/pdd.js goods publish --url <链接> --cost-template <id> --confirm --js
 - **写操作默认 dry-run**：`goods update *` 不加 `--confirm` 只预演，不改线上数据；确认参数后再加 `--confirm`。
 - **价格单位是分**：`--price 2999` = 29.99 元。
 - **鉴权失效（退出码 3）** → 重新 `login`。**限流（退出码 4）** → 等待冷却后重试。
+- `--consumer-account` 的昵称或手机号仅用于注册表查找；登录态实际落盘目录名是 registry 中的安全 slug。
 - 本地运行差异优先用 `config set` 写入稀疏 `config/config.json`；秘密、安全和测试开关仍只通过环境变量注入。
 - `goods list` 的 `goods_id` 可能为 `null`，库存匹配会回退到 `goods_name`，`matched_by='mixed'` 是正常现象。
 - Mock 模式：设 `PDD_TEST_ADAPTER=fixture` + `PDD_TEST_FIXTURE_DIR=<dir>` 可在无浏览器/无真实账号下跑通命令，适合演示与调试。

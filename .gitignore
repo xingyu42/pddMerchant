@@ -16,8 +16,6 @@ log/
 .DS_Store
 .env
 
-AGENTS.md
-CLAUDE.md
 CONTEXT.md
 issue.md
 

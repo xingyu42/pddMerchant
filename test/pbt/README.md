@@ -1,59 +1,65 @@
-# PBT (Property-Based Testing) 说明
+# PBT（Property-Based Testing）说明
 
-## 框架选型
+## 当前实现
 
-**结论**：`vitest` + 自研 `_harness.js`（mulberry32 PRNG + 生成器 + property runner）。
+PBT 用例由 Vitest 自动发现，目录内同时存在两种实现：
 
-**Why**：
-- `design.md §非目标`：不引入新的 npm 依赖。排除 `fast-check`。
-- `mulberry32` 是一个 32-bit state 的快速确定性 PRNG，6 行可实现，足以覆盖枚举/属性样本的随机性需求；CI 可复现。
-- 所有 property 用例在 vitest 的 `test()` block 内调用 `property()`，失败时抛普通 Error，与既有测试文件行为一致。
+- 项目 `_harness.js`：零依赖的 mulberry32 PRNG、生成器和 `property()` runner，适合简单、需要统一环境变量复现的属性测试。
+- `fast-check`：项目的 devDependency，适合 shrinking、组合生成器或已使用 fast-check 的现有测试。
 
-**不选**：
-- `fast-check` — 可选 devDependency，但自研 harness 已够用。
-- 纯 `Math.random` 循环 — 不可复现，CI flake 源。
+选择以现有测试和问题复杂度为准，不要把其中一种描述成项目唯一 PBT 框架，也不要仅为统一形式批量迁移现有用例。
 
-## 运行方式
+## 运行与复现
 
 ```bash
-npm test                       # 跑全量（含 PBT），默认 seed=42 / runs=100
-PBT_SEED=12345 npm test        # 指定 seed（复现失败用例）
-PBT_RUNS=1000 npm test         # 加大样本量（CI nightly）
+npm test                                      # 全量测试，包含全部 PBT
+npx vitest run test/pbt/<file>.pbt.test.js    # 单个 PBT 文件
+PBT_SEED=12345 npm test                       # 指定项目 harness 的 seed
+PBT_RUNS=1000 npm test                        # 指定项目 harness 的样本量
 ```
 
-失败时 assertion 消息包含 `seed=<N>` 与失败 sample，便于 `PBT_SEED=<N>` 复现。
+`_harness.js` 默认 `seed=42`、`runs=100`，失败信息包含 seed 和 sample。`PBT_SEED` / `PBT_RUNS` 只控制项目 harness；fast-check 用例通过各自 `fc.assert(..., { seed, numRuns })` 配置和失败信息复现，不能假设它们读取这两个环境变量。
 
-## 写新 PBT 用例
+## 使用 `_harness.js`
 
 ```js
 import { test } from 'vitest';
-import assert from 'node:assert/strict';
 import { property, gen } from './_harness.js';
 
-test('pbt: my_invariant', async () => {
+test('pbt: addition is commutative', async () => {
   await property(
-    'my_invariant',
-    gen.record({
-      x: gen.int(0, 100),
-      y: gen.int(0, 100),
-    }),
-    ({ x, y }) => {
-      // return false 或抛异常即判反例
-      return x + y === y + x;
-    },
+    'addition_is_commutative',
+    gen.record({ x: gen.int(0, 100), y: gen.int(0, 100) }),
+    ({ x, y }) => x + y === y + x,
   );
 });
 ```
 
-- 生成器组合：`gen.int / float / bool / oneOf / arrayOf / record / tuple / string`
-- predicate 可以是 `sync | async`，返回 `!== false` 视为通过
-- 所有 PBT 文件命名 `*.pbt.test.js`，vitest 自动发现
+生成器包括 `gen.int / float / bool / oneOf / arrayOf / record / tuple / string`。predicate 可以是 sync 或 async；返回 `false` 或抛出异常即判为反例。
 
-## 与既有 unit test 的边界
+## 使用 fast-check
 
-- **unit test**：具体 input/output 断言（golden case）
-- **PBT**：不变式断言（跨越 sample space 的结构性质）
+```js
+import { test } from 'vitest';
+import assert from 'node:assert/strict';
+import fc from 'fast-check';
 
-示例：
-- `test/diagnose-scoring.unit.test.js` 覆盖固定 golden input → 断言具体 score/status
-- `test/pbt/inventory.pbt.test.js` 断言"orders 随机 shuffle 后 stale_count 不变"
+test('pbt: addition is commutative', () => {
+  fc.assert(
+    fc.property(fc.integer(), fc.integer(), (x, y) => {
+      assert.equal(x + y, y + x);
+    }),
+    { numRuns: 100 },
+  );
+});
+```
+
+保留 fast-check 失败时给出的 seed/path，使用其 replay 参数复现；不要改用 `PBT_SEED` 假装复现了 fast-check 用例。
+
+## 与 unit test 的边界
+
+- unit test：验证具体输入输出、边界值和回归案例。
+- PBT：验证跨样本空间成立的不变量。
+- 所有 PBT 文件命名为 `*.pbt.test.js`，仍由 `test/**/*.test.js` 规则发现。
+
+新增测试前先查看相邻文件使用哪套工具；只有 shrinking 或复杂生成确有价值时，才优先使用 fast-check。

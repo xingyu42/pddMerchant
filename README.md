@@ -21,7 +21,7 @@ Linux 部署方需自行准备 Debian/Ubuntu 所需的 Chromium 运行库。系�
 ## 核心特性
 
 - **AI-friendly envelope**：`{ok, command, data, error, meta}` + 8 个退出码
-- **多店铺/多账号**：`--mall <id>` / `--account <slug>` / `--all-accounts`
+- **多店铺/多账号**：`--mall <id>` / `--account <slug>` / `--consumer-account <ref>` / `--all-accounts`
 - **店铺健康诊断**：`diagnose shop` 四维加权 + 运营动作清单
 - **从链接上货**：`goods publish --url <链接>` 一键抓取发布
 - **Auth 自动续期**：`daemon start` 后台刷新，防并发 file lock
@@ -62,7 +62,9 @@ src/infra/           envelope/errors/logger/timeouts
 
 ### 全局选项
 
-`--json` / `--no-color` / `--timeout <ms>` / `--mall <id>` / `--headed` / `--verbose` / `--account <slug>` / `--all-accounts`
+`--json` / `--no-color` / `--timeout <ms>` / `--mall <id>` / `--headed` / `--verbose` / `--account <slug>` / `--consumer-account <ref>` / `--all-accounts`
+
+`--consumer-account` 接受消费者账号的昵称、手机号或存储 slug；解析到注册表后，实际登录态仍按 slug 归档。
 
 详细参数见 `pdd <command> --help` 或 [SKILL.md](skills/pdd-cli/SKILL.md)。
 
@@ -127,11 +129,13 @@ pdd config unset rateLimitQps           # 删除本地覆盖，回退到环境�
 pdd config validate --json              # 分层校验；配置损坏时仍可执行
 ```
 
-配置命令只管理项目内公开字段，不写 `.env`，也不会自动重启 daemon。修改刷新间隔、日志或 daemon 鉴权路径后，结果会提示显式重启。代理 AuthKey、主密码、测试和安全开关继续只允许通过环境变量安全注入。
+配置命令只管理项目内公开字段，不写 `.env`，也不会自动重启 daemon。修改刷新间隔或日志级别后，结果会提示显式重启。代理 AuthKey、主密码、测试和安全开关继续只允许通过环境变量安全注入。
 
 ## 环境变量
 
-登录态默认按业务归档：商家位于 `data/merchant/stores/<店铺名>/auth-state.json`，消费者位于 `data/consumer/accounts/<手机号或昵称>/auth-state.json`。常用覆盖：`PDD_AUTH_STATE_PATH` / `PDD_CONSUMER_AUTH_STATE_PATH` / `PDD_TEST_ADAPTER=fixture`（Mock 模式）。运行日志固定写入 `log/cli/YYYY-MM-DD.log`（CLI）与 `log/daemon/YYYY-MM-DD.log`（后台 daemon），按本地日轮转、路径不可配置。完整公开映射和受限变量见 `.env.example`。
+没有注册账号时，商家和消费者登录态分别使用 `data/merchant/stores/default/auth-state.json` 与 `data/consumer/accounts/default/auth-state.json`。登录成功并注册身份后，文件归档到各自 `registry.json` 记录的 `<slug>/auth-state.json`；slug 由显示名生成并处理冲突，不等同于原始店铺名、昵称或手机号。`PDD_AUTH_STATE_PATH` 与 `PDD_CONSUMER_AUTH_STATE_PATH` 可显式覆盖单个登录态文件，账号目录和注册表也有独立覆盖变量。
+
+CLI 与后台 daemon 日志分别固定写入 `log/cli/YYYY-MM-DD.log` 和 `log/daemon/YYYY-MM-DD.log`；foreground/引导阶段写 stderr。日志路径不可通过 `PDD_LOG_DESTINATION` 配置。完整变量、默认值与安全开关见 [.env.example](.env.example)。
 
 `goods publish --url` 可选择仅为消费者端源商品抓取启用青果短效 HTTP 代理：
 
@@ -157,13 +161,15 @@ PDD_QINGGUO_AREA=<可选，6 位地区代码；多个用英文逗号分隔>
 
 ```bash
 npm test                           # 全部测试（vitest；数量以本地输出为准）
-npx vitest test/<file>.test.js     # 单文件
+npx vitest run test/<file>.test.js # 单文件
+npm run test:watch                 # 监听模式
+npm run test:endpoints             # endpoint 规范校验
+npm run check                      # 当前项目门禁，等同于 npm test
 ```
 
-分层：smoke（契约）/ unit（模块）/ e2e（进程）/ PBT（属性测试，`PBT_SEED=<n>` 复现）
+分层：smoke（契约）/ unit（模块）/ e2e（进程）/ PBT（属性测试）。PBT 同时使用项目 `_harness.js` 和 `fast-check`；`PBT_SEED` / `PBT_RUNS` 只控制项目 harness，fast-check 用例在测试内配置运行参数和失败复现信息。`npm run lint` 当前仅输出 `no-lint`，不是有效 lint 门禁；项目没有 build 命令，也没有仓库级 CI workflow。
 
 ---
-
 
 ## 许可
 

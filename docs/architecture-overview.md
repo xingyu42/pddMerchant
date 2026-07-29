@@ -47,18 +47,19 @@ src/infra/ (跨层基础设施)
 **职责**:
 - 全局信号处理（SIGINT/SIGTERM → 优雅关闭浏览器）
 - 未捕获异常兜底（unhandledRejection/uncaughtException → 输出 envelope）
-- 注册 9 个域的命令
+- 注册 10 个命令注册器
 
 **命令域注册器** (`src/commands/registry/`):
 ```
 core.js      → init / login / doctor
-shops.js     → shops list / shops switch
-orders.js    → orders list / orders detail / orders export
-goods.js     → goods list / goods templates / goods publish
-promo.js     → promo roi / promo detail
-diagnose.js  → diagnose orders / diagnose goods / diagnose funnel
+config.js    → config show / set / unset / validate
+shops.js     → shops list / shops current
+orders.js    → orders list / detail / stats
+goods.js     → goods list / stock / segment / update / templates / publish
+promo.js     → promo roi
+diagnose.js  → diagnose shop / orders / inventory / promo / funnel
 action.js    → action plan
-account.js   → account list / account add / account remove
+account.js   → account add / remove / list / default
 daemon.js    → daemon start / daemon stop / daemon status
 ```
 
@@ -67,16 +68,17 @@ daemon.js    → daemon start / daemon stop / daemon status
 ### 3.2 服务层 (`src/services/`)
 **核心服务模块**:
 
-| 模块                   | 职责         | 关键导出                                      |
-| ---------------------- | ------------ | --------------------------------------------- |
-| `auth.js`              | 鉴权管理     | `ensureAuthenticated()`                       |
-| `orders.js`            | 订单查询     | `listRecentOrders()`, `getOrderDetail()`      |
-| `goods.js`             | 商品管理     | `listGoods()`, `getGoodsDetail()`             |
-| `promo.js`             | 推广报表     | `getPromoSummary()`, `getPromoDetail()`       |
-| `goods-publish.js`     | **商品发布** | `publishGoodsFromSource()`                    |
-| `diagnose/`            | 店铺诊断     | 7 个子模块（订单/商品/漏斗/趋势健康度）       |
-| `pricing-validator.js` | 定价策略     | `buildPricingPlan()`, `validatePricingPlan()` |
-| `image-transform.js`   | 图片处理     | `transformImages()`                           |
+| 模块                     | 职责             | 关键导出/边界                                      |
+| ------------------------ | ---------------- | -------------------------------------------------- |
+| `auth.js`                | 商家/消费者登录  | QR 与 headed 登录、登录态保存                       |
+| `orders.js`              | 订单查询与统计   | `listOrders()`, `getOrderDetail()`, `getOrderStats()` |
+| `goods.js`               | 商品读写         | 列表、库存及状态/价格/库存/标题更新                 |
+| `goods-segmentation.js`  | 商品分层         | `segmentGoods()`                                   |
+| `promo.js` / `promo-roi.js` | 推广报表与 ROI | `getPromoReport()`, `analyzePromoRoi()`             |
+| `goods-publish.js`       | **商品发布**     | `listCostTemplates()`, `publishGoodsFromLink()`     |
+| `diagnose/`              | 店铺诊断         | 订单、库存、推广、漏斗与趋势比较                   |
+| `pricing-validator.js`   | 定价策略         | `buildPricingPlan()`, `validatePricingPlan()`       |
+| `image-transform.js`     | 图片处理         | `transformImages()`                                 |
 
 ---
 
@@ -106,10 +108,14 @@ closeAllBrowsers({ timeoutMs })
 
 **endpoint 定义** (`adapter/endpoints/`):
 ```javascript
-export const ORDERS_LIST = {
-  urlPattern: /\/api\/aristotle\/paged_query/,
-  method: 'POST',
-  errorMapper: (raw) => ({ code: 'E_BUSINESS', message: '订单列表查询失败' })
+export const ORDER_LIST = {
+  name: 'orders.list',
+  urlPattern: /mangkhut\/mms\/recentOrderList/,
+  apiUrl: '/mangkhut/mms/recentOrderList',
+  nav: { url: 'https://mms.pinduoduo.com/orders/list', readyEl: 'button:has-text("查询")' },
+  buildPayload: (params) => ({ pageNumber: params.page, pageSize: params.size }),
+  normalize: (raw) => ({ total: raw?.result?.totalItemNum ?? 0, orders: raw?.result?.pageItems ?? [] }),
+  isSuccess: (raw) => raw?.success === true,
 };
 ```
 
@@ -119,10 +125,10 @@ export const ORDERS_LIST = {
 | `source-scraper.js`    | 抓取源商品数据（标题/图片/SKU/价格） |
 | `category-resolver.js` | 匹配拼多多类目树                     |
 | `form-filler.js`       | **表单填充核心**                     |
+| `property-mapper.js`   | 源属性与平台模板匹配                 |
+| `image-handler.js`     | 图片下载与上传                       |
+| `source-sku-normalizer.js` | 源 SKU 结构归一化                |
 | `risk-detector.js`     | 风控检测（弹窗拦截）                 |
-
-**已移除**（Phase 2 API 路径，2026-07-10 清理）:
-- ~~`payload-builder.js`~~ / ~~`property-matcher.js`~~ / ~~`sku-mapper.js`~~ — API 发布路径未落地，活跃路径为 UI 自动化，已连同其测试 fixture 一并删除
 
 ---
 
@@ -131,7 +137,7 @@ export const ORDERS_LIST = {
 | 模块                 | 职责                                               |
 | -------------------- | -------------------------------------------------- |
 | `errors.js`          | `PddCliError` + 8 种退出码映射                     |
-| `envelope.js`        | 统一输出合约 `{ ok, command, data, error, meta }`  |
+| `output.js`          | 统一输出合约 `{ ok, command, data, error, meta }`  |
 | `logger.js`          | pino + SHA256 redaction                            |
 | `circuit-breaker.js` | 熔断器（429 触发 5 分钟冷却）                      |
 | `scrape-cooldown.js` | 源抓取冷却（持久化到 `data/scrape-cooldown.json`） |
@@ -145,15 +151,15 @@ export const ORDERS_LIST = {
 
 ### 4.1 入口 (`goods-publish.js`)
 ```javascript
-publishGoodsFromSource(ctx, goodsUrl, options)
+publishGoodsFromLink(ctx, goodsUrl, options)
   ↓
 1. parseGoodsUrl(goodsUrl) → 提取商品 ID
-2. scrapeSourceGoods(page, goodsUrl) → 抓取源数据
-3. resolvePddCategory(ctx, source) → 匹配类目
-4. selectCategory(page, categoryPath) → 选择类目
-5. fillGoodsForm(page, source, pricing) → 填充表单
-6. clickSaveDraft(page, costTemplateId) → 保存草稿
-7. (可选) 提交发布
+2. 读取源商品缓存；未命中时按消费者账号登录态抓取并写入缓存
+3. validateSourcePublishEvidence(source) → 校验源数据与 SKU 图片证据
+4. resolvePddCategory(...) → 解析类目并在商家页面创建草稿
+5. 加载属性模板、构建定价与属性计划、填充表单
+6. 收敛动态属性并严格校验保存请求
+7. 保存草稿；仅在 `--confirm` 时提交发布
 ```
 
 ### 4.2 源数据抓取 (`source-scraper.js`)
@@ -213,14 +219,18 @@ fillGoodsForm(page, source, warnings, options)
 ### 5.1 测试分层
 ```
 test/
-├── unit/*.test.js           # 单元测试（~400 个）
-├── e2e/*.test.js            # 端到端测试（~50 个，spawn 子进程）
-├── pbt/*.test.js            # 属性测试（自定义 PBT 框架）
+├── *.unit.test.js           # 根目录模块单元测试
+├── *.smoke.test.js          # CLI 契约 smoke 测试
+├── adapter/、infra/、services/ # 分层测试
+├── e2e/*.e2e.test.js        # fixture 模式下 spawn CLI 子进程
+├── pbt/*.pbt.test.js        # 属性测试（项目 harness 与 fast-check 并存）
 ├── fixtures/                # Mock 数据
 │   ├── endpoints/           # XHR 响应 fixture
-│   └── auth/                # 鉴权状态 fixture
+│   └── consumer-login/      # 消费者登录 fixture
 └── layering-guard.unit.test.js  # 架构守卫
 ```
+
+Vitest 按 `test/**/*.test.js` 自动发现。`PBT_SEED` / `PBT_RUNS` 只控制项目 `_harness.js`；fast-check 用例使用自身的 seed、path 和 `numRuns` 复现。
 
 ### 5.2 Mock 模式
 **环境变量**:
@@ -229,11 +239,11 @@ PDD_TEST_ADAPTER=fixture          # 启用 Mock 模式
 PDD_TEST_FIXTURE_DIR=./test/fixtures
 ```
 
-**Mock 入口** (`adapter/mock-dispatcher.js`):
-- `isMockEnabled()` → 14 个模块检查
+**Mock 入口** (`adapter/mock-dispatcher.js` facade + `adapter/fixtures/` providers):
+- `isMockEnabled()` → 判断 `PDD_TEST_ADAPTER=fixture`
 - `loadFixture(path)` → 从 `test/fixtures/` 加载 JSON
 
-**守卫模块** (~14 个):
+**主要守卫入口**:
 - `adapter/browser.js` → `mockLaunchBrowser()`
 - `adapter/run-endpoint.js` → 直接返回 fixture 数据
 - `adapter/goods-publish/source-scraper.js` → `mockScrapeSourceGoods()`
@@ -245,11 +255,12 @@ PDD_TEST_FIXTURE_DIR=./test/fixtures
 ### 6.1 核心配置
 | 变量                       | 用途                                                       | 默认值                 |
 | -------------------------- | ---------------------------------------------------------- | ---------------------- |
-| `PDD_AUTH_STATE_PATH`      | 显式商家鉴权文件覆盖                                       | 自动归档到 `data/merchant/stores/<店铺名>/` |
-| `PDD_CONSUMER_AUTH_STATE_PATH` | 显式消费者鉴权文件覆盖                                | 自动归档到 `data/consumer/accounts/<账号名>/` |
+| `PDD_AUTH_STATE_PATH`      | 显式商家鉴权文件覆盖                                       | 无注册表时为 `data/merchant/stores/default/auth-state.json`；注册后使用 registry 中的 slug |
+| `PDD_CONSUMER_AUTH_STATE_PATH` | 显式消费者鉴权文件覆盖                                | 无注册表时为 `data/consumer/accounts/default/auth-state.json`；注册后使用 registry 中的 slug |
 | `PDD_ACCOUNTS_DIR` / `PDD_ACCOUNT_REGISTRY_PATH` | 商家店铺目录/注册表覆盖              | `data/merchant/stores/` / `registry.json` |
 | `PDD_CONSUMER_ACCOUNTS_DIR` / `PDD_CONSUMER_ACCOUNT_REGISTRY_PATH` | 消费者账号目录/注册表覆盖 | `data/consumer/accounts/` / `registry.json` |
-| （固定路径，无 env）           | 运行日志目录（按日轮转）                                     | `log/cli/` / `log/daemon/` |
+| （固定路径，无 env）           | CLI/daemon 运行日志目录（按日轮转）                          | `log/cli/` / `log/daemon/`；foreground 写 stderr |
+| `PDD_ALLOW_INSECURE_AUTH_STATE` | POSIX 权限设置失败时允许继续（不推荐）                    | `0` |
 | `PDD_DEBUG_RAW`            | 输出原始 payload（JSONL）                                  | `0`                    |
 | `PDD_MALL_ID_STRICT_PARSE` | 严格校验店铺 ID                                            | `1`                    |
 | `PLAYWRIGHT_DOWNLOAD_HOST` | Patchright 浏览器下载镜像（沿用 Playwright-core 环境变量） | —                      |
@@ -268,8 +279,8 @@ PDD_TEST_FIXTURE_DIR=./test/fixtures
 | ---------------------- | ------------------------ |
 | `PDD_TEST_ADAPTER`     | `fixture` 启用 Mock 模式 |
 | `PDD_TEST_FIXTURE_DIR` | Fixture 数据目录         |
-| `PBT_SEED`             | PBT 种子（可复现）       |
-| `PBT_RUNS`             | PBT 样本量               |
+| `PBT_SEED`             | 项目 PBT harness 种子（可复现） |
+| `PBT_RUNS`             | 项目 PBT harness 样本量         |
 
 ---
 
@@ -281,11 +292,13 @@ data/
 ├── merchant/
 │   └── stores/
 │       ├── registry.json
-│       └── <店铺名>/auth-state.json
+│       ├── default/auth-state.json       # 无注册表回退
+│       └── <slug>/auth-state.json        # 注册账号
 ├── consumer/
 │   └── accounts/
 │       ├── registry.json
-│       └── <手机号或昵称>/auth-state.json
+│       ├── default/auth-state.json       # 无注册表回退
+│       └── <slug>/auth-state.json        # 注册账号
 ├── scrape-cooldown.json         # 源抓取冷却状态
 └── daemon-state.json            # daemon 运行状态，不属于登录目录
 ```
@@ -340,7 +353,7 @@ new PddCliError({
 ```javascript
 {
   ok: false,
-  command: 'goods publish',
+  command: 'goods.publish',
   data: null,
   error: {
     code: 'E_BUSINESS',
@@ -349,6 +362,7 @@ new PddCliError({
   },
   meta: {
     warnings: ['图片尺寸低于推荐值'],
+    exit_code: 6,
     timestamp: '2026-07-10T12:00:00.000Z'
   }
 }
@@ -358,7 +372,10 @@ new PddCliError({
 
 ## 九、当前限制与待实现
 
-### 9.1 商品发布限制（已验证）
+### 9.1 商品发布实现边界
+
+下表描述当前代码与自动化测试覆盖，不代表本次文档任务重新执行了生产实单发布验收。
+
 | 功能            | 状态                  | 影响                                                                                                                                                 |
 | --------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 单 SKU 商品     | ✅ 完整支持            | 可正常发布                                                                                                                                           |
@@ -367,9 +384,9 @@ new PddCliError({
 | 商品属性映射    | ✅ 已实现并验证        | 结构化源属性按实时平台模板唯一匹配；必填/重要属性失败关闭，可选属性非唯一时给部分告警                                                                |
 | 满件折扣配置    | ✅ 已实现并验证        | 统一配置 `fullCountDiscountRate`（默认 `0.95`）；唯一定位 `count_discount` 输入框，按 `9.5` 折写入并读回，保存请求严格校验 `two_pieces_discount: 95` |
 
-### 9.2 技术债务
-- `goods.list` 接口 `goods_id: null` 兼容逻辑（`matched_by='mixed'`）
-- 同 URL 跨 endpoint 调用需要独立 page（Playwright 限制）
+### 9.2 兼容性边界
+- `goods.list` 响应可能出现 `goods_id: null`，库存匹配会回退到 `goods_name`，并以 `matched_by='mixed'` 标记兼容结果。
+- `createPageSession()` 会在同一规范化 URL 于 1 秒 TTL 内重复导航时自动创建 sibling page，避免页面复用漏掉 XHR；调用方不应绕过该 session。
 
 ---
 
@@ -393,6 +410,6 @@ new PddCliError({
 
 ---
 
-**文档版本**: v1.0  
-**更新时间**: 2026-07-10  
+**文档版本**: v1.0
+**更新时间**: 2026-07-30
 **适用版本**: pddMerchant v0.1.0
