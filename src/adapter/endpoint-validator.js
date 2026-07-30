@@ -9,7 +9,9 @@
  *
  * ## Required Fields (R1)
  * - MISSING_NAME          [error]   Spec must have a string `name`.
- * - MISSING_URL_PATTERN   [error]   Spec must have `urlPattern` for XHR collector.
+ * - MISSING_URL_PATTERN   [error]   Collector transports require `urlPattern`.
+ * - MISSING_API_URL       [error]   Explicit page-api requires `apiUrl`.
+ * - MISSING_BUILD_PAYLOAD [error]   Explicit page-api requires `buildPayload`.
  *
  * ## Transport Strategy (R2)
  * - AMBIGUOUS_TRANSPORT   [warning] Has `buildPayload` or `apiUrl` but not both.
@@ -39,15 +41,16 @@ import { resolveEndpointStrategy } from './endpoint-strategy-resolver.js';
 /**
  * @param {object} spec       Endpoint spec object (e.g. GOODS_LIST)
  * @param {object} [options]  Reserved for future flags
- * @returns {{ valid: boolean, warnings: Array, strategy: 'fetch'|'legacy'|'ambiguous' }}
+ * @returns {{ valid: boolean, warnings: Array, strategy: 'fetch'|'legacy'|'page-api'|'ambiguous' }}
  */
 export function validateEndpointSpec(spec, options = {}) {
   const warnings = [];
+  const resolution = resolveEndpointStrategy(spec);
 
-  validateRequiredFields(spec, warnings);
-  const strategy = validateTransportStrategy(spec, warnings);
+  validateRequiredFields(spec, warnings, resolution);
+  const strategy = validateTransportStrategy(spec, warnings, resolution);
 
-  if (strategy === 'fetch') {
+  if (strategy === 'fetch' || strategy === 'page-api') {
     validateFetchMode(spec, warnings);
   }
   if (strategy === 'legacy') {
@@ -63,7 +66,7 @@ export function validateEndpointSpec(spec, options = {}) {
 
 // --------------- R1: Required Fields ---------------
 
-function validateRequiredFields(spec, warnings) {
+function validateRequiredFields(spec, warnings, resolution) {
   if (!spec || typeof spec !== 'object') {
     warnings.push({
       code: 'MISSING_NAME',
@@ -85,6 +88,28 @@ function validateRequiredFields(spec, warnings) {
     });
   }
 
+  if (resolution.strategy === 'page-api') {
+    if (typeof spec.apiUrl !== 'string' || spec.apiUrl.length === 0) {
+      warnings.push({
+        code: 'MISSING_API_URL',
+        severity: 'error',
+        message: 'Explicit page-api endpoint must have a non-empty apiUrl',
+        field: 'apiUrl',
+        suggestion: 'Add apiUrl: "/path/to/api"',
+      });
+    }
+    if (typeof spec.buildPayload !== 'function') {
+      warnings.push({
+        code: 'MISSING_BUILD_PAYLOAD',
+        severity: 'error',
+        message: 'Explicit page-api endpoint must have a buildPayload function',
+        field: 'buildPayload',
+        suggestion: 'Add buildPayload: (params, ctx) => ({...})',
+      });
+    }
+    return;
+  }
+
   if (!spec.urlPattern) {
     warnings.push({
       code: 'MISSING_URL_PATTERN',
@@ -98,8 +123,8 @@ function validateRequiredFields(spec, warnings) {
 
 // --------------- R2: Transport Strategy ---------------
 
-function validateTransportStrategy(spec, warnings) {
-  const { strategy, ambiguous } = resolveEndpointStrategy(spec);
+function validateTransportStrategy(spec, warnings, resolution) {
+  const { strategy, ambiguous } = resolution;
 
   if (ambiguous) {
     if (spec && typeof spec === 'object') {
@@ -147,7 +172,7 @@ function validateFetchMode(spec, warnings) {
     });
   }
 
-  validateUrlPatternMatchesApiUrl(spec, warnings);
+  if (spec.urlPattern) validateUrlPatternMatchesApiUrl(spec, warnings);
 }
 
 function validateUrlPatternMatchesApiUrl(spec, warnings) {

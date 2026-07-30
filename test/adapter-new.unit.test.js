@@ -23,6 +23,10 @@ describe('classifyRateLimit unit', () => {
     assert.strictEqual(classifyRateLimit({ errorCode: '54001' }, null), 'business-54001');
   });
 
+  it('does not misclassify ambiguous business code 40002 as a confirmed rate limit', () => {
+    assert.strictEqual(classifyRateLimit({ errorCode: 40002 }, null), null);
+  });
+
   it('checks nested result.error_code', () => {
     assert.strictEqual(classifyRateLimit({ result: { error_code: 54001 } }, null), 'business-54001');
   });
@@ -116,6 +120,20 @@ describe('PageSession unit', () => {
     clock.advance(1500);
     const p2 = await session.goto(page, 'https://a.com/page', {});
     assert.strictEqual(p2, page);
+    assert.strictEqual(session.getSiblings().length, 0);
+  });
+
+  it('failed navigation does not affect the next page selection', async () => {
+    const clock = createFakeClock(1000);
+    const ctx = createFakeContext();
+    const session = createPageSession(ctx, { now: clock.now, ttlMs: 1000 });
+    const page = createFakePage();
+    page.goto = async () => { throw new Error('navigation failed'); };
+
+    await assert.rejects(() => session.goto(page, 'https://a.com/page', {}));
+    const selected = await session.selectPage(page, 'https://a.com/page');
+
+    assert.strictEqual(selected, page);
     assert.strictEqual(session.getSiblings().length, 0);
   });
 

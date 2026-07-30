@@ -71,6 +71,47 @@ describe('executeAttempt', () => {
     assert.ok(cleanupCalled, 'cleanupTransport should be called in finally');
   });
 
+  test('page session selects the attempt page before transport and collection setup', async () => {
+    _resetCollectorState();
+    const mockResp = createMockResponse('http://fake/api/test', 200);
+    const originalPage = createMockPage();
+    const siblingPage = createMockPage({ responses: [mockResp] });
+    const seen = { prepared: null, triggered: null, cleaned: null };
+    const pageSession = {
+      async selectPage(page, url) {
+        assert.equal(page, originalPage);
+        assert.equal(url, 'http://fake/api/test');
+        return siblingPage;
+      },
+      recordNavigation(page, url) {
+        assert.equal(page, siblingPage);
+        assert.equal(url, 'http://fake/api/test');
+      },
+    };
+
+    const response = await executeAttempt({
+      page: originalPage,
+      meta: {
+        name: 'test.siblingPage',
+        urlPattern: /api\/test/,
+        nav: { url: 'http://fake/api/test' },
+      },
+      params: {},
+      ctx: {},
+      log: { debug: () => {} },
+      navUrl: 'http://fake/api/test',
+      pageSession,
+      prepareTransport: async (page) => { seen.prepared = page; },
+      cleanupTransport: async (page) => { seen.cleaned = page; },
+      runTrigger: async (_meta, page) => { seen.triggered = page; },
+    });
+
+    assert.equal(response, mockResp);
+    assert.equal(seen.prepared, siblingPage);
+    assert.equal(seen.triggered, siblingPage);
+    assert.equal(seen.cleaned, siblingPage);
+  });
+
   test('navigation failure wraps as E_NETWORK and calls cleanup', async () => {
     _resetCollectorState();
     const page = createMockPage({ navSucceeds: false });
@@ -132,7 +173,7 @@ describe('executeAttempt', () => {
     );
   });
 
-  test('pageSession.goto is used when pageSession is provided', async () => {
+  test('a partial pageSession without selectPage does not replace direct navigation', async () => {
     _resetCollectorState();
     const mockResp = createMockResponse('http://fake/test', 200);
     const page = createMockPage({ responses: [mockResp] });
@@ -163,7 +204,41 @@ describe('executeAttempt', () => {
     });
 
     assert.ok(response);
-    assert.ok(pageSessionUsed, 'should use pageSession.goto when pageSession is provided');
+    assert.equal(pageSessionUsed, false, 'partial pageSession compatibility is not a production contract');
+  });
+
+  test('a partial pageSession without recordNavigation does not select a sibling page', async () => {
+    _resetCollectorState();
+    const mockResp = createMockResponse('http://fake/test', 200);
+    const page = createMockPage({ responses: [mockResp] });
+
+    let selectCalled = false;
+    const pageSession = {
+      async selectPage() {
+        selectCalled = true;
+        return createMockPage({ responses: [mockResp] });
+      },
+    };
+
+    const response = await executeAttempt({
+      page,
+      meta: {
+        name: 'test.partialPageSession',
+        urlPattern: /test/,
+        nav: { url: 'http://fake/test' },
+      },
+      params: {},
+      ctx: {},
+      log: { debug: () => {} },
+      navUrl: 'http://fake/test',
+      pageSession,
+      prepareTransport: async () => {},
+      cleanupTransport: async () => {},
+      runTrigger: async () => {},
+    });
+
+    assert.ok(response);
+    assert.equal(selectCalled, false);
   });
 
   test('aborted signal causes immediate E_TIMEOUT rejection', async () => {

@@ -99,25 +99,32 @@ closeAllBrowsers({ timeoutMs })
 - 使用浏览器真实 UA，不注入 WebGL/Canvas 等手工指纹
 - 人类行为模拟（`adapter/behavior-simulator.js`）
 
-#### 3.3.2 XHR 拦截 (`run-endpoint.js` + `xhr-collector.js`)
+#### 3.3.2 Endpoint 访问 (`run-endpoint.js` + `endpoint-client.js`)
 **核心流程**:
-1. 导航到目标页面
-2. 注册 `page.on('response')` 监听器
-3. 根据 endpoint 定义的 URL 模式匹配响应
-4. 解析响应体 → 返回 JSON 数据
+1. 根据 endpoint strategy 选择传输方式
+2. 普通端点可导航页面并由 `xhr-collector.js` 捕获响应
+3. `page-api` 端点直接复用商家后台运行时的签名请求客户端
+4. 解析响应体 → 业务错误映射 → 返回归一化数据
 
 **endpoint 定义** (`adapter/endpoints/`):
 ```javascript
 export const ORDER_LIST = {
   name: 'orders.list',
-  urlPattern: /mangkhut\/mms\/recentOrderList/,
+  strategy: 'page-api',
   apiUrl: '/mangkhut/mms/recentOrderList',
-  nav: { url: 'https://mms.pinduoduo.com/orders/list', readyEl: 'button:has-text("查询")' },
   buildPayload: (params) => ({ pageNumber: params.page, pageSize: params.size }),
-  normalize: (raw) => ({ total: raw?.result?.totalItemNum ?? 0, orders: raw?.result?.pageItems ?? [] }),
+  normalize: (raw) => {
+    if (!Number.isFinite(raw?.result?.totalItemNum) || !Array.isArray(raw?.result?.pageItems)) {
+      throw responseShapeError('orders.list', 'result.totalItemNum/result.pageItems');
+    }
+    return { total: raw.result.totalItemNum, orders: raw.result.pageItems, raw };
+  },
   isSuccess: (raw) => raw?.success === true,
 };
 ```
+
+订单列表、统计和详情均只走 `page-api`，不再保留订单页导航、按钮触发或 XHR 捕获回退路线。
+页面请求客户端既可能返回已拆包 result，也可能返回完整业务信封；适配器会统一为单层信封。订单 normalizer 对必需字段做严格校验，缺字段会明确报错，不会降级显示为 0 单或 0 销。
 
 #### 3.3.3 商品发布子模块 (`adapter/goods-publish/`)
 | 文件                   | 职责                                 |

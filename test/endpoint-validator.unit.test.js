@@ -45,6 +45,42 @@ describe('R1 — required fields', () => {
 // --------------- R2: Transport Strategy ---------------
 
 describe('R2 — transport strategy inference', () => {
+  test('complete explicit page-api is valid without urlPattern', () => {
+    const result = validateEndpointSpec({
+      name: 'test.pageApi',
+      strategy: 'page-api',
+      apiUrl: '/api/test',
+      buildPayload: () => ({}),
+      isSuccess: () => true,
+      normalize: (raw) => raw,
+    });
+    assert.equal(result.strategy, 'page-api');
+    assert.equal(result.valid, true);
+    assert.ok(!findWarning(result, 'MISSING_URL_PATTERN'));
+  });
+
+  test('explicit page-api missing apiUrl or buildPayload is invalid', () => {
+    const missingUrl = validateEndpointSpec({
+      name: 'test.pageApiMissingUrl',
+      strategy: 'page-api',
+      buildPayload: () => ({}),
+      isSuccess: () => true,
+      normalize: (raw) => raw,
+    });
+    const missingPayload = validateEndpointSpec({
+      name: 'test.pageApiMissingPayload',
+      strategy: 'page-api',
+      apiUrl: '/api/test',
+      isSuccess: () => true,
+      normalize: (raw) => raw,
+    });
+
+    assert.equal(missingUrl.valid, false);
+    assert.equal(findWarning(missingUrl, 'MISSING_API_URL')?.severity, 'error');
+    assert.equal(missingPayload.valid, false);
+    assert.equal(findWarning(missingPayload, 'MISSING_BUILD_PAYLOAD')?.severity, 'error');
+  });
+
   test('buildPayload + apiUrl → fetch strategy, no ambiguity warning', () => {
     const result = validateEndpointSpec({
       name: 'test.fetch',

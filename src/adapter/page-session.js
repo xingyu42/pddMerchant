@@ -16,22 +16,29 @@ export function createPageSession(context, { now = Date.now, ttlMs = DEFAULT_TTL
   const history = new Map();
   const siblings = [];
 
-  async function goto(page, url, options) {
+  async function selectPage(page, url) {
     const key = normalizeKey(url);
     const prev = history.get(key);
     const currentTime = now();
+    let selected = page;
 
     if (prev && (currentTime - prev.at) < ttlMs) {
-      const sibling = await context.newPage();
-      siblings.push(sibling);
-      await sibling.goto(url, options);
-      history.set(key, { at: now(), page: sibling });
-      return sibling;
+      selected = await context.newPage();
+      siblings.push(selected);
     }
 
-    await page.goto(url, options);
-    history.set(key, { at: now(), page });
-    return page;
+    return selected;
+  }
+
+  function recordNavigation(page, url) {
+    history.set(normalizeKey(url), { at: now(), page });
+  }
+
+  async function goto(page, url, options) {
+    const selected = await selectPage(page, url);
+    await selected.goto(url, options);
+    recordNavigation(selected, url);
+    return selected;
   }
 
   function getSiblings() {
@@ -45,7 +52,7 @@ export function createPageSession(context, { now = Date.now, ttlMs = DEFAULT_TTL
     siblings.length = 0;
   }
 
-  return { goto, getSiblings, closeAll, _history: history };
+  return { selectPage, recordNavigation, goto, getSiblings, closeAll, _history: history };
 }
 
 export { normalizeKey, DEFAULT_TTL_MS };

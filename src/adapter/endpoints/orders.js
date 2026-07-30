@@ -1,22 +1,48 @@
 import { readBusinessError } from '../run-endpoint.js';
-import { ExitCodes } from '../../infra/errors.js';
-import { evaluateInMainWorld } from '../browser.js';
+import { ExitCodes, PddCliError } from '../../infra/errors.js';
+
+function responseShapeError(endpoint, expected) {
+  return new PddCliError({
+    code: 'E_NETWORK',
+    message: `${endpoint}: unexpected response shape`,
+    hint: `平台响应缺少 ${expected}；已停止处理，不能将缺失字段解释为真实业务 0`,
+    detail: { endpoint, expected },
+    exitCode: ExitCodes.NETWORK,
+  });
+}
+
+function readListResult(raw) {
+  const result = raw?.result;
+  if (!Number.isFinite(result?.totalItemNum) || !Array.isArray(result?.pageItems)) {
+    throw responseShapeError('orders.list', 'result.totalItemNum/result.pageItems');
+  }
+  return result;
+}
+
+function readDetailResult(raw) {
+  const result = raw?.result;
+  const hasOrderSn = result?.orderSn != null || result?.order_sn != null;
+  if (!result || typeof result !== 'object' || Array.isArray(result) || !hasOrderSn) {
+    throw responseShapeError('orders.detail', 'result order object with orderSn/order_sn');
+  }
+  return result;
+}
+
+const ORDER_STAT_FIELDS = ['unship', 'unship12h', 'delay', 'unreceive'];
+
+function readStatsResult(raw) {
+  const result = raw?.result;
+  if (!result || ORDER_STAT_FIELDS.some((field) => !Number.isFinite(result[field]))) {
+    throw responseShapeError('orders.stats', `numeric result.${ORDER_STAT_FIELDS.join('/result.')}`);
+  }
+  return result;
+}
 
 export const ORDER_LIST = {
   name: 'orders.list',
-  urlPattern: /mangkhut\/mms\/recentOrderList/,
+  fixtureIsServiceFacing: true,
+  strategy: 'page-api',
   apiUrl: '/mangkhut/mms/recentOrderList',
-  nav: {
-    url: 'https://mms.pinduoduo.com/orders/list',
-    readyEl: 'button:has-text("查询")',
-  },
-  trigger: async (page) => {
-    try {
-      await page.click('button:has-text("查询")', { timeout: 5000 });
-    } catch {
-      // 页面可能已自动加载，collector 仍能从 networkidle 前的首次 XHR 捕获
-    }
-  },
   buildPayload: (params = {}) => ({
     orderType: params.orderType ?? 2,
     afterSaleType: 1,
@@ -30,11 +56,10 @@ export const ORDER_LIST = {
     hideRegionBlackDelayShipping: false,
     mobile: '',
   }),
-  normalize: (raw) => ({
-    total: raw?.result?.totalItemNum ?? 0,
-    orders: raw?.result?.pageItems ?? [],
-    raw,
-  }),
+  normalize: (raw) => {
+    const result = readListResult(raw);
+    return { total: result.totalItemNum, orders: result.pageItems, raw };
+  },
   isSuccess: (raw) => raw?.success === true,
 };
 
@@ -48,22 +73,13 @@ function matchesNotFound(message) {
 
 export const ORDER_DETAIL = {
   name: 'orders.detail',
-  urlPattern: /mangkhut\/mms\/orderDetail/,
-  nav: {
-    url: 'https://mms.pinduoduo.com/orders/list',
-    readyEl: 'body',
-  },
-  trigger: async (page, params) => {
-    await evaluateInMainWorld(page, ({ order_sn, source }) => {
-      return fetch('/mangkhut/mms/orderDetail', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order_sn, source: source || 'MMS' }),
-      });
-    }, { order_sn: params.order_sn, source: params.source });
-  },
-  requiredTrigger: true,
+  fixtureIsServiceFacing: true,
+  strategy: 'page-api',
+  apiUrl: '/mangkhut/mms/orderDetail',
+  buildPayload: (params = {}) => ({
+    orderSn: params.order_sn,
+    source: params.source || 'MMS',
+  }),
   errorMapper: (raw) => {
     const biz = readBusinessError(raw);
     if (!biz) return null;
@@ -78,7 +94,7 @@ export const ORDER_DETAIL = {
     }
     return null;
   },
-  normalize: (raw) => ({ order: raw?.result ?? null, raw }),
+  normalize: (raw) => ({ order: readDetailResult(raw), raw }),
   isSuccess: (raw) => {
     if (!raw || typeof raw !== 'object') return false;
     if (raw.success === true) return true;
@@ -90,26 +106,19 @@ export const ORDER_DETAIL = {
 
 export const ORDER_STATS = {
   name: 'orders.stats',
-  urlPattern: /mars\/app\/order\/statisticWithType/,
+  fixtureIsServiceFacing: true,
+  strategy: 'page-api',
   apiUrl: '/mars/app/order/statisticWithType',
-  nav: {
-    url: 'https://mms.pinduoduo.com/orders/list',
-    readyEl: 'button:has-text("查询")',
-  },
-  trigger: async (page) => {
-    try {
-      await page.click('button:has-text("查询")', { timeout: 5000 });
-    } catch {
-      // 自动加载兜底
-    }
-  },
   buildPayload: () => ({ subType: 5, additionalTypeSet: [] }),
-  normalize: (raw) => ({
-    unship: raw?.result?.unship ?? 0,
-    unship12h: raw?.result?.unship12h ?? 0,
-    delay: raw?.result?.delay ?? 0,
-    unreceive: raw?.result?.unreceive ?? 0,
-    raw,
-  }),
+  normalize: (raw) => {
+    const result = readStatsResult(raw);
+    return {
+      unship: result.unship,
+      unship12h: result.unship12h,
+      delay: result.delay,
+      unreceive: result.unreceive,
+      raw,
+    };
+  },
   isSuccess: (raw) => raw?.success === true,
 };

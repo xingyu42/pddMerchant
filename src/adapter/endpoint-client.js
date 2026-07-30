@@ -2,9 +2,15 @@ import { parseBody } from './xhr-collector.js';
 import { PddCliError, ExitCodes, mapErrorToExit } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
 import { classifyRateLimit } from './classify-rate-limit.js';
-import { throwIfAborted, abortableSleep } from '../infra/abort.js';
+import {
+  throwIfAborted,
+  abortableSleep,
+  remainingMs,
+  timeoutError,
+} from '../infra/abort.js';
 import { resolveEndpointStrategy } from './endpoint-strategy-resolver.js';
 import { executeAttempt } from './endpoint-attempt.js';
+import { executePageApiRequest } from './page-api-client.js';
 
 const RETRY_DELAYS_MS = [1000, 2000, 4000];
 export const SUCCESS_BUSINESS_CODES = new Set([0, 1000000]);
@@ -32,6 +38,29 @@ export function readBusinessError(raw) {
   if (code == null) return null;
   if (SUCCESS_BUSINESS_CODES.has(code)) return null;
   return { code: String(code), message: msg == null ? '' : String(msg) };
+}
+
+function createBusinessFailure(meta, raw) {
+  const businessError = readBusinessError(raw);
+  const ambiguousRiskControl = businessError?.code === '40002';
+  const classification = ambiguousRiskControl ? 'high-frequency-or-risk-control' : undefined;
+  const message = businessError?.message
+    ? `${meta.name}: ${businessError.message}`
+    : `${meta.name}: business error`;
+  const hint = ambiguousRiskControl
+    ? '平台返回高频或风控拒绝；该错误也可能由请求签名异常引起，不能单凭此码认定真实限流'
+    : raw?.errorMsg || raw?.error_msg || '设 PDD_DEBUG_RAW=1 查看脱敏后的原始响应';
+  return new PddCliError({
+    code: 'E_BUSINESS',
+    message,
+    hint,
+    detail: {
+      errorCode: raw?.errorCode ?? raw?.error_code,
+      ...(classification ? { classification } : {}),
+      raw,
+    },
+    exitCode: ExitCodes.BUSINESS,
+  });
 }
 
 function isPlainObject(value) {
@@ -264,16 +293,7 @@ export class PlaywrightEndpointClient {
             });
           }
         }
-        const businessErr = readBusinessError(raw);
-        throw new PddCliError({
-          code: 'E_BUSINESS',
-          message: businessErr?.message
-            ? `${meta.name}: ${businessErr.message}`
-            : `${meta.name}: business error`,
-          hint: raw?.errorMsg || raw?.error_msg || '设 PDD_DEBUG_RAW=1 查看脱敏后的原始响应',
-          detail: { errorCode: raw?.errorCode ?? raw?.error_code, raw },
-          exitCode: ExitCodes.BUSINESS,
-        });
+        throw createBusinessFailure(meta, raw);
       }
 
       const normalized = typeof meta.normalize === 'function' ? meta.normalize(raw) : { raw };
@@ -305,10 +325,83 @@ export class PlaywrightEndpointClient {
 
   async _attemptOnce(page, meta, params, ctx, log, navUrl) {
     const { strategy } = resolveEndpointStrategy(meta);
+    if (strategy === 'page-api') {
+      return this._attemptPageApi(page, meta, params, ctx);
+    }
     if (strategy === 'fetch') {
       return this._attemptFetch(page, meta, params, ctx, log, navUrl);
     }
     return this._attemptLegacy(page, meta, params, ctx, log, navUrl);
+  }
+
+  async _attemptPageApi(page, meta, params, ctx) {
+    const missingFields = [];
+    if (typeof meta.buildPayload !== 'function') missingFields.push('buildPayload');
+    if (typeof meta.apiUrl !== 'string' || meta.apiUrl.length === 0) missingFields.push('apiUrl');
+    if (missingFields.length > 0) {
+      throw new PddCliError({
+        code: 'E_USAGE',
+        message: `${meta.name}: invalid page-api endpoint spec`,
+        hint: `缺少或无效字段: ${missingFields.join(', ')}`,
+        detail: { endpoint: meta.name, fields: missingFields },
+        exitCode: ExitCodes.USAGE,
+      });
+    }
+    const payload = meta.buildPayload(params, ctx);
+    throwIfAborted(ctx.signal);
+    const requestBudgetMs = remainingMs(ctx);
+    if (requestBudgetMs === 0) throw timeoutError();
+
+    let result;
+    try {
+      result = await executePageApiRequest(
+        page,
+        { apiUrl: meta.apiUrl, payload },
+        { signal: ctx.signal, timeoutMs: requestBudgetMs },
+      );
+    } catch (err) {
+      if (err instanceof PddCliError) throw err;
+      throw new PddCliError({
+        code: 'E_NETWORK',
+        message: `${meta.name}: page API execution failed: ${err?.message ?? 'unknown error'}`,
+        hint: '页面执行上下文或网络请求失败；请重试并检查登录态与网络连通性',
+        detail: { endpoint: meta.name },
+        exitCode: ExitCodes.NETWORK,
+      });
+    }
+    if (result.unavailable) {
+      throw new PddCliError({
+        code: 'E_NETWORK',
+        message: `${meta.name}: page API client unavailable`,
+        hint: '页面运行时或签名客户端未在等待窗口内就绪；可重试，持续失败时请升级 CLI',
+        detail: { endpoint: meta.name, reason: result.reason },
+        exitCode: ExitCodes.NETWORK,
+      });
+    }
+    if (result.transportError) {
+      throw new PddCliError({
+        code: 'E_NETWORK',
+        message: `${meta.name}: page API transport failed`,
+        hint: '页面请求客户端未返回业务错误码；请重试并检查登录态与网络连通性',
+        detail: { endpoint: meta.name, status: result.status, reason: result.message },
+        exitCode: ExitCodes.NETWORK,
+      });
+    }
+    let responseUrl = meta.apiUrl;
+    try {
+      const baseUrl = typeof page.url === 'function' ? page.url() : page.url;
+      responseUrl = new URL(meta.apiUrl, baseUrl).href;
+    } catch {
+      // Relative apiUrl is still useful to error mappers when page.url is unavailable.
+    }
+    return {
+      status: () => result.status,
+      ok: () => result.status >= 200 && result.status < 300,
+      url: () => responseUrl,
+      headers: () => ({ 'content-type': 'application/json' }),
+      json: async () => result.raw,
+      text: async () => JSON.stringify(result.raw),
+    };
   }
 
   async _attemptFetch(page, meta, params, ctx, log, navUrl) {

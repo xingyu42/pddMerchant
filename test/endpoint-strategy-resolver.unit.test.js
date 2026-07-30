@@ -82,4 +82,19 @@ describe('resolveEndpointStrategy', () => {
     assert.equal(result.strategy, 'legacy');
     assert.equal(result.ambiguous, true);
   });
+
+  test('explicit page-api resolves only when apiUrl and buildPayload are complete', () => {
+    assert.deepEqual(
+      resolveEndpointStrategy({
+        strategy: 'page-api',
+        apiUrl: '/api/test',
+        buildPayload: () => ({}),
+      }),
+      { strategy: 'page-api', explicit: true, ambiguous: false },
+    );
+    assert.equal(
+      resolveEndpointStrategy({ strategy: 'page-api', apiUrl: '/api/test' }).ambiguous,
+      true,
+    );
+  });
 });

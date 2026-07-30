@@ -3,15 +3,8 @@
  *
  * Resolves endpoint transport strategy from spec fields.
  *
- * Phase 1 (Current)
- * - Implicit inference only (backward compatible)
- * - Returns strategy based on buildPayload + apiUrl presence
- * - No explicit spec.strategy field support
- *
- * Phase 2 (Future)
- * - Add explicit spec.strategy field support
- * - Enable opt-in explicit strategy declarations
- * - Validate declared strategy matches inferred strategy
+ * Existing endpoints keep implicit fetch/legacy inference. `page-api` is explicit
+ * because it bypasses navigation, route interception, triggers, and XHR collection.
  *
  * @example
  * import { resolveEndpointStrategy } from './endpoint-strategy-resolver.js';
@@ -28,7 +21,7 @@
  * Resolve endpoint transport strategy from spec.
  *
  * @param {object} spec - Endpoint spec with fields like buildPayload, apiUrl, etc.
- * @returns {{ strategy: 'fetch'|'legacy', explicit: boolean, ambiguous: boolean }}
+ * @returns {{ strategy: 'fetch'|'legacy'|'page-api', explicit: boolean, ambiguous: boolean }}
  *
  * @example
  * // Fetch mode (has both buildPayload + apiUrl)
@@ -52,6 +45,14 @@ export function resolveEndpointStrategy(spec) {
 
   const hasBuildPayload = typeof spec.buildPayload === 'function';
   const hasApiUrl = typeof spec.apiUrl === 'string' && spec.apiUrl.length > 0;
+
+  if (spec.strategy === 'page-api') {
+    return {
+      strategy: 'page-api',
+      explicit: true,
+      ambiguous: !(hasBuildPayload && hasApiUrl),
+    };
+  }
 
   if (hasBuildPayload && hasApiUrl) {
     return { strategy: 'fetch', explicit: false, ambiguous: false };

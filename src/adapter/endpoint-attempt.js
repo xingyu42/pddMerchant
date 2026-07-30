@@ -55,9 +55,18 @@ export async function executeAttempt({
     remaining === 0 ? 1 : (remaining || Infinity),
   );
 
-  await prepareTransport(page, meta, params, ctx);
+  const usesSelectedPage = Boolean(
+    navUrl
+    && typeof pageSession?.selectPage === 'function'
+    && typeof pageSession?.recordNavigation === 'function',
+  );
+  const attemptPage = usesSelectedPage
+    ? await pageSession.selectPage(page, navUrl)
+    : page;
 
-  const collector = createCollector(page, {
+  await prepareTransport(attemptPage, meta, params, ctx);
+
+  const collector = createCollector(attemptPage, {
     pattern: meta.urlPattern,
     timeout: collectorTimeout,
     signal: ctx.signal,
@@ -65,28 +74,22 @@ export async function executeAttempt({
 
   try {
     if (navUrl) {
-      if (pageSession) {
-        await pageSession.goto(page, navUrl, {
-          waitUntil: meta.nav?.waitUntil ?? 'domcontentloaded',
-          timeout: navTimeout,
-        });
-      } else {
-        await page.goto(navUrl, {
-          waitUntil: meta.nav?.waitUntil ?? 'domcontentloaded',
-          timeout: navTimeout,
-        });
-      }
+      await attemptPage.goto(navUrl, {
+        waitUntil: meta.nav?.waitUntil ?? 'domcontentloaded',
+        timeout: navTimeout,
+      });
+      if (usesSelectedPage) pageSession.recordNavigation(attemptPage, navUrl);
     }
 
     if (meta.nav?.readyEl) {
       try {
-        await page.waitForSelector(meta.nav.readyEl, { timeout: TIMEOUTS.ELEMENT_READY });
+        await attemptPage.waitForSelector(meta.nav.readyEl, { timeout: TIMEOUTS.ELEMENT_READY });
       } catch {
         log.debug({ endpoint: meta.name, readyEl: meta.nav.readyEl }, 'readyEl not found, continuing');
       }
     }
 
-    await runTrigger(meta, page, params, ctx, log);
+    await runTrigger(meta, attemptPage, params, ctx, log);
 
     const responses = await collector.waitFor();
     return responses[0];
@@ -101,7 +104,7 @@ export async function executeAttempt({
       exitCode: ExitCodes.NETWORK,
     });
   } finally {
-    await cleanupTransport(page, meta).catch((err) => {
+    await cleanupTransport(attemptPage, meta).catch((err) => {
       getLogger().debug({ err: err?.message, endpoint: meta?.name }, 'endpoint-attempt: cleanupTransport failed');
     });
   }

@@ -59,7 +59,7 @@ describe('existing endpoint spec diagnostics', () => {
     for (const spec of allEndpointSpecs) {
       const result = validateEndpointSpec(spec);
       assert.ok(
-        ['fetch', 'legacy', 'ambiguous'].includes(result.strategy),
+        ['fetch', 'legacy', 'page-api', 'ambiguous'].includes(result.strategy),
         `${spec.name}: unexpected strategy ${result.strategy}`,
       );
     }

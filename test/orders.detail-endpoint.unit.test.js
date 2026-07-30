@@ -19,9 +19,11 @@ test('ORDER_DETAIL.normalize: returns { order, raw } with result as order', () =
   assert.equal(norm.raw, raw);
 });
 
-test('ORDER_DETAIL.normalize: null result yields order=null', () => {
-  const norm = ORDER_DETAIL.normalize({ success: false });
-  assert.equal(norm.order, null);
+test('ORDER_DETAIL.normalize: missing result is an explicit response-shape error', () => {
+  assert.throws(
+    () => ORDER_DETAIL.normalize({ success: true, result: null }),
+    (error) => error.code === 'E_NETWORK',
+  );
 });
 
 test('ORDER_DETAIL.errorMapper: error_code 1000 → E_USAGE exit 2', () => {

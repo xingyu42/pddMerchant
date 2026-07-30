@@ -10,9 +10,9 @@ const expectedStrategies = {
   'goods.update.price': 'legacy',
   'goods.update.stock': 'legacy',
   'goods.update.title': 'legacy',
-  'orders.list': 'fetch',
-  'orders.detail': 'legacy',
-  'orders.stats': 'fetch',
+  'orders.list': 'page-api',
+  'orders.detail': 'page-api',
+  'orders.stats': 'page-api',
   'promo.entityReport': 'fetch',
   'promo.hourlyReport': 'fetch',
   'goods.publish.create_draft': 'legacy',
@@ -45,6 +45,9 @@ describe('endpoint strategy integration', () => {
     for (const name of specNames) {
       assert.ok(mapNames.has(name), `endpoint '${name}' missing from expectedStrategies`);
     }
+    for (const name of mapNames) {
+      assert.ok(specNames.has(name), `expected endpoint '${name}' missing from allEndpointSpecs`);
+    }
   });
 
   test('no existing endpoints are ambiguous', () => {
@@ -57,13 +60,13 @@ describe('endpoint strategy integration', () => {
     );
   });
 
-  test('all existing endpoints resolve with explicit=false (Phase 1)', () => {
+  test('only page-api endpoints use an explicit strategy', () => {
     for (const spec of allEndpointSpecs) {
       const result = resolveEndpointStrategy(spec);
       assert.equal(
         result.explicit,
-        false,
-        `${spec.name}: expected explicit=false in Phase 1`,
+        spec.strategy === 'page-api',
+        `${spec.name}: explicit strategy flag mismatch`,
       );
     }
   });

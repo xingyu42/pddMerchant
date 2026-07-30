@@ -93,10 +93,11 @@ function validateFixtureNames(spec, warnings, fixtureNameSet) {
 function validateFixturePayload(spec, warnings, rawFixture) {
   if (rawFixture && typeof rawFixture === 'object' && rawFixture.__throws) return;
 
+  let acceptedByLiveContract = true;
   if (typeof spec.isSuccess === 'function') {
-    let accepted = false;
+    acceptedByLiveContract = false;
     try {
-      accepted = spec.isSuccess(cloneFixturePayload(rawFixture)) === true;
+      acceptedByLiveContract = spec.isSuccess(cloneFixturePayload(rawFixture)) === true;
     } catch (err) {
       warnings.push(warning({
         code: 'FIXTURE_IS_SUCCESS_THREW',
@@ -106,7 +107,7 @@ function validateFixturePayload(spec, warnings, rawFixture) {
         suggestion: 'Make the base fixture match live raw response shape or harden isSuccess',
       }));
     }
-    if (!accepted) {
+    if (!acceptedByLiveContract) {
       warnings.push(warning({
         code: 'BASE_FIXTURE_NOT_LIVE_SUCCESS',
         message: `${spec.name}: base fixture is not accepted by the live isSuccess contract`,
@@ -122,6 +123,16 @@ function validateFixturePayload(spec, warnings, rawFixture) {
       ? spec.normalize(cloneFixturePayload(rawFixture))
       : { raw: cloneFixturePayload(rawFixture) };
   } catch (err) {
+    if (!acceptedByLiveContract && spec.fixtureIsServiceFacing === true) {
+      warnings.push(warning({
+        code: 'FIXTURE_CLIENT_DATA_DIFFERS',
+        message: `${spec.name}: normalized fixture intentionally bypasses the live raw normalizer`,
+        field: 'normalize',
+        suggestion: 'Keep this intentional difference documented, or split raw endpoint fixtures from service-facing fixtures',
+        detail: { normalizeError: err?.code ?? err?.name ?? 'Error' },
+      }));
+      return;
+    }
     warnings.push(warning({
       code: 'FIXTURE_NORMALIZE_THREW',
       severity: 'error',

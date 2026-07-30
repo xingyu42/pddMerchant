@@ -106,6 +106,40 @@ describe('fixture/live parity diagnostics', () => {
     assert.ok(codes.includes('FIXTURE_CLIENT_DATA_DIFFERS'));
   });
 
+  test('keeps normalize failures fatal when service-facing fixture shape is not explicit', () => {
+    const spec = {
+      ...ORDER_LIST,
+      name: 'orders.unmarked-fixture',
+      fixtureIsServiceFacing: undefined,
+      isSuccess: () => false,
+      normalize: () => { throw new Error('raw shape required'); },
+    };
+    const report = validateFixtureParity(spec, {
+      fixturePayloads: new Map([[spec.name, { total: 0, orders: [] }]]),
+    });
+
+    assert.equal(report.valid, false);
+    assert.ok(report.warnings.some((item) => item.code === 'FIXTURE_NORMALIZE_THREW'
+      && item.severity === 'error'));
+  });
+
+  test('downgrades normalize failures only for explicitly service-facing fixtures', () => {
+    const spec = {
+      ...ORDER_LIST,
+      name: 'orders.marked-fixture',
+      fixtureIsServiceFacing: true,
+      isSuccess: () => false,
+      normalize: () => { throw new Error('raw shape required'); },
+    };
+    const report = validateFixtureParity(spec, {
+      fixturePayloads: new Map([[spec.name, { total: 0, orders: [] }]]),
+    });
+
+    assert.equal(report.valid, true);
+    assert.ok(report.warnings.some((item) => item.code === 'FIXTURE_CLIENT_DATA_DIFFERS'
+      && item.severity === 'warning'));
+  });
+
   test('reports page-specific fixture coverage without fixtureListKey synthesis contract', () => {
     const reports = collectFixtureParityDiagnostics(allEndpointSpecs, {
       fixtureNames: fixtureNames(),
