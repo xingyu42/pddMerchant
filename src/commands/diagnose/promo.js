@@ -1,7 +1,7 @@
 import { withCommand } from '../_runner.js';
 import { collectPromoInput } from '../../services/diagnose/collectors.js';
 import { renderSingleDashboard } from './_render.js';
-import { scorePromoHealth } from '../../services/diagnose/index.js';
+import { summarizePromo } from '../../services/diagnose/index.js';
 
 export const run = withCommand({
   name: 'diagnose.promo',
@@ -11,7 +11,7 @@ export const run = withCommand({
   async run(ctx) {
     const mallId = ctx.mallCtx?.activeId ?? null;
     const input = await collectPromoInput(ctx.page, { ...ctx, mallId });
-    return scorePromoHealth(input);
+    return summarizePromo(input);
   },
 });
 

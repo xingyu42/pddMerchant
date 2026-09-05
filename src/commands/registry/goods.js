@@ -35,11 +35,10 @@ export function register(program, wireAction) {
   wireAction(
     goods
       .command('segment')
-      .description('商品分层（A/B/C/D 四象限）')
+      .description('商品销量与库存统计')
       .option('--days <n>', '销量统计窗口天数', (v) => Number(v), 30)
       .option('--size <n>', '商品分页大小', (v) => Number(v), 50)
       .option('--max-pages <n>', '最大商品页数', (v) => Number(v), 10)
-      .option('--break-even <n>', '推广保本 ROI 阈值', (v) => Number(v), 1.0)
       .option('--no-promo', '跳过推广 ROI 数据'),
     'goods.segment',
     segment.run

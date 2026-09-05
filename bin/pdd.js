@@ -12,7 +12,6 @@ import { register as registerOrders } from '../src/commands/registry/orders.js';
 import { register as registerGoods } from '../src/commands/registry/goods.js';
 import { register as registerPromo } from '../src/commands/registry/promo.js';
 import { register as registerDiagnose } from '../src/commands/registry/diagnose.js';
-import { register as registerAction } from '../src/commands/registry/action.js';
 import { register as registerAccount } from '../src/commands/registry/account.js';
 import { register as registerDaemon } from '../src/commands/registry/daemon.js';
 
@@ -152,7 +151,6 @@ registerOrders(program, wireAction);
 registerGoods(program, wireAction);
 registerPromo(program, wireAction);
 registerDiagnose(program, wireAction);
-registerAction(program, wireAction);
 registerAccount(program, wireAction);
 registerDaemon(program, wireAction);
 async function main() {

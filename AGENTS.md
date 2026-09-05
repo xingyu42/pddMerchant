@@ -25,8 +25,8 @@ Project-specific skills live under `.agents/skills/`. Use the smallest matching 
 - `bin/pdd.js`: Commander command tree, global flags, option merge, signal handlers, top-level error envelopes.
 - `bin/pdd-daemon.js`: daemon process entry.
 - `src/commands/_runner.js`: `withCommand()`, auth/account resolution, mall switching, timeout/abort, batch mode, fixture mode, envelope emission.
-- `src/commands/`: command handlers for `init`, `login`, `doctor`, `config`, `shops`, `orders`, `goods`, `promo`, `diagnose`, `action`, `account`, and `daemon`.
-- `src/services/`: reusable domain logic for orders, goods, promo, diagnose, action plans, goods publish, auth, pricing, and image helpers.
+- `src/commands/`: command handlers for `init`, `login`, `doctor`, `config`, `shops`, `orders`, `goods`, `promo`, `diagnose`, `account`, and `daemon`.
+- `src/services/`: reusable domain logic for orders, goods, promo, diagnose, goods publish, auth, pricing, and image helpers. Diagnostic reports contain factual metrics and data availability, not operating advice or scores.
 - `src/adapter/`: Playwright/browser/auth/mall/endpoint/XHR/mock/rate-limit integration.
 - `src/adapter/endpoints/`: business endpoint specs consumed by `runEndpoint()`.
 - `src/infra/`: cross-cutting config, paths, output, errors, logger, timeouts, abort, account registry, auth lock, daemon helpers.

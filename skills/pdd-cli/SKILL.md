@@ -17,12 +17,11 @@ metadata:
 当任务涉及以下任一项时激活：
 
 - 查询/统计拼多多**订单**（列表、详情、P50/P95 时效）
-- 管理**商品**（列表、库存告警、分层、上下架、改价改库存改标题、批量编辑、从链接上货）
-- 拉取**推广报表**与 ROI 诊断
-- 做**店铺健康诊断**（总分 / 订单 / 库存 / 推广 / 漏斗维度）
+- 管理**商品**（列表、库存告警、销量与库存统计、上下架、改价改库存改标题、批量编辑、从链接上货）
+- 拉取**推广报表**与 ROI 统计
+- 查询**店铺数据统计**（订单 / 库存 / 推广 / 漏斗维度）
 - **多账号 / 多店铺**切换与批量执行
 - 查看、校验和修改项目内**运行配置**
-- 生成**运营动作清单**
 - 鉴权（首次登录 / 重新登录 / 环境自检 / 后台自动续期）
 
 ## 调用方式
@@ -121,7 +120,7 @@ node bin/pdd.js orders stats --size 50      # 远程 + 本地聚合 P50/P95
 ```bash
 node bin/pdd.js goods list --page 1 --size 10 --status onsale|offline
 node bin/pdd.js goods stock --threshold 10  # 低库存/缺货告警
-node bin/pdd.js goods segment --days 30 --size 50 --max-pages 10 --break-even 1.0 [--no-promo]  # A/B/C/D 四象限分层
+node bin/pdd.js goods segment --days 30 --size 50 --max-pages 10 [--no-promo]  # 商品销量与库存统计
 ```
 
 **写操作（`goods update` 子组，默认 dry-run，须 `--confirm` 才真正执行）：**
@@ -145,25 +144,20 @@ node bin/pdd.js goods publish --url <链接或纯数字goods_id> [--cost-templat
 ### 🚀 推广 promo
 
 ```bash
-node bin/pdd.js promo roi --by plan|sku|channel [--since YYYY-MM-DD] [--page 1] [--size 50] --break-even 1.0 [--include-inactive]  # ROI 诊断
+node bin/pdd.js promo roi --by plan|sku|channel [--since YYYY-MM-DD] [--page 1] [--size 50] [--include-inactive]  # ROI 统计
 ```
 
 ### 🩺 诊断 diagnose
 
 ```bash
-node bin/pdd.js diagnose shop [--compare] [--days 7]   # 总分（4 维度加权）
+node bin/pdd.js diagnose shop [--compare] [--days 7]   # 四维数据汇总与数值环比
 node bin/pdd.js diagnose orders                        # 订单维度（P95/退款/堆积）
 node bin/pdd.js diagnose inventory                     # 库存维度（缺货/低库存）
 node bin/pdd.js diagnose promo                         # 推广维度（ROI/CTR）
 node bin/pdd.js diagnose funnel [--days 30]            # 漏斗维度（退款率/履约率）
 ```
 
-### 🎯 运营动作 action
-
-```bash
-node bin/pdd.js action plan --days 7 [--compare] --limit 10 --break-even 1.0 [--no-promo] [--no-segment]
-# 综合诊断/推广ROI/商品分层，产出优先级运营动作清单
-```
+这些查询不生成经营建议、健康评分、商品等级或推广优劣分类。`action plan` 和 `--break-even` 已移除。诊断的 `full` / `partial` 只表示数据完整性，不代表经营好坏；缺失数值保留为 `null`，不能当成零。环比不把当前库存和待发货快照当成历史数据。
 
 ### 🏬 店铺 shops
 
@@ -198,13 +192,11 @@ node bin/pdd.js init              # 登录
 node bin/pdd.js doctor            # 确认环境就绪
 ```
 
-**每日运营诊断闭环：**
+**店铺数据查询：**
 ```bash
-node bin/pdd.js diagnose shop --compare --json   # 看总分与环比
-node bin/pdd.js action plan --json               # 拿优先级动作清单
-# 按清单执行，如低库存补货：
-node bin/pdd.js goods stock --json               # 定位缺货商品
-node bin/pdd.js goods update stock --goods-id <id> --quantity 100 --confirm --json
+node bin/pdd.js diagnose shop --compare --json   # 查看指标与环比
+node bin/pdd.js goods segment --json             # 查看销量与库存
+node bin/pdd.js promo roi --json                 # 查看推广投入和产出
 ```
 
 **从竞品链接上货：**

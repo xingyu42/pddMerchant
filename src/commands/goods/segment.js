@@ -15,7 +15,6 @@ export const run = withCommand({
       days = 30,
       size = 50,
       maxPages = 10,
-      breakEven = 1.0,
       promo: usePromo = true,
     } = ctx.config;
     const page = ctx.page;
@@ -38,7 +37,7 @@ export const run = withCommand({
           if (report?.entities?.length > 0) {
             promoRoi = analyzePromoRoi(
               { entities: report.entities, totals: report.totals ?? {} },
-              { by: 'sku', breakEvenRoi: breakEven },
+              { by: 'sku' },
             );
           }
         } catch (err) {
@@ -58,7 +57,7 @@ export const run = withCommand({
           truncated: ordersResult.truncated,
           ratelimited: ordersResult.ratelimited,
         },
-        { windowDays: days, breakEvenRoi: breakEven },
+        { windowDays: days },
       );
 
       const { warnings: resultWarnings, ...data } = result;

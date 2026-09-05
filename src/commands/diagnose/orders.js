@@ -1,7 +1,7 @@
 import { withCommand } from '../_runner.js';
 import { collectOrdersInput } from '../../services/diagnose/collectors.js';
 import { renderSingleDashboard } from './_render.js';
-import { scoreOrdersHealth } from '../../services/diagnose/index.js';
+import { summarizeOrders } from '../../services/diagnose/index.js';
 
 export const run = withCommand({
   name: 'diagnose.orders',
@@ -11,8 +11,7 @@ export const run = withCommand({
   async run(ctx) {
     const mallId = ctx.mallCtx?.activeId ?? null;
     const input = await collectOrdersInput(ctx.page, { ...ctx, mallId });
-    // both stats+list missing without throw → partial score
-    return scoreOrdersHealth(input || {});
+    return summarizeOrders(input || {});
   },
 });
 

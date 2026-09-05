@@ -72,7 +72,7 @@ export const run = withCommand({
     const current = currentResult.status === 'fulfilled' ? currentResult.value : null;
     const previous = previousResult.status === 'fulfilled' ? previousResult.value : null;
 
-    if (!current) return { score: null, status: 'partial', dimensions: {}, issues: [], hints: [] };
+    if (!current) return diagnoseShop();
 
     const comparison = compareShopDiagnosis({ current, previous });
 
@@ -81,7 +81,7 @@ export const run = withCommand({
       compare: {
         current_window: windows.current,
         previous_window: windows.previous,
-        status: previous ? 'full' : 'partial',
+        status: current.status === 'full' && previous?.status === 'full' ? 'full' : 'partial',
         ...comparison,
       },
     };

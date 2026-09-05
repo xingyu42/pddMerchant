@@ -1,41 +1,15 @@
-import { scoreOrdersHealth } from './orders-health.js';
-import { scoreInventoryHealth } from './inventory-health.js';
-import { scorePromoHealth } from './promo-health.js';
-import { scoreFunnelHealth } from './funnel-health.js';
-
-const WEIGHTS = Object.freeze({
-  orders: 0.35,
-  inventory: 0.20,
-  promo: 0.30,
-  funnel: 0.15,
-});
-
-function shopStatusFromScore(score) {
-  if (score == null) return 'partial';
-  if (score >= 80) return 'green';
-  if (score >= 50) return 'yellow';
-  return 'red';
-}
+import { summarizeOrders } from './orders-health.js';
+import { summarizeInventory } from './inventory-health.js';
+import { summarizePromo } from './promo-health.js';
+import { summarizeFunnel } from './funnel-health.js';
 
 export function diagnoseShop({ orders, goods, promo, funnel } = {}) {
-  const dimensions = {};
-  if (orders !== undefined) dimensions.orders = scoreOrdersHealth(orders);
-  if (goods !== undefined) dimensions.inventory = scoreInventoryHealth(goods);
-  if (promo !== undefined) dimensions.promo = scorePromoHealth(promo);
-  if (funnel !== undefined) dimensions.funnel = scoreFunnelHealth(funnel);
-
-  let weightedSum = 0;
-  let weightUsed = 0;
-  for (const [name, dim] of Object.entries(dimensions)) {
-    if (typeof dim.score === 'number' && dim.status !== 'partial') {
-      const w = WEIGHTS[name] ?? 0;
-      weightedSum += dim.score * w;
-      weightUsed += w;
-    }
-  }
-
-  const shopScore = weightUsed > 0 ? Math.round(weightedSum / weightUsed) : null;
-  const shopStatus = shopStatusFromScore(shopScore);
+  const dimensions = {
+    orders: summarizeOrders(orders ?? {}),
+    inventory: summarizeInventory(goods ?? {}),
+    promo: summarizePromo(promo ?? {}),
+    funnel: summarizeFunnel(funnel ?? {}),
+  };
 
   const issues = [];
   const hints = [];
@@ -45,19 +19,16 @@ export function diagnoseShop({ orders, goods, promo, funnel } = {}) {
   }
 
   return {
-    score: shopScore,
-    status: shopStatus,
+    status: Object.values(dimensions).every((dim) => dim.status === 'full') ? 'full' : 'partial',
     dimensions,
     issues,
     hints,
-    weight_used: Number(weightUsed.toFixed(2)),
   };
 }
 
 export {
-  scoreOrdersHealth,
-  scoreInventoryHealth,
-  scorePromoHealth,
-  scoreFunnelHealth,
-  WEIGHTS,
+  summarizeOrders,
+  summarizeInventory,
+  summarizePromo,
+  summarizeFunnel,
 };

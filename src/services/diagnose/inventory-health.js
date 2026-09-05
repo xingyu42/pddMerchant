@@ -1,18 +1,6 @@
 const STALE_SAMPLE_LIMIT = 10;
 const LOW_STOCK_THRESHOLD = 10;
 
-function clampScore(n) {
-  if (!Number.isFinite(n)) return null;
-  return Math.max(0, Math.min(100, Math.round(n)));
-}
-
-function statusFromScore(score) {
-  if (score == null) return 'partial';
-  if (score >= 80) return 'green';
-  if (score >= 50) return 'yellow';
-  return 'red';
-}
-
 export function normalizeGoodsName(name) {
   return String(name ?? '').trim().normalize('NFKC');
 }
@@ -104,9 +92,9 @@ function staleSkipDetail(reason) {
 }
 
 function staleSkipHint(reason) {
-  if (reason === 'truncated') return '30 天订单量超出扫描上限 (500 条)，已跳过滞销分析；stock-level alert 仍有效';
-  if (reason === 'ratelimited') return '滞销分析因限流中断已跳过';
-  return '未提供 30 天订单数据，跳过滞销分析';
+  if (reason === 'truncated') return '30 天订单量超出扫描上限 (500 条)，已跳过零销量统计';
+  if (reason === 'ratelimited') return '零销量统计因订单采集限流而跳过';
+  return '未提供 30 天订单数据，跳过零销量统计';
 }
 
 function computeStale(orders30d, goodsItems) {
@@ -158,7 +146,7 @@ function computeStale(orders30d, goodsItems) {
   };
 }
 
-export function scoreInventoryHealth({
+export function summarizeInventory({
   goods,
   orders30d,
   truncated = false,
@@ -177,9 +165,8 @@ export function scoreInventoryHealth({
     orders_truncated: truncated,
     orders_ratelimited: ratelimited,
   };
-  if (!Array.isArray(goods) || goods.length === 0) {
+  if (!Array.isArray(goods)) {
     return {
-      score: null,
       status: 'partial',
       issues: ['无商品数据'],
       hints: ['执行 pdd goods list'],
@@ -199,43 +186,24 @@ export function scoreInventoryHealth({
     else if (qty < LOW_STOCK_THRESHOLD) lowStock += 1;
   }
 
-  const outRate = outOfStock / total;
-  const lowOrOutRate = (outOfStock + lowStock) / total;
-  let score = 100;
-
-  if (outRate > 0.05) {
-    score -= 40;
-    issues.push(`${outOfStock} 商品缺货（${(outRate * 100).toFixed(1)}%）`);
-    hints.push('补货或下架缺货商品');
-  } else if (outOfStock > 0) {
-    score -= 10;
-    issues.push(`${outOfStock} 商品缺货`);
-    hints.push('及时补货');
-  }
-
-  if (lowOrOutRate > 0.30) {
-    score -= 30;
-    issues.push(`${outOfStock + lowStock} 商品低库存（${(lowOrOutRate * 100).toFixed(1)}%，>30%）`);
-    hints.push('设置库存预警阈值');
-  } else if (lowOrOutRate > 0.10) {
-    score -= 15;
-    issues.push(`${outOfStock + lowStock} 商品低库存（${(lowOrOutRate * 100).toFixed(1)}%）`);
-  }
+  const outRate = total > 0 ? Number((outOfStock / total).toFixed(4)) : null;
+  const lowOrOutRate = total > 0 ? Number(((outOfStock + lowStock) / total).toFixed(4)) : null;
 
   const detail = {
     data_quality: dataQuality,
     total,
     out_of_stock: outOfStock,
     low_stock: lowStock,
-    out_of_stock_rate: Number(outRate.toFixed(4)),
-    low_or_out_rate: Number(lowOrOutRate.toFixed(4)),
+    low_stock_threshold: LOW_STOCK_THRESHOLD,
+    out_of_stock_rate: outRate,
+    low_or_out_rate: lowOrOutRate,
   };
 
   if (Number.isFinite(goodsTotal) && goodsTotal > total) {
     detail.total_reported = goodsTotal;
     hints.push(`当前仅分析前 ${total} 件商品（共 ${goodsTotal} 件），统计可能不完整`);
   }
-  if (goodsIncomplete) hints.push('商品扫描不完整，库存评分仅代表已采样本');
+  if (goodsIncomplete) hints.push('商品扫描不完整，库存统计仅代表已采样本');
 
   const ordersProvided = Array.isArray(orders30d);
   const skipReason = ratelimited
@@ -254,29 +222,13 @@ export function scoreInventoryHealth({
     const stale = computeStale(orders30d, goodsItems);
     Object.assign(detail, stale);
 
-    if (stale.stale_count > 0) {
-      const staleRate = stale.stale_count / total;
-      if (staleRate > 0.30) {
-        score -= 30;
-        issues.push(`${stale.stale_count} 商品疑似滞销（${(staleRate * 100).toFixed(1)}%，>30%）`);
-        hints.push('考虑下架或降价滞销商品');
-      } else if (staleRate > 0.10) {
-        score -= 15;
-        issues.push(`${stale.stale_count} 商品疑似滞销（${(staleRate * 100).toFixed(1)}%）`);
-      } else {
-        score -= 5;
-        issues.push(`${stale.stale_count} 商品疑似滞销`);
-      }
-    }
     if (stale.ambiguous_groups.length > 0) {
-      hints.push(`${stale.ambiguous_groups.length} 组商品因重名无法判断滞销，已排除`);
+      hints.push(`${stale.ambiguous_groups.length} 组商品因重名无法唯一匹配，已排除零销量统计`);
     }
   }
 
-  const finalScore = clampScore(score);
   return {
-    score: finalScore,
-    status: goodsIncomplete ? 'partial' : statusFromScore(finalScore),
+    status: goodsIncomplete || skipReason ? 'partial' : 'full',
     issues,
     hints,
     detail,

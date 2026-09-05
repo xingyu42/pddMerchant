@@ -18,58 +18,33 @@ export function compareShopDiagnosis(input = {}) {
   const { current, previous } = input;
   if (!current) return null;
 
-  const currentScore = current.score;
-  const previousScore = previous?.score ?? null;
-
-  const scoreDelta = (currentScore != null && previousScore != null)
-    ? currentScore - previousScore
-    : null;
-  const scoreDeltaPct = (currentScore != null && previousScore != null)
-    ? deltaPct(currentScore, previousScore)
-    : null;
-
   const dimNames = ['orders', 'inventory', 'promo', 'funnel'];
   const dimensions = {};
-  const regressions = [];
-  const improvements = [];
 
   for (const name of dimNames) {
     const curDim = current.dimensions?.[name];
     const prevDim = previous?.dimensions?.[name];
-    const curScore = curDim?.score ?? null;
-
-    if (name === 'inventory') {
-      dimensions[name] = {
-        current: curScore,
-        previous: null,
-        delta: null,
-        delta_pct: null,
-        note: 'current_snapshot_only',
+    const metrics = {};
+    const keys = new Set([...Object.keys(curDim?.detail ?? {}), ...Object.keys(prevDim?.detail ?? {})]);
+    for (const key of keys) {
+      if (key === 'window_days' || key === 'low_stock_threshold') continue;
+      const curValue = curDim?.detail?.[key];
+      const prevValue = prevDim?.detail?.[key];
+      if (!Number.isFinite(curValue) && !Number.isFinite(prevValue)) continue;
+      // These endpoints expose current snapshots, not historical values.
+      const snapshot = name === 'inventory' || (name === 'orders' && ['unship', 'delay'].includes(key));
+      const currentValue = Number.isFinite(curValue) ? curValue : null;
+      const previousValue = !snapshot && Number.isFinite(prevValue) ? prevValue : null;
+      const comparable = currentValue != null && previousValue != null;
+      metrics[key] = {
+        current: currentValue,
+        previous: previousValue,
+        delta: comparable ? Number((currentValue - previousValue).toFixed(4)) : null,
+        delta_pct: comparable ? deltaPct(currentValue, previousValue) : null,
+        ...(snapshot ? { note: 'current_snapshot_only' } : {}),
       };
-      continue;
     }
-
-    const prevScore = prevDim?.score ?? null;
-    const delta = (curScore != null && prevScore != null) ? curScore - prevScore : null;
-    const dPct = (curScore != null && prevScore != null) ? deltaPct(curScore, prevScore) : null;
-
-    dimensions[name] = { current: curScore, previous: prevScore, delta, delta_pct: dPct };
-
-    if (delta != null && delta < 0) {
-      regressions.push({ dimension: name, delta, delta_pct: dPct });
-    } else if (delta != null && delta > 0) {
-      improvements.push({ dimension: name, delta, delta_pct: dPct });
-    }
+    dimensions[name] = { metrics };
   }
-
-  regressions.sort((a, b) => a.delta - b.delta);
-  improvements.sort((a, b) => b.delta - a.delta);
-
-  return {
-    score_delta: scoreDelta,
-    score_delta_pct: scoreDeltaPct,
-    dimensions,
-    regressions,
-    improvements,
-  };
+  return { dimensions };
 }

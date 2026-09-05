@@ -22,7 +22,7 @@ Linux 部署方需自行准备 Debian/Ubuntu 所需的 Chromium 运行库。系�
 
 - **AI-friendly envelope**：`{ok, command, data, error, meta}` + 8 个退出码
 - **多店铺/多账号**：`--mall <id>` / `--account <slug>` / `--consumer-account <ref>` / `--all-accounts`
-- **店铺健康诊断**：`diagnose shop` 四维加权 + 运营动作清单
+- **店铺数据统计**：`diagnose shop` 汇总订单、库存、推广和漏斗数据，支持数值环比
 - **从链接上货**：`goods publish --url <链接>` 一键抓取发布
 - **Auth 自动续期**：`daemon start` 后台刷新，防并发 file lock
 - **无头扫码**：`init --qr` 终端二维码 + PNG
@@ -53,7 +53,6 @@ src/infra/           envelope/errors/logger/timeouts
 | **goods update** | `status` / `price` / `stock` / `title` / `batch`（需 `--confirm`） |
 | **promo** | `roi`（`search` / `scene` 已合并废弃） |
 | **diagnose** | `shop` / `orders` / `inventory` / `promo` / `funnel` |
-| **action** | `plan` |
 | **shops** | `list` / `current` |
 | **config** | `show` / `set <key> <value>` / `unset <key>` / `validate` |
 | **account** | `add` / `list` / `default` / `remove` |
@@ -67,6 +66,8 @@ src/infra/           envelope/errors/logger/timeouts
 `--consumer-account` 接受消费者账号的昵称、手机号或存储 slug；解析到注册表后，实际登录态仍按 slug 归档。
 
 详细参数见 `pdd <command> --help` 或 [SKILL.md](skills/pdd-cli/SKILL.md)。
+
+`goods segment`、`promo roi` 和 `diagnose` 只提供事实统计与数据完整性提示，不生成经营建议、健康评分、商品等级或推广优劣分类。`action plan` 和 `--break-even` 已移除；依赖旧输出字段的脚本需要调整。
 
 ---
 

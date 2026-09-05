@@ -2,40 +2,6 @@ import { normalizeGoodsName, extractItems, buildGoodsKey } from './diagnose/inve
 
 const EPSILON = 0.001;
 
-const TIER_CONFIG = Object.freeze({
-  A: { min: 75, label: '主推款', action: 'main_push', hint: '集中预算、评价、活动资源' },
-  B: { min: 50, label: '潜力款', action: 'test_optimize', hint: '测图、测价、测人群' },
-  C: { min: 25, label: '引流款', action: 'traffic_observe', hint: '控制利润底线，承担拉新角色' },
-  D: { min: 0, label: '清仓/下架款', action: 'clearance', hint: '降价、合并、下架、清库存' },
-});
-
-function percentileRank(values, value) {
-  if (values.length === 0) return 0;
-  let below = 0;
-  for (const v of values) if (v < value) below += 1;
-  return Math.round((below / values.length) * 100);
-}
-
-function stockScore(stockDays) {
-  if (stockDays <= 45) return 100;
-  if (stockDays <= 90) return 50;
-  return 0;
-}
-
-function promoScore(promoRoi, breakEvenRoi) {
-  if (promoRoi == null) return 0;
-  if (promoRoi >= breakEvenRoi) return 100;
-  if (promoRoi > 0) return 50;
-  return 0;
-}
-
-function assignTier(composite) {
-  if (composite >= 75) return 'A';
-  if (composite >= 50) return 'B';
-  if (composite >= 25) return 'C';
-  return 'D';
-}
-
 function readGoodsId(raw) {
   const id = raw?.goods_id ?? raw?.goodsId;
   if (typeof id === 'number' && Number.isFinite(id) && id > 0) return String(id);
@@ -65,7 +31,7 @@ function detectMatchedBy(strategy, orderItems, goodsItems) {
 export function segmentGoods(input, options = {}) {
   const { goods = [], orders30d = [], promoRoi = null, truncated = false, ratelimited = false } = input;
   const { goodsScanTruncated = false, goodsScanRateLimited = false, goodsTotal } = input;
-  const { windowDays = 30, breakEvenRoi = 1.0 } = options;
+  const { windowDays = 30 } = options;
   const goodsIncomplete = goodsScanTruncated || goodsScanRateLimited
     || (Number.isFinite(goodsTotal) && goodsTotal > goods.length);
   const ordersIncomplete = truncated || ratelimited || !Array.isArray(input.orders30d);
@@ -77,12 +43,11 @@ export function segmentGoods(input, options = {}) {
   };
 
   const warnings = [];
-  if (incomplete) warnings.push('采集不完整，已省略依赖完整销量或排名的建议');
+  if (incomplete) warnings.push('采集不完整，统计仅反映已采集数据');
   if (goods.length === 0) {
     return {
       level: 'goods',
       window_days: windowDays,
-      tiers: { A: { count: 0, label: '主推款' }, B: { count: 0, label: '潜力款' }, C: { count: 0, label: '引流款' }, D: { count: 0, label: '清仓/下架款' } },
       items: [],
       summary: { total_goods: 0, matched_by: null, ambiguous_groups: 0, data_completeness: incomplete ? 'partial' : 'empty', data_quality: dataQuality },
       warnings,
@@ -130,7 +95,7 @@ export function segmentGoods(input, options = {}) {
   for (const [key, bucket] of nameBuckets) {
     if (bucket.length > 1 && key.startsWith('name:')) {
       ambiguousCount += 1;
-      warnings.push(`重名商品 "${key.slice(5)}" (${bucket.length} 个) 已排除分层`);
+      warnings.push(`重名商品 "${key.slice(5)}" (${bucket.length} 个) 无法唯一匹配，已排除统计`);
       continue;
     }
     for (const g of bucket) {
@@ -147,59 +112,19 @@ export function segmentGoods(input, options = {}) {
     }
   }
 
-  const allSales = eligibleGoods.map((g) => g.units_sold_30d);
   const items = [];
 
   for (const g of eligibleGoods) {
-    const salesRank = percentileRank(allSales, g.units_sold_30d);
-    const sScore = stockScore(g.stock_days === Infinity ? 999 : g.stock_days);
-    const pScore = promoScore(g.promo_roi, breakEvenRoi);
-    const composite = Math.round(salesRank * 0.50 + sScore * 0.30 + pScore * 0.20);
-    const clamped = Math.max(0, Math.min(100, composite));
-
-    let tier = assignTier(clamped);
-    let action = TIER_CONFIG[tier].action;
-    let actionHint = TIER_CONFIG[tier].hint;
-
-    if (g.quantity === 0 && g.units_sold_30d > 0) {
-      if (tier === 'C' || tier === 'D') tier = 'B';
-      action = 'restock';
-      actionHint = '断货中但有销量，优先补货';
-    } else if (g.units_sold_30d === 0 && g.quantity > 0) {
-      tier = 'D';
-      action = 'clearance';
-      actionHint = '零销量有库存，降价或下架';
-    }
-    if (incomplete) {
-      tier = null;
-      if (action !== 'restock') {
-        action = null;
-        actionHint = '数据不完整，暂不生成分层建议';
-      }
-    }
-
     items.push({
       goods_id: g.goods_id,
       goods_name: g.raw_name || g.goods_name,
-      tier,
-      composite_score: incomplete ? null : clamped,
-      sales_rank: incomplete ? null : salesRank,
       units_sold_30d: ordersIncomplete ? null : g.units_sold_30d,
       observed_units_sold: g.units_sold_30d,
       quantity: g.quantity,
       stock_days: ordersIncomplete || g.stock_days === Infinity ? null : Math.round(g.stock_days),
-      stock_score: ordersIncomplete ? null : sScore,
       promo_roi: g.promo_roi,
-      promo_score: pScore,
-      action,
-      action_hint: actionHint,
     });
   }
-
-  items.sort((a, b) => b.composite_score - a.composite_score);
-
-  const tiers = { A: { count: 0, label: '主推款' }, B: { count: 0, label: '潜力款' }, C: { count: 0, label: '引流款' }, D: { count: 0, label: '清仓/下架款' } };
-  for (const item of items) if (item.tier) tiers[item.tier].count += 1;
 
   let completeness = 'full';
   if (goodsIncomplete && ordersIncomplete) completeness = 'partial_goods_orders';
@@ -211,7 +136,6 @@ export function segmentGoods(input, options = {}) {
   return {
     level: 'goods',
     window_days: windowDays,
-    tiers,
     items,
     summary: {
       total_goods: items.length,
@@ -219,7 +143,6 @@ export function segmentGoods(input, options = {}) {
       ambiguous_groups: ambiguousCount,
       data_completeness: completeness,
       data_quality: dataQuality,
-      unclassified_count: items.filter((item) => item.tier == null).length,
     },
     warnings,
   };

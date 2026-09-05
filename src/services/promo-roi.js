@@ -1,15 +1,5 @@
 import { getPromoReport } from './promo.js';
 
-function classifyRow(spend, gmv, breakEvenRoi) {
-  if (spend === 0 || spend == null) return { roi: null, status: 'no_spend' };
-  if (gmv === 0) return { roi: 0, status: 'critical_waste' };
-  const actualRoi = gmv / spend;
-  const roi = Number(actualRoi.toFixed(2));
-  if (actualRoi >= Math.max(2.0, breakEvenRoi)) return { roi, status: 'scale' };
-  if (actualRoi >= breakEvenRoi) return { roi, status: 'optimize' };
-  return { roi, status: 'waste' };
-}
-
 function isInactive(entity) {
   return Boolean(entity.isDeleted || entity.planDeleted || entity.adDeleted);
 }
@@ -37,7 +27,6 @@ export function analyzePromoRoi(input, options = {}) {
   const { entities = [], totals = {} } = input;
   const {
     by = 'plan',
-    breakEvenRoi = 1.0,
     includeInactive = false,
   } = options;
 
@@ -80,26 +69,16 @@ export function analyzePromoRoi(input, options = {}) {
   }
 
   const rows = [];
-  let wasteCount = 0;
-  let wasteSpend = 0;
-  let scaleCount = 0;
-  let optimizeCount = 0;
   let totalSpend = 0;
   let totalGmv = 0;
 
   for (const row of grouped.values()) {
-    const { roi, status } = classifyRow(row.spend, row.gmv, breakEvenRoi);
+    const roi = row.spend > 0 ? Number((row.gmv / row.spend).toFixed(2)) : null;
     const ctr = row.impression > 0 ? Number((row.click / row.impression).toFixed(4)) : 0;
-    rows.push({ ...row, ctr, roi, status });
+    rows.push({ ...row, ctr, roi });
 
     totalSpend += row.spend;
     totalGmv += row.gmv;
-    if (status === 'waste' || status === 'critical_waste') {
-      wasteCount += 1;
-      wasteSpend += row.spend;
-    }
-    if (status === 'scale') scaleCount += 1;
-    if (status === 'optimize') optimizeCount += 1;
   }
 
   rows.sort((a, b) => (b.roi ?? -1) - (a.roi ?? -1));
@@ -108,16 +87,11 @@ export function analyzePromoRoi(input, options = {}) {
 
   return {
     by,
-    break_even_roi: breakEvenRoi,
     rows,
     summary: {
       total_rows: rows.length,
       excluded_inactive: excludedCount,
       excluded_inactive_spend: excludedSpend,
-      waste_count: wasteCount,
-      waste_spend: wasteSpend,
-      scale_count: scaleCount,
-      optimize_count: optimizeCount,
       total_spend: totalSpend,
       total_gmv: totalGmv,
       overall_roi: overallRoi,
@@ -140,7 +114,6 @@ export async function getPromoRoi(page, params = {}, ctx = {}) {
     { entities: report?.entities ?? [], totals: report?.totals ?? {} },
     {
       by: params.by ?? 'plan',
-      breakEvenRoi: params.breakEven ?? 1.0,
       includeInactive: params.includeInactive ?? false,
     },
   );

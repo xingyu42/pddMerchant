@@ -7,12 +7,11 @@ export function register(program, wireAction) {
   wireAction(
     promo
       .command('roi')
-      .description('推广 ROI 诊断（按计划/商品/渠道维度）')
+      .description('推广 ROI 统计（按计划/商品/渠道维度）')
       .option('--by <dimension>', '分组维度 plan|sku|channel', 'plan')
       .option('--since <date>', '起始日期 YYYY-MM-DD')
       .option('--page <n>', '页码', (v) => Number(v), 1)
       .option('--size <n>', '每页数量', (v) => Number(v), 50)
-      .option('--break-even <n>', '保本 ROI 阈值', (v) => Number(v), 1.0)
       .option('--include-inactive', '包含已删除/暂停计划'),
     'promo.roi',
     roi.run

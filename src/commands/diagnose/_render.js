@@ -1,51 +1,26 @@
-// diagnose 渲染层（design D-6 · R4）：render-only 助手与两个 dashboard 渲染器。
-// 纯度约束：仅 import chalk / cli-table3，禁止 import shop.js/_runner/services（防注册期环依赖）。
+// Render factual measurements and availability; no operating assessments.
 import chalk from 'chalk';
 import Table from 'cli-table3';
 
-const ICON = {
-  green: '\u{1F7E2}',
-  yellow: '\u{1F7E1}',
-  red: '\u{1F534}',
-  partial: '⚪',
-};
-
-const COLOR_FN = {
-  green: 'green',
-  yellow: 'yellow',
-  red: 'red',
-  partial: 'gray',
-};
-
-function colorize(text, statusKey, useColor) {
-  if (!useColor) return text;
-  const fn = chalk[COLOR_FN[statusKey]];
-  return typeof fn === 'function' ? fn(text) : text;
-}
-
-function scoreBar(score, width = 10) {
-  if (typeof score !== 'number') return '░'.repeat(width);
-  const clamped = Math.max(0, Math.min(100, score));
-  const filled = Math.round((clamped / 100) * width);
-  return '█'.repeat(filled) + '░'.repeat(width - filled);
-}
-
-function scoreText(score) {
-  if (typeof score !== 'number') return ' --/100';
-  return `${String(score).padStart(3, ' ')}/100`;
-}
-
-function statusOf(dim) {
-  return dim?.status ?? 'partial';
-}
-
 function renderHeader(title, diag, useColor) {
-  const status = statusOf(diag);
-  const icon = ICON[status];
-  const score = colorize(scoreText(diag.score), status, useColor);
-  const bar = colorize(scoreBar(diag.score), status, useColor);
-  const prefix = useColor ? chalk.bold(`诊断·${title}`) : `诊断·${title}`;
-  return `${icon}  ${prefix}  ${score}  ${bar}`;
+  const label = diag?.status === 'full' ? '数据可用' : '数据不完整';
+  const text = `统计·${title} [${label}]`;
+  return useColor ? chalk.bold(text) : text;
+}
+
+function formatValue(value) {
+  if (value == null) return '--';
+  return typeof value === 'object' ? JSON.stringify(value) : String(value);
+}
+
+function renderDetails(detail, useColor) {
+  if (!detail || Object.keys(detail).length === 0) return '';
+  const table = new Table({
+    head: ['指标', '数值'],
+    style: useColor ? undefined : { head: [], border: [] },
+  });
+  for (const [key, value] of Object.entries(detail)) table.push([key, formatValue(value)]);
+  return table.toString();
 }
 
 function renderIssues(issues, useColor) {
@@ -76,6 +51,8 @@ export function renderSingleDashboard(envelope, { useColor }) {
   const diag = envelope.data;
   const title = String(envelope.command).replace(/^diagnose\./, '');
   const lines = [renderHeader(title, diag, useColor)];
+  const details = renderDetails(diag?.detail, useColor);
+  if (details) lines.push('', details);
   const issueLines = renderIssues(diag?.issues, useColor);
   if (issueLines.length > 0) lines.push('', ...issueLines);
   const hintLines = renderHints(diag?.hints, useColor);
@@ -86,29 +63,33 @@ export function renderSingleDashboard(envelope, { useColor }) {
 export function renderShopDashboard(envelope, { useColor }) {
   const diag = envelope.data;
   const lines = [renderHeader('shop', diag, useColor)];
-  const table = new Table({
-    head: ['维度', '状态', '分数', '分数条'],
-    style: useColor ? undefined : { head: [], border: [] },
-  });
   const DIMS = ['orders', 'inventory', 'promo', 'funnel'];
   for (const name of DIMS) {
     const sub = diag?.dimensions?.[name];
-    if (!sub) {
-      table.push([name, '–', '--/100', '░'.repeat(10)]);
-      continue;
-    }
-    const s = statusOf(sub);
-    table.push([
-      name,
-      ICON[s],
-      colorize(scoreText(sub.score), s, useColor),
-      colorize(scoreBar(sub.score), s, useColor),
-    ]);
+    lines.push('', renderHeader(name, sub, useColor));
+    const details = renderDetails(sub?.detail, useColor);
+    if (details) lines.push(details);
   }
-  lines.push(table.toString());
+  if (diag?.compare) lines.push('', renderComparison(diag.compare, useColor));
   const issueLines = renderIssues(diag?.issues, useColor);
   if (issueLines.length > 0) lines.push('', ...issueLines);
   const hintLines = renderHints(diag?.hints, useColor);
   if (hintLines.length > 0) lines.push('', ...hintLines);
   return lines.join('\n');
+}
+
+function renderComparison(comparison, useColor) {
+  const table = new Table({
+    head: ['指标', '当前', '上期', '变化', '变化 %', '说明'],
+    style: useColor ? undefined : { head: [], border: [] },
+  });
+  for (const [dimension, value] of Object.entries(comparison.dimensions ?? {})) {
+    for (const [metric, values] of Object.entries(value.metrics ?? {})) {
+      table.push([
+        `${dimension}.${metric}`, formatValue(values.current), formatValue(values.previous),
+        formatValue(values.delta), formatValue(values.delta_pct), values.note ?? '',
+      ]);
+    }
+  }
+  return `数值环比\n${table.toString()}`;
 }

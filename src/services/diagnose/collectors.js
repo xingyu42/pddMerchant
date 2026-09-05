@@ -59,7 +59,7 @@ export async function collectGoodsInput(page, ctx) {
     truncated = stale.truncated;
     ratelimited = stale.ratelimited;
   } catch (err) {
-    // optional enrichment for stale-stock scoring; inventory health tolerates null orders30d
+    // Missing order enrichment remains unknown, not zero sales.
     log.debug({ err: err?.message }, 'diagnose: stale-order enrichment failed');
   }
   return { goods, goodsTotal, goodsScanTruncated, goodsScanRateLimited, orders30d, truncated, ratelimited };

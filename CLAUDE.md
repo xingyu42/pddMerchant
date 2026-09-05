@@ -26,7 +26,7 @@ bin/pdd.js               CLI entry (signal/fatal handlers, global options, wireA
 src/commands/            Command handlers — thin wrappers around withCommand()
 src/commands/registry/   Domain registrars `register(program, wireAction)` — adding a command touches only the command file + its registrar
 src/commands/runner/     withCommand internals (envelope-finalizer / fixture-runtime / single-lifecycle / batch-executor); _runner.js is a facade
-src/services/            Domain logic (orders, goods, promo, diagnose, promo-roi, goods-segmentation, action-plan)
+src/services/            Domain logic (orders, goods, promo, diagnose, promo-roi, goods-segmentation); factual reporting without operating advice or scores
 src/adapter/             Playwright integration, XHR interception, auth, mall context
 src/adapter/fixtures/    Mock-mode providers (core.js owns the single fixture cache); mock-dispatcher.js is a facade
 src/infra/               Cross-cutting: envelope, errors, logger, timeouts, abort
