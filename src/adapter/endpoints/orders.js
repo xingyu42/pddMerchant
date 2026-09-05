@@ -1,15 +1,5 @@
 import { readBusinessError } from '../run-endpoint.js';
-import { ExitCodes, PddCliError } from '../../infra/errors.js';
-
-function responseShapeError(endpoint, expected) {
-  return new PddCliError({
-    code: 'E_NETWORK',
-    message: `${endpoint}: unexpected response shape`,
-    hint: `平台响应缺少 ${expected}；已停止处理，不能将缺失字段解释为真实业务 0`,
-    detail: { endpoint, expected },
-    exitCode: ExitCodes.NETWORK,
-  });
-}
+import { ExitCodes, responseShapeError } from '../../infra/errors.js';
 
 function readListResult(raw) {
   const result = raw?.result;

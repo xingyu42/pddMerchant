@@ -13,5 +13,5 @@ export function mockRefreshAuth() {
   if (process.env[ENV_AUTH_INVALID] === '1') {
     return { success: false, reason: 'auth_expired', qrPngPath: null };
   }
-  return { success: true, reason: 'refreshed' };
+  return { success: true, reason: 'auth_valid' };
 }

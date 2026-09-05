@@ -3,9 +3,10 @@ import { getPromoReport } from './promo.js';
 function classifyRow(spend, gmv, breakEvenRoi) {
   if (spend === 0 || spend == null) return { roi: null, status: 'no_spend' };
   if (gmv === 0) return { roi: 0, status: 'critical_waste' };
-  const roi = Number((gmv / spend).toFixed(2));
-  if (roi >= 2.0) return { roi, status: 'scale' };
-  if (roi >= breakEvenRoi) return { roi, status: 'optimize' };
+  const actualRoi = gmv / spend;
+  const roi = Number(actualRoi.toFixed(2));
+  if (actualRoi >= Math.max(2.0, breakEvenRoi)) return { roi, status: 'scale' };
+  if (actualRoi >= breakEvenRoi) return { roi, status: 'optimize' };
   return { roi, status: 'waste' };
 }
 

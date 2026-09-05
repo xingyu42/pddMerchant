@@ -164,14 +164,26 @@ export function scoreInventoryHealth({
   truncated = false,
   ratelimited = false,
   goodsTotal,
+  goodsScanTruncated = false,
+  goodsScanRateLimited = false,
 } = {}) {
+  const goodsIncomplete = goodsScanTruncated || goodsScanRateLimited
+    || (Number.isFinite(goodsTotal) && goodsTotal > (goods?.length ?? 0));
+  const dataQuality = {
+    goods_complete: Array.isArray(goods) && !goodsIncomplete,
+    orders_complete: Array.isArray(orders30d) && !truncated && !ratelimited,
+    goods_truncated: goodsScanTruncated,
+    goods_ratelimited: goodsScanRateLimited,
+    orders_truncated: truncated,
+    orders_ratelimited: ratelimited,
+  };
   if (!Array.isArray(goods) || goods.length === 0) {
     return {
       score: null,
       status: 'partial',
       issues: ['无商品数据'],
       hints: ['执行 pdd goods list'],
-      detail: {},
+      detail: { data_quality: dataQuality },
     };
   }
 
@@ -211,6 +223,7 @@ export function scoreInventoryHealth({
   }
 
   const detail = {
+    data_quality: dataQuality,
     total,
     out_of_stock: outOfStock,
     low_stock: lowStock,
@@ -222,6 +235,7 @@ export function scoreInventoryHealth({
     detail.total_reported = goodsTotal;
     hints.push(`当前仅分析前 ${total} 件商品（共 ${goodsTotal} 件），统计可能不完整`);
   }
+  if (goodsIncomplete) hints.push('商品扫描不完整，库存评分仅代表已采样本');
 
   const ordersProvided = Array.isArray(orders30d);
   const skipReason = ratelimited
@@ -262,7 +276,7 @@ export function scoreInventoryHealth({
   const finalScore = clampScore(score);
   return {
     score: finalScore,
-    status: statusFromScore(finalScore),
+    status: goodsIncomplete ? 'partial' : statusFromScore(finalScore),
     issues,
     hints,
     detail,

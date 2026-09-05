@@ -2,6 +2,25 @@ import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { generateActionPlan } from '../src/services/action-plan.js';
 
+test('legacy partial segmentation cannot generate clearance actions', () => {
+  const result = generateActionPlan({ segmentation: {
+    summary: { data_completeness: 'partial_orders' },
+    items: [{ tier: 'D', goods_id: '1', quantity: 100, action: 'clearance' }],
+  } });
+  assert.deepEqual(result.actions, []);
+  assert.equal(result.data_completeness.segmentation, true);
+  assert.equal(result.data_quality.segmentation.status, 'partial_orders');
+  assert.ok(result.warnings.length > 0);
+});
+
+test.each([null, 'D'])('partial segmentation permits only independently supported restock (%s)', (tier) => {
+  const result = generateActionPlan({ segmentation: {
+    summary: { data_quality: { orders_complete: false, goods_complete: true } },
+    items: [{ tier, goods_id: '1', quantity: 0, observed_units_sold: 2, action: 'restock' }],
+  } });
+  assert.equal(result.actions[0].action, 'restock');
+});
+
 // ---------- Priority sorting ----------
 
 test('generateActionPlan: actions sorted by priority_score descending', () => {

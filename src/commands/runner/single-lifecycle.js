@@ -23,15 +23,22 @@ import { finalizeSuccess, finalizeError } from './envelope-finalizer.js';
 
 function anySignal(signals) {
   const filtered = signals.filter(Boolean);
-  if (filtered.length === 0) return null;
-  if (filtered.length === 1) return filtered[0];
-  if (typeof AbortSignal.any === 'function') return AbortSignal.any(filtered);
+  const noop = () => {};
+  if (filtered.length === 0) return { signal: null, dispose: noop };
+  if (filtered.length === 1) return { signal: filtered[0], dispose: noop };
+  if (typeof AbortSignal.any === 'function') return { signal: AbortSignal.any(filtered), dispose: noop };
   const controller = new AbortController();
+  const listeners = [];
+  const dispose = () => {
+    for (const [source, listener] of listeners) source.removeEventListener('abort', listener);
+  };
   for (const s of filtered) {
-    if (s.aborted) { controller.abort(s.reason); return controller.signal; }
-    s.addEventListener('abort', () => controller.abort(s.reason), { once: true });
+    if (s.aborted) { controller.abort(s.reason); dispose(); break; }
+    const listener = () => { controller.abort(s.reason); dispose(); };
+    listeners.push([s, listener]);
+    s.addEventListener('abort', listener, { once: true });
   }
-  return controller.signal;
+  return { signal: controller.signal, dispose };
 }
 
 async function resolveAccount(opts, needsAuth, warnings) {
@@ -50,9 +57,10 @@ function armDeadline(opts, parentSignal, startedAt) {
     abortController = new AbortController();
     deadlineTimer = setTimeout(() => abortController.abort(), opts.timeoutMs);
   }
-  const signal = anySignal([parentSignal, abortController?.signal]);
+  const { signal, dispose } = anySignal([parentSignal, abortController?.signal]);
   return {
     signal,
+    dispose,
     deadlineTimer,
     deadlineAt: signal ? startedAt + (opts.timeoutMs ?? Infinity) : null,
   };
@@ -142,8 +150,6 @@ async function executeLiveOperation(spec, runtime) {
   });
 }
 
-// 非 async 包装：promise 在创建时即返回调用方（executeSingle 的 finally 随之执行），
-// 与拆分前 `return withBrowser(...)` 的 deadlineTimer 清理时序一致。
 function executeLive(spec, runtime) {
   return executeLiveOperation(spec, runtime).catch((err) => finalizeError(spec, runtime, err));
 }
@@ -165,7 +171,7 @@ export async function executeSingle(spec, opts = {}, {
     : getLogger();
 
   const accountCtx = await resolveAccount(opts, needsAuth, warnings);
-  const { signal, deadlineTimer, deadlineAt } = armDeadline(opts, parentSignal, startedAt);
+  const { signal, deadlineTimer, deadlineAt, dispose } = armDeadline(opts, parentSignal, startedAt);
 
   const runtime = {
     opts,
@@ -188,10 +194,11 @@ export async function executeSingle(spec, opts = {}, {
       warnings.push('unused_flag_mall');
     }
 
-    // fixture 在 try 内完整 await（deadlineTimer 全程武装）；live 维持不 await 的原时序
+    // Both branches must settle before the deadline timer is disposed.
     if (isMockEnabled()) return await executeFixture(normSpec, runtime);
-    return executeLive(normSpec, runtime);
+    return await executeLive(normSpec, runtime);
   } finally {
     if (deadlineTimer) clearTimeout(deadlineTimer);
+    dispose();
   }
 }

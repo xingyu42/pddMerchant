@@ -1,40 +1,12 @@
 import { existsSync } from 'node:fs';
-import { evaluateInMainWorld, withBrowser } from './browser.js';
-import { isAuthValid, saveAuthState } from './auth-state.js';
+import { withBrowser } from './browser.js';
+import { saveAuthState } from './auth-state.js';
+import { observeMerchantLogin, isMerchantLoginUrl } from './auth-observer.js';
 import { captureQrElement, saveQrPng } from './qr-login.js';
 import { acquireLock, releaseLock } from '../infra/auth-lock.js';
 import { isMockEnabled } from './mock-dispatcher.js';
 import { getLogger } from '../infra/logger.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
-
-const HEARTBEAT_URL = 'https://mms.pinduoduo.com/janus/api/informSeller/queryInformSellerTabList';
-
-function isLoginUrl(value) {
-  try {
-    return new URL(value).pathname.startsWith('/login');
-  } catch {
-    return false;
-  }
-}
-
-async function heartbeat(page) {
-  const result = await evaluateInMainWorld(page, async (url) => {
-    try {
-      const resp = await fetch(url, { credentials: 'include' });
-      return {
-        status: resp.status,
-        ok: resp.ok,
-        redirected: resp.redirected,
-        url: resp.url,
-      };
-    } catch (e) {
-      return { status: 0, ok: false, redirected: false, url: '', error: e.message };
-    }
-  }, HEARTBEAT_URL);
-  if (result.redirected || isLoginUrl(result.url)) return false;
-  if (result.status === 401 || result.status === 403) return false;
-  return result.ok && result.status >= 200 && result.status < 300;
-}
 
 export async function refreshAuth({ authStatePath, log, signal } = {}) {
   log = log ?? getLogger();
@@ -70,35 +42,32 @@ export async function refreshAuth({ authStatePath, log, signal } = {}) {
         return { success: false, reason: 'aborted' };
       }
 
-      await page.goto('https://mms.pinduoduo.com/home', {
-        waitUntil: 'domcontentloaded',
-        timeout: TIMEOUTS.AUTH_REFRESH,
-      });
+      const observer = observeMerchantLogin(page, { signal, timeoutMs: TIMEOUTS.AUTH_REFRESH });
+      let outcome;
+      try {
+        await page.goto('https://mms.pinduoduo.com/home', {
+          waitUntil: 'domcontentloaded', timeout: TIMEOUTS.AUTH_REFRESH,
+        });
+        outcome = isMerchantLoginUrl(page.url())
+          ? { success: false, reason: 'auth_expired' }
+          : await observer.result;
+      } catch {
+        outcome = { success: false, reason: isMerchantLoginUrl(page.url()) ? 'auth_expired' : 'auth_check_inconclusive' };
+      } finally {
+        observer.dispose();
+      }
 
       if (signal?.aborted) {
         return { success: false, reason: 'aborted' };
       }
 
-      const alive = !isLoginUrl(page.url()) && await heartbeat(page);
-
-      if (alive) {
+      if (outcome.success) {
         await saveAuthState(context, authStatePath, { skipLock: true });
-        log.info('auth-refresher: heartbeat ok, cookies saved');
-        return { success: true, reason: 'refreshed' };
+        log.info('auth-refresher: login valid, state saved');
+        return outcome;
       }
 
-      log.debug('auth-refresher: heartbeat failed, falling back to full validation');
-      const valid = await isAuthValid(page, { timeoutMs: TIMEOUTS.AUTH_REFRESH });
-
-      if (signal?.aborted) {
-        return { success: false, reason: 'aborted' };
-      }
-
-      if (valid) {
-        await saveAuthState(context, authStatePath, { skipLock: true });
-        log.info('auth-refresher: full validation ok, cookies saved');
-        return { success: true, reason: 'refreshed' };
-      }
+      if (outcome.reason !== 'auth_expired') return outcome;
 
       log.warn('auth-refresher: auth expired, attempting QR capture');
       try {

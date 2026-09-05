@@ -36,6 +36,16 @@ export function mapErrorToExit(err) {
   return ExitCodes.GENERAL;
 }
 
+export function responseShapeError(endpoint, expected) {
+  return new PddCliError({
+    code: 'E_NETWORK',
+    message: `${endpoint}: unexpected response shape`,
+    hint: `平台响应缺少或包含无效 ${expected}；不能将缺失字段解释为真实业务 0`,
+    detail: { endpoint, expected },
+    exitCode: ExitCodes.NETWORK,
+  });
+}
+
 export function accountNotFound(slug) {
   return new PddCliError({
     code: 'E_ACCOUNT_NOT_FOUND',

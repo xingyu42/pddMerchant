@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { readFile, writeFile, unlink, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -51,7 +52,18 @@ async function readState() {
   }
 }
 
-function spawnDaemonProcess() {
+function hasLivePid(state) {
+  return Number.isSafeInteger(state?.pid) && state.pid > 0 && isPidAlive(state.pid);
+}
+
+function isRunningState(state) {
+  return hasLivePid(state) && state.status === 'running'
+    && typeof (state.tokenFingerprint || state.token) === 'string'
+    && Boolean(state.tokenFingerprint || state.token);
+}
+
+function spawnDaemonProcess(startupAttempt) {
+  const env = { ...process.env, PDD_DAEMON_STARTUP_ATTEMPT: startupAttempt };
   if (platform() === 'win32') {
     const nodeBin = process.execPath.replace(/\\/g, '\\\\');
     const daemonBin = DAEMON_BIN.replace(/\\/g, '\\\\');
@@ -59,30 +71,35 @@ function spawnDaemonProcess() {
     const child = spawn('powershell.exe', ['-NoProfile', '-Command', psCmd], {
       windowsHide: true,
       stdio: 'ignore',
+      env,
     });
+    child.once('error', () => {}); // The bounded state confirmation reports failed launches.
     child.unref();
     return child.pid;
   }
   const child = spawn(process.execPath, [DAEMON_BIN], {
     detached: true,
     stdio: 'ignore',
+    env,
   });
+  child.once('error', () => {});
   child.unref();
   return child.pid;
 }
 
 export async function ensureDaemonRunning() {
   const state = await readState();
-  if (state && typeof state.pid === 'number' && isPidAlive(state.pid)) {
+  if (isRunningState(state)) {
     return { started: false, pid: state.pid };
   }
+  if (hasLivePid(state)) return { started: false, confirmed: false };
 
   const acquired = await acquireStartLock();
   if (!acquired) {
     for (let i = 0; i < 25; i++) {
       await new Promise((r) => setTimeout(r, 200));
       const s = await readState();
-      if (s && s.status === 'running' && isPidAlive(s.pid)) {
+      if (isRunningState(s)) {
         return { started: false, pid: s.pid };
       }
     }
@@ -91,16 +108,18 @@ export async function ensureDaemonRunning() {
 
   try {
     const recheck = await readState();
-    if (recheck && typeof recheck.pid === 'number' && isPidAlive(recheck.pid)) {
+    if (isRunningState(recheck)) {
       return { started: false, pid: recheck.pid };
     }
+    if (hasLivePid(recheck)) return { started: false, confirmed: false };
 
     await mkdir(dirname(DAEMON_STATE_PATH), { recursive: true });
-    const childPid = spawnDaemonProcess();
+    const startupAttempt = randomUUID();
+    const childPid = spawnDaemonProcess(startupAttempt);
     for (let i = 0; i < 25; i++) {
       await new Promise((r) => setTimeout(r, 200));
       const s = await readState();
-      if (s && s.status === 'running') {
+      if (isRunningState(s) && s.startupAttempt === startupAttempt) {
         return { started: true, pid: s.pid ?? childPid };
       }
     }

@@ -27,7 +27,7 @@ export function diagnoseShop({ orders, goods, promo, funnel } = {}) {
   let weightedSum = 0;
   let weightUsed = 0;
   for (const [name, dim] of Object.entries(dimensions)) {
-    if (typeof dim.score === 'number') {
+    if (typeof dim.score === 'number' && dim.status !== 'partial') {
       const w = WEIGHTS[name] ?? 0;
       weightedSum += dim.score * w;
       weightUsed += w;

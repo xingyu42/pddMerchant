@@ -2,6 +2,14 @@ import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { analyzePromoRoi } from '../src/services/promo-roi.js';
 
+test('expansion respects break-even above 2 and unrounded ROI', () => {
+  for (const gmv of [250, 299.9]) {
+    const result = analyzePromoRoi({ entities: [{ planId: 1, spend: 100, gmv }] }, { breakEvenRoi: 3 });
+    assert.equal(result.rows[0].status, 'waste');
+  }
+  assert.equal(analyzePromoRoi({ entities: [{ planId: 1, spend: 100, gmv: 300 }] }, { breakEvenRoi: 3 }).rows[0].status, 'scale');
+});
+
 // ---------- Grouping: plan ----------
 
 test('analyzePromoRoi: by=plan groups by planId:adId', () => {

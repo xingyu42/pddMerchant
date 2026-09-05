@@ -1,7 +1,7 @@
 import { afterEach, describe, it, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -28,21 +28,24 @@ function captureStdout() {
   };
 }
 
-async function importDaemonCommand({ statePath, pidAlive = false, ensureResult } = {}) {
+async function importDaemonCommand({ statePath, pidAlive = false, ensureResult, terminate = () => {} } = {}) {
   vi.resetModules();
   vi.doMock('../src/infra/paths.js', () => ({
     DAEMON_STATE_PATH: statePath,
   }));
   vi.doMock('../src/infra/process-util.js', () => ({
-    isPidAlive: () => pidAlive,
+    isPidAlive: () => typeof pidAlive === 'function' ? pidAlive() : pidAlive,
   }));
   vi.doMock('../src/infra/daemon-launcher.js', () => ({
     ensureDaemonRunning: async () => ensureResult ?? { started: false, pid: 12345 },
   }));
+  vi.doMock('node:os', () => ({ platform: () => 'win32' }));
+  vi.doMock('node:child_process', () => ({ execSync: terminate }));
   return import('../src/commands/daemon.js');
 }
 
 afterEach(async () => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.resetModules();
   while (tempRoots.length > 0) {
@@ -52,6 +55,38 @@ afterEach(async () => {
 });
 
 describe('daemon command lifecycle invariants', () => {
+  it('preserves state and reports failure when termination is denied', async () => {
+    const statePath = await tempStatePath();
+    await writeFile(statePath, JSON.stringify({ pid: 12345, tokenFingerprint: 'test' }));
+    const daemon = await importDaemonCommand({
+      statePath, pidAlive: true, terminate: () => { throw new Error('denied'); },
+    });
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback) => { queueMicrotask(callback); return 0; });
+    const restore = captureStdout();
+    try {
+      const result = await daemon.stop({ json: true });
+      assert.equal(result.ok, false);
+      assert.equal(result.error.code, 'E_DAEMON_STOP_FAILED');
+      assert.equal(result.data.stopped, false);
+      assert.equal(existsSync(statePath), true);
+    } finally { restore(); }
+  });
+
+  it('preserves a replacement state after the old process stops', async () => {
+    const statePath = await tempStatePath();
+    await writeFile(statePath, JSON.stringify({ pid: 12345, tokenFingerprint: 'old' }));
+    let alive = true;
+    const daemon = await importDaemonCommand({ statePath, pidAlive: () => alive, terminate: () => {
+      alive = false;
+      writeFileSync(statePath, JSON.stringify({ pid: 54321, tokenFingerprint: 'new' }));
+    } });
+    const restore = captureStdout();
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback) => { queueMicrotask(callback); return 0; });
+    try {
+      assert.equal((await daemon.stop({ json: true })).data.stopped, true);
+      assert.equal(existsSync(statePath), true);
+    } finally { restore(); }
+  });
   it('daemon status cleans stale state and keeps --json stdout to one envelope line', async () => {
     const statePath = await tempStatePath();
     await writeFile(statePath, JSON.stringify({

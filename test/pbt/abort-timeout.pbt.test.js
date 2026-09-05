@@ -1,9 +1,15 @@
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
+import { getEventListeners } from 'node:events';
 import { throwIfAborted, remainingMs, abortableSleep, timeoutError } from '../../src/infra/abort.js';
 
 describe('Abort / Timeout PBT', () => {
+  it('removes its abort listener after a successful wait', async () => {
+    const controller = new AbortController();
+    await abortableSleep(1, controller.signal);
+    assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+  });
   it('PROP-AT-1: throwIfAborted does nothing when signal is null/undefined', () => {
     fc.assert(
       fc.property(fc.constant(null), () => {

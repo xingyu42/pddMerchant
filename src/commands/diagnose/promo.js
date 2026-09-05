@@ -10,7 +10,7 @@ export const run = withCommand({
   render: renderSingleDashboard,
   async run(ctx) {
     const mallId = ctx.mallCtx?.activeId ?? null;
-    const input = await collectPromoInput(ctx.page, { mallId });
+    const input = await collectPromoInput(ctx.page, { ...ctx, mallId });
     return scorePromoHealth(input);
   },
 });

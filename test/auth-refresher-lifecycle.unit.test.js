@@ -1,210 +1,130 @@
-import { afterEach, describe, it, vi } from 'vitest';
+import { afterEach, beforeEach, it, vi } from 'vitest';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { EventEmitter, getEventListeners } from 'node:events';
+import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-const tempRoots = [];
-
-async function tempAuthPath() {
-  const root = await mkdtemp(join(tmpdir(), 'pdd-auth-refresher-'));
-  tempRoots.push(root);
-  return join(root, 'auth-state.json');
-}
-
-async function importRefreshAuthWithLockFailure() {
-  vi.resetModules();
-  vi.doMock('../src/infra/auth-lock.js', () => ({
-    acquireLock: async () => {
-      throw new Error('lock busy');
-    },
-    releaseLock: async () => true,
-  }));
-  vi.doMock('../src/adapter/browser.js', () => ({
-    evaluateInMainWorld: (page, pageFunction, arg) => page.evaluate(pageFunction, arg, false),
-    withBrowser: async () => {
-      throw new Error('browser must not be launched when lock acquisition fails');
-    },
-  }));
-  return import('../src/adapter/auth-refresher.js');
-}
-
-async function importRefreshAuthWithRuntime({
-  heartbeatResult,
-  pageUrl = 'https://mms.pinduoduo.com/home',
-  fullValidation = false,
-}) {
-  vi.resetModules();
-  const saveAuthState = vi.fn(async () => '/tmp/auth-state.json');
-  const isAuthValid = vi.fn(async () => fullValidation);
-  const evaluateInMainWorld = vi.fn(async () => heartbeatResult);
-
-  vi.doMock('../src/infra/auth-lock.js', () => ({
-    acquireLock: async () => ({ token: 'test-lock' }),
-    releaseLock: async () => true,
-  }));
-  vi.doMock('../src/adapter/browser.js', () => ({
-    evaluateInMainWorld,
-    withBrowser: async (_options, fn) => fn({
-      context: { storageState: async () => ({ cookies: [], origins: [] }) },
-      page: {
-        goto: async () => {},
-        url: () => pageUrl,
-      },
-    }),
-  }));
-  vi.doMock('../src/adapter/auth-state.js', () => ({
-    isAuthValid,
-    saveAuthState,
-  }));
-  vi.doMock('../src/adapter/qr-login.js', () => ({
-    captureQrElement: async () => { throw new Error('qr unavailable'); },
-    saveQrPng: async () => '/tmp/qr.png',
-  }));
-
+const runtime = vi.hoisted(() => ({
+  page: null, save: vi.fn(async () => {}), capture: vi.fn(async () => { throw new Error('no QR'); }),
+  acquire: vi.fn(async () => ({ token: 'test' })), release: vi.fn(async () => {}),
+}));
+vi.mock('../src/adapter/mock-dispatcher.js', () => ({ isMockEnabled: () => false }));
+vi.mock('../src/adapter/browser.js', () => ({ withBrowser: async (_opts, fn) => fn({ context: {}, page: runtime.page }) }));
+vi.mock('../src/adapter/auth-state.js', () => ({ saveAuthState: runtime.save }));
+vi.mock('../src/infra/auth-lock.js', () => ({ acquireLock: runtime.acquire, releaseLock: runtime.release }));
+vi.mock('../src/adapter/qr-login.js', () => ({ captureQrElement: runtime.capture, saveQrPng: async () => '' }));
+vi.mock('../src/infra/timeouts.js', () => ({ TIMEOUTS: { AUTH_REFRESH: 100, QR_CAPTURE: 100 } }));
+const { refreshAuth } = await import('../src/adapter/auth-refresher.js');
+const log = { debug() {}, info() {}, warn() {}, error() {} };
+let root;
+let authStatePath;
+function response(login, { status = 200, method = 'POST', url = 'https://mms.pinduoduo.com/janus/api/checkLogin', malformed = false } = {}) {
   return {
-    authRefresher: await import('../src/adapter/auth-refresher.js'),
-    evaluateInMainWorld,
-    isAuthValid,
-    saveAuthState,
+    url: () => url, status: () => status, request: () => ({ method: () => method }),
+    json: async () => {
+      if (malformed) throw new Error('invalid JSON');
+      return { success: false, errorCode: 1000000, result: { login } };
+    },
   };
 }
-
-afterEach(async () => {
-  vi.restoreAllMocks();
-  vi.resetModules();
-  while (tempRoots.length > 0) {
-    const root = tempRoots.pop();
-    await rm(root, { recursive: true, force: true });
-  }
+function pageWith(navigate) {
+  const page = new EventEmitter();
+  page.url = () => 'https://mms.pinduoduo.com/home';
+  page.mainFrame = () => page;
+  page.goto = async () => {
+    assert.equal(page.listenerCount('response'), 1);
+    await navigate(page);
+  };
+  return page;
+}
+beforeEach(async () => {
+  root = await mkdtemp(join(tmpdir(), 'pdd-refresh-test-'));
+  authStatePath = join(root, 'auth.json');
+  await writeFile(authStatePath, '{"cookies":[],"origins":[]}');
+  vi.clearAllMocks();
 });
-
-describe('auth refresher lifecycle invariants', () => {
-  it('does not overwrite existing auth-state when lock acquisition fails', async () => {
-    const authStatePath = await tempAuthPath();
-    const originalState = JSON.stringify({
-      cookies: [{ name: 'sid', value: 'keep-me', domain: '.example.test', path: '/' }],
-      origins: [],
-    }, null, 2);
-    await writeFile(authStatePath, originalState);
-
-    const { refreshAuth } = await importRefreshAuthWithLockFailure();
-    const result = await refreshAuth({
-      authStatePath,
-      log: {
-        warn() {},
-        error() {},
-        info() {},
-        debug() {},
-      },
-    });
-
-    assert.equal(result.success, false);
-    assert.equal(result.reason, 'lock_timeout');
-    assert.equal(await readFile(authStatePath, 'utf8'), originalState);
+afterEach(async () => { vi.useRealTimers(); await rm(root, { recursive: true, force: true }); });
+async function run(navigate) {
+  runtime.page = pageWith(navigate);
+  const result = await refreshAuth({ authStatePath, log });
+  assert.equal(runtime.page.listenerCount('response'), 0);
+  assert.equal(runtime.page.listenerCount('framenavigated'), 0);
+  assert.equal(runtime.release.mock.calls.length, 1);
+  return result;
+}
+it.each([true, false])('uses boolean login=%s regardless of outer success code', async (login) => {
+  const result = await run((page) => page.emit('response', response(login)));
+  assert.equal(result.reason, login ? 'auth_valid' : 'auth_expired');
+  assert.equal(runtime.save.mock.calls.length, login ? 1 : 0);
+});
+it.each([[undefined, {}], ['true', {}], [true, { status: 403 }], [true, { malformed: true }]])('preserves inconclusive state (%s, %j)', async (login, options) => {
+  const result = await run((page) => page.emit('response', response(login, options)));
+  assert.equal(result.reason, 'auth_check_inconclusive');
+  assert.equal(runtime.save.mock.calls.length, 0);
+  assert.equal(runtime.capture.mock.calls.length, 0);
+  assert.equal(await readFile(authStatePath, 'utf8'), '{"cookies":[],"origins":[]}');
+});
+it('ignores unrelated host, path and method responses', async () => {
+  const result = await run((page) => {
+    page.emit('response', response(false, { method: 'GET' }));
+    page.emit('response', response(false, { url: 'https://example.test/janus/api/checkLogin' }));
+    page.emit('response', response(false, { url: 'https://mms.pinduoduo.com/other' }));
+    page.emit('response', response(true));
   });
-
-  it('does not treat a followed login redirect with final 200 as heartbeat success', async () => {
-    const authStatePath = await tempAuthPath();
-    await writeFile(authStatePath, '{"cookies":[],"origins":[]}');
-    const runtime = await importRefreshAuthWithRuntime({
-      heartbeatResult: {
-        status: 200,
-        ok: true,
-        redirected: true,
-        url: 'https://mms.pinduoduo.com/login/?redirectUrl=%2Fhome',
-      },
-      fullValidation: false,
-    });
-
-    const result = await runtime.authRefresher.refreshAuth({ authStatePath });
-
-    assert.equal(result.success, false);
-    assert.equal(result.reason, 'auth_expired');
-    assert.equal(runtime.isAuthValid.mock.calls.length, 1);
-    assert.equal(runtime.saveAuthState.mock.calls.length, 0);
+  assert.equal(result.reason, 'auth_valid');
+});
+it('times out without saving or requesting QR', async () => {
+  vi.useFakeTimers();
+  const pending = run(() => {});
+  await vi.advanceTimersByTimeAsync(101);
+  assert.equal((await pending).reason, 'auth_check_inconclusive');
+  assert.equal(vi.getTimerCount(), 0);
+  assert.equal(runtime.save.mock.calls.length, 0);
+  assert.equal(runtime.capture.mock.calls.length, 0);
+});
+it.each(['/login/', '/login.html'])('recognizes main-frame %s navigation as expiry', async (path) => {
+  const result = await run((page) => {
+    page.url = () => `https://mms.pinduoduo.com${path}`; page.emit('framenavigated', page);
   });
-
-  it.each([401, 403])('falls back to full validation after heartbeat status %s', async (status) => {
-    const authStatePath = await tempAuthPath();
-    await writeFile(authStatePath, '{"cookies":[],"origins":[]}');
-    const runtime = await importRefreshAuthWithRuntime({
-      heartbeatResult: {
-        status,
-        ok: false,
-        redirected: false,
-        url: 'https://mms.pinduoduo.com/janus/api/informSeller/queryInformSellerTabList',
-      },
-      fullValidation: false,
-    });
-
-    const result = await runtime.authRefresher.refreshAuth({ authStatePath });
-
-    assert.equal(result.success, false);
-    assert.equal(result.reason, 'auth_expired');
-    assert.equal(runtime.isAuthValid.mock.calls.length, 1);
-    assert.equal(runtime.saveAuthState.mock.calls.length, 0);
+  assert.equal(result.reason, 'auth_expired');
+  assert.equal(runtime.save.mock.calls.length, 0);
+});
+it('disposes the observer on navigation failure', async () => {
+  assert.equal((await run(() => { throw new Error('navigation failed'); })).reason, 'auth_check_inconclusive');
+});
+it('does not save after abort', async () => {
+  const controller = new AbortController();
+  runtime.page = pageWith((page) => { page.emit('response', response(true)); controller.abort(); });
+  const result = await refreshAuth({ authStatePath, log, signal: controller.signal });
+  assert.equal(result.reason, 'aborted');
+  assert.equal(runtime.save.mock.calls.length, 0);
+  assert.equal(runtime.page.listenerCount('response'), 0);
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+});
+it('ignores iframe login navigation', async () => {
+  const result = await run((page) => {
+    page.emit('framenavigated', { url: () => 'https://mms.pinduoduo.com/login/' });
+    page.emit('response', response(true));
   });
-
-  it('does not run heartbeat when home navigation already ends on the login page', async () => {
-    const authStatePath = await tempAuthPath();
-    await writeFile(authStatePath, '{"cookies":[],"origins":[]}');
-    const runtime = await importRefreshAuthWithRuntime({
-      heartbeatResult: {
-        status: 200,
-        ok: true,
-        redirected: false,
-        url: 'https://mms.pinduoduo.com/janus/api/informSeller/queryInformSellerTabList',
-      },
-      pageUrl: 'https://mms.pinduoduo.com/login/?redirectUrl=%2Fhome',
-      fullValidation: false,
-    });
-
-    const result = await runtime.authRefresher.refreshAuth({ authStatePath });
-
-    assert.equal(result.success, false);
-    assert.equal(result.reason, 'auth_expired');
-    assert.equal(runtime.evaluateInMainWorld.mock.calls.length, 0);
-    assert.equal(runtime.isAuthValid.mock.calls.length, 1);
-    assert.equal(runtime.saveAuthState.mock.calls.length, 0);
-  });
-
-  it('falls back to full validation and saves cookies when redirected heartbeat is still valid', async () => {
-    const authStatePath = await tempAuthPath();
-    await writeFile(authStatePath, '{"cookies":[],"origins":[]}');
-    const runtime = await importRefreshAuthWithRuntime({
-      heartbeatResult: {
-        status: 200,
-        ok: true,
-        redirected: true,
-        url: 'https://mms.pinduoduo.com/login/?redirectUrl=%2Fhome',
-      },
-      fullValidation: true,
-    });
-
-    const result = await runtime.authRefresher.refreshAuth({ authStatePath });
-
-    assert.deepEqual(result, { success: true, reason: 'refreshed' });
-    assert.equal(runtime.isAuthValid.mock.calls.length, 1);
-    assert.equal(runtime.saveAuthState.mock.calls.length, 1);
-  });
-
-  it('saves cookies directly after a non-redirected successful heartbeat', async () => {
-    const authStatePath = await tempAuthPath();
-    await writeFile(authStatePath, '{"cookies":[],"origins":[]}');
-    const runtime = await importRefreshAuthWithRuntime({
-      heartbeatResult: {
-        status: 200,
-        ok: true,
-        redirected: false,
-        url: 'https://mms.pinduoduo.com/janus/api/informSeller/queryInformSellerTabList',
-      },
-    });
-
-    const result = await runtime.authRefresher.refreshAuth({ authStatePath });
-
-    assert.deepEqual(result, { success: true, reason: 'refreshed' });
-    assert.equal(runtime.isAuthValid.mock.calls.length, 0);
-    assert.equal(runtime.saveAuthState.mock.calls.length, 1);
-  });
+  assert.equal(result.reason, 'auth_valid');
+});
+it('ignores a body that resolves after the observation deadline', async () => {
+  vi.useFakeTimers();
+  let finishBody;
+  const pending = run((page) => page.emit('response', {
+    ...response(true), json: () => new Promise((resolve) => { finishBody = resolve; }),
+  }));
+  await vi.advanceTimersByTimeAsync(101);
+  assert.equal((await pending).reason, 'auth_check_inconclusive');
+  finishBody({ result: { login: true } });
+  await Promise.resolve();
+  assert.equal(runtime.save.mock.calls.length, 0);
+});
+it('preserves state when locking fails', async () => {
+  runtime.acquire.mockRejectedValueOnce(new Error('busy'));
+  assert.equal((await refreshAuth({ authStatePath, log })).reason, 'lock_timeout');
+  assert.equal(runtime.save.mock.calls.length, 0);
+  assert.equal(runtime.release.mock.calls.length, 0);
+  assert.equal(await readFile(authStatePath, 'utf8'), '{"cookies":[],"origins":[]}');
 });

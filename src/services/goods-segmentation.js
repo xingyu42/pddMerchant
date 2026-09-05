@@ -64,16 +64,27 @@ function detectMatchedBy(strategy, orderItems, goodsItems) {
 
 export function segmentGoods(input, options = {}) {
   const { goods = [], orders30d = [], promoRoi = null, truncated = false, ratelimited = false } = input;
+  const { goodsScanTruncated = false, goodsScanRateLimited = false, goodsTotal } = input;
   const { windowDays = 30, breakEvenRoi = 1.0 } = options;
+  const goodsIncomplete = goodsScanTruncated || goodsScanRateLimited
+    || (Number.isFinite(goodsTotal) && goodsTotal > goods.length);
+  const ordersIncomplete = truncated || ratelimited || !Array.isArray(input.orders30d);
+  const incomplete = goodsIncomplete || ordersIncomplete;
+  const dataQuality = {
+    goods_complete: !goodsIncomplete, orders_complete: !ordersIncomplete,
+    goods_truncated: goodsScanTruncated, goods_ratelimited: goodsScanRateLimited,
+    orders_truncated: truncated, orders_ratelimited: ratelimited,
+  };
 
   const warnings = [];
+  if (incomplete) warnings.push('采集不完整，已省略依赖完整销量或排名的建议');
   if (goods.length === 0) {
     return {
       level: 'goods',
       window_days: windowDays,
       tiers: { A: { count: 0, label: '主推款' }, B: { count: 0, label: '潜力款' }, C: { count: 0, label: '引流款' }, D: { count: 0, label: '清仓/下架款' } },
       items: [],
-      summary: { total_goods: 0, matched_by: null, ambiguous_groups: 0, data_completeness: 'empty' },
+      summary: { total_goods: 0, matched_by: null, ambiguous_groups: 0, data_completeness: incomplete ? 'partial' : 'empty', data_quality: dataQuality },
       warnings,
     };
   }
@@ -86,7 +97,7 @@ export function segmentGoods(input, options = {}) {
     sku_group_price: g?.sku_group_price ?? g?.skuGroupPrice ?? null,
   }));
 
-  const orderItems = orders30d.flatMap(extractItems);
+  const orderItems = (Array.isArray(orders30d) ? orders30d : []).flatMap(extractItems);
   const strategy = detectStrategy(orderItems, goodsItems);
   const matchedBy = detectMatchedBy(strategy, orderItems, goodsItems);
 
@@ -159,17 +170,25 @@ export function segmentGoods(input, options = {}) {
       action = 'clearance';
       actionHint = '零销量有库存，降价或下架';
     }
+    if (incomplete) {
+      tier = null;
+      if (action !== 'restock') {
+        action = null;
+        actionHint = '数据不完整，暂不生成分层建议';
+      }
+    }
 
     items.push({
       goods_id: g.goods_id,
       goods_name: g.raw_name || g.goods_name,
       tier,
-      composite_score: clamped,
-      sales_rank: salesRank,
-      units_sold_30d: g.units_sold_30d,
+      composite_score: incomplete ? null : clamped,
+      sales_rank: incomplete ? null : salesRank,
+      units_sold_30d: ordersIncomplete ? null : g.units_sold_30d,
+      observed_units_sold: g.units_sold_30d,
       quantity: g.quantity,
-      stock_days: g.stock_days === Infinity ? null : Math.round(g.stock_days),
-      stock_score: sScore,
+      stock_days: ordersIncomplete || g.stock_days === Infinity ? null : Math.round(g.stock_days),
+      stock_score: ordersIncomplete ? null : sScore,
       promo_roi: g.promo_roi,
       promo_score: pScore,
       action,
@@ -180,10 +199,12 @@ export function segmentGoods(input, options = {}) {
   items.sort((a, b) => b.composite_score - a.composite_score);
 
   const tiers = { A: { count: 0, label: '主推款' }, B: { count: 0, label: '潜力款' }, C: { count: 0, label: '引流款' }, D: { count: 0, label: '清仓/下架款' } };
-  for (const item of items) tiers[item.tier].count += 1;
+  for (const item of items) if (item.tier) tiers[item.tier].count += 1;
 
   let completeness = 'full';
-  if (truncated || ratelimited) completeness = 'partial_orders';
+  if (goodsIncomplete && ordersIncomplete) completeness = 'partial_goods_orders';
+  else if (goodsIncomplete) completeness = 'partial_goods';
+  else if (ordersIncomplete) completeness = 'partial_orders';
   else if (orders30d.length === 0) completeness = 'no_orders';
   if (!promoRoi) completeness = completeness === 'full' ? 'no_promo' : completeness;
 
@@ -197,6 +218,8 @@ export function segmentGoods(input, options = {}) {
       matched_by: matchedBy,
       ambiguous_groups: ambiguousCount,
       data_completeness: completeness,
+      data_quality: dataQuality,
+      unclassified_count: items.filter((item) => item.tier == null).length,
     },
     warnings,
   };

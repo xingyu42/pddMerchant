@@ -20,10 +20,15 @@ export function remainingMs(ctx) {
 export function abortableSleep(ms, signal) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(timeoutError());
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => {
+    const onAbort = () => {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
       reject(timeoutError());
-    }, { once: true });
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 }

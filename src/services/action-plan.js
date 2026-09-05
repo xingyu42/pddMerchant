@@ -61,10 +61,20 @@ function addPromoActions(actions, promoRoi) {
   }
 }
 
+function isPartialSegmentation(segmentation) {
+  const quality = segmentation?.summary?.data_quality;
+  return quality?.goods_complete === false || quality?.orders_complete === false
+    || String(segmentation?.summary?.data_completeness ?? '').startsWith('partial');
+}
+
 function addSegmentationActions(actions, segmentation) {
   if (!segmentation?.items) return;
+  const partial = isPartialSegmentation(segmentation);
   for (const item of segmentation.items) {
-    if (item.tier === 'D') {
+    if (partial
+      && !(item.action === 'restock' && item.quantity === 0
+        && (item.observed_units_sold ?? item.units_sold_30d) > 0)) continue;
+    if (item.tier === 'D' && !partial) {
       actions.push({
         dimension: 'segmentation',
         action: 'clearance',
@@ -131,7 +141,7 @@ function addDiagnosisActions(actions, diagnosis) {
     }
   }
   const invDim = diagnosis.dimensions.inventory;
-  if (invDim?.detail?.out_of_stock_rate > 0.05) {
+  if (invDim?.detail?.data_quality?.goods_complete !== false && invDim?.detail?.out_of_stock_rate > 0.05) {
     actions.push({
       dimension: 'inventory',
       action: 'restock_or_delist',
@@ -199,6 +209,13 @@ export function generateActionPlan(input = {}, options = {}) {
       segmentation: segmentation != null,
       trend_compare: compare != null,
     },
+    data_quality: {
+      inventory: diagnosis?.dimensions?.inventory?.detail?.data_quality ?? null,
+      segmentation: segmentation?.summary?.data_quality ?? (segmentation ? {
+        status: segmentation.summary?.data_completeness ?? 'unknown',
+      } : null),
+    },
+    warnings: isPartialSegmentation(segmentation) ? ['segmentation_incomplete_recommendations_omitted'] : [],
     generated_at: new Date().toISOString(),
   };
 }

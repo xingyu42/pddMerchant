@@ -64,7 +64,7 @@ export async function stop(opts = {}) {
   const startedAt = Date.now();
 
   const state = await readState();
-  if (!state || typeof state.pid !== 'number') {
+  if (!Number.isSafeInteger(state?.pid) || state.pid <= 0) {
     const envelope = buildEnvelope({
       ok: true,
       command,
@@ -115,10 +115,25 @@ export async function stop(opts = {}) {
     } catch { /* best effort */ }
   }
 
+  for (let i = 0; i < 25 && isPidAlive(pid); i++) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  if (isPidAlive(pid)) {
+    const envelope = buildEnvelope({
+      ok: false,
+      command,
+      data: { pid, stopped: false },
+      error: { code: 'E_DAEMON_STOP_FAILED', message: 'Daemon is still running after termination attempts' },
+      meta: { latency_ms: Date.now() - startedAt, exit_code: ExitCodes.GENERAL },
+    });
+    emit(envelope, { json: opts.json, noColor: opts.noColor });
+    return envelope;
+  }
+
   const stateId = state.tokenFingerprint || state.token;
   const freshState = await readState();
   const freshId = freshState?.tokenFingerprint || freshState?.token;
-  if (freshState && freshId === stateId) {
+  if (freshState && freshState.pid === pid && freshId === stateId) {
     await cleanStaleState();
   }
 

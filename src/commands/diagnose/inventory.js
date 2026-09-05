@@ -10,7 +10,7 @@ export const run = withCommand({
   render: renderSingleDashboard,
   async run(ctx) {
     const mallId = ctx.mallCtx?.activeId ?? null;
-    const input = await collectGoodsInput(ctx.page, { mallId });
+    const input = await collectGoodsInput(ctx.page, { ...ctx, mallId });
     // empty shop / no goods → collectors return undefined → partial score
     return scoreInventoryHealth(input || {});
   },

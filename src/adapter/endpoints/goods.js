@@ -1,4 +1,10 @@
 import { evaluateInMainWorld } from '../browser.js';
+import { responseShapeError } from '../../infra/errors.js';
+
+function isCount(value) {
+  return (typeof value === 'number' || (typeof value === 'string' && value.trim() !== ''))
+    && Number.isFinite(Number(value)) && Number(value) >= 0;
+}
 
 export const GOODS_LIST = {
   name: 'goods.list',
@@ -20,21 +26,30 @@ export const GOODS_LIST = {
     sold_out: 0,
     size: params.size ?? 10,
   }),
-  normalize: (raw) => ({
-    total: raw?.result?.total ?? 0,
-    goods: (raw?.result?.goods_list ?? []).map((g) => ({
-      goods_id: g.goods_id,
-      goods_name: g.goods_name,
-      quantity: g.quantity,
-      sku_price: g.sku_price,
-      sku_group_price: g.sku_group_price,
-      origin_sku_group_price: g.origin_sku_group_price,
-      promotion: g.promotion_goods,
-      mall_id: g.mall_id,
-    })),
-    sessionId: raw?.result?.sessionId,
-    raw,
-  }),
+  normalize: (raw) => {
+    const result = raw?.result;
+    if (!isCount(result?.total) || !Array.isArray(result?.goods_list)) {
+      throw responseShapeError('goods.list', 'result.total/result.goods_list');
+    }
+    if (result.goods_list.some((goods) => !goods || !isCount(goods.quantity))) {
+      throw responseShapeError('goods.list', 'goods_list[].quantity');
+    }
+    return {
+      total: Number(result.total),
+      goods: result.goods_list.map((g) => ({
+        goods_id: g.goods_id,
+        goods_name: g.goods_name,
+        quantity: Number(g.quantity),
+        sku_price: g.sku_price,
+        sku_group_price: g.sku_group_price,
+        origin_sku_group_price: g.origin_sku_group_price,
+        promotion: g.promotion_goods,
+        mall_id: g.mall_id,
+      })),
+      sessionId: result.sessionId,
+      raw,
+    };
+  },
   isSuccess: (raw) => raw?.success === true,
 };
 

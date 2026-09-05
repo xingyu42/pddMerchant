@@ -71,6 +71,9 @@ export const run = withCommand({
           return segmentGoods(
             {
               goods: goodsInput.goods ?? [],
+              goodsTotal: goodsInput.goodsTotal,
+              goodsScanTruncated: goodsInput.goodsScanTruncated,
+              goodsScanRateLimited: goodsInput.goodsScanRateLimited,
               orders30d: ordersResult.orders,
               promoRoi: promoRoi ? { rows: promoRoi.rows.filter((r) => r.goods_id) } : null,
               truncated: ordersResult.truncated,

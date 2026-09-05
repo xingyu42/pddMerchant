@@ -50,6 +50,9 @@ export const run = withCommand({
       const result = segmentGoods(
         {
           goods: goodsResult.goods,
+          goodsTotal: goodsResult.total,
+          goodsScanTruncated: goodsResult.truncated,
+          goodsScanRateLimited: goodsResult.ratelimited,
           orders30d: ordersResult.orders,
           promoRoi,
           truncated: ordersResult.truncated,

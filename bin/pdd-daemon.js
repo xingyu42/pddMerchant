@@ -13,6 +13,7 @@ import { accountAuthStatePath } from '../src/infra/paths.js';
 
 const token = randomUUID();
 const tokenFingerprint = createHash('sha256').update(token).digest('hex').slice(0, 8);
+const startupAttempt = process.env.PDD_DAEMON_STARTUP_ATTEMPT || null;
 let shuttingDown = false;
 let abortController = new AbortController();
 let refreshInProgress = false;
@@ -30,6 +31,7 @@ async function writeDaemonState(extra = {}) {
   const state = {
     pid: process.pid,
     tokenFingerprint,
+    startupAttempt,
     startedAt: startedAt.toISOString(),
     status: 'running',
     lastRefreshAt: null,
@@ -70,7 +72,7 @@ async function refreshSingleAccount(slug, authStatePath, account) {
   if (result.success) {
     accountStates[slug] = {
       lastRefreshAt: new Date().toISOString(),
-      lastResult: 'refreshed',
+      lastResult: result.reason,
       lastLoginAt: accountStates[slug]?.lastLoginAt ?? null,
       failureCount: 0,
     };
@@ -78,7 +80,9 @@ async function refreshSingleAccount(slug, authStatePath, account) {
   }
 
   // Auth refresh failed, encrypted credentials removed (password login no longer supported)
-  log.warn({ slug, reason: result.reason }, 'auth refresh failed, manual re-login required');
+  log.warn({ slug, reason: result.reason }, result.reason === 'auth_expired'
+    ? 'auth expired, manual re-login required'
+    : 'auth refresh not confirmed');
 
   const prev = accountStates[slug] ?? {};
   accountStates[slug] = {

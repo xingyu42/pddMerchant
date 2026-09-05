@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, afterEach, vi } from 'vitest';
 import assert from 'node:assert/strict';
-import { timeoutError } from '../src/infra/abort.js';
+import { getEventListeners } from 'node:events';
+import { timeoutError, abortableSleep } from '../src/infra/abort.js';
 import { ExitCodes } from '../src/infra/errors.js';
 import { TEST_RUNTIME_CONFIG } from './helpers/runtime-config.js';
 
@@ -16,6 +17,11 @@ const liveMocks = vi.hoisted(() => ({
   isAuthValid: vi.fn(async () => true),
   resolveMallContext: vi.fn(async () => ({ activeId: '445301049', activeName: 'probe-mall', malls: [], source: 'probe' })),
   saveAuthStateIfCurrent: vi.fn(async () => ({ saved: true, reason: 'saved' })),
+}));
+
+vi.mock('../src/infra/account-resolver.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  resolveAccountContext: async ({ authStatePath }) => ({ authPath: authStatePath }),
 }));
 
 vi.mock('../src/infra/output.js', async (importOriginal) => ({
@@ -93,6 +99,7 @@ describe('runner contract invariants', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     if (savedAdapter !== undefined) process.env.PDD_TEST_ADAPTER = savedAdapter;
     else delete process.env.PDD_TEST_ADAPTER;
     if (savedAuthInvalid !== undefined) process.env.PDD_TEST_AUTH_INVALID = savedAuthInvalid;
@@ -193,6 +200,41 @@ describe('runner contract invariants', () => {
     assert.equal(liveMocks.closeAll.mock.calls.length, 1);
     assert.equal(outputMock.emit.mock.calls.length, 1);
     assert.deepEqual(outputMock.emit.mock.calls[0][0], envelope);
+  });
+
+  it('cancels live work at its deadline and emits once', async () => {
+    delete process.env.PDD_TEST_ADAPTER;
+    vi.useFakeTimers();
+    const pending = executeSingle(makeSpec({
+      async run(ctx) { await abortableSleep(100, ctx.signal); return { value: 1 }; },
+    }), { timeoutMs: 10 }, { emitResult: true, skipDaemonStart: true });
+    await vi.advanceTimersByTimeAsync(101);
+    const result = await pending;
+    assert.equal(result.error.code, 'E_TIMEOUT');
+    assert.equal(outputMock.emit.mock.calls.length, 1);
+    assert.equal(vi.getTimerCount(), 0);
+  });
+
+  it('cleans a live deadline after success', async () => {
+    delete process.env.PDD_TEST_ADAPTER;
+    vi.useFakeTimers();
+    assert.equal((await executeSingle(makeSpec(), { timeoutMs: 100 }, {
+      emitResult: false, skipDaemonStart: true,
+    })).ok, true);
+    assert.equal(vi.getTimerCount(), 0);
+  });
+
+  it('disposes composed parent-signal listeners on older Node runtimes', async () => {
+    const original = AbortSignal.any;
+    AbortSignal.any = undefined;
+    const controller = new AbortController();
+    try {
+      delete process.env.PDD_TEST_ADAPTER;
+      await executeSingle(makeSpec(), { timeoutMs: 100 }, {
+        emitResult: false, skipDaemonStart: true, parentSignal: controller.signal,
+      });
+      assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+    } finally { AbortSignal.any = original; }
   });
 
   it('persists refreshed auth state after a successful live authenticated command', async () => {

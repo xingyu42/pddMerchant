@@ -20,7 +20,7 @@ export const run = withCommand({
     const maxPages = Math.max(10, Math.ceil(windowDays / 7) * PAGES_PER_WEEK);
     const { orders, truncated } = await collectOrdersForStaleAnalysis(
       ctx.page,
-      { mallId },
+      { ...ctx, mallId },
       { scanDays: windowDays, maxPages, pageSize: STALE_PAGE_SIZE },
     );
     const orderStats = computeOrderStats(orders);

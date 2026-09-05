@@ -10,7 +10,7 @@ export const run = withCommand({
   render: renderSingleDashboard,
   async run(ctx) {
     const mallId = ctx.mallCtx?.activeId ?? null;
-    const input = await collectOrdersInput(ctx.page, { mallId });
+    const input = await collectOrdersInput(ctx.page, { ...ctx, mallId });
     // both stats+list missing without throw → partial score
     return scoreOrdersHealth(input || {});
   },

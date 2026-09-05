@@ -133,7 +133,7 @@ test('PROMO_ENTITY_REPORT.normalize: entityReportList flattened', () => {
             gmv: { unit: 'YUAN', value: '800', unitCode: 1 },
             spend: { unit: 'YUAN', value: '200', unitCode: 1 } } },
       ],
-      totalSumReport: {},
+      totalSumReport: { impression: 300, click: 15, gmv: 1300, spend: 300 },
     },
   };
   const n = PROMO_ENTITY_REPORT.normalize(raw);
@@ -145,13 +145,33 @@ test('PROMO_ENTITY_REPORT.normalize: entityReportList flattened', () => {
   assert.equal(n.entities[1].impression, 200);
 });
 
-test('PROMO_ENTITY_REPORT.normalize: empty result → zeros', () => {
-  const n = PROMO_ENTITY_REPORT.normalize({ result: {} });
+test('PROMO_ENTITY_REPORT.normalize: missing result fields are not zeros', () => {
+  assert.throws(() => PROMO_ENTITY_REPORT.normalize({ result: {} }), (err) => err.code === 'E_NETWORK');
+});
+
+test('PROMO_ENTITY_REPORT.normalize: explicit empty report remains valid', () => {
+  const n = PROMO_ENTITY_REPORT.normalize({ result: {
+    entityReportList: [], totalSumReport: { impression: 0, click: 0, gmv: 0, spend: 0 },
+  } });
   assert.equal(n.impression, 0);
   assert.equal(n.gmv, 0);
   assert.equal(n.spend, 0);
   assert.equal(n.cost, 0);
   assert.deepEqual(n.entities, []);
+});
+
+test('promotion required metrics reject missing and malformed values', () => {
+  for (const invalid of [undefined, null, '', 'invalid', {}, { value: null }, Infinity]) {
+    const totals = { impression: 0, click: 0, gmv: 0, spend: invalid };
+    assert.throws(() => PROMO_ENTITY_REPORT.normalize({ result: { entityReportList: [], totalSumReport: totals } }), (err) => err.code === 'E_NETWORK');
+    assert.throws(() => PROMO_HOURLY_REPORT.normalize({ result: { hourlyPoints: [], sumReport: totals } }), (err) => err.code === 'E_NETWORK');
+  }
+});
+
+test('hourly report requires points but accepts explicit zero totals', () => {
+  const sumReport = { impression: 0, click: 0, gmv: 0, spend: 0 };
+  assert.throws(() => PROMO_HOURLY_REPORT.normalize({ result: { sumReport } }), (err) => err.code === 'E_NETWORK');
+  assert.equal(PROMO_HOURLY_REPORT.normalize({ result: { sumReport, hourlyPoints: [] } }).totals.spend, 0);
 });
 
 test('PROMO_ENTITY_REPORT.isSuccess: result present and not explicitly failed → true', () => {

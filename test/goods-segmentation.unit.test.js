@@ -2,6 +2,29 @@ import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { segmentGoods } from '../src/services/goods-segmentation.js';
 
+test('partial scans retain observations but omit unsupported classifications', () => {
+  for (const flags of [{ ratelimited: true }, { truncated: true }, { goodsScanTruncated: true }, { goodsScanRateLimited: true }, { truncated: true, goodsScanTruncated: true }]) {
+    const result = segmentGoods({ goods: [{ goods_id: 1, goods_name: 'A', quantity: 100 }], orders30d: [], ...flags });
+    assert.equal(result.items[0].action, null);
+    assert.equal(result.items[0].tier, null);
+    assert.equal(result.items[0].composite_score, null);
+    assert.equal(result.items[0].observed_units_sold, 0);
+    assert.ok(result.summary.data_completeness.startsWith('partial'));
+    assert.equal(result.summary.unclassified_count, 1);
+    assert.ok(result.warnings.length > 0);
+  }
+});
+
+test('partial orders retain independently observed out-of-stock sales', () => {
+  const result = segmentGoods({
+    goods: [{ goods_id: 1, goods_name: 'A', quantity: 0 }],
+    orders30d: [{ goods_id: 1, goods_name: 'A', quantity: 2 }], ratelimited: true,
+  });
+  assert.equal(result.items[0].action, 'restock');
+  assert.equal(result.items[0].units_sold_30d, null);
+  assert.equal(result.items[0].observed_units_sold, 2);
+});
+
 // ---------- Tier assignment ----------
 
 test('segmentGoods: high sales + low stock_days + good promo → tier A', () => {

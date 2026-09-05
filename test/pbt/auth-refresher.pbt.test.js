@@ -21,7 +21,7 @@ describe('auth-refresher PBT', () => {
           assert.ok(typeof result.success === 'boolean');
           assert.ok(typeof result.reason === 'string');
           if (result.success) {
-            assert.strictEqual(result.reason, 'refreshed');
+            assert.strictEqual(result.reason, 'auth_valid');
           } else {
             assert.strictEqual(result.reason, 'auth_expired');
           }

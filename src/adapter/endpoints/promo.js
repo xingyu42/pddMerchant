@@ -1,3 +1,5 @@
+import { responseShapeError } from '../../infra/errors.js';
+
 const PROMO_NAV = {
   url: 'https://yingxiao.pinduoduo.com/goods/report/promotion/overView',
   readyEl: '[class*="report"], [class*="Report"]',
@@ -87,6 +89,30 @@ function hasSuccessfulResult(raw) {
   return raw?.result !== undefined;
 }
 
+function isMetric(value) {
+  const candidate = value && typeof value === 'object' ? value.value : value;
+  return (typeof candidate === 'number' || (typeof candidate === 'string' && candidate.trim() !== ''))
+    && Number.isFinite(Number(candidate));
+}
+
+function requireMetrics(row, endpoint, field) {
+  const nested = row?.reportInfo;
+  const values = [row?.impression ?? nested?.impression, row?.click ?? nested?.click,
+    row?.gmv ?? nested?.gmv, row?.spend ?? nested?.spend ?? row?.cost ?? nested?.cost];
+  if (!row || typeof row !== 'object' || Array.isArray(row) || !values.every(isMetric)) {
+    throw responseShapeError(endpoint, `${field}.impression/click/gmv/spend`);
+  }
+}
+
+function readReport(raw, endpoint, totalsField, listField) {
+  const result = raw?.result;
+  if (!result || !Array.isArray(result[listField])) {
+    throw responseShapeError(endpoint, `result.${listField}`);
+  }
+  requireMetrics(result[totalsField], endpoint, `result.${totalsField}`);
+  return result;
+}
+
 export const PROMO_ENTITY_REPORT = {
   name: 'promo.entityReport',
   urlPattern: /mms-gateway\/poseidon\/api\/report\/queryEntityReport/,
@@ -117,8 +143,10 @@ export const PROMO_ENTITY_REPORT = {
     };
   },
   normalize: (raw) => {
-    const totals = flattenTotals(raw?.result?.totalSumReport ?? {});
-    const entities = (raw?.result?.entityReportList ?? [])
+    const result = readReport(raw, 'promo.entityReport', 'totalSumReport', 'entityReportList');
+    for (const entity of result.entityReportList) requireMetrics(entity, 'promo.entityReport', 'entityReportList[]');
+    const totals = flattenTotals(result.totalSumReport);
+    const entities = result.entityReportList
       .map(flattenEntity)
       .filter(Boolean);
     return {
@@ -161,11 +189,12 @@ export const PROMO_HOURLY_REPORT = {
       returnAnchorPoints: true,
     };
   },
-  normalize: (raw) => ({
-    totals: flattenTotals(raw?.result?.sumReport ?? {}),
-    hourlyPoints: raw?.result?.hourlyPoints ?? [],
-    anchorPoints: raw?.result?.anchorPoints ?? {},
-    raw,
-  }),
+  normalize: (raw) => {
+    const result = readReport(raw, 'promo.hourlyReport', 'sumReport', 'hourlyPoints');
+    return {
+      totals: flattenTotals(result.sumReport), hourlyPoints: result.hourlyPoints,
+      anchorPoints: result.anchorPoints ?? {}, raw,
+    };
+  },
   isSuccess: hasSuccessfulResult,
 };
