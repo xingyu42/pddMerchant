@@ -30,8 +30,6 @@ const CONFIG_FIELD_DEFINITIONS = Object.freeze({
   rateLimitBurst: { schema: z.number().int().positive(), env: 'PDD_RATE_LIMIT_BURST', kind: 'number', required: true },
   cooldownThreshold: { schema: z.number().int().positive(), env: 'PDD_COOLDOWN_THRESHOLD', kind: 'number', required: true },
   cooldownMs: { schema: z.number().int().positive(), env: 'PDD_COOLDOWN_MS', kind: 'number', required: true },
-  refreshIntervalMs: { schema: z.number().int().positive(), env: 'PDD_REFRESH_INTERVAL_MS', kind: 'number', required: true },
-  refreshJitterMs: { schema: z.number().int().nonnegative(), env: 'PDD_REFRESH_JITTER_MS', kind: 'number', required: true },
   writeRateTokensPerMinute: { schema: z.number().int().positive(), env: 'PDD_WRITE_RATE_TPM', kind: 'number', required: true },
   scrapeSoftBlockThreshold: { schema: z.number().int().positive(), env: 'PDD_SCRAPE_SOFTBLOCK_THRESHOLD', kind: 'number', required: true },
   scrapeSoftBlockCooldownMs: { schema: z.number().int().positive(), env: 'PDD_SCRAPE_SOFTBLOCK_COOLDOWN_MS', kind: 'number', required: true },
@@ -57,6 +55,12 @@ const runtimeShape = Object.fromEntries(
 
 const ConfigSchema = z.object(optionalShape).strict();
 const RuntimeConfigSchema = z.object(runtimeShape).strict();
+
+function withoutRetiredAuthSchedule(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const { refreshIntervalMs, refreshJitterMs, ...current } = value;
+  return current;
+}
 
 function displayConfigPath(path) {
   const rel = relative(PROJECT_ROOT, path);
@@ -122,7 +126,7 @@ async function readJsonLayer(path, { required, source, schema }) {
     throw invalidConfigError({ source, path, reason: 'json_invalid' });
   }
 
-  return validateLayer(value, schema, { source, path });
+  return validateLayer(source === 'local' ? withoutRetiredAuthSchedule(value) : value, schema, { source, path });
 }
 
 function coerceEnvValue(raw, kind) {
@@ -176,7 +180,7 @@ export function parseWritableConfigField(key, rawValue) {
 }
 
 export function validateLocalConfigCandidate(value) {
-  return validateLayer(value, ConfigSchema, { source: 'local' });
+  return validateLayer(withoutRetiredAuthSchedule(value), ConfigSchema, { source: 'local' });
 }
 
 function inspectionIssue(error, fallbackLayer) {

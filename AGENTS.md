@@ -7,7 +7,7 @@ This repository is `pdd-cli`, a Node.js ESM CLI for Pinduoduo merchant operation
 Project-specific skills live under `.agents/skills/`. Use the smallest matching skill before editing:
 
 - `$pdd-architecture-navigation`: trace layers, runtime flow, envelope/errors, and high-risk modules.
-- `$pdd-local-development`: local setup, env vars, auth-state paths, logs, daemon, scripts, and no-build ESM execution.
+- `$pdd-local-development`: local setup, env vars, auth-state paths, logs, scripts, and no-build ESM execution.
 - `$pdd-testing-troubleshooting`: Vitest, smoke/unit/e2e/PBT, fixture adapter, JSON purity, and validation selection.
 - `$pdd-command-feature-development`: commands, services, endpoint specs, domain behavior, dry-run/write flow.
 - `$pdd-adapter-auth-integration`: Playwright, auth, mall context, account storage, endpoint transport, rate limit, redaction, external integration.
@@ -23,13 +23,12 @@ Project-specific skills live under `.agents/skills/`. Use the smallest matching 
 ## Key Paths
 
 - `bin/pdd.js`: Commander command tree, global flags, option merge, signal handlers, top-level error envelopes.
-- `bin/pdd-daemon.js`: daemon process entry.
 - `src/commands/_runner.js`: `withCommand()`, auth/account resolution, mall switching, timeout/abort, batch mode, fixture mode, envelope emission.
-- `src/commands/`: command handlers for `init`, `login`, `doctor`, `config`, `shops`, `orders`, `goods`, `promo`, `diagnose`, `account`, and `daemon`.
+- `src/commands/`: command handlers for `init`, `login`, `doctor`, `config`, `shops`, `orders`, `goods`, `promo`, `diagnose`, and `account`.
 - `src/services/`: reusable domain logic for orders, goods, promo, diagnose, goods publish, auth, pricing, and image helpers. Diagnostic reports contain factual metrics and data availability, not operating advice or scores.
 - `src/adapter/`: Playwright/browser/auth/mall/endpoint/XHR/mock/rate-limit integration.
 - `src/adapter/endpoints/`: business endpoint specs consumed by `runEndpoint()`.
-- `src/infra/`: cross-cutting config, paths, output, errors, logger, timeouts, abort, account registry, auth lock, daemon helpers.
+- `src/infra/`: cross-cutting config, paths, output, errors, logger, timeouts, abort, account registry, and auth lock.
 - `test/`: Vitest unit, smoke, e2e, PBT, fixtures, and helper harnesses.
 - `.trellis/`: current task artifacts, workflow, package/layer specs, and workspace journals.
 - `docs/`: architecture, ADRs, endpoint/recon notes, form analysis, and dated research.
@@ -59,7 +58,8 @@ npm run lint
 - `PDD_AUTH_STATE_PATH` explicitly overrides merchant auth state; without a registry the fallback is `data/merchant/stores/default/auth-state.json`, while registered accounts use registry slugs.
 - `PDD_CONSUMER_AUTH_STATE_PATH` explicitly overrides consumer auth state; without a registry the fallback is `data/consumer/accounts/default/auth-state.json`, while registered accounts use registry slugs.
 - `PDD_ACCOUNTS_DIR` / `PDD_ACCOUNT_REGISTRY_PATH` and their `PDD_CONSUMER_*` counterparts override merchant and consumer storage independently.
-- CLI and daemon logs use fixed daily files under `log/cli/` and `log/daemon/`; foreground/bootstrap logs use stderr. `PDD_LOG_DESTINATION` is unsupported.
+- CLI logs use fixed daily files under `log/cli/`; bootstrap logs use stderr. `PDD_LOG_DESTINATION` is unsupported.
+- Merchant authentication is checked on demand at login, ordinary commands and doctor; successful commands re-verify before persistence. There is no auth daemon or automatic background launch.
 - `PDD_RATE_LIMIT_QPS`, `PDD_RATE_LIMIT_BURST`, `PDD_COOLDOWN_THRESHOLD`, and `PDD_COOLDOWN_MS` affect shared endpoint rate limiting.
 - `PLAYWRIGHT_DOWNLOAD_HOST` can configure Chromium download mirrors.
 

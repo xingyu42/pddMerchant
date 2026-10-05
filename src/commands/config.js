@@ -7,13 +7,14 @@ import {
   unsetLocalConfigValue,
 } from '../infra/config-management.js';
 import { configInspectionError } from '../infra/config.js';
+import { ExitCodes } from '../infra/errors.js';
 
 function emitSuccess(command, data, opts, warnings = []) {
   const envelope = buildEnvelope({
     ok: true,
     command,
     data,
-    meta: { warnings },
+    meta: { warnings, exit_code: ExitCodes.OK },
   });
   emit(envelope, { json: opts.json, noColor: opts.noColor });
   return envelope;

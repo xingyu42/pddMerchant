@@ -11,37 +11,47 @@ import { performHeadedLogin } from '../services/auth.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 import { randomUUID } from 'node:crypto';
 import { merchantPendingAuthStatePath } from '../infra/paths.js';
-import { provisionMerchantAuth } from '../services/auth-account-storage.js';
+import { provisionMerchantAuth, withMerchantLoginRegistration } from '../services/auth-account-storage.js';
+import { isMockEnabled } from '../adapter/mock-dispatcher.js';
+import { deleteAuthState } from '../adapter/auth-state.js';
 
 export async function add(opts = {}) {
   const startedAt = Date.now();
   const log = getLogger();
+  const authPath = merchantPendingAuthStatePath(randomUUID());
+  const deadlineAt = startedAt + (opts.timeoutMs ?? TIMEOUTS.LOGIN_HEADED);
 
-  try {
-    await loadAccountRegistry({ createIfMissing: true });
-    const authPath = merchantPendingAuthStatePath(randomUUID());
-
+  const work = async ({ initialRevisions, registryToken }) => {
     log.info('正在通过有头浏览器登录，请手动完成登录...');
     const loginResult = await performHeadedLogin({
       authStatePath: authPath,
       timeoutMs: opts.timeoutMs ?? TIMEOUTS.LOGIN_HEADED,
+      signal: opts.signal,
+      deadlineAt,
     });
 
-    const provisioned = await provisionMerchantAuth(loginResult.path, loginResult.identity);
+    const provisioned = isMockEnabled()
+      ? { account: { slug: 'fixture', ...loginResult.identity } }
+      : await provisionMerchantAuth(loginResult.path, loginResult.identity, { candidate: loginResult.candidate, initialRevisions, registryToken, signal: opts.signal, deadlineAt });
     const { slug, displayName, mallId } = provisioned.account;
 
     const envelope = {
       ok: true,
       command: 'account.add',
       data: { slug, displayName, mallId, hasCredential: false },
-      meta: { latency_ms: Date.now() - startedAt, warnings: ['credentials_not_saved_headed_login'] },
+      meta: { latency_ms: Date.now() - startedAt, exit_code: ExitCodes.OK, warnings: ['credentials_not_saved_headed_login'] },
     };
     emit(envelope, { json: opts.json, noColor: opts.noColor });
     return envelope;
+  };
+  try {
+    return await withMerchantLoginRegistration(work, { signal: opts.signal, deadlineAt });
   } catch (err) {
     const envelope = errorToEnvelope('account.add', err, { latency_ms: Date.now() - startedAt });
     emit(envelope, { json: opts.json, noColor: opts.noColor });
     return envelope;
+  } finally {
+    await deleteAuthState(authPath).catch(() => {});
   }
 }
 

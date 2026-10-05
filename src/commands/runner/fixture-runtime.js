@@ -1,6 +1,6 @@
 // fixture 运行时（design D-2）：PDD_TEST_ADAPTER=fixture 短路路径。
 // fixture auth 失败、mock mall 解析、FixtureEndpointClient ctx 构造与 run 终结。
-import { FixtureEndpointClient, mockCurrentMall, mockListMalls } from '../../adapter/mock-dispatcher.js';
+import { FixtureEndpointClient, mockCurrentMall, mockListMalls, mockIsAuthValid, mockIsAuthIndeterminate } from '../../adapter/mock-dispatcher.js';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { finalizeSuccess, finalizeError } from './envelope-finalizer.js';
 
@@ -44,7 +44,12 @@ async function resolveMockMall(needsMall) {
 }
 
 export async function executeFixture(spec, runtime) {
-  if (spec.needsAuth && process.env.PDD_TEST_AUTH_INVALID === '1') {
+  if (spec.needsAuth && mockIsAuthIndeterminate()) {
+    return finalizeError(spec, runtime, new PddCliError({
+      code: 'E_AUTH_CHECK_INDETERMINATE', message: '无法确认登录状态', exitCode: ExitCodes.NETWORK,
+    }));
+  }
+  if (spec.needsAuth && !mockIsAuthValid()) {
     return finalizeError(spec, runtime, new PddCliError({
       code: 'E_AUTH_EXPIRED',
       message: '登录态失效',

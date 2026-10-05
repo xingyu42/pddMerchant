@@ -104,7 +104,7 @@ node bin/pdd.js config validate --json              # 分层校验；配置损�
 
 - `config set <key> <value>` 先按公开字段 Schema 校验；`config/config.json` 不存在时会原子创建，只保存本地覆盖项。字段或值非法时不会创建或覆盖文件。
 - `config unset <key>` 只删除本地覆盖；文件或字段不存在时是稳定 no-op，不会创建空文件。
-- config 命令不接受或显示 AuthKey、主密码、代理 token 等秘密字段，也不会自动重启 daemon。
+- config 命令不接受或显示 AuthKey、主密码、代理 token 等秘密字段；修改后由下一次命令加载。
 
 ### 📦 订单 orders
 
@@ -175,13 +175,9 @@ node bin/pdd.js account default --slug <slug>            # 设默认账号
 node bin/pdd.js account remove --slug <slug> [--remove-files]
 ```
 
-### 🔄 后台续期 daemon
+### 按需认证检查
 
-```bash
-node bin/pdd.js daemon start    # 后台定时刷新 cookie
-node bin/pdd.js daemon status
-node bin/pdd.js daemon stop
-```
+登录、普通命令及 doctor 独立检查商家认证，成功命令只回写重新验证通过的冻结材料。认证后台和 daemon 命令已移除；闲置时不运行定时任务。网络无法判定（退出码 5）不代表登录失效，明确失效（退出码 3）才提示重新登录。
 
 ## 典型工作流
 
@@ -216,7 +212,7 @@ node bin/pdd.js goods publish --url <链接> --cost-template <id> --confirm --js
 | `PDD_CONSUMER_AUTH_STATE_PATH=<path>` | 显式覆盖消费者 auth-state；无注册表时使用 `data/consumer/accounts/default/auth-state.json`，注册后使用 registry 中的 slug |
 | `PDD_ACCOUNTS_DIR` / `PDD_ACCOUNT_REGISTRY_PATH` | 覆盖商家店铺目录与注册表 |
 | `PDD_CONSUMER_ACCOUNTS_DIR` / `PDD_CONSUMER_ACCOUNT_REGISTRY_PATH` | 覆盖消费者账号目录与注册表 |
-| （固定）`log/cli/` / `log/daemon/` | CLI/daemon 日志按本地日轮转；foreground/bootstrap 写 stderr；路径不可配置 |
+| （固定）`log/cli/` | CLI 日志按本地日轮转；引导阶段写 stderr；路径不可配置 |
 | `PDD_ALLOW_INSECURE_AUTH_STATE=1` | POSIX 权限设为 0600 失败时仍继续（不推荐） |
 | `PDD_CONSUMER_LOGIN_URL=<url>` | 覆盖消费者端登录页地址 |
 | `PDD_MALL_ID_STRICT_PARSE=0` | 放宽 mall ID 到 64 字符（默认 1-15 位数字） |

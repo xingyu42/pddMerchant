@@ -3,6 +3,7 @@ import { chromium } from 'patchright';
 import { isMockEnabled, mockLaunchBrowser, mockCloseBrowser } from './mock-dispatcher.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
+import { loadAuthState } from './auth-state.js';
 
 const DEFAULT_VIEWPORT = Object.freeze({ width: 1902, height: 984 });
 const DEFAULT_SCREEN = Object.freeze({ width: 1920, height: 1080 });
@@ -157,23 +158,34 @@ async function createRuntimeProfile(browser, { headed, channel }) {
   });
 }
 
-function contextOptionsFor(profile, { storageStatePath, proxy } = {}) {
+// storageStatePath 已由 createConfiguredContext 预解析为 storageState。
+function contextOptionsFor(profile, { storageState, proxy } = {}) {
   const options = {
     ...profile.contextOptions,
     ...(profile.contextOptions.viewport ? { viewport: { ...profile.contextOptions.viewport } } : {}),
     ...(profile.contextOptions.screen ? { screen: { ...profile.contextOptions.screen } } : {}),
   };
-  if (storageStatePath && existsSync(storageStatePath)) options.storageState = storageStatePath;
+  if (storageState) options.storageState = structuredClone({ cookies: storageState.cookies, origins: storageState.origins });
   if (proxy) options.proxy = proxy;
   return options;
 }
 
 async function createConfiguredContext(browser, profile, options) {
-  const context = await browser.newContext(contextOptionsFor(profile, options));
-  if (profile.installConsistencyScript) {
-    await context.addInitScript(installHeadlessConsistencyProfile);
+  let configured = options;
+  if (options?.storageStatePath && existsSync(options.storageStatePath) && !options.storageState) {
+    const loaded = await loadAuthState(options.storageStatePath);
+    configured = { ...options, storageState: loaded.state };
   }
-  return context;
+  const context = await browser.newContext(contextOptionsFor(profile, configured));
+  try {
+    if (profile.installConsistencyScript) {
+      await context.addInitScript(installHeadlessConsistencyProfile);
+    }
+    return context;
+  } catch (error) {
+    await context.close().catch(() => {});
+    throw error;
+  }
 }
 
 async function closePartialContext(page, context) {
@@ -279,6 +291,15 @@ export async function createConsumerContext(browser, { storageStatePath, proxy }
       await closePartialContext(page, context);
     },
   };
+}
+
+export async function createSnapshotContext(browser, storageState) {
+  const profile = browserProfiles.get(browser);
+  if (!profile) throw browserRuntimeError('browser_profile_missing');
+  if (!Array.isArray(storageState?.cookies) || !Array.isArray(storageState?.origins)) {
+    throw browserRuntimeError('snapshot_shape_invalid');
+  }
+  return createConfiguredContext(browser, profile, { storageState });
 }
 
 export { DEFAULT_VIEWPORT, DEFAULT_SCREEN, HEADLESS_OVERRIDE_KEYS };

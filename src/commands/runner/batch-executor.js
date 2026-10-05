@@ -6,7 +6,6 @@ import { getLogger } from '../../infra/logger.js';
 import { emit, buildBatchEnvelope, batchRenderer } from '../../infra/output.js';
 import { PddCliError, ExitCodes, errorToEnvelope, batchExitCode } from '../../infra/errors.js';
 import { abortableSleep } from '../../infra/abort.js';
-import { ensureDaemonRunning } from '../../infra/daemon-launcher.js';
 import { listAccounts } from '../../infra/account-registry.js';
 import { accountAuthStatePath } from '../../infra/paths.js';
 import { executeSingle } from './single-lifecycle.js';
@@ -98,7 +97,6 @@ async function runOneAccount(spec, opts, slug, batch, runtimeConfig) {
 
   const envelope = await executeSingle(spec, perOpts, {
     emitResult: false,
-    skipDaemonStart: true,
     parentSignal: batch.signal,
     ...(runtimeConfig ? { runtimeConfig } : {}),
   }).catch((err) => errorToEnvelope(spec.name, err, {
@@ -194,10 +192,6 @@ async function executeBatch(spec, opts, runtimeConfig) {
     return emptyEnvelope;
   }
 
-  ensureDaemonRunning().catch((err) => {
-    log.debug({ err: err?.message }, 'auto-start daemon failed (non-fatal)');
-  });
-
   const abortController = new AbortController();
   const onSigint = () => abortController.abort();
   process.prependListener('SIGINT', onSigint);
@@ -236,7 +230,6 @@ export function withCommand({
     }
     return executeSingle(spec, opts, {
       emitResult: true,
-      skipDaemonStart: false,
       ...(runtimeConfig ? { runtimeConfig } : {}),
     });
   };

@@ -4,8 +4,6 @@
   "rateLimitBurst": 3,
   "cooldownThreshold": 3,
   "cooldownMs": 300000,
-  "refreshIntervalMs": 600000,
-  "refreshJitterMs": 120000,
   "writeRateTokensPerMinute": 20,
   "scrapeSoftBlockThreshold": 2,
   "scrapeSoftBlockCooldownMs": 7200000,

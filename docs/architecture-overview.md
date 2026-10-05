@@ -60,7 +60,6 @@ promo.js     → promo roi
 diagnose.js  → diagnose shop / orders / inventory / promo / funnel
 action.js    → action plan
 account.js   → account add / remove / list / default
-daemon.js    → daemon start / daemon stop / daemon status
 ```
 
 ---
@@ -266,7 +265,7 @@ PDD_TEST_FIXTURE_DIR=./test/fixtures
 | `PDD_CONSUMER_AUTH_STATE_PATH` | 显式消费者鉴权文件覆盖                                | 无注册表时为 `data/consumer/accounts/default/auth-state.json`；注册后使用 registry 中的 slug |
 | `PDD_ACCOUNTS_DIR` / `PDD_ACCOUNT_REGISTRY_PATH` | 商家店铺目录/注册表覆盖              | `data/merchant/stores/` / `registry.json` |
 | `PDD_CONSUMER_ACCOUNTS_DIR` / `PDD_CONSUMER_ACCOUNT_REGISTRY_PATH` | 消费者账号目录/注册表覆盖 | `data/consumer/accounts/` / `registry.json` |
-| （固定路径，无 env）           | CLI/daemon 运行日志目录（按日轮转）                          | `log/cli/` / `log/daemon/`；foreground 写 stderr |
+| （固定路径，无 env）           | CLI 运行日志目录（按日轮转）                               | `log/cli/`；引导阶段写 stderr |
 | `PDD_ALLOW_INSECURE_AUTH_STATE` | POSIX 权限设置失败时允许继续（不推荐）                    | `0` |
 | `PDD_DEBUG_RAW`            | 输出原始 payload（JSONL）                                  | `0`                    |
 | `PDD_MALL_ID_STRICT_PARSE` | 严格校验店铺 ID                                            | `1`                    |
@@ -306,8 +305,7 @@ data/
 │       ├── registry.json
 │       ├── default/auth-state.json       # 无注册表回退
 │       └── <slug>/auth-state.json        # 注册账号
-├── scrape-cooldown.json         # 源抓取冷却状态
-└── daemon-state.json            # daemon 运行状态，不属于登录目录
+└── scrape-cooldown.json         # 源抓取冷却状态
 ```
 
 ### 7.2 auth-state.json 结构

@@ -1,12 +1,10 @@
 // 单命令生命周期（design D-2）：账号解析 → 超时-abort → fixture/live 分派 →
-// live 浏览器流程（auth 校验、daemon 自启、mall 解析/切换、pageSession）。
+// live 浏览器流程（auth 校验、mall 解析/切换、pageSession）。
 import { randomUUID } from 'node:crypto';
 import { withBrowser } from '../../adapter/browser.js';
-import {
-  getAuthStateRevision,
-  isAuthValid,
-  saveAuthStateIfCurrent,
-} from '../../adapter/auth-state.js';
+import { PDD_HOME } from '../../adapter/auth-state.js';
+import { verifyMerchantContext, assertMerchantVerified } from '../../adapter/merchant-auth.js';
+import { withMerchantAuthUpdate, commitMerchantCandidate, recordMerchantCheck, verifyStoredMerchant } from '../../adapter/merchant-auth-storage.js';
 import { resolveMallContext } from '../../adapter/mall-reader.js';
 import { switchTo } from '../../adapter/mall-writer.js';
 import { isMockEnabled } from '../../adapter/mock-dispatcher.js';
@@ -16,8 +14,7 @@ import { getLogger } from '../../infra/logger.js';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { AUTH_STATE_PATH } from '../../infra/paths.js';
 import { resolveAccountContext } from '../../infra/account-resolver.js';
-import { remainingMs, throwIfAborted, timeoutError } from '../../infra/abort.js';
-import { ensureDaemonRunning } from '../../infra/daemon-launcher.js';
+import { budgetMs, remainingMs, throwIfAborted, timeoutError } from '../../infra/abort.js';
 import { executeFixture, buildCommandCtx } from './fixture-runtime.js';
 import { finalizeSuccess, finalizeError } from './envelope-finalizer.js';
 
@@ -62,27 +59,22 @@ function armDeadline(opts, parentSignal, startedAt) {
     signal,
     dispose,
     deadlineTimer,
-    deadlineAt: signal ? startedAt + (opts.timeoutMs ?? Infinity) : null,
+    deadlineAt: typeof opts.timeoutMs === 'number' && Number.isFinite(opts.timeoutMs) && opts.timeoutMs > 0 ? startedAt + opts.timeoutMs : null,
   };
 }
 
-async function assertAuthValid(page, { signal, deadlineAt }) {
+async function assertAuthValid(context, runtime, transaction) {
+  const { signal, deadlineAt } = runtime;
   throwIfAborted(signal);
   if (deadlineAt && remainingMs({ deadlineAt }) === 0) {
     throw timeoutError();
   }
-  const authTimeoutMs = deadlineAt
-    ? Math.max(1, Math.min(remainingMs({ deadlineAt }), 15000))
-    : undefined;
-  const valid = await isAuthValid(page, authTimeoutMs != null ? { timeoutMs: authTimeoutMs } : undefined);
-  if (!valid) {
-    throw new PddCliError({
-      code: 'E_AUTH_EXPIRED',
-      message: '登录态失效',
-      hint: '执行 pdd login 重新登录',
-      exitCode: ExitCodes.AUTH,
-    });
-  }
+  const result = await verifyStoredMerchant(context, transaction.state, {
+    signal, deadlineAt: deadlineAt ?? undefined, expectedMallId: runtime.accountCtx?.account?.mallId,
+  });
+  if (result.verdict !== 'verified') await recordMerchantCheck(result, transaction);
+  assertMerchantVerified(result);
+  runtime.verifiedMallId = result.identity.mallId;
 }
 
 async function resolveLiveMall(needsMall, page, opts, runtimeConfig) {
@@ -95,40 +87,42 @@ async function resolveLiveMall(needsMall, page, opts, runtimeConfig) {
   return mallCtx;
 }
 
-async function persistAuthStateAfterSuccess(spec, runtime, context, initialRevision) {
+async function persistAuthStateAfterSuccess(spec, runtime, context, transaction, page) {
   if (!spec.needsAuth) return;
+  if (runtime.selectedMallId != null && String(runtime.selectedMallId) !== runtime.verifiedMallId) {
+    runtime.warnings.push('auth_state_identity_mismatch');
+    return;
+  }
 
   try {
-    const result = await saveAuthStateIfCurrent(context, runtime.authPath, initialRevision);
-    if (!result.saved && result.reason === 'conflict') {
-      runtime.warnings.push('auth_state_persist_conflict');
+    await page.close();
+    const result = await verifyMerchantContext(context, {
+      signal: runtime.signal, deadlineAt: runtime.deadlineAt ?? undefined, expectedMallId: runtime.verifiedMallId,
+    });
+    if (result.verdict !== 'verified') {
+      runtime.warnings.push(result.reason === 'identity_mismatch' ? 'auth_state_identity_mismatch' : 'auth_state_persist_unverified');
+      return;
     }
+    await commitMerchantCandidate(result.candidate, transaction);
   } catch (err) {
     runtime.log.warn({ code: err?.code ?? null }, 'auth-state: persist after command failed');
-    runtime.warnings.push('auth_state_persist_failed');
+    runtime.warnings.push(err?.code === 'E_AUTH_STATE_CONFLICT' ? 'auth_state_persist_conflict' : 'auth_state_persist_failed');
   }
 }
 
 async function executeLiveOperation(spec, runtime) {
-  const { opts, log } = runtime;
-  const initialRevision = spec.needsAuth
-    ? await getAuthStateRevision(runtime.authPath)
-    : null;
-
-  return withBrowser({
+  const { opts } = runtime;
+  const operation = async (transaction) => withBrowser({
     headed: opts.headed,
-    storageStatePath: runtime.authPath,
+    storageStatePath: transaction?.path ?? runtime.authPath,
   }, async ({ context, page }) => {
     if (spec.needsAuth) {
-      await assertAuthValid(page, runtime);
-      if (!runtime.skipDaemonStart) {
-        ensureDaemonRunning().catch((err) => {
-          log.debug({ err: err?.message }, 'auto-start daemon failed (non-fatal)');
-        });
-      }
+      await assertAuthValid(context, runtime, transaction);
+      await page.goto(PDD_HOME, { waitUntil: 'domcontentloaded', timeout: budgetMs(runtime, 60000) });
     }
 
     const mallCtx = await resolveLiveMall(spec.needsMall, page, opts, runtime.runtimeConfig);
+    runtime.selectedMallId = mallCtx?.activeId ?? null;
     const pageSession = createPageSession(context);
     const ctx = buildCommandCtx(runtime, {
       client: getSharedClient(runtime.runtimeConfig),
@@ -144,10 +138,13 @@ async function executeLiveOperation(spec, runtime) {
     // normalize/warnings 快照随 finalizeSuccess 移至 closeAll 之后（Phase-3 审查裁决）：
     // closeAll 逐页吞错且不持有 warnings 引用，顺序交换无可观察差异。
     await pageSession.closeAll();
-    await persistAuthStateAfterSuccess(spec, runtime, context, initialRevision);
+    await persistAuthStateAfterSuccess(spec, runtime, context, transaction, page);
 
     return finalizeSuccess(spec, runtime, result);
   });
+  return spec.needsAuth
+    ? withMerchantAuthUpdate(runtime.authPath, operation, { signal: runtime.signal, deadlineAt: runtime.deadlineAt })
+    : operation(null);
 }
 
 function executeLive(spec, runtime) {
@@ -156,7 +153,6 @@ function executeLive(spec, runtime) {
 
 export async function executeSingle(spec, opts = {}, {
   emitResult = true,
-  skipDaemonStart = false,
   parentSignal,
   runtimeConfig,
 } = {}) {
@@ -171,12 +167,11 @@ export async function executeSingle(spec, opts = {}, {
     : getLogger();
 
   const accountCtx = await resolveAccount(opts, needsAuth, warnings);
-  const { signal, deadlineTimer, deadlineAt, dispose } = armDeadline(opts, parentSignal, startedAt);
+  const { signal, deadlineTimer, deadlineAt, dispose } = armDeadline(opts, parentSignal ?? opts.signal, startedAt);
 
   const runtime = {
     opts,
     emitResult,
-    skipDaemonStart,
     startedAt,
     correlationId,
     warnings,

@@ -50,10 +50,12 @@ export function createCliSandbox(fixtures = {}) {
   return { root, env, fixtureDir, dispose: () => rmSync(root, { recursive: true, force: true }) };
 }
 
-export function runCli(args, { fixtures, authInvalid = false } = {}) {
+export function runCli(args, { fixtures, authInvalid = false, authIndeterminate = false, authState } = {}) {
   const sandbox = createCliSandbox(fixtures);
   try {
     if (authInvalid) sandbox.env.PDD_TEST_AUTH_INVALID = '1';
+    if (authIndeterminate) sandbox.env.PDD_TEST_AUTH_INDETERMINATE = '1';
+    if (authState) writeFileSync(sandbox.env.PDD_AUTH_STATE_PATH, JSON.stringify(authState));
     const result = spawnSync(process.execPath, ['--import', preloadUrl, cliPath, ...args, '--json'], {
       cwd: projectRoot, env: sandbox.env, encoding: 'utf8', timeout: 15000, maxBuffer: 1024 * 1024,
     });

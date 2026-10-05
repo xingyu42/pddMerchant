@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import pino from 'pino';
-import { CLI_LOG_DIR, DAEMON_LOG_DIR } from './paths.js';
+import { CLI_LOG_DIR } from './paths.js';
 
 const REDACT_KEYS = [
   'cookies',
@@ -10,6 +10,14 @@ const REDACT_KEYS = [
   'Cookie',
   'auth_token',
   'authToken',
+  'LoginToken',
+  'login_token',
+  'loginToken',
+  'PASS_ID',
+  'pass_id_value',
+  'ck',
+  'cookie_headers',
+  'cookieHeaders',
   'session_id',
   'sessionId',
   'localStorage',
@@ -176,7 +184,7 @@ export class DailyRotatingFileDestination {
     const previous = this.stream;
     const datedPath = resolveDatedLogPath(this.logDirectory, this.now(), this.basename);
     mkdirSync(this.logDirectory, { recursive: true });
-    // sync:true keeps short CLI/daemon writes durable without relying on process exit flush.
+    // sync:true keeps short CLI writes durable without relying on process exit flush.
     this.stream = pino.destination({ dest: datedPath, sync: true });
     this.dayKey = dayKey;
     this.currentPath = datedPath;
@@ -222,7 +230,6 @@ function buildFileDestination(logDirectory, { now, basename = null } = {}) {
 
 export function resolveDefaultLogDirectory({ config, channel } = {}) {
   if (channel === 'foreground') return null;
-  if (channel === 'daemon') return DAEMON_LOG_DIR;
   if (config) return CLI_LOG_DIR;
   return null;
 }
@@ -232,7 +239,6 @@ export function resolveDefaultLogDirectory({ config, channel } = {}) {
  * - writable stream/object (tests): use as-is
  * - string path treated as log *directory* (internal/test only)
  * - channel 'foreground': stderr
- * - channel 'daemon': log/daemon/
  * - config present (CLI): log/cli/
  * - no config: stderr (bootstrap/silent)
  * logDestination / PDD_LOG_DESTINATION is intentionally unsupported.

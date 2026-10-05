@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ACCOUNT_REGISTRY_PATH, accountDir, ensureDir } from './paths.js';
 import { accountNotFound, accountAmbiguous, accountRegistryCorrupt } from './errors.js';
-import { acquireLock, releaseLock } from './auth-lock.js';
+import { acquireLock, releaseLock, assertLockOwner } from './auth-lock.js';
 import { SAFE_STORAGE_SLUG_RE, slugifyStorageName } from './path-slug.js';
 
 const SLUG_RE = SAFE_STORAGE_SLUG_RE;
@@ -41,7 +41,7 @@ export async function loadAccountRegistry({ path = ACCOUNT_REGISTRY_PATH, create
   try {
     parsed = JSON.parse(raw);
   } catch (e) {
-    throw accountRegistryCorrupt(e.message);
+    throw accountRegistryCorrupt('invalid_json');
   }
   if (!parsed || typeof parsed !== 'object' || parsed.version !== 1) {
     throw accountRegistryCorrupt('schema mismatch');
@@ -63,7 +63,11 @@ export async function saveAccountRegistry(registry, { path = ACCOUNT_REGISTRY_PA
   }
 }
 
-async function withRegistryLock(fn, { path = ACCOUNT_REGISTRY_PATH } = {}) {
+async function withRegistryLock(fn, { path = ACCOUNT_REGISTRY_PATH, lockToken } = {}) {
+  if (lockToken) {
+    await assertLockOwner(path, lockToken);
+    return fn();
+  }
   const { token } = await acquireLock(path, { timeoutMs: 10_000, staleMs: 30_000 });
   try {
     return await fn();
@@ -101,7 +105,7 @@ export async function findAccountByMallId(mallId, { path } = {}) {
   return Object.values(registry.accounts).find((account) => String(account.mallId ?? '') === String(mallId)) ?? null;
 }
 
-export async function upsertAccount(input, { setDefault = false, path = ACCOUNT_REGISTRY_PATH } = {}) {
+export async function upsertAccount(input, { setDefault = false, path = ACCOUNT_REGISTRY_PATH, lockToken } = {}) {
   if (!input.slug || !SLUG_RE.test(input.slug)) {
     throw accountRegistryCorrupt(`Invalid slug: "${input.slug}"`);
   }
@@ -131,27 +135,7 @@ export async function upsertAccount(input, { setDefault = false, path = ACCOUNT_
     if (setDefault) reg.defaultAccount = input.slug;
     await saveAccountRegistry(reg, { path });
     return reg.accounts[input.slug];
-  }, { path });
-}
-
-export async function rekeyAccount(oldSlug, input, { setDefault = false, path = ACCOUNT_REGISTRY_PATH } = {}) {
-  if (!input.slug || !SLUG_RE.test(input.slug)) {
-    throw accountRegistryCorrupt('Invalid replacement slug');
-  }
-  return withRegistryLock(async () => {
-    const registry = await loadAccountRegistry({ path, createIfMissing: true });
-    const existing = registry.accounts[oldSlug];
-    if (!existing) throw accountNotFound(oldSlug);
-    if (oldSlug !== input.slug && registry.accounts[input.slug]) {
-      throw accountRegistryCorrupt('Replacement slug already exists');
-    }
-    const now = new Date().toISOString();
-    delete registry.accounts[oldSlug];
-    registry.accounts[input.slug] = { ...existing, ...input, slug: input.slug, updatedAt: now };
-    if (setDefault || registry.defaultAccount === oldSlug) registry.defaultAccount = input.slug;
-    await saveAccountRegistry(registry, { path });
-    return registry.accounts[input.slug];
-  }, { path });
+  }, { path, lockToken });
 }
 
 export async function removeAccount(slug, { removeFiles = false, path = ACCOUNT_REGISTRY_PATH } = {}) {

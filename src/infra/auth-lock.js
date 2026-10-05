@@ -1,4 +1,6 @@
-import { writeFile, readFile, unlink, rename } from 'node:fs/promises';
+import { writeFile, readFile, unlink, rename, mkdir, link } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import { abortableSleep, throwIfAborted } from './abort.js';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { PddCliError, ExitCodes } from './errors.js';
@@ -14,13 +16,22 @@ function lockPath(authStatePath) {
 
 export function isLockStale(lockData, { staleMs = DEFAULT_STALE_MS, now = Date.now() } = {}) {
   if (!lockData || typeof lockData !== 'object') return true;
-  if (typeof lockData.createdAt === 'number' && (now - lockData.createdAt) > staleMs) return true;
-  if (typeof lockData.pid === 'number' && !isPidAlive(lockData.pid)) return true;
-  return false;
+  if (Number.isSafeInteger(lockData.pid) && lockData.pid > 0 && lockData.hostname === hostname()) {
+    return !isPidAlive(lockData.pid);
+  }
+  return typeof lockData.createdAt === 'number' && (now - lockData.createdAt) > staleMs;
 }
 
 function readLockFile(path) {
   return readFile(path, 'utf8').then((raw) => JSON.parse(raw));
+}
+
+async function restoreLockIfAbsent(quarantine, original) {
+  try {
+    // link is create-only: never overwrite a newer owner while restoring a raced lock.
+    await link(quarantine, original);
+    await unlink(quarantine);
+  } catch { /* Keep the quarantined file when another owner already exists. */ }
 }
 
 async function tryRemoveStaleLock(path, opts) {
@@ -46,23 +57,25 @@ async function tryRemoveStaleLock(path, opts) {
       await unlink(quarantine).catch(() => {});
       return true;
     }
-    await rename(quarantine, path).catch(() => {});
+    await restoreLockIfAbsent(quarantine, path);
     return false;
   } catch {
-    await unlink(quarantine).catch(() => {});
-    return true;
+    await restoreLockIfAbsent(quarantine, path);
+    return false;
   }
 }
 
 export async function acquireLock(
   authStatePath,
-  { timeoutMs = DEFAULT_TIMEOUT_MS, staleMs = DEFAULT_STALE_MS, retryMs = DEFAULT_RETRY_MS } = {},
+  { timeoutMs = DEFAULT_TIMEOUT_MS, staleMs = DEFAULT_STALE_MS, retryMs = DEFAULT_RETRY_MS, signal } = {},
 ) {
+  await mkdir(dirname(authStatePath), { recursive: true });
   const lp = lockPath(authStatePath);
   const token = randomUUID();
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
+    throwIfAborted(signal);
     const lockData = JSON.stringify({
       pid: process.pid,
       token,
@@ -81,7 +94,7 @@ export async function acquireLock(
     if (removed) continue;
 
     const jitter = Math.floor(Math.random() * 100);
-    await new Promise((r) => setTimeout(r, retryMs + jitter));
+    await abortableSleep(Math.min(retryMs + jitter, Math.max(1, deadline - Date.now())), signal);
   }
 
   throw new PddCliError({
@@ -94,6 +107,10 @@ export async function acquireLock(
 
 export async function releaseLock(authStatePath, token) {
   const lp = lockPath(authStatePath);
+  try {
+    const current = await readLockFile(lp);
+    if (current.token !== token || current.pid !== process.pid) return false;
+  } catch (error) { return error?.code === 'ENOENT'; }
   const quarantine = `${lp}.release-${token.slice(0, 8)}`;
   try {
     await rename(lp, quarantine);
@@ -105,14 +122,22 @@ export async function releaseLock(authStatePath, token) {
   try {
     const data = await readLockFile(quarantine);
     if (data.token !== token) {
-      await rename(quarantine, lp).catch(() => {});
+      await restoreLockIfAbsent(quarantine, lp);
       return false;
     }
     await unlink(quarantine).catch(() => {});
     return true;
   } catch {
-    await unlink(quarantine).catch(() => {});
-    return true;
+    await restoreLockIfAbsent(quarantine, lp);
+    return false;
+  }
+}
+
+export async function assertLockOwner(authStatePath, token) {
+  let data;
+  try { data = await readLockFile(lockPath(authStatePath)); } catch { /* lost ownership */ }
+  if (!data || data.token !== token || data.pid !== process.pid) {
+    throw new PddCliError({ code: 'E_AUTH_LOCK_LOST', message: '认证任务不再拥有更新资格', exitCode: ExitCodes.AUTH });
   }
 }
 

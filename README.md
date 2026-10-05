@@ -24,7 +24,7 @@ Linux 部署方需自行准备 Debian/Ubuntu 所需的 Chromium 运行库。系�
 - **多店铺/多账号**：`--mall <id>` / `--account <slug>` / `--consumer-account <ref>` / `--all-accounts`
 - **店铺数据统计**：`diagnose shop` 汇总订单、库存、推广和漏斗数据，支持数值环比
 - **从链接上货**：`goods publish --url <链接>` 一键抓取发布
-- **Auth 自动续期**：`daemon start` 后台刷新，防并发 file lock
+- **按需认证检查**：登录、普通命令和 `doctor` 独立检查认证；成功命令只回写重新验证通过的材料，不运行后台进程
 - **无头扫码**：`init --qr` 终端二维码 + PNG
 - **自动脱敏**：敏感字段 SHA256 替代
 
@@ -56,7 +56,6 @@ src/infra/           envelope/errors/logger/timeouts
 | **shops** | `list` / `current` |
 | **config** | `show` / `set <key> <value>` / `unset <key>` / `validate` |
 | **account** | `add` / `list` / `default` / `remove` |
-| **daemon** | `start` / `stop` / `status` |
 | **utility** | `init` / `login` / `doctor` |
 
 ### 全局选项
@@ -164,13 +163,17 @@ pdd config unset rateLimitQps           # 删除本地覆盖，回退到环境�
 pdd config validate --json              # 分层校验；配置损坏时仍可执行
 ```
 
-配置命令只管理项目内公开字段，不写 `.env`，也不会自动重启 daemon。修改刷新间隔或日志级别后，结果会提示显式重启。代理 AuthKey、主密码、测试和安全开关继续只允许通过环境变量安全注入。
+配置命令只管理项目内公开字段，不写 `.env`；修改后由下一次命令加载，无需重启后台。旧本地配置中的 `refreshIntervalMs` / `refreshJitterMs` 会被忽略，对应环境变量不再生效。代理 AuthKey、主密码、测试和安全开关继续只允许通过环境变量安全注入。
 
 ## 环境变量
 
 没有注册账号时，商家和消费者登录态分别使用 `data/merchant/stores/default/auth-state.json` 与 `data/consumer/accounts/default/auth-state.json`。登录成功并注册身份后，文件归档到各自 `registry.json` 记录的 `<slug>/auth-state.json`；slug 由显示名生成并处理冲突，不等同于原始店铺名、昵称或手机号。`PDD_AUTH_STATE_PATH` 与 `PDD_CONSUMER_AUTH_STATE_PATH` 可显式覆盖单个登录态文件，账号目录和注册表也有独立覆盖变量。
 
-CLI 与后台 daemon 日志分别固定写入 `log/cli/YYYY-MM-DD.log` 和 `log/daemon/YYYY-MM-DD.log`；foreground/引导阶段写 stderr。日志路径不可通过 `PDD_LOG_DESTINATION` 配置。完整变量、默认值与安全开关见 [.env.example](.env.example)。
+CLI 日志固定写入 `log/cli/YYYY-MM-DD.log`；引导阶段写 stderr。日志路径不可通过 `PDD_LOG_DESTINATION` 配置。完整变量、默认值与安全开关见 [.env.example](.env.example)。
+
+商家登录先独立检查登录，再从固定只读接口核对店铺身份和店铺读取权限，全部通过后才保存同次冻结材料。首次自动登记，不需要手填店铺 ID；已有账号或已绑定自定义文件不允许静默换店。已注册 slug 不随店铺显示名变化。普通网络故障返回 `E_AUTH_CHECK_INDETERMINATE`（退出码 5），明确未登录返回 `E_AUTH_EXPIRED`（退出码 3）；店铺读取被拒绝返回业务错误（退出码 6）。订单、商品、营销权限仍在各自命令中检查。
+
+凭据继续使用普通 JSON `cookies/origins`，附加 `merchant_auth` 元数据；不是加密存储。Token/ck 不导出、不额外保存。`--json` 登录只向 stdout 输出最终一行，二维码等待信息在 stderr，授权结束后删除临时二维码。协议及批准的兼容性例外见 [核验记录](docs/merchant-auth-protocol-verification.md)。
 
 `goods publish --url` 可选择仅为消费者端源商品抓取启用青果短效 HTTP 代理：
 

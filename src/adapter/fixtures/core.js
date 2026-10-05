@@ -8,6 +8,7 @@ import { PROJECT_ROOT } from '../../infra/paths.js';
 export const ENV_ENABLED = 'PDD_TEST_ADAPTER';
 export const ENV_FIXTURE_DIR = 'PDD_TEST_FIXTURE_DIR';
 export const ENV_AUTH_INVALID = 'PDD_TEST_AUTH_INVALID';
+export const ENV_AUTH_INDETERMINATE = 'PDD_TEST_AUTH_INDETERMINATE';
 export const ENV_CONSUMER_AUTH_INVALID = 'PDD_TEST_CONSUMER_AUTH_INVALID';
 
 export function isMockEnabled() {

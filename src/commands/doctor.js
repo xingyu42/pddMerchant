@@ -5,44 +5,21 @@ import {
   createConsumerContext,
   getBrowserExecutablePath,
 } from '../adapter/browser.js';
-import { loadAuthState, isAuthValid, isConsumerAuthValid } from '../adapter/auth-state.js';
-import { resolveMallContext } from '../adapter/mall-reader.js';
+import { loadAuthState, isConsumerAuthValid } from '../adapter/auth-state.js';
+import { assertMerchantVerified } from '../adapter/merchant-auth.js';
+import { verifyStoredMerchant } from '../adapter/merchant-auth-storage.js';
 import {
   AUTH_STATE_PATH,
-  DAEMON_STATE_PATH,
   accountAuthStatePath,
 } from '../infra/paths.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
-import { existsSync, readFileSync } from 'node:fs';
-import { isPidAlive } from '../infra/process-util.js';
+import { existsSync } from 'node:fs';
 import { listAccounts } from '../infra/account-registry.js';
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
 import { resolveConsumerAccountContext } from '../infra/consumer-account-resolver.js';
 
-function checkDaemon() {
-  if (!existsSync(DAEMON_STATE_PATH)) {
-    return { ok: false, detail: { running: false } };
-  }
-  try {
-    const state = JSON.parse(readFileSync(DAEMON_STATE_PATH, 'utf8'));
-    const pid = state?.pid;
-    if (typeof pid !== 'number') return { ok: false, detail: { running: false } };
-    const alive = isPidAlive(pid);
-    return {
-      ok: alive,
-      detail: {
-        running: alive,
-        pid,
-        lastRefreshAt: state.lastRefreshAt || null,
-        lastResult: state.lastResult || null,
-      },
-    };
-  } catch {
-    return { ok: false, detail: { running: false, error: 'state file corrupt' } };
-  }
-}
-
 export async function checkChromium() {
+  if (isMockEnabled()) return { ok: true, detail: { fixture: true } };
   try {
     const execPath = getBrowserExecutablePath();
     return { ok: Boolean(execPath) && existsSync(execPath), detail: { path: execPath || null } };
@@ -61,19 +38,7 @@ async function checkAuthFile(path) {
     const origins = Array.isArray(loaded.state?.origins) ? loaded.state.origins.length : 0;
     return { ok: true, detail: { exists: true, cookies, origins } };
   } catch (err) {
-    return { ok: false, detail: { error: err?.message || '解析失败' } };
-  }
-}
-
-async function detectShopContext(page, opts = {}) {
-  try {
-    const ctx = await resolveMallContext(page, opts);
-    const shops = (Array.isArray(ctx?.malls) && ctx.malls.length > 0)
-      ? ctx.malls.length
-      : (ctx?.activeId ? 1 : null);
-    return { shops, source: ctx?.source ?? null };
-  } catch {
-    return { shops: null, source: null };
+    return { ok: false, detail: { error: 'auth_state_unreadable' } };
   }
 }
 
@@ -95,23 +60,20 @@ async function checkConsumerLoggedIn(browser, authStatePath) {
   }
 }
 
-async function checkLoginStates(authStatePath, consumerAuthStatePath, mallProbeOpts) {
+async function checkLoginStates(authStatePath, consumerAuthStatePath, task = {}) {
   let browser = null;
   try {
     const launched = await launchBrowser({ headed: false, storageStatePath: authStatePath });
     browser = launched.browser;
-    let merchant = { ok: false, detail: { configured: false } };
+    let merchant = { ok: false, detail: { configured: false, verdict: 'not_configured' } };
     if (authStatePath) {
-      const valid = await isAuthValid(launched.page);
-      const url = launched.page.url();
-      let shops = null;
-      let source = null;
-      if (valid) {
-        const ctx = await detectShopContext(launched.page, mallProbeOpts);
-        shops = ctx.shops;
-        source = ctx.source;
-      }
-      merchant = { ok: valid, detail: { url, shops, mall_source: source } };
+      const loaded = await loadAuthState(authStatePath);
+      const result = await verifyStoredMerchant(launched.context, loaded.state, task);
+      merchant = { ok: result.verdict === 'verified', detail: {
+        configured: true, verdict: result.verdict, reason: result.reason,
+        checked_at: result.checked_at, shops: result.identity ? 1 : null,
+        mall_source: result.identity ? 'verified_shop_endpoint' : null,
+      } };
     }
     const consumer = consumerAuthStatePath
       ? await checkConsumerLoggedIn(browser, consumerAuthStatePath)
@@ -119,7 +81,7 @@ async function checkLoginStates(authStatePath, consumerAuthStatePath, mallProbeO
     return { merchant, consumer };
   } catch (err) {
     return {
-      merchant: { ok: false, detail: { error: err?.message || '导航失败' } },
+      merchant: { ok: false, detail: { configured: Boolean(authStatePath), verdict: 'indeterminate', reason: 'check_failed' } },
       consumer: null,
     };
   } finally {
@@ -131,21 +93,22 @@ export function renderDoctor(envelope) {
   const data = envelope?.data ?? {};
   const lines = [`OK  ${envelope?.command || 'doctor'}`];
 
-  lines.push('✓ Chromium 可用');
-  lines.push('✓ 商家端凭据可用');
+  lines.push(data.chromium?.ok ? '✓ Chromium 可用' : '· Chromium 不可用');
+  lines.push(data.auth_file?.ok ? '✓ 商家端凭据可用' : '· 商家端凭据未配置或损坏');
 
   const shops = data.logged_in?.detail?.shops;
   const shopSummary = Number.isInteger(shops) ? `（${shops} 个店铺）` : '';
-  lines.push(`✓ 商家端登录态有效${shopSummary}`);
+  const verdict = data.logged_in?.detail?.verdict;
+  lines.push(data.logged_in?.ok ? `✓ 商家端登录态有效${shopSummary}`
+    : data.logged_in?.detail?.reason === 'identity_mismatch' ? '· 商家端店铺绑定不一致'
+      : verdict === 'rejected' ? '· 商家端登录态已失效'
+      : verdict === 'not_configured' ? '· 商家端未配置' : '· 商家端登录态无法判定');
 
   if (data.consumer_auth_file?.ok === true && data.consumer_logged_in?.ok === true) {
     lines.push('✓ 用户端登录态有效');
   } else {
     lines.push('· 用户端未配置');
   }
-
-  const daemonRunning = data.daemon?.detail?.running === true;
-  lines.push(`${daemonRunning ? '✓' : '·'} 后台续期${daemonRunning ? '运行中' : '未运行'}`);
 
   if (Array.isArray(data.accounts)) {
     const validAccounts = data.accounts.filter((account) => account?.auth_file?.ok === true).length;
@@ -164,8 +127,6 @@ export const run = withCommand({
     const authStatePath = ctx.authPath ?? AUTH_STATE_PATH;
     const consumerAccount = await resolveConsumerAccountContext({ account: ctx.config?.consumerAccount });
     const consumerAuthStatePath = consumerAccount.authPath;
-    const probe = ctx.config?.probe ?? null;
-    const mallProbeOpts = probe === 'xhr' ? { activeProbeReload: true } : {};
 
     const data = {
       chromium: { ok: false, detail: null },
@@ -173,7 +134,6 @@ export const run = withCommand({
       logged_in: { ok: false, detail: null },
       consumer_auth_file: { ok: false, detail: null },
       consumer_logged_in: { ok: false, detail: { configured: false } },
-      daemon: checkDaemon(),
     };
 
     data.chromium = await checkChromium();
@@ -203,7 +163,7 @@ export const run = withCommand({
     const loginStates = await checkLoginStates(
       data.auth_file.ok ? authStatePath : null,
       data.consumer_auth_file.ok ? consumerAuthStatePath : null,
-      mallProbeOpts
+      { signal: ctx.signal, deadlineAt: ctx.deadlineAt ?? undefined, expectedMallId: ctx.account?.mallId }
     );
     data.logged_in = loginStates.merchant;
     if (loginStates.consumer) data.consumer_logged_in = loginStates.consumer;
@@ -218,13 +178,7 @@ export const run = withCommand({
     }
     if (!data.logged_in.ok) {
       ctx.log.debug({ detail: data.logged_in.detail }, 'logged_in check failed');
-      throw new PddCliError({
-        code: 'E_AUTH_EXPIRED',
-        message: '登录态已过期',
-        hint: '执行 pdd login 重新登录',
-        detail: data,
-        exitCode: ExitCodes.AUTH,
-      });
+      assertMerchantVerified(data.logged_in.detail, { detail: data });
     }
 
     if (data.consumer_auth_file.ok && !data.consumer_logged_in.ok) {

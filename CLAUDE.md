@@ -65,7 +65,7 @@ Dependencies flow one way: `commands/ → services/ → adapter/ → infra/`. Ne
 | `PDD_SCRAPE_SOFTBLOCK_COOLDOWN_MS` | IP soft-block cooldown duration in ms (default: 7200000 = 2h); during cooldown `goods publish` scrape short-circuits before requesting. State persists in `data/scrape-cooldown.json` |
 | `PLAYWRIGHT_DOWNLOAD_HOST` | Mirror for Playwright browser downloads |
 
-CLI and daemon logs use fixed daily files under `log/cli/` and `log/daemon/`; foreground/bootstrap logs use stderr. `PDD_LOG_DESTINATION` is unsupported.
+CLI logs use fixed daily files under `log/cli/`; bootstrap logs use stderr. `PDD_LOG_DESTINATION` is unsupported. Merchant authentication is checked on demand at login, ordinary commands and doctor; no auth daemon is started.
 
 ## Testing
 

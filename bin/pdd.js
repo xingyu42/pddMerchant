@@ -13,12 +13,13 @@ import { register as registerGoods } from '../src/commands/registry/goods.js';
 import { register as registerPromo } from '../src/commands/registry/promo.js';
 import { register as registerDiagnose } from '../src/commands/registry/diagnose.js';
 import { register as registerAccount } from '../src/commands/registry/account.js';
-import { register as registerDaemon } from '../src/commands/registry/daemon.js';
 
 let shuttingDown = false;
+const shutdownController = new AbortController();
 function onSignal(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
+  shutdownController.abort();
   const code = { SIGINT: 130, SIGTERM: 143 }[signal] ?? 128;
   process.exitCode = code;
   closeAllBrowsers({ timeoutMs: 5000 }).catch(() => {});
@@ -123,9 +124,10 @@ function wireAction(cmd, commandName, runFn, { runtimeConfigPolicy = 'required' 
         : null;
       if (runtimeConfig) createLogger({ level: runtimeConfig.logLevel, config: runtimeConfig });
       else createLogger({ level: 'silent' });
+      opts.signal = shutdownController.signal;
       const envelope = await runFn(opts, { runtimeConfig });
-      if (process.exitCode === 130) {
-        // SIGINT already set by batch handler — preserve it
+      if (shuttingDown) {
+        // onSignal 已写入 130/143 — preserve it
       } else if (envelope && envelope.ok === false) {
         const exitCode = envelope.meta?.exit_code
           ?? (envelope.error?.code ? mapErrorToExit({ code: envelope.error.code }) : ExitCodes.GENERAL);
@@ -139,7 +141,7 @@ function wireAction(cmd, commandName, runFn, { runtimeConfigPolicy = 'required' 
     } catch (err) {
       const envelope = errorToEnvelope(commandName, err);
       emit(envelope, { json: opts.json, noColor: opts.noColor });
-      process.exitCode = envelope.meta.exit_code;
+      if (!shuttingDown) process.exitCode = envelope.meta.exit_code;
     }
   });
 }
@@ -152,7 +154,6 @@ registerGoods(program, wireAction);
 registerPromo(program, wireAction);
 registerDiagnose(program, wireAction);
 registerAccount(program, wireAction);
-registerDaemon(program, wireAction);
 async function main() {
   try {
     await program.parseAsync(process.argv);

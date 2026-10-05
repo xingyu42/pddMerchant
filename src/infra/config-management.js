@@ -25,12 +25,6 @@ import {
 import { PddCliError, ExitCodes } from './errors.js';
 
 const DEFAULT_IO = Object.freeze({ lstat, mkdir, open, readFile, realpath, rename, rm });
-const DAEMON_CONFIG_KEYS = new Set([
-  'logLevel',
-  'authStatePath',
-  'refreshIntervalMs',
-  'refreshJitterMs',
-]);
 
 function managedPaths(options = {}) {
   return {
@@ -240,16 +234,14 @@ export async function writeLocalConfigAtomic(value, options = {}) {
   return pathLabel(paths.configPath, paths.projectRoot);
 }
 
-function editWarnings(runtimeValid, restartRequired) {
+function editWarnings(runtimeValid) {
   return [
     ...(!runtimeValid ? ['runtime_invalid_after_edit'] : []),
-    ...(restartRequired ? ['daemon_restart_required'] : []),
   ];
 }
 
 async function finishEdit({ key, changed, localValue, options }) {
   const inspection = await inspectManagedConfig(options);
-  const restartRequired = changed && DAEMON_CONFIG_KEYS.has(key);
   const effectiveSource = inspection.valid ? inspection.sources[key] ?? null : null;
   return {
     path: pathLabel(managedPaths(options).configPath, managedPaths(options).projectRoot),
@@ -260,8 +252,8 @@ async function finishEdit({ key, changed, localValue, options }) {
     overridden: inspection.valid && localValue !== undefined && effectiveSource !== 'local',
     runtimeValid: inspection.valid,
     issues: inspection.valid ? [] : inspection.issues,
-    restartRequired,
-    warnings: editWarnings(inspection.valid, restartRequired),
+    restartRequired: false,
+    warnings: editWarnings(inspection.valid),
   };
 }
 
@@ -303,5 +295,3 @@ export function assertInspectionValid(inspection) {
   if (!inspection.valid) throw configInspectionError(inspection);
   return inspection;
 }
-
-export { DAEMON_CONFIG_KEYS };

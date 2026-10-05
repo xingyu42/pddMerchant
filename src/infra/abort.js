@@ -17,6 +17,11 @@ export function remainingMs(ctx) {
   return Math.max(0, ctx.deadlineAt - Date.now());
 }
 
+// 单步超时预算：不超过 capMs，也不越过 ctx.deadlineAt；至少 1ms 以便下游计时器正常触发。
+export function budgetMs(ctx, capMs = Infinity) {
+  return Math.max(1, Math.min(capMs, remainingMs(ctx)));
+}
+
 export function abortableSleep(ms, signal) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(timeoutError());
