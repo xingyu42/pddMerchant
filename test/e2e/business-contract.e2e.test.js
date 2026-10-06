@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 import { runCli } from '../helpers/isolated-cli.js';
 import { assertRedacted } from '../helpers/envelope-assertions.js';
+import { GOODS_LIST } from '../../src/adapter/endpoints/goods.js';
 
 describe('offline CLI envelopes and process exits', () => {
   it('routes the requested order page and emits one successful JSON envelope', () => {
@@ -95,6 +96,20 @@ describe('offline CLI envelopes and process exits', () => {
     assert.match(envelope.error.detail.nested.receiver_phone, /^fp:[a-f0-9]{8}$/);
     assert.equal(Object.hasOwn(envelope.error.detail.nested, 'raw'), false);
     assertRedacted(stdout, ['SYNTHETIC-ERROR-AUTH', 'SYNTHETIC-ERROR-PHONE', 'SYNTHETIC-ERROR-RAW']);
+  });
+
+  it('emits upstream goods id in the list JSON envelope', () => {
+    // Fixture mode returns normalized data, so explicitly exercise the real normalizer first.
+    const goods = GOODS_LIST.normalize({ success: true, result: {
+      total: 1, goods_list: [{ id: 673183509913, goods_name: 'Synthetic', quantity: 10 }],
+    } });
+    const { status, envelope } = runCli(['goods', 'list'], { fixtures: {
+      'endpoints/goods.list.json': goods,
+    } });
+    assert.equal(status, 0);
+    assert.equal(envelope.command, 'goods.list');
+    assert.equal(envelope.meta.total, 1);
+    assert.equal(envelope.data[0].goods_id, 673183509913);
   });
 
   it('plans a price change without any write fixture or confirmation', () => {

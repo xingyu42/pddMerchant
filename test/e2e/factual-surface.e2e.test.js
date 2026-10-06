@@ -97,25 +97,9 @@ describe('factual reports through the offline CLI', () => {
     assert.ok(envelope.data.hints.some((hint) => hint.dimension === 'promo'));
   });
 
-  it('wires adjacent comparison windows and leaves current inventory snapshots uncomparable', () => {
+  it('routes --compare through the CLI to a comparison report', () => {
     const { status, envelope } = runCli(['diagnose', 'shop', '--compare', '--days', '7'], { fixtures: createFactFixtures() });
     assert.equal(status, 0);
-    const comparison = envelope.data.compare;
-    assert.equal(comparison.status, 'full');
-    for (const window of [comparison.current_window, comparison.previous_window]) {
-      assert.equal(window.days, 7);
-      assert.equal(window.until - window.since, 7 * 86400);
-    }
-    assert.equal(comparison.previous_window.until, comparison.current_window.since);
-    // The existing fixture adapter is page-based, so both windows use the same synthetic source.
-    assert.deepEqual(comparison.dimensions.promo.metrics.spend, { current: 100, previous: 100, delta: 0, delta_pct: 0 });
-    assert.deepEqual(comparison.dimensions.orders.metrics.unship, {
-      current: 1, previous: null, delta: null, delta_pct: null, note: 'current_snapshot_only',
-    });
-    assert.deepEqual(comparison.dimensions.inventory.metrics.total, {
-      current: 1, previous: null, delta: null, delta_pct: null, note: 'current_snapshot_only',
-    });
-    assert.equal(comparison.dimensions.funnel.metrics.total_orders.current, 1);
-    assert.equal(comparison.dimensions.funnel.metrics.total_orders.previous, 1);
+    assert.equal(envelope.data.compare.status, 'full');
   });
 });

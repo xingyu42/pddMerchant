@@ -390,7 +390,7 @@ new PddCliError({
 | 满件折扣配置    | ✅ 已实现并验证        | 统一配置 `fullCountDiscountRate`（默认 `0.95`）；唯一定位 `count_discount` 输入框，按 `9.5` 折写入并读回，保存请求严格校验 `two_pieces_discount: 95` |
 
 ### 9.2 兼容性边界
-- `goods.list` 响应可能出现 `goods_id: null`，库存匹配会回退到 `goods_name`，并以 `matched_by='mixed'` 标记兼容结果。
+- `goods.list` 按 `goods_id`、`goodsId`、`id` 的顺序映射商品主键。若输出仍为 `goods_id: null`，应排查上游结构变更或映射回归，而不是视为正常情况；库存匹配仍保留按 `goods_name` 回退的保护，并以 `matched_by='mixed'` 标记兼容结果。
 - `createPageSession()` 会在同一规范化 URL 于 1 秒 TTL 内重复导航时自动创建 sibling page，避免页面复用漏掉 XHR；调用方不应绕过该 session。
 
 ---

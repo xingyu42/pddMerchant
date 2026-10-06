@@ -18,7 +18,7 @@ export function isLowStock(goods, threshold = DEFAULT_LOW_STOCK_THRESHOLD) {
 
 function toGoodsRecord(g) {
   return {
-    goods_id: g.goods_id ?? g.goodsId ?? null,
+    goods_id: g.goods_id ?? g.goodsId ?? g.id ?? null,
     goods_name: g.goods_name ?? g.goodsName ?? '',
     quantity: Number.isFinite(Number(g.quantity)) ? Number(g.quantity) : 0,
     sku_price: g.sku_price ?? g.skuPrice ?? null,

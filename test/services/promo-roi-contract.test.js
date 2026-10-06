@@ -1,7 +1,26 @@
 import assert from 'node:assert/strict';
 import { it } from 'vitest';
 import { analyzePromoRoi } from '../../src/services/promo-roi.js';
-import { SAMPLE_PROMO_ENTITIES } from '../fixtures/test-data.js';
+import { SAMPLE_PROMO_ENTITIES, createFactResponses } from '../fixtures/test-data.js';
+import { PROMO_ENTITY_REPORT } from '../../src/adapter/endpoints/promo.js';
+import { isNetworkError } from '../helpers/error-matchers.js';
+
+it('parses nested raw promotion amounts before calculating ROI', () => {
+  const raw = createFactResponses()['endpoints/promo.entityReport.json'];
+  const report = PROMO_ENTITY_REPORT.normalize(raw);
+  assert.equal(report.entities[0].goodsId, '101');
+  assert.equal(report.entities[0].spend, 100);
+  assert.equal(report.entities[0].gmv, 125);
+  assert.equal(report.totals.spend, 100);
+  assert.equal(report.totals.gmv, 125);
+  assert.equal(analyzePromoRoi(report).summary.overall_roi, 1.25);
+});
+
+it('rejects missing raw promotion spend instead of reporting zero', () => {
+  const raw = createFactResponses()['endpoints/promo.entityReport.json'];
+  delete raw.result.totalSumReport.cost;
+  assert.throws(() => PROMO_ENTITY_REPORT.normalize(raw), isNetworkError);
+});
 
 it('calculates grouped and overall ROI from summed amounts, not an average of individual ratios', () => {
   const input = { entities: structuredClone(SAMPLE_PROMO_ENTITIES), totals: { spend: 999 } };

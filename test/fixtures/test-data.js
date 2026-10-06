@@ -1,3 +1,7 @@
+import { ORDER_LIST, ORDER_STATS } from '../../src/adapter/endpoints/orders.js';
+import { GOODS_LIST } from '../../src/adapter/endpoints/goods.js';
+import { PROMO_ENTITY_REPORT } from '../../src/adapter/endpoints/promo.js';
+
 export const SAMPLE_LIST_STATS = Object.freeze({
   total: 4,
   refund_count: 1,
@@ -30,11 +34,11 @@ export const SAMPLE_SEGMENTATION_INPUT = Object.freeze({
   ],
 });
 
-export function createFactFixtures() {
+export function createFactResponses() {
   return {
     'endpoints/orders.list.json': {
-      total: 1,
-      orders: [{
+      success: true,
+      result: { totalItemNum: 1, pageItems: [{
         order_sn: 'SYN-1',
         goods_id: '101',
         goods_name: 'Tea',
@@ -43,13 +47,27 @@ export function createFactFixtures() {
         order_time: 1700000000,
         ship_time: 1700003600,
         refund_status: 0,
-      }],
+      }] },
     },
-    'endpoints/orders.stats.json': { unship: 1, unship12h: 0, delay: 0, unreceive: 0 },
-    'endpoints/goods.list.json': { total: 1, goods: [{ goods_id: '101', goods_name: 'Tea', quantity: 10 }] },
+    'endpoints/orders.stats.json': { success: true, result: { unship: 1, unship12h: 0, delay: 0, unreceive: 0 } },
+    'endpoints/goods.list.json': { success: true, result: { total: 1, goods_list: [{ id: '101', goods_name: 'Tea', quantity: 10 }] } },
     'endpoints/promo.entityReport.json': {
-      entities: [{ planId: 'p1', adId: 'a1', goodsId: '101', goodsName: 'Tea', spend: 100, gmv: 125, impression: 100, click: 10 }],
-      totals: { spend: 100, gmv: 125, impression: 100, click: 10 },
+      success: true,
+      result: {
+        entityReportList: [{ planId: 'p1', adId: 'a1', goodsId: '101', goodsName: 'Tea', reportInfo: {
+          cost: { value: '100' }, gmv: { value: '125' }, impression: 100, click: 10,
+        } }],
+        totalSumReport: { cost: { value: '100' }, gmv: { value: '125' }, impression: 100, click: 10 },
+      },
     },
   };
+}
+
+export function createFactFixtures() {
+  const responses = createFactResponses();
+  // The legacy subprocess adapter expects service-facing data; exercise real parsing first.
+  return Object.fromEntries([ORDER_LIST, ORDER_STATS, GOODS_LIST, PROMO_ENTITY_REPORT].map((spec) => {
+    const path = `endpoints/${spec.name}.json`;
+    return [path, spec.normalize(responses[path])];
+  }));
 }

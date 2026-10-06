@@ -37,7 +37,7 @@ export const GOODS_LIST = {
     return {
       total: Number(result.total),
       goods: result.goods_list.map((g) => ({
-        goods_id: g.goods_id,
+        goods_id: g.goods_id ?? g.goodsId ?? g.id ?? null,
         goods_name: g.goods_name,
         quantity: Number(g.quantity),
         sku_price: g.sku_price,

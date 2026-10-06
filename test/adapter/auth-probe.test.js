@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import https from 'node:https';
 import { describe, it, vi } from 'vitest';
-import { MERCHANT_CHECK_URL, MERCHANT_IDENTITY_URL, MERCHANT_SHOP_READ_URL, collectCheckCookies, buildCheckHeader, classifyCheckLogin, classifyMerchantIdentity, probeCheckLogin, probeMerchantShop } from '../../src/adapter/merchant-auth-probe.js';
+import { collectCheckCookies, buildCheckHeader, classifyCheckLogin, classifyMerchantIdentity, probeCheckLogin, probeMerchantShop } from '../../src/adapter/merchant-auth-probe.js';
+
+// Independent protocol expectations from docs/merchant-auth-protocol-verification.md.
+const CHECK_URL = 'https://mms.pinduoduo.com/janus/api/checkLogin';
+const IDENTITY_URL = 'https://mms.pinduoduo.com/earth/api/mallInfo/querySimpleCredential';
+const SHOP_READ_URL = 'https://mms.pinduoduo.com/earth/api/mallInfo/queryMallAuditInfo';
 
 const cookies = [{ name: 'PASS_ID', value: 'synthetic%2Fvalue==' }, { name: 'auxiliary', value: 'a,b==' }];
 
@@ -31,7 +36,7 @@ describe('experimental merchant auth candidate', () => {
     const original = structuredClone(cookies);
     const context = { cookies: vi.fn(async () => original) };
     const snapshot = await collectCheckCookies(context);
-    assert.deepEqual(context.cookies.mock.calls, [[[MERCHANT_CHECK_URL]]]);
+    assert.deepEqual(context.cookies.mock.calls, [[[CHECK_URL]]]);
     original[0].value = 'later-session';
     assert.equal(snapshot[0].value, 'synthetic%2Fvalue==');
     assert.ok(Object.isFrozen(snapshot));
@@ -82,15 +87,15 @@ describe('observed fixed shop protocol', () => {
 
   it('selects each fixed URL separately and validates read-only access', async () => {
     const context = { cookies: vi.fn(async () => structuredClone(cookies)) };
-    const requests = mockTransport({ body: (url) => url === MERCHANT_IDENTITY_URL
+    const requests = mockTransport({ body: (url) => url === IDENTITY_URL
       ? { success: true, result: { merchantMainSimpleVO: { mallId: 900001, mallName: 'Shop' } } }
       : { success: true, result: { auditInfoVOList: [] } } });
     const result = await probeMerchantShop(context, cookies);
     assert.equal(result.verdict, 'verified');
     assert.equal(result.identity.mallId, '900001');
     assert.equal(result.scope, 'shop_read');
-    assert.deepEqual(context.cookies.mock.calls, [[[MERCHANT_IDENTITY_URL]], [[MERCHANT_SHOP_READ_URL]]]);
-    assert.deepEqual(requests.map((entry) => entry.url), [MERCHANT_IDENTITY_URL, MERCHANT_SHOP_READ_URL]);
+    assert.deepEqual(context.cookies.mock.calls, [[[IDENTITY_URL]], [[SHOP_READ_URL]]]);
+    assert.deepEqual(requests.map((entry) => entry.url), [IDENTITY_URL, SHOP_READ_URL]);
     assert.ok(requests.every((entry) => entry.options.method === 'GET'));
   });
 
@@ -110,7 +115,7 @@ describe('observed fixed shop protocol', () => {
     assert.equal((await probeMerchantShop(context, cookies)).scope, 'shop_identity');
     assert.equal(requests.length, 1);
     vi.restoreAllMocks();
-    mockTransport({ body: (url) => url === MERCHANT_IDENTITY_URL
+    mockTransport({ body: (url) => url === IDENTITY_URL
       ? { success: true, result: { merchantMainSimpleVO: { mallId: '900001', mallName: 'Shop' } } }
       : { success: false, result: { auditInfoVOList: [] } } });
     assert.equal((await probeMerchantShop(context, cookies)).verdict, 'failed');
@@ -136,10 +141,10 @@ describe('strict GET checkLogin protocol', () => {
     const result = await probeCheckLogin(cookies);
     assert.equal(result.verdict, 'verified');
     assert.equal(requests.length, 1);
-    assert.equal(requests[0].url, MERCHANT_CHECK_URL);
+    assert.equal(requests[0].url, CHECK_URL);
     assert.equal(requests[0].options.method, 'GET');
     assert.equal(requests[0].options.rejectUnauthorized, true);
-    assert.equal(requests[0].options.headers.Cookie, buildCheckHeader(cookies));
+    assert.equal(requests[0].options.headers.Cookie, 'PASS_ID=synthetic%2Fvalue==; auxiliary=a,b==');
     assert.deepEqual(Object.keys(result).sort(), ['checked_at', 'http_status', 'reason', 'verdict']);
     assert.ok(Number.isFinite(Date.parse(result.checked_at)));
     assert.equal(requests[0].request.destroy.mock.calls.length, 1);
