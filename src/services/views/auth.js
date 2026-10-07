@@ -73,9 +73,8 @@ function toDoctorAccountView(account) {
 }
 
 function doctorHeadline(view) {
-  const merchant = view.logged_in.ok
-    ? `商家端登录态${view.logged_in.detail?.verdict ?? '已验证'}`
-    : `商家端登录态${view.logged_in.detail?.verdict ?? '无法判定'}`;
+  const fallbackVerdict = view.logged_in.ok ? '已验证' : '无法判定';
+  const merchant = `商家端登录态${view.logged_in.detail?.verdict ?? fallbackVerdict}`;
   const consumer = view.consumer_logged_in.ok ? '用户端登录态有效' : '用户端未配置或无效';
   const headline = [`Chromium ${view.chromium.ok ? '可用' : '不可用'}；${merchant}；${consumer}`];
   if (Array.isArray(view.accounts)) {

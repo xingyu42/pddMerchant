@@ -15,6 +15,20 @@ describe('management headlines state only known facts', () => {
     ]);
   });
 
+  it.each([
+    [undefined, '无法判定'],
+    [{ ok: true }, '已验证'],
+    [{ ok: false }, '无法判定'],
+    [{ ok: true, detail: { verdict: null } }, '已验证'],
+    [{ ok: false, detail: { verdict: '' } }, '无法判定'],
+    [{ ok: true, detail: { verdict: 'rejected' } }, '已失效'],
+    [{ ok: false, detail: { verdict: 'verified' } }, '已验证'],
+    [{ ok: true, detail: { verdict: 'unrecognized' } }, '未知(unrecognized)'],
+  ])('uses the doctor verdict before its ok-based fallback: %j', (loggedIn, verdict) => {
+    const view = toDoctorView({ logged_in: loggedIn });
+    assert.equal(view.headline[0], `Chromium 不可用；商家端登录态${verdict}；用户端未配置或无效`);
+  });
+
   it('counts auth-state files without calling them saved credentials', () => {
     const view = toDoctorView({
       chromium: { ok: true, detail: {} },
