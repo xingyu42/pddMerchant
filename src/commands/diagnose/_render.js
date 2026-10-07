@@ -2,15 +2,26 @@
 import chalk from 'chalk';
 import Table from 'cli-table3';
 
+// v2：status 已是中文标签（数据完整 / 数据不完整），维度名按标签显示
+const TITLE_LABEL = { shop: '店铺', orders: '订单', inventory: '库存', promo: '推广', funnel: '履约' };
+
 function renderHeader(title, diag, useColor) {
-  const label = diag?.status === 'full' ? '数据可用' : '数据不完整';
-  const text = `统计·${title} [${label}]`;
+  const text = `统计·${TITLE_LABEL[title] ?? title} [${diag?.status ?? '数据不完整'}]`;
   return useColor ? chalk.bold(text) : text;
 }
 
+function renderHeadline(diag) {
+  return Array.isArray(diag?.headline) ? diag.headline.map((line) => `  ${line}`) : [];
+}
+
+// 嵌套值展开为可读文本（不输出整段 JSON）：对象 → 「键: 值」以「；」连接，数组 → 元素以「 | 」连接
 function formatValue(value) {
   if (value == null) return '--';
-  return typeof value === 'object' ? JSON.stringify(value) : String(value);
+  if (Array.isArray(value)) return value.length === 0 ? '无' : value.map(formatValue).join(' | ');
+  if (typeof value === 'object') {
+    return Object.entries(value).map(([key, item]) => `${key}: ${formatValue(item)}`).join('；');
+  }
+  return String(value);
 }
 
 function renderDetails(detail, useColor) {
@@ -50,7 +61,7 @@ function renderHints(hints, useColor) {
 export function renderSingleDashboard(envelope, { useColor }) {
   const diag = envelope.data;
   const title = String(envelope.command).replace(/^diagnose\./, '');
-  const lines = [renderHeader(title, diag, useColor)];
+  const lines = [renderHeader(title, diag, useColor), ...renderHeadline(diag)];
   const details = renderDetails(diag?.detail, useColor);
   if (details) lines.push('', details);
   const issueLines = renderIssues(diag?.issues, useColor);
@@ -62,11 +73,11 @@ export function renderSingleDashboard(envelope, { useColor }) {
 
 export function renderShopDashboard(envelope, { useColor }) {
   const diag = envelope.data;
-  const lines = [renderHeader('shop', diag, useColor)];
+  const lines = [renderHeader('shop', diag, useColor), ...renderHeadline(diag)];
   const DIMS = ['orders', 'inventory', 'promo', 'funnel'];
   for (const name of DIMS) {
     const sub = diag?.dimensions?.[name];
-    lines.push('', renderHeader(name, sub, useColor));
+    lines.push('', renderHeader(name, sub, useColor), ...renderHeadline(sub));
     const details = renderDetails(sub?.detail, useColor);
     if (details) lines.push(details);
   }
@@ -91,5 +102,8 @@ function renderComparison(comparison, useColor) {
       ]);
     }
   }
-  return `数值环比\n${table.toString()}`;
+  const cur = comparison.current_window;
+  const prev = comparison.previous_window;
+  const range = cur && prev ? `（本期 ${cur.start_date}~${cur.end_date}，上期 ${prev.start_date}~${prev.end_date}）` : '';
+  return `数值环比 [${comparison.status ?? ''}]${range}\n${table.toString()}`;
 }

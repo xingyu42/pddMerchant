@@ -1,6 +1,5 @@
 import { withCommand } from '../../_runner.js';
-import { PddCliError, ExitCodes } from '../../../infra/errors.js';
-import { updateGoodsTitle, validateGoodsId, validateWriteValue } from '../../../services/goods.js';
+import { executeGoodsWrite } from '../../../services/goods-write.js';
 
 export const run = withCommand({
   name: 'goods.update.title',
@@ -9,33 +8,10 @@ export const run = withCommand({
   allowAllAccounts: false,
   async run(ctx) {
     const { goodsId, title, confirm } = ctx.config;
-    const id = validateGoodsId(goodsId);
-    const t = validateWriteValue('title', title);
-    const mallId = ctx.mallCtx?.activeId ?? null;
-
-    if (!confirm) {
-      return {
-        data: {
-          goods_id: id,
-          field: 'title',
-          value: t,
-          dry_run: true,
-        },
-        meta: { xhr_count: 0, mall: mallId },
-      };
-    }
-
-    const result = await updateGoodsTitle(ctx.page, id, t, ctx);
-    return {
-      data: {
-        goods_id: id,
-        field: 'title',
-        value: t,
-        dry_run: false,
-        result,
-      },
-      meta: { xhr_count: 1, mall: mallId, confirm: true },
-    };
+    const data = await executeGoodsWrite(ctx, {
+      field: 'title', goodsId, value: title, confirm,
+    });
+    return { data, meta: { xhr_count: data.dry_run ? 0 : 1 } };
   },
 });
 

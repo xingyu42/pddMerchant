@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { emit } from '../src/infra/output.js';
+import { emit, ENVELOPE_VERSION } from '../src/infra/output.js';
 import { ExitCodes, mapErrorToExit, errorToEnvelope } from '../src/infra/errors.js';
 import { createLogger, redactRecursive } from '../src/infra/logger.js';
 import { prepareCommandRuntime } from '../src/commands/runtime-options.js';
@@ -179,7 +179,7 @@ async function main() {
           },
         },
         meta: {
-          v: 1,
+          v: ENVELOPE_VERSION,
           exit_code: ExitCodes.USAGE,
           latency_ms: 0,
           warnings: [],

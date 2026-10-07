@@ -1,5 +1,5 @@
 import { withCommand } from '../_runner.js';
-import { listOrders, getOrderStats, computeOrderStats } from '../../services/orders.js';
+import { getOrderStatsView } from '../../services/orders.js';
 
 export const run = withCommand({
   name: 'orders.stats',
@@ -7,22 +7,7 @@ export const run = withCommand({
   needsMall: 'switch',
   async run(ctx) {
     const { size = 50 } = ctx.config;
-    const mallId = ctx.mallCtx?.activeId ?? null;
-
-    const remote = await getOrderStats(ctx.page, ctx);
-    const listRes = await listOrders(ctx.page, { page: 1, size }, ctx);
-    const local = computeOrderStats(listRes.orders);
-
-    return {
-      remote: {
-        unship: remote.unship,
-        unship12h: remote.unship12h,
-        delay: remote.delay,
-        unreceive: remote.unreceive,
-      },
-      local,
-      mall_id: mallId,
-    };
+    return getOrderStatsView(ctx.page, { size }, ctx);
   },
 });
 

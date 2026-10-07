@@ -50,12 +50,15 @@ export function createCliSandbox(fixtures = {}) {
   return { root, env, fixtureDir, dispose: () => rmSync(root, { recursive: true, force: true }) };
 }
 
-export function runCli(args, { fixtures, authInvalid = false, authIndeterminate = false, authState } = {}) {
+// registry：写入合成账号 registry；--all-accounts 与显式 PDD_AUTH_STATE_PATH 互斥，故此时移除该变量
+export function runCli(args, { fixtures, authInvalid = false, authIndeterminate = false, authState, registry } = {}) {
   const sandbox = createCliSandbox(fixtures);
   try {
+    if (args.includes('--all-accounts')) delete sandbox.env.PDD_AUTH_STATE_PATH;
     if (authInvalid) sandbox.env.PDD_TEST_AUTH_INVALID = '1';
     if (authIndeterminate) sandbox.env.PDD_TEST_AUTH_INDETERMINATE = '1';
     if (authState) writeFileSync(sandbox.env.PDD_AUTH_STATE_PATH, JSON.stringify(authState));
+    if (registry) writeFileSync(sandbox.env.PDD_ACCOUNT_REGISTRY_PATH, JSON.stringify(registry));
     const result = spawnSync(process.execPath, ['--import', preloadUrl, cliPath, ...args, '--json'], {
       cwd: projectRoot, env: sandbox.env, encoding: 'utf8', timeout: 15000, maxBuffer: 1024 * 1024,
     });

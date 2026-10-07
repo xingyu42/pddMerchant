@@ -44,17 +44,36 @@ node bin/pdd.js orders list --json
 
 ## 输出契约（envelope）
 
-所有命令输出统一结构，这是**神圣契约**，字段稳定：
+所有命令输出统一结构，这是**神圣契约**，字段稳定（输出契约 v2，`meta.v: 2`）：
 
 ```json
-{ "ok": true, "command": "orders.list", "data": {}, "error": null, "meta": {} }
+{
+  "ok": true,
+  "command": "orders.list",
+  "data": { "headline": ["近 7 天共 22 单，本页 20 单", "本页状态：已发货，待收货 20 单"], "items": [], "total": 22, "mall_id": "900001" },
+  "error": null,
+  "meta": { "v": 2, "exit_code": 0, "latency_ms": 812, "xhr_count": 1, "warnings": [] }
+}
 ```
 
 - `ok` — 布尔，是否成功
 - `command` — 命令标识（如 `goods.update.price`）
-- `data` — 成功时的业务数据
-- `error` — 失败时的错误对象（`ok:false` 时非空）
-- `meta` — 元信息；只有 `meta.warnings` 允许增长
+- `data` — 成功时的业务数据，**恒为对象**，必含 `headline`
+- `error` — 失败时的错误对象（`ok:false` 时非空，`data` 为 `null`）
+- `meta` — 仅技术元信息（版本、退出码、耗时、警告等）；只有 `meta.warnings` 允许增长；业务上下文（`total`、`mall_id` 等）在 `data` 里
+
+### data 字段约定（v2）
+
+- **`headline`**：1–3 句中文事实陈述（数量、状态、数据缺失），不含建议或好坏判断。
+- **列表命令**：`{ headline, items: [...], total, ... }`（如 `orders list`、`goods list/stock/templates`、`promo roi`、`shops list`、`account list`）。
+- **键名** 全部 snake_case；**金额** 单位为元、后缀 `_yuan`（如 `paid_amount_yuan: 29.9`）；**比率** 为 0-100 的百分数、后缀 `_pct`（如 `refund_rate_pct: 3.12`）；**ROI** 为倍数 `roi`；**时间** `_at` 为 `YYYY-MM-DD HH:mm:ss`（北京时间），日期为 `YYYY-MM-DD`；时长 `_hours`。
+- **枚举** 一律是中文标签（如订单 `status: "已发货，待收货"`、诊断 `status: "数据完整"`）；无法识别的码显示为 `未知(<code>)`。
+- **缺失** 为 `null`，不是 0；分母为 0 的比率也是 `null`。
+- **标识**（`goods_id`、`mall_id`、`order_sn`）为字符串。
+- 不含上游原始对象，也不含收件人姓名 / 电话 / 地址。
+- 批量（`--all-accounts`）：`data = { headline, accounts: { <slug>: { ok, data | error, latency_ms } }, summary }`，每个账号的 `data` 即该命令自身的 v2 data。
+
+**向用户转述时优先使用 `data.headline`；需要细节时再引用字段的中文含义，不要复述键名**（例如说「实付 23.50 元」，不要说「paid_amount_yuan 是 23.5」）。
 
 **8 个退出码**（据此判断结果，勿只看 stdout）：
 
@@ -126,10 +145,11 @@ node bin/pdd.js goods segment --days 30 --size 50 --max-pages 10 [--no-promo]  #
 **写操作（`goods update` 子组，默认 dry-run，须 `--confirm` 才真正执行）：**
 ```bash
 node bin/pdd.js goods update status --goods-id <id> --status onsale|offline --confirm
-node bin/pdd.js goods update price  --goods-id <id> --price <分> [--sku-id <id>] --confirm
+node bin/pdd.js goods update price  --goods-id <id> --price-yuan <元> [--sku-id <id>] --confirm
 node bin/pdd.js goods update stock  --goods-id <id> --quantity <n> [--sku-id <id>] --confirm
 node bin/pdd.js goods update title  --goods-id <id> --title "<新标题>" --confirm
-node bin/pdd.js goods update batch  --changes '[{"goods_id":1001,"field":"price","value":2999}]' --confirm
+node bin/pdd.js goods update batch  --changes '[{"goods_id":1001,"field":"price_yuan","value":29.9}]' --confirm
+# batch field 取值：status | price_yuan | stock | title；价格 value 单位为元
 ```
 
 **上货与运费模板：**
@@ -139,7 +159,9 @@ node bin/pdd.js goods publish --url <链接或纯数字goods_id> [--cost-templat
 # 默认仅创建草稿；--confirm 直接提交发布
 ```
 
-> ⚠️ 所有 `goods update` 和 `goods publish --confirm` 属**写操作**，会改动线上商品。执行前须向用户确认 `--goods-id`、`--price`（单位为**分**）等参数无误。价格 2999 = 29.99 元。
+> ⚠️ 所有 `goods update` 和 `goods publish --confirm` 属**写操作**，会改动线上商品。执行前须向用户确认 `--goods-id`、`--price-yuan`（单位为**元**，最多 2 位小数，例如 `29.9`）等参数无误。旧的分单位参数 `--price` 已移除，使用会以退出码 2 拒绝；batch 的 `field: "price"` 同样被拒绝。
+>
+> 写操作回显：`{ headline, goods_id, field, value, sku_id?, dry_run, result?: { success, failed_count }, mall_id }`（`field` 为 `status|price_yuan|stock|title`；价格回显为元，上下架回显为「上架 / 下架」）；预演 headline 形如「预演：商品 101 价格将改为 29.90 元，未提交」。batch 预演为 `{ headline, planned[], count, dry_run, mall_id }`，提交后为 `{ headline, succeeded, failed, results[{ goods_id, field, ok, error_code?, message? }], dry_run, mall_id }`。
 
 ### 🚀 推广 promo
 
@@ -157,7 +179,7 @@ node bin/pdd.js diagnose promo                         # 推广维度（ROI/CTR�
 node bin/pdd.js diagnose funnel [--days 30]            # 漏斗维度（退款率/履约率）
 ```
 
-这些查询不生成经营建议、健康评分、商品等级或推广优劣分类。`action plan` 和 `--break-even` 已移除。诊断的 `full` / `partial` 只表示数据完整性，不代表经营好坏；缺失数值保留为 `null`，不能当成零。环比不把当前库存和待发货快照当成历史数据。
+这些查询不生成经营建议、健康评分、商品等级或推广优劣分类。`action plan` 和 `--break-even` 已移除。诊断的 `status`（`数据完整` / `数据不完整`）只表示数据完整性，不代表经营好坏；缺失数值保留为 `null`，不能当成零。环比窗口为 `{ start_date, end_date, days }`；`_pct` 指标的 `delta` 是百分点、`delta_pct` 是相对变化率；当前库存和待发货快照不做历史对比（`note: "仅有当前快照，无上期数据"`）。
 
 ### 🏬 店铺 shops
 
@@ -224,10 +246,10 @@ node bin/pdd.js goods publish --url <链接> --cost-template <id> --confirm --js
 
 - **AI 消费一律加 `--json`**，并结合退出码判断成败，勿只解析文本。
 - **写操作默认 dry-run**：`goods update *` 不加 `--confirm` 只预演，不改线上数据；确认参数后再加 `--confirm`。
-- **价格单位是分**：`--price 2999` = 29.99 元。
+- **价格单位是元**：`--price-yuan 29.9` 表示 29.90 元（上游仍以分提交，CLI 精确换算）；输出中的金额字段（`*_yuan`）同为元。
 - **鉴权失效（退出码 3）** → 重新 `login`。**限流（退出码 4）** → 等待冷却后重试。
 - `--consumer-account` 的昵称或手机号仅用于注册表查找；登录态实际落盘目录名是 registry 中的安全 slug。
 - 本地运行差异优先用 `config set` 写入稀疏 `config/config.json`；秘密、安全和测试开关仍只通过环境变量注入。
-- `goods list` 的 `goods_id` 可能为 `null`，库存匹配会回退到 `goods_name`，`matched_by='mixed'` 是正常现象。
+- 商品缺少 `goods_id` 时，库存 / 销量匹配会回退到商品名，`matched_by` 显示为「按商品名匹配（一侧缺少商品 ID）」，属正常兼容结果。
 - Mock 模式：设 `PDD_TEST_ADAPTER=fixture` + `PDD_TEST_FIXTURE_DIR=<dir>` 可在无浏览器/无真实账号下跑通命令，适合演示与调试。
 - 敏感字段（cookie、authorization、anti_content、手机号、地址等）在日志中自动 SHA256 脱敏。

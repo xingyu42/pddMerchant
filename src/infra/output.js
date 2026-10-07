@@ -2,6 +2,9 @@ import chalk from 'chalk';
 import Table from 'cli-table3';
 import { redactRecursive } from './logger.js';
 
+// 输出契约版本（单一来源）：单命令、批量、错误、用法错误四类 envelope 均引用此常量。
+export const ENVELOPE_VERSION = 2;
+
 function shouldUseColor({ tty, noColor }) {
   if (process.env.FORCE_COLOR === '1') return true;
   if (noColor) return false;
@@ -149,7 +152,7 @@ function displayEnvelope(envelope) {
 
 function buildBatchMeta(batchMeta) {
   return {
-    v: 1,
+    v: ENVELOPE_VERSION,
     batch: true,
     latency_ms: batchMeta.latency_ms ?? 0,
     correlation_id: batchMeta.correlation_id ?? '',
@@ -171,12 +174,14 @@ function buildEnvelope(input) {
   const { ok, command, data, error, meta } = input ?? {};
   const finalCommand = command ?? '';
   const finalMeta = {
-    v: 1,
+    v: ENVELOPE_VERSION,
     latency_ms: 0,
     xhr_count: 0,
     warnings: [],
     ...(meta ?? {}),
   };
+  // 契约版本不可被调用方 meta 覆盖（保留首位键序）
+  finalMeta.v = ENVELOPE_VERSION;
   if (rawDebugEnabled()) {
     const entries = [];
     collectRawEntries(data, '', entries, new WeakSet());
@@ -201,28 +206,7 @@ function renderTable(envelope, { useColor }) {
     : statusLabel;
   lines.push(`${statusText}  ${envelope.command || ''}`.trim());
 
-  if (envelope.data != null) {
-    if (Array.isArray(envelope.data)) {
-      if (envelope.data.length === 0) {
-        lines.push('(no rows)');
-      } else {
-        const headers = Object.keys(envelope.data[0] ?? {});
-        const table = new Table({ head: headers });
-        for (const row of envelope.data) {
-          table.push(headers.map((h) => formatCell(row?.[h])));
-        }
-        lines.push(table.toString());
-      }
-    } else if (typeof envelope.data === 'object') {
-      const table = new Table({ head: ['key', 'value'] });
-      for (const [k, v] of Object.entries(envelope.data)) {
-        table.push([k, formatCell(v)]);
-      }
-      lines.push(table.toString());
-    } else {
-      lines.push(String(envelope.data));
-    }
-  }
+  if (envelope.data != null) lines.push(...renderDataLines(envelope.data));
 
   const meta = envelope.meta ?? {};
   const metaParts = [];
@@ -243,6 +227,45 @@ function formatCell(v) {
   if (v == null) return '';
   if (typeof v === 'object') return JSON.stringify(v);
   return String(v);
+}
+
+// 行表：表头取全部行键的并集（保持首次出现顺序）
+function renderRows(rows) {
+  if (rows.length === 0) return '(no rows)';
+  const headers = [...new Set(rows.flatMap((row) => Object.keys(row ?? {})))];
+  const table = new Table({ head: headers });
+  for (const row of rows) {
+    table.push(headers.map((h) => formatCell(row?.[h])));
+  }
+  return table.toString();
+}
+
+function renderKeyValue(entries) {
+  const table = new Table({ head: ['key', 'value'] });
+  for (const [k, v] of entries) {
+    table.push([k, formatCell(v)]);
+  }
+  return table.toString();
+}
+
+function isHeadline(value) {
+  return Array.isArray(value) && value.length > 0 && value.every((line) => typeof line === 'string');
+}
+
+// v2 data：headline 逐行置顶 → items 行表 → 其余键的 key/value 表；
+// 无 headline/items 的对象与数组 data 保持原渲染。
+function renderDataLines(data) {
+  if (Array.isArray(data)) return [renderRows(data)];
+  if (typeof data !== 'object') return [String(data)];
+  const lines = [];
+  const rest = Object.entries(data).filter(([k, v]) => {
+    if (k === 'headline' && isHeadline(v)) return false;
+    return !(k === 'items' && Array.isArray(v));
+  });
+  if (isHeadline(data.headline)) lines.push(...data.headline);
+  if (Array.isArray(data.items)) lines.push(renderRows(data.items));
+  if (rest.length > 0 || lines.length === 0) lines.push(renderKeyValue(rest));
+  return lines;
 }
 
 function renderError(envelope, { useColor }) {
@@ -296,6 +319,12 @@ export function emit(envelopeInput, options = {}) {
   return envelope;
 }
 
+// 批量 envelope 的事实性 headline（输出契约 v2）
+function batchHeadline(total, succeeded, failed) {
+  if (total === 0) return ['没有可执行的账号'];
+  return [`${total} 个账号：成功 ${succeeded}，失败 ${failed}`];
+}
+
 function buildBatchEnvelope(name, accountResults, batchMeta = {}) {
   const entries = Object.entries(accountResults);
   const succeeded = entries.filter(([, r]) => r.ok).length;
@@ -328,6 +357,7 @@ function buildBatchEnvelope(name, accountResults, batchMeta = {}) {
     ok: allOk,
     command: name,
     data: {
+      headline: batchHeadline(entries.length, succeeded, failed),
       accounts,
       summary: {
         total_accounts: entries.length,
@@ -354,28 +384,7 @@ function batchRenderer(accountEnvelopes, { useColor }) {
       : statusLabel;
     lines.push(`${statusText}  ${env.command || ''}`.trim());
 
-    if (env.ok && env.data != null) {
-      if (Array.isArray(env.data)) {
-        if (env.data.length === 0) {
-          lines.push('(no rows)');
-        } else {
-          const headers = Object.keys(env.data[0] ?? {});
-          const table = new Table({ head: headers });
-          for (const row of env.data) {
-            table.push(headers.map((h) => formatCell(row?.[h])));
-          }
-          lines.push(table.toString());
-        }
-      } else if (typeof env.data === 'object') {
-        const table = new Table({ head: ['key', 'value'] });
-        for (const [k, v] of Object.entries(env.data)) {
-          table.push([k, formatCell(v)]);
-        }
-        lines.push(table.toString());
-      } else {
-        lines.push(String(env.data));
-      }
-    }
+    if (env.ok && env.data != null) lines.push(...renderDataLines(env.data));
 
     if (env.error) {
       lines.push(renderError(env, { useColor }));

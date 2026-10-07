@@ -14,6 +14,9 @@ import { merchantPendingAuthStatePath } from '../infra/paths.js';
 import { provisionMerchantAuth, withMerchantLoginRegistration } from '../services/auth-account-storage.js';
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
 import { deleteAuthState } from '../adapter/auth-state.js';
+import {
+  toAccountAddedView, toAccountDefaultView, toAccountListView, toAccountRemovedView,
+} from '../services/views/account.js';
 
 export async function add(opts = {}) {
   const startedAt = Date.now();
@@ -33,12 +36,10 @@ export async function add(opts = {}) {
     const provisioned = isMockEnabled()
       ? { account: { slug: 'fixture', ...loginResult.identity } }
       : await provisionMerchantAuth(loginResult.path, loginResult.identity, { candidate: loginResult.candidate, initialRevisions, registryToken, signal: opts.signal, deadlineAt });
-    const { slug, displayName, mallId } = provisioned.account;
-
     const envelope = {
       ok: true,
       command: 'account.add',
-      data: { slug, displayName, mallId, hasCredential: false },
+      data: toAccountAddedView(provisioned.account),
       meta: { latency_ms: Date.now() - startedAt, exit_code: ExitCodes.OK, warnings: ['credentials_not_saved_headed_login'] },
     };
     emit(envelope, { json: opts.json, noColor: opts.noColor });
@@ -67,8 +68,8 @@ export async function remove(opts = {}) {
     const envelope = {
       ok: true,
       command: 'account.remove',
-      data: { slug, removed: true },
-      meta: { latency_ms: Date.now() - startedAt, warnings: [] },
+      data: toAccountRemovedView(slug, { removeFiles: opts.removeFiles }),
+      meta: { latency_ms: Date.now() - startedAt, exit_code: ExitCodes.OK, warnings: [] },
     };
     emit(envelope, { json: opts.json, noColor: opts.noColor });
     return envelope;
@@ -85,22 +86,13 @@ export async function list(opts = {}) {
     const accounts = await listAccountsFromRegistry({ includeDisabled: true });
     const reg = await loadAccountRegistry();
 
-    const data = accounts.map((a) => ({
-      slug: a.slug,
-      displayName: a.displayName,
-      mallId: a.mallId,
-      isDefault: reg?.defaultAccount === a.slug,
-      disabled: a.disabled,
-      lastLoginAt: a.lastLoginAt,
-      lastRefreshAt: a.lastRefreshAt,
-      hasCredential: a.credential != null,
-    }));
+    const data = toAccountListView(accounts, reg?.defaultAccount ?? null);
 
     const envelope = {
       ok: true,
       command: 'account.list',
       data,
-      meta: { latency_ms: Date.now() - startedAt, warnings: [] },
+      meta: { latency_ms: Date.now() - startedAt, exit_code: ExitCodes.OK, warnings: [] },
     };
     emit(envelope, { json: opts.json, noColor: opts.noColor });
     return envelope;
@@ -123,8 +115,8 @@ export async function setDefault(opts = {}) {
     const envelope = {
       ok: true,
       command: 'account.default',
-      data: { slug, isDefault: true },
-      meta: { latency_ms: Date.now() - startedAt, warnings: [] },
+      data: toAccountDefaultView(slug),
+      meta: { latency_ms: Date.now() - startedAt, exit_code: ExitCodes.OK, warnings: [] },
     };
     emit(envelope, { json: opts.json, noColor: opts.noColor });
     return envelope;

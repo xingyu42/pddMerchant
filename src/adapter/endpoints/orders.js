@@ -29,6 +29,9 @@ function readStatsResult(raw) {
   return result;
 }
 
+// 订单列表默认时间窗（天）：未指定 since 时的查询起点
+export const ORDER_LIST_DEFAULT_DAYS = 7;
+
 export const ORDER_LIST = {
   name: 'orders.list',
   fixtureIsServiceFacing: true,
@@ -40,7 +43,7 @@ export const ORDER_LIST = {
     afterSaleType: 1,
     remarkStatus: -1,
     urgeShippingStatus: -1,
-    groupStartTime: params.since ?? Math.floor((Date.now() - 7 * 86400000) / 1000),
+    groupStartTime: params.since ?? Math.floor((Date.now() - ORDER_LIST_DEFAULT_DAYS * 86400000) / 1000),
     groupEndTime: params.until ?? Math.floor(Date.now() / 1000),
     pageNumber: params.page ?? 1,
     pageSize: params.size ?? 20,

@@ -17,6 +17,8 @@ import { existsSync } from 'node:fs';
 import { listAccounts } from '../infra/account-registry.js';
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
 import { resolveConsumerAccountContext } from '../infra/consumer-account-resolver.js';
+import { toDoctorView } from '../services/views/auth.js';
+import { AUTH_REASON_LABEL, AUTH_VERDICT_LABEL } from '../services/views/labels.js';
 
 export async function checkChromium() {
   if (isMockEnabled()) return { ok: true, detail: { fixture: true } };
@@ -91,18 +93,19 @@ async function checkLoginStates(authStatePath, consumerAuthStatePath, task = {})
 
 export function renderDoctor(envelope) {
   const data = envelope?.data ?? {};
-  const lines = [`OK  ${envelope?.command || 'doctor'}`];
+  const lines = [`OK  ${envelope?.command || 'doctor'}`, ...(Array.isArray(data.headline) ? data.headline : [])];
 
   lines.push(data.chromium?.ok ? '✓ Chromium 可用' : '· Chromium 不可用');
-  lines.push(data.auth_file?.ok ? '✓ 商家端凭据可用' : '· 商家端凭据未配置或损坏');
+  lines.push(data.auth_file?.ok ? '✓ 商家端登录态文件可用' : '· 商家端登录态文件未配置或损坏');
 
+  // v2：verdict / reason 已是中文标签
   const shops = data.logged_in?.detail?.shops;
   const shopSummary = Number.isInteger(shops) ? `（${shops} 个店铺）` : '';
   const verdict = data.logged_in?.detail?.verdict;
   lines.push(data.logged_in?.ok ? `✓ 商家端登录态有效${shopSummary}`
-    : data.logged_in?.detail?.reason === 'identity_mismatch' ? '· 商家端店铺绑定不一致'
-      : verdict === 'rejected' ? '· 商家端登录态已失效'
-      : verdict === 'not_configured' ? '· 商家端未配置' : '· 商家端登录态无法判定');
+    : data.logged_in?.detail?.reason === AUTH_REASON_LABEL.identity_mismatch ? '· 商家端店铺绑定不一致'
+      : verdict === AUTH_VERDICT_LABEL.rejected ? '· 商家端登录态已失效'
+      : verdict === AUTH_VERDICT_LABEL.not_configured ? '· 商家端未配置' : '· 商家端登录态无法判定');
 
   if (data.consumer_auth_file?.ok === true && data.consumer_logged_in?.ok === true) {
     lines.push('✓ 用户端登录态有效');
@@ -110,11 +113,7 @@ export function renderDoctor(envelope) {
     lines.push('· 用户端未配置');
   }
 
-  if (Array.isArray(data.accounts)) {
-    const validAccounts = data.accounts.filter((account) => account?.auth_file?.ok === true).length;
-    lines.push(`账号凭据 ${validAccounts}/${data.accounts.length} 可用`);
-  }
-
+  // 各账号登录态文件统计已在 headline 中输出
   return lines.join('\n');
 }
 
@@ -153,7 +152,7 @@ export const run = withCommand({
     if (!data.consumer_auth_file.ok && !consumerFileMissing) {
       throw new PddCliError({
         code: 'E_CONSUMER_AUTH_STATE_INVALID',
-        message: '用户端登录凭据损坏',
+        message: '用户端登录态文件损坏',
         hint: '执行 pdd login --consumer 重新授权',
         detail: data,
         exitCode: ExitCodes.AUTH,
@@ -170,7 +169,7 @@ export const run = withCommand({
     if (!data.auth_file.ok) {
       throw new PddCliError({
         code: 'E_AUTH_STATE_MISSING',
-        message: '登录凭据缺失或损坏',
+        message: '登录态文件缺失或损坏',
         hint: '执行 pdd init 完成首次授权',
         detail: data,
         exitCode: ExitCodes.AUTH,
@@ -207,7 +206,7 @@ export const run = withCommand({
       }
     }
 
-    return data;
+    return toDoctorView(data);
   },
 });
 

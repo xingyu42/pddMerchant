@@ -1,7 +1,6 @@
 import { withCommand } from '../_runner.js';
-import { collectPromoInput } from '../../services/diagnose/collectors.js';
 import { renderSingleDashboard } from './_render.js';
-import { summarizePromo } from '../../services/diagnose/index.js';
+import { getPromoDiagnosis } from '../../services/diagnose/reports.js';
 
 export const run = withCommand({
   name: 'diagnose.promo',
@@ -9,9 +8,7 @@ export const run = withCommand({
   needsMall: 'switch',
   render: renderSingleDashboard,
   async run(ctx) {
-    const mallId = ctx.mallCtx?.activeId ?? null;
-    const input = await collectPromoInput(ctx.page, { ...ctx, mallId });
-    return summarizePromo(input);
+    return getPromoDiagnosis(ctx);
   },
 });
 

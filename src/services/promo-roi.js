@@ -1,4 +1,6 @@
 import { getPromoReport } from './promo.js';
+import { toPromoRoiView } from './views/promo.js';
+import { mallIdOf } from './views/_shared.js';
 
 function isInactive(entity) {
   return Boolean(entity.isDeleted || entity.planDeleted || entity.adDeleted);
@@ -23,6 +25,17 @@ function groupLabel(entity, by) {
   return entity.adName ?? entity.ad_name ?? `plan:${entity.planId ?? '?'}`;
 }
 
+// 金额累加：任一项缺失（如 MoneyVO 单位未知 → null）则合计未知，保持 null 而非按 0 计入
+function addMoney(sum, value) {
+  if (sum === null || value == null) return null;
+  const amount = Number(value);
+  return Number.isFinite(amount) ? sum + amount : null;
+}
+
+function entitySpend(entity) {
+  return entity.spend ?? entity.cost ?? null;
+}
+
 export function analyzePromoRoi(input, options = {}) {
   const { entities = [], totals = {} } = input;
   const {
@@ -38,7 +51,7 @@ export function analyzePromoRoi(input, options = {}) {
   for (const entity of entities) {
     if (!includeInactive && isInactive(entity)) {
       excludedCount += 1;
-      excludedSpend += Number(entity.spend ?? entity.cost ?? 0);
+      excludedSpend = addMoney(excludedSpend, entitySpend(entity));
       continue;
     }
 
@@ -64,8 +77,8 @@ export function analyzePromoRoi(input, options = {}) {
     const row = grouped.get(key);
     row.impression += Number(entity.impression ?? 0);
     row.click += Number(entity.click ?? 0);
-    row.gmv += Number(entity.gmv ?? 0);
-    row.spend += Number(entity.spend ?? entity.cost ?? 0);
+    row.gmv = addMoney(row.gmv, entity.gmv);
+    row.spend = addMoney(row.spend, entitySpend(entity));
   }
 
   const rows = [];
@@ -73,17 +86,17 @@ export function analyzePromoRoi(input, options = {}) {
   let totalGmv = 0;
 
   for (const row of grouped.values()) {
-    const roi = row.spend > 0 ? Number((row.gmv / row.spend).toFixed(2)) : null;
+    const roi = row.spend > 0 && row.gmv !== null ? Number((row.gmv / row.spend).toFixed(2)) : null;
     const ctr = row.impression > 0 ? Number((row.click / row.impression).toFixed(4)) : 0;
     rows.push({ ...row, ctr, roi });
 
-    totalSpend += row.spend;
-    totalGmv += row.gmv;
+    totalSpend = addMoney(totalSpend, row.spend);
+    totalGmv = addMoney(totalGmv, row.gmv);
   }
 
   rows.sort((a, b) => (b.roi ?? -1) - (a.roi ?? -1));
 
-  const overallRoi = totalSpend > 0 ? Number((totalGmv / totalSpend).toFixed(2)) : null;
+  const overallRoi = totalSpend > 0 && totalGmv !== null ? Number((totalGmv / totalSpend).toFixed(2)) : null;
 
   return {
     by,
@@ -110,11 +123,18 @@ export async function getPromoRoi(page, params = {}, ctx = {}) {
     until: params.until,
   }, ctx);
 
-  return analyzePromoRoi(
+  const analysis = analyzePromoRoi(
     { entities: report?.entities ?? [], totals: report?.totals ?? {} },
     {
       by: params.by ?? 'plan',
       includeInactive: params.includeInactive ?? false,
     },
   );
+  return { ...analysis, warnings: [...(report?.unitWarnings ?? []), ...analysis.warnings] };
+}
+
+// promo.roi 命令级结果：{ data: v2 视图, warnings }
+export async function getPromoRoiView(page, params = {}, ctx = {}) {
+  const { warnings, ...analysis } = await getPromoRoi(page, params, ctx);
+  return { data: toPromoRoiView(analysis, { mallId: mallIdOf(ctx) }), warnings };
 }

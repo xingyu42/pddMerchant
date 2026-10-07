@@ -17,7 +17,9 @@ describe('public goods validation', () => {
 
   it('accepts numeric ids and valid boundary values', () => {
     assert.equal(validateGoodsId('1001'), 1001);
-    assert.equal(validateWriteValue('price', '1'), 1);
+    assert.equal(validateWriteValue('price_yuan', '0.01'), 1);
+    assert.equal(validateWriteValue('price_yuan', '29.9'), 2990);
+    assert.equal(validateWriteValue('price_yuan', 29.9), 2990);
     assert.equal(validateWriteValue('stock', 0), 0);
     assert.equal(validateWriteValue('status', 'offline'), 'offline');
     assert.equal(validateWriteValue('status', 'onsale'), 'onsale');
@@ -26,7 +28,8 @@ describe('public goods validation', () => {
   });
 
   it.each([
-    ['price', 0], ['price', -1], ['price', 1.5], ['price', Infinity],
+    ['price_yuan', 0], ['price_yuan', '0.00'], ['price_yuan', -1], ['price_yuan', '29.999'], ['price_yuan', Infinity],
+    ['price_yuan', null], ['price_yuan', '1e3'], ['price', 2999],
     ['stock', -1], ['stock', 0.5], ['stock', NaN],
     ['status', 'paused'], ['title', '  '], ['title', 'x'.repeat(121)], ['unknown', 1],
   ])('rejects invalid %s value %#', (field, value) => {
@@ -36,7 +39,7 @@ describe('public goods validation', () => {
 
 describe('goods service external write boundary', () => {
   it.each([
-    ['price', updateGoodsPrice, '2999', { goods_id: 1001, price: 2999, sku_id: 'sku-synthetic' }],
+    ['price', updateGoodsPrice, '29.99', { goods_id: 1001, price: 2999, sku_id: 'sku-synthetic' }],
     ['stock', updateGoodsStock, 0, { goods_id: 1001, quantity: 0, sku_id: 'sku-synthetic' }],
     ['status', updateGoodsStatus, 'offline', { goods_id: 1001, status: 'offline' }],
     ['title', updateGoodsTitle, '  Synthetic  ', { goods_id: 1001, title: 'Synthetic' }],

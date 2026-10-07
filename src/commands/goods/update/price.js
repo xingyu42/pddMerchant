@@ -1,6 +1,5 @@
 import { withCommand } from '../../_runner.js';
-import { PddCliError, ExitCodes } from '../../../infra/errors.js';
-import { updateGoodsPrice, validateGoodsId, validateWriteValue } from '../../../services/goods.js';
+import { executeGoodsWrite } from '../../../services/goods-write.js';
 
 export const run = withCommand({
   name: 'goods.update.price',
@@ -8,36 +7,11 @@ export const run = withCommand({
   needsMall: 'switch',
   allowAllAccounts: false,
   async run(ctx) {
-    const { goodsId, price, confirm, skuId } = ctx.config;
-    const id = validateGoodsId(goodsId);
-    const p = validateWriteValue('price', price);
-    const mallId = ctx.mallCtx?.activeId ?? null;
-
-    if (!confirm) {
-      return {
-        data: {
-          goods_id: id,
-          field: 'price',
-          value: p,
-          sku_id: skuId ?? null,
-          dry_run: true,
-        },
-        meta: { xhr_count: 0, mall: mallId },
-      };
-    }
-
-    const result = await updateGoodsPrice(ctx.page, id, p, ctx);
-    return {
-      data: {
-        goods_id: id,
-        field: 'price',
-        value: p,
-        sku_id: skuId ?? null,
-        dry_run: false,
-        result,
-      },
-      meta: { xhr_count: 1, mall: mallId, confirm: true },
-    };
+    const { goodsId, priceYuan, confirm, skuId } = ctx.config;
+    const data = await executeGoodsWrite(ctx, {
+      field: 'price_yuan', goodsId, value: priceYuan, skuId, confirm,
+    });
+    return { data, meta: { xhr_count: data.dry_run ? 0 : 1 } };
   },
 });
 

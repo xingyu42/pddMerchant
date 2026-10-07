@@ -9,7 +9,6 @@ export const run = withCommand({
   allowAllAccounts: false,
   async run(ctx) {
     const { url, confirm, costTemplate } = ctx.config;
-    const mallId = ctx.mallCtx?.activeId ?? null;
 
     if (!url) {
       throw new PddCliError({
@@ -20,22 +19,10 @@ export const run = withCommand({
       });
     }
 
-    const result = await publishGoodsFromLink(ctx, url, {
+    return publishGoodsFromLink(ctx, url, {
       draftOnly: !confirm,
       costTemplateId: costTemplate ?? null,
     });
-    const { warnings, ...data } = result;
-    return {
-      data,
-      warnings,
-      meta: {
-        mall: mallId,
-        goods_id: result.goods_id,
-        goods_commit_id: result.goods_commit_id,
-        cost_template_id: result.cost_template_id,
-        status: result.status,
-      },
-    };
   },
 });
 

@@ -1,3 +1,5 @@
+import { parseYuanToFen } from '../../infra/units.js';
+
 function asObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : null;
 }
@@ -63,29 +65,18 @@ function parseInteger(value) {
   return Number.isSafeInteger(number) ? number : null;
 }
 
-function parseYuanToCents(value) {
-  if (typeof value !== 'string' && typeof value !== 'number') return null;
-  if (typeof value === 'number' && !Number.isFinite(value)) return null;
-  const text = String(value).trim();
-  if (!/^\d+(?:\.\d{1,2})?$/.test(text)) return null;
-  const [whole, fraction = ''] = text.split('.');
-  if (whole.length > 14) return null;
-  const cents = (BigInt(whole) * 100n) + BigInt(fraction.padEnd(2, '0'));
-  return cents <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(cents) : null;
-}
-
 function normalizePriceCents(rawSku, centsKey, yuanKeys) {
   const explicitCents = rawSku?.[centsKey];
   if (explicitCents != null) return parseInteger(explicitCents);
   const yuanValue = yuanKeys.map((key) => rawSku?.[key]).find((value) => value != null);
-  return parseYuanToCents(yuanValue);
+  return parseYuanToFen(yuanValue);
 }
 
 function normalizeReferencePriceCents(source) {
   if (source?.sourceReferencePriceCents != null) {
     return parseInteger(source.sourceReferencePriceCents);
   }
-  return parseYuanToCents(source?.linePrice ?? source?.line_price);
+  return parseYuanToFen(source?.linePrice ?? source?.line_price);
 }
 
 function normalizeThumbUrl(value, issues) {

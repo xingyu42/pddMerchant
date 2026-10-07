@@ -1,11 +1,6 @@
 import { withCommand } from '../_runner.js';
 import { renderSingleDashboard } from './_render.js';
-import { summarizeFunnel } from '../../services/diagnose/index.js';
-import { computeOrderStats } from '../../services/orders.js';
-import { collectOrdersForStaleAnalysis, STALE_PAGE_SIZE } from '../../services/diagnose/orders-collector.js';
-
-const DEFAULT_WINDOW_DAYS = 30;
-const PAGES_PER_WEEK = 3;
+import { getFunnelDiagnosis } from '../../services/diagnose/reports.js';
 
 export const run = withCommand({
   name: 'diagnose.funnel',
@@ -13,24 +8,7 @@ export const run = withCommand({
   needsMall: 'switch',
   render: renderSingleDashboard,
   async run(ctx) {
-    const mallId = ctx.mallCtx?.activeId ?? null;
-    const windowDays = (typeof ctx.config?.days === 'number' && ctx.config.days > 0)
-      ? ctx.config.days
-      : DEFAULT_WINDOW_DAYS;
-    const maxPages = Math.max(10, Math.ceil(windowDays / 7) * PAGES_PER_WEEK);
-    const { orders, truncated, ratelimited } = await collectOrdersForStaleAnalysis(
-      ctx.page,
-      { ...ctx, mallId },
-      { scanDays: windowDays, maxPages, pageSize: STALE_PAGE_SIZE },
-    );
-    const orderStats = computeOrderStats(orders);
-    const result = summarizeFunnel({ orderStats, windowDays });
-    if (truncated || ratelimited) result.status = 'partial';
-    if (truncated) {
-      result.hints.push(`订单量超出采集上限（${maxPages * STALE_PAGE_SIZE} 条），统计基于部分数据`);
-    }
-    if (ratelimited) result.hints.push('订单采集因限流中断，统计基于部分数据');
-    return result;
+    return getFunnelDiagnosis(ctx, { days: ctx.config?.days });
   },
 });
 

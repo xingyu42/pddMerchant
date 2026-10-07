@@ -1,4 +1,5 @@
 import { redactRecursive } from './logger.js';
+import { ENVELOPE_VERSION } from './output.js';
 
 export const ExitCodes = Object.freeze({
   OK: 0,
@@ -211,7 +212,7 @@ export function errorToEnvelope(command, err, meta = {}) {
       ...(detail != null ? { detail } : {}),
     },
     meta: {
-      v: 1,
+      v: ENVELOPE_VERSION,
       exit_code: exitCode,
       latency_ms: meta.latency_ms ?? 0,
       xhr_count: meta.xhr_count ?? 0,

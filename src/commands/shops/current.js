@@ -1,16 +1,12 @@
 import { withCommand } from '../_runner.js';
+import { getCurrentShopView } from '../../services/shops.js';
 
 export const run = withCommand({
   name: 'shops.current',
   needsAuth: true,
   needsMall: 'current',
   async run(ctx) {
-    const mall = ctx.mallCtx;
-    return {
-      id: mall?.activeId ?? null,
-      name: mall?.activeName ?? '',
-      source: mall?.source ?? null,
-    };
+    return getCurrentShopView(ctx);
   },
 });
 

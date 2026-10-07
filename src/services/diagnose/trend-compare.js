@@ -1,4 +1,6 @@
 const DAY_SECONDS = 86400;
+// 订单计数接口只提供当前快照，无历史值
+const SNAPSHOT_ORDER_KEYS = ['pending_ship_count', 'delayed_ship_count'];
 
 export function resolveCompareWindows(options = {}) {
   const nowSec = options.nowSec ?? Math.floor(Date.now() / 1000);
@@ -32,7 +34,7 @@ export function compareShopDiagnosis(input = {}) {
       const prevValue = prevDim?.detail?.[key];
       if (!Number.isFinite(curValue) && !Number.isFinite(prevValue)) continue;
       // These endpoints expose current snapshots, not historical values.
-      const snapshot = name === 'inventory' || (name === 'orders' && ['unship', 'delay'].includes(key));
+      const snapshot = name === 'inventory' || (name === 'orders' && SNAPSHOT_ORDER_KEYS.includes(key));
       const currentValue = Number.isFinite(curValue) ? curValue : null;
       const previousValue = !snapshot && Number.isFinite(prevValue) ? prevValue : null;
       const comparable = currentValue != null && previousValue != null;

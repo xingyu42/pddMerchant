@@ -1,6 +1,7 @@
 // fixture 运行时（design D-2）：PDD_TEST_ADAPTER=fixture 短路路径。
 // fixture auth 失败、mock mall 解析、FixtureEndpointClient ctx 构造与 run 终结。
 import { FixtureEndpointClient, mockCurrentMall, mockListMalls, mockIsAuthValid, mockIsAuthIndeterminate } from '../../adapter/mock-dispatcher.js';
+import { buildMallContext } from '../../adapter/mall-reader.js';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { finalizeSuccess, finalizeError } from './envelope-finalizer.js';
 
@@ -32,12 +33,13 @@ async function resolveMockMall(needsMall) {
   try {
     const current = await mockCurrentMall();
     const malls = await mockListMalls();
-    return {
+    // 与 live 路径同一归一化（normalizeMallRecord）：fixture / live 的店铺记录形状一致
+    return buildMallContext({
       activeId: current?.id ?? null,
       activeName: current?.name ?? '',
       malls: Array.isArray(malls) ? malls : [],
       source: 'mock',
-    };
+    });
   } catch {
     return null; // fixture 模式下 mall 解析可选
   }

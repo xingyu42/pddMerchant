@@ -35,6 +35,9 @@ import { transformImages } from './image-transform.js';
 import { buildPricingPlan, validatePricingPlan } from './pricing-validator.js';
 import { defaultSourceGoodsCache } from './goods-publish-source-cache.js';
 import { abortableSleep } from '../infra/abort.js';
+import { toCostTemplateView } from './views/goods.js';
+import { toPublishView } from './views/goods-publish.js';
+import { mallIdOf } from './views/_shared.js';
 import {
   acquireQingguoProxyLease,
   readSourceProxyConfig,
@@ -56,6 +59,14 @@ export async function listCostTemplates(ctx) {
     name: t.name ?? t.costTemplateName ?? '',
     free_province_need: t.free_province_need ?? null,
   }));
+}
+
+export async function getCostTemplatesView(ctx) {
+  const items = (await listCostTemplates(ctx)).map(toCostTemplateView);
+  const headline = items.length === 0
+    ? ['当前店铺没有运费模板']
+    : [`共 ${items.length} 个运费模板`];
+  return { headline, items, total: items.length, mall_id: mallIdOf(ctx) };
 }
 
 export async function resolvePublishCostTemplate(ctx, requestedId = null) {
@@ -332,7 +343,14 @@ function propertyMappingError(mapping) {
   });
 }
 
+// 对外入口：内部流程（live / mock）结果统一投影为 v2 视图；warnings 单独返回供 runner 汇入 meta.warnings
 export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
+  const sourceGoodsId = parseGoodsUrl(goodsUrl);
+  const { warnings = [], ...result } = await runPublishFlow(ctx, goodsUrl, opts);
+  return { data: toPublishView(result, { sourceGoodsId, mallId: mallIdOf(ctx) }), warnings };
+}
+
+async function runPublishFlow(ctx, goodsUrl, opts = {}) {
   const goodsId = parseGoodsUrl(goodsUrl);
   const draftOnly = opts.draftOnly ?? true;
   const mockEnabled = isMockEnabled();

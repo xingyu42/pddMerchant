@@ -1,3 +1,5 @@
+import { toPct } from '../../infra/units.js';
+
 export function summarizeFunnel({ orderStats, windowDays } = {}) {
   if (!orderStats || !Number.isFinite(orderStats.total)) {
     return {
@@ -10,7 +12,6 @@ export function summarizeFunnel({ orderStats, windowDays } = {}) {
 
   const total = orderStats.total;
   const refundCount = Number(orderStats.refund_count ?? 0);
-  const refundRate = Number(orderStats.refund_rate ?? 0);
   const statusDist = orderStats.status_distribution ?? {};
   const fulfillmentRate = total > 0 ? (total - refundCount) / total : null;
 
@@ -24,8 +25,8 @@ export function summarizeFunnel({ orderStats, windowDays } = {}) {
     detail: {
       total_orders: total,
       refund_count: refundCount,
-      refund_rate: Number(refundRate.toFixed(4)),
-      fulfillment_rate: fulfillmentRate == null ? null : Number(fulfillmentRate.toFixed(4)),
+      refund_rate_pct: total > 0 ? toPct(refundCount / total) : null,
+      fulfillment_rate_pct: fulfillmentRate == null ? null : toPct(fulfillmentRate),
       status_distribution: statusDist,
       window_days: windowDays ?? null,
     },

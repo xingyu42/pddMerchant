@@ -1,27 +1,28 @@
 import { withCommand } from '../../_runner.js';
 import { PddCliError, ExitCodes } from '../../../infra/errors.js';
-import {
-  validateGoodsId,
-  validateWriteValue,
-  updateGoodsStatus,
-  updateGoodsPrice,
-  updateGoodsStock,
-  updateGoodsTitle,
-} from '../../../services/goods.js';
+import { executeGoodsBatchWrite, GOODS_WRITE_FIELDS } from '../../../services/goods-write.js';
 
-const FIELD_HANDLERS = {
-  status: updateGoodsStatus,
-  price: updateGoodsPrice,
-  stock: updateGoodsStock,
-  title: updateGoodsTitle,
-};
+const CHANGES_FORMAT = '格式: [{"goods_id":1001,"field":"price_yuan","value":29.9}]（价格单位为元）';
 
-const FIELD_VALUE_KEY = {
-  status: 'status',
-  price: 'price',
-  stock: 'quantity',
-  title: 'title',
-};
+// 旧字段 price（单位分）已移除：显式拒绝，避免被当作元静默提交
+function assertField(field, index) {
+  if (field === 'price') {
+    throw new PddCliError({
+      code: 'E_USAGE',
+      message: `changes[${index}].field "price" 已移除，请改用 "price_yuan"（单位：元）`,
+      hint: CHANGES_FORMAT,
+      exitCode: ExitCodes.USAGE,
+    });
+  }
+  if (!field || !GOODS_WRITE_FIELDS.includes(field)) {
+    throw new PddCliError({
+      code: 'E_USAGE',
+      message: `changes[${index}].field 必须为 ${GOODS_WRITE_FIELDS.join('|')}，收到: ${field}`,
+      hint: CHANGES_FORMAT,
+      exitCode: ExitCodes.USAGE,
+    });
+  }
+}
 
 function parseChanges(raw) {
   let items;
@@ -32,7 +33,7 @@ function parseChanges(raw) {
       throw new PddCliError({
         code: 'E_USAGE',
         message: '--changes JSON 解析失败',
-        hint: '格式: [{"goods_id":1001,"field":"price","value":2999}]',
+        hint: CHANGES_FORMAT,
         exitCode: ExitCodes.USAGE,
       });
     }
@@ -43,7 +44,7 @@ function parseChanges(raw) {
     throw new PddCliError({
       code: 'E_USAGE',
       message: '--changes 必须为非空 JSON 数组',
-      hint: '格式: [{"goods_id":1001,"field":"price","value":2999}]',
+      hint: CHANGES_FORMAT,
       exitCode: ExitCodes.USAGE,
     });
   }
@@ -56,13 +57,7 @@ function parseChanges(raw) {
       });
     }
     const { goods_id, field, value } = item;
-    if (!field || !FIELD_HANDLERS[field]) {
-      throw new PddCliError({
-        code: 'E_USAGE',
-        message: `changes[${i}].field 必须为 status|price|stock|title，收到: ${field}`,
-        exitCode: ExitCodes.USAGE,
-      });
-    }
+    assertField(field, i);
     return { goods_id, field, value };
   });
 }
@@ -74,68 +69,10 @@ export const run = withCommand({
   allowAllAccounts: false,
   async run(ctx) {
     const { changes, confirm } = ctx.config;
-    const mallId = ctx.mallCtx?.activeId ?? null;
     const items = parseChanges(changes);
-
-    for (const item of items) {
-      validateGoodsId(item.goods_id);
-      validateWriteValue(item.field, item.value);
-    }
-
-    if (!confirm) {
-      return {
-        data: {
-          planned: items.map((it) => ({
-            goods_id: Number(it.goods_id),
-            field: it.field,
-            value: it.value,
-          })),
-          count: items.length,
-          dry_run: true,
-        },
-        meta: { xhr_count: 0, mall: mallId },
-      };
-    }
-
-    const results = [];
-    let succeeded = 0;
-    let failed = 0;
-
-    for (const item of items) {
-      const id = Number(item.goods_id);
-      const handler = FIELD_HANDLERS[item.field];
-      const valueKey = FIELD_VALUE_KEY[item.field];
-      try {
-        await handler(ctx.page, id, item.value, ctx);
-        results.push({ goods_id: id, field: item.field, ok: true });
-        succeeded++;
-      } catch (err) {
-        results.push({
-          goods_id: id,
-          field: item.field,
-          ok: false,
-          error: err.code ?? 'E_GENERAL',
-          message: err.message ?? '',
-        });
-        failed++;
-      }
-    }
-
-    const exitCode = failed > 0 && succeeded > 0
-      ? ExitCodes.PARTIAL
-      : failed > 0
-        ? ExitCodes.BUSINESS
-        : ExitCodes.OK;
-
-    return {
-      data: { succeeded, failed, results, dry_run: false },
-      meta: {
-        xhr_count: succeeded + failed,
-        mall: mallId,
-        confirm: true,
-        exit_code: exitCode,
-      },
-    };
+    const { data, exitCode } = await executeGoodsBatchWrite(ctx, items, { confirm });
+    const xhrCount = data.dry_run ? 0 : data.results.length;
+    return { data, meta: { xhr_count: xhrCount, exit_code: exitCode } };
   },
 });
 

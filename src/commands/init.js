@@ -8,6 +8,7 @@ import { provisionMerchantAuth, withMerchantLoginRegistration } from '../service
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
 import { deleteAuthState } from '../adapter/auth-state.js';
 import { randomUUID } from 'node:crypto';
+import { toMerchantLoginView } from '../services/views/auth.js';
 
 function buildQrCallback({ json, command, timeoutMs }) {
   return async ({ imagePath, qrContent }) => {
@@ -78,16 +79,7 @@ export async function runInteractiveLogin(options = {}) {
     return emit({
       ok: true,
       command,
-      data: {
-        url: result.url,
-        mode: result.mode,
-        displayName: result.identity.displayName,
-        mallId: result.identity.mallId,
-        check_verdict: 'verified',
-        ...(provisioned ? { account: provisioned.account.slug } : {}),
-        ...(result.qrContentPresent !== undefined ? { qrContentPresent: result.qrContentPresent } : {}),
-        message: '授权成功，试试 pdd orders list',
-      },
+      data: toMerchantLoginView(result, provisioned),
       meta: { latency_ms: Date.now() - startedAt, exit_code: ExitCodes.OK, warnings: [] },
     }, { json });
   };

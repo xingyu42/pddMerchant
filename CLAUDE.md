@@ -27,18 +27,21 @@ src/commands/            Command handlers — thin wrappers around withCommand()
 src/commands/registry/   Domain registrars `register(program, wireAction)` — adding a command touches only the command file + its registrar
 src/commands/runner/     withCommand internals (envelope-finalizer / fixture-runtime / single-lifecycle / batch-executor); _runner.js is a facade
 src/services/            Domain logic (orders, goods, promo, diagnose, promo-roi, goods-segmentation); factual reporting without operating advice or scores
+src/services/views/      Domain views (anti-corruption layer): whitelist projection of upstream payloads, unit/label conversion, headline; labels.js owns all enum→Chinese tables
 src/adapter/             Playwright integration, XHR interception, auth, mall context
 src/adapter/fixtures/    Mock-mode providers (core.js owns the single fixture cache); mock-dispatcher.js is a facade
 src/infra/               Cross-cutting: envelope, errors, logger, timeouts, abort
 ```
 
-Dependencies flow one way: `commands/ → services/ → adapter/ → infra/`. Never import upward (guarded by `test/layering-guard.unit.test.js`).
+Dependencies flow one way: `commands/ → services/ → adapter/ → infra/`. Never import upward (the former `test/layering-guard.unit.test.js` was removed in `cc0cb1c`; layering is currently enforced by review only).
 
 ## Conventions
 
 - ESM-only (`import`/`export`), `const` preferred, `async/await` only — no `.then()` chains
 - Dependencies tiered: devDeps=free; Playwright ecosystem deps=review-only; new-domain deps=evaluate (maintenance, size, alternatives); deprecated/vulnerable=blocked
-- Envelope `{ ok, command, data, error, meta }` is the sacred output contract — only `meta.warnings` can grow
+- Envelope `{ ok, command, data, error, meta }` is the sacred output contract — only `meta.warnings` can grow; `meta.v` is `2` (forced by `buildEnvelope`)
+- `data` contract v2 (guarded by `test/contract/data-contract-v2.test.js`, which must cover every registered command): `data` is always an object with a factual Chinese `headline: string[]`; lists are `{ headline, items, total, ... }`; keys are snake_case; money is yuan with `_yuan`, rates are 0-100 with `_pct`, times `_at` as `YYYY-MM-DD HH:mm:ss` (Asia/Shanghai); enums are output as Chinese labels; missing values are `null`, never 0; upstream objects and PII never reach `data`
+- Price input is yuan: `goods update price --price-yuan <元>`, batch `field: "price_yuan"`; upstream still receives fen (exact string parsing via `parseYuanToFen`)
 - 8 exit codes: 0=OK, 1=GENERAL, 2=USAGE, 3=AUTH, 4=RATE_LIMIT, 5=NETWORK, 6=BUSINESS, 7=PARTIAL
 - All errors use `PddCliError` with exit code mapping (`src/infra/errors.js`)
 - Logging via `src/infra/logger.js` (pino with SHA256 redaction) — never use `console.log`
@@ -77,7 +80,7 @@ CLI logs use fixed daily files under `log/cli/`; bootstrap logs use stderr. `PDD
 
 ## Gotchas
 
-- `goods.list` responses may contain `goods_id: null` — inventory matching falls back to `goods_name`, and `matched_by='mixed'` is an expected compatibility result
+- `goods.list` responses may contain `goods_id: null` — inventory matching falls back to `goods_name`, and internal `matched_by='mixed'` (output label `按商品名匹配（一侧缺少商品 ID）`) is an expected compatibility result
 - Endpoint naming inconsistent: `recentOrderList` uses camelCase (`errorCode`), `orderDetail` uses snake_case (`error_code`); `readBusinessError()` handles both
 - `createPageSession()` automatically creates a sibling page when the same normalized URL is revisited within its 1-second TTL; do not bypass that session for endpoint navigation
 - Rate limiting: 3 consecutive 429s trigger 5-minute global cooldown; retry delays `[1000, 2000, 4000] ms`

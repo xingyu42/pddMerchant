@@ -160,7 +160,10 @@ function finalizeBatch(spec, opts, accountResults, batch) {
   emit(batchEnvelope, {
     json: opts.json,
     noColor: opts.noColor,
-    renderer: (env, renderOpts) => batchRenderer(accountResults, renderOpts),
+    renderer: (env, renderOpts) => [
+      ...(env.data?.headline ?? []),
+      batchRenderer(accountResults, renderOpts),
+    ].join('\n'),
   });
 
   if (aborted) {

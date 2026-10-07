@@ -13,7 +13,6 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:endpoints": "vitest run test/validate-existing-endpoints.test.js",
     "check": "npm test",
     "lint": "echo no-lint"
   },

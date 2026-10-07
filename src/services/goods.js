@@ -7,6 +7,9 @@ import {
   GOODS_UPDATE_TITLE,
 } from '../adapter/endpoints/goods.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
+import { parseYuanToFen } from '../infra/units.js';
+import { toGoodsView } from './views/goods.js';
+import { mallIdOf } from './views/_shared.js';
 
 export const DEFAULT_LOW_STOCK_THRESHOLD = 10;
 
@@ -61,59 +64,54 @@ export function validateGoodsId(goodsId) {
   return n;
 }
 
-export function validateWriteValue(field, value) {
-  switch (field) {
-    case 'status': {
-      if (value !== 'onsale' && value !== 'offline') {
-        throw new PddCliError({
-          code: 'E_USAGE',
-          message: `status 必须为 onsale 或 offline，收到: ${value}`,
-          exitCode: ExitCodes.USAGE,
-        });
-      }
-      return value;
-    }
-    case 'price': {
-      const n = Number(value);
-      if (!Number.isFinite(n) || n <= 0 || Math.floor(n) !== n) {
-        throw new PddCliError({
-          code: 'E_USAGE',
-          message: `price 必须为正整数（单位：分），收到: ${value}`,
-          hint: '价格以分为单位，例如 2999 表示 29.99 元',
-          exitCode: ExitCodes.USAGE,
-        });
-      }
-      return n;
-    }
-    case 'stock': {
-      const n = Number(value);
-      if (!Number.isFinite(n) || n < 0 || Math.floor(n) !== n) {
-        throw new PddCliError({
-          code: 'E_USAGE',
-          message: `quantity 必须为非负整数，收到: ${value}`,
-          exitCode: ExitCodes.USAGE,
-        });
-      }
-      return n;
-    }
-    case 'title': {
-      const s = String(value ?? '').trim();
-      if (s.length === 0 || s.length > 120) {
-        throw new PddCliError({
-          code: 'E_USAGE',
-          message: `title 长度须在 1-120 字符之间，当前: ${s.length}`,
-          exitCode: ExitCodes.USAGE,
-        });
-      }
-      return s;
-    }
-    default:
-      throw new PddCliError({
-        code: 'E_USAGE',
-        message: `未知的写入字段: ${field}`,
-        exitCode: ExitCodes.USAGE,
-      });
+function usageError(message, hint) {
+  return new PddCliError({ code: 'E_USAGE', message, ...(hint ? { hint } : {}), exitCode: ExitCodes.USAGE });
+}
+
+function validateStatus(value) {
+  if (value !== 'onsale' && value !== 'offline') {
+    throw usageError(`status 必须为 onsale 或 offline，收到: ${value}`);
   }
+  return value;
+}
+
+// 元 → 分：字符串精确解析（不做浮点乘法），必须 > 0 且最多 2 位小数
+function validatePriceYuan(value) {
+  const fen = parseYuanToFen(value);
+  if (fen === null || fen <= 0) {
+    throw usageError(`price_yuan 必须为大于 0、最多 2 位小数的金额（元），收到: ${value}`, '单位为元，例如 29.9');
+  }
+  return fen;
+}
+
+function validateStock(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0 || Math.floor(n) !== n) {
+    throw usageError(`quantity 必须为非负整数，收到: ${value}`);
+  }
+  return n;
+}
+
+function validateTitle(value) {
+  const s = String(value ?? '').trim();
+  if (s.length === 0 || s.length > 120) {
+    throw usageError(`title 长度须在 1-120 字符之间，当前: ${s.length}`);
+  }
+  return s;
+}
+
+// 写入字段 → 校验器；price_yuan 返回分（上游单位），其余返回归一值
+const WRITE_VALIDATORS = {
+  status: validateStatus,
+  price_yuan: validatePriceYuan,
+  stock: validateStock,
+  title: validateTitle,
+};
+
+export function validateWriteValue(field, value) {
+  const validate = Object.hasOwn(WRITE_VALIDATORS, field) ? WRITE_VALIDATORS[field] : null;
+  if (!validate) throw usageError(`未知的写入字段: ${field}`);
+  return validate(value);
 }
 
 export async function updateGoodsStatus(page, goodsId, status, ctx = {}) {
@@ -122,10 +120,11 @@ export async function updateGoodsStatus(page, goodsId, status, ctx = {}) {
   return runEndpoint(page, GOODS_UPDATE_STATUS, { goods_id: id, status }, ctx);
 }
 
-export async function updateGoodsPrice(page, goodsId, price, ctx = {}) {
+// priceYuan 单位为元；上游接口仍以分提交
+export async function updateGoodsPrice(page, goodsId, priceYuan, ctx = {}) {
   const id = validateGoodsId(goodsId);
-  const p = validateWriteValue('price', price);
-  return runEndpoint(page, GOODS_UPDATE_PRICE, { goods_id: id, price: p, sku_id: ctx.config?.skuId ?? null }, ctx);
+  const fen = validateWriteValue('price_yuan', priceYuan);
+  return runEndpoint(page, GOODS_UPDATE_PRICE, { goods_id: id, price: fen, sku_id: ctx.config?.skuId ?? null }, ctx);
 }
 
 export async function updateGoodsStock(page, goodsId, quantity, ctx = {}) {
@@ -140,29 +139,56 @@ export async function updateGoodsTitle(page, goodsId, title, ctx = {}) {
   return runEndpoint(page, GOODS_UPDATE_TITLE, { goods_id: id, title: t }, ctx);
 }
 
-export async function getGoodsStock(page, params = {}, ctx = {}) {
+// ── 输出契约 v2：命令级结果（headline + 领域视图），命令层只透传 ──
+
+function pageLabel(pageNumber) {
+  return pageNumber > 1 ? `第 ${pageNumber} 页` : '本页';
+}
+
+function goodsListHeadline(params, total, items) {
+  const scope = params.status === 'offline' ? '已下架' : '在售';
+  if (total === 0 && items.length === 0) return [`${scope}商品共 0 件`];
+  const label = pageLabel(params.page ?? 1);
+  const headline = [`${scope}商品共 ${total} 件，${label} ${items.length} 件`];
+  const soldOut = items.filter((item) => item.quantity === 0).length;
+  if (soldOut > 0) headline.push(`${label}库存为 0 的商品 ${soldOut} 件`);
+  return headline;
+}
+
+export async function getGoodsListView(page, params = {}, ctx = {}) {
+  const result = await listGoods(page, params, ctx);
+  const items = result.goods.map(toGoodsView);
+  return {
+    headline: goodsListHeadline(params, result.total, items),
+    items,
+    total: result.total,
+    mall_id: mallIdOf(ctx),
+  };
+}
+
+function stockHeadline({ page: pageNumber = 1 }, view) {
+  const label = pageLabel(pageNumber);
+  const soldOut = view.items.filter((item) => item.quantity !== null && item.quantity <= 0).length;
+  return [
+    `${label}扫描 ${view.scanned_count} 件商品（在售共 ${view.total} 件）`,
+    `库存不高于 ${view.threshold} 的商品 ${view.low_stock_count} 件（其中缺货 ${soldOut} 件）`,
+  ];
+}
+
+// 仅扫描一页商品；items 为该页中库存 ≤ threshold 的商品（已筛选，故不再逐项标记 is_low_stock）
+export async function getGoodsStockView(page, params = {}, ctx = {}) {
   const threshold = Number.isFinite(Number(params.threshold))
     ? Number(params.threshold)
     : DEFAULT_LOW_STOCK_THRESHOLD;
-
-  const base = await listGoods(page, {
-    ...params,
-    size: params.size ?? 50,
-  }, ctx);
-
-  const annotated = base.goods.map((g) => ({
-    ...g,
-    is_low_stock: isLowStock(g, threshold),
-  }));
-  const low = annotated.filter((g) => g.is_low_stock);
-
-  return {
+  const base = await listGoods(page, { ...params, size: params.size ?? 50 }, ctx);
+  const items = base.goods.filter((g) => isLowStock(g, threshold)).map(toGoodsView);
+  const view = {
+    items,
     total: base.total,
+    scanned_count: base.goods.length,
     threshold,
-    low_stock_count: low.length,
-    low_stock: low,
-    goods: annotated,
-    sessionId: base.sessionId,
-    raw: base.raw,
+    low_stock_count: items.length,
+    mall_id: mallIdOf(ctx),
   };
+  return { headline: stockHeadline(params, view), ...view };
 }

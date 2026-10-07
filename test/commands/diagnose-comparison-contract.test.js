@@ -57,9 +57,10 @@ it('requests distinct comparison windows and computes their nonzero differences'
   assert.equal(envelope.ok, true);
   assert.equal(emitSpy.mock.calls.length, 1);
   const comparison = envelope.data.compare;
-  assert.equal(comparison.status, 'full');
-  assert.deepEqual(comparison.current_window, { since: 1699395200, until: 1700000000, days: 7 });
-  assert.deepEqual(comparison.previous_window, { since: 1698790400, until: 1699395200, days: 7 });
+  assert.equal(comparison.status, '数据完整');
+  // 1699395200 = 2023-11-08 06:13:20 +08:00；1700000000 = 2023-11-15 06:13:20 +08:00
+  assert.deepEqual(comparison.current_window, { start_date: '2023-11-08', end_date: '2023-11-15', days: 7 });
+  assert.deepEqual(comparison.previous_window, { start_date: '2023-11-01', end_date: '2023-11-08', days: 7 });
   assert.deepEqual(requests.filter(({ name }) => name === 'promo.entityReport')
     .map(({ payload }) => [payload.startDate, payload.endDate]).sort(), [
     ['2023-10-31', '2023-11-07'], ['2023-11-07', '2023-11-14'],
@@ -69,12 +70,12 @@ it('requests distinct comparison windows and computes their nonzero differences'
     .map(({ payload }) => [payload.groupStartTime, payload.groupEndTime]).sort(), [
     [1698790400, 1699395200], [1699395200, 1700000000],
   ]);
-  assert.deepEqual(comparison.dimensions.promo.metrics.spend, { current: 100, previous: 50, delta: 50, delta_pct: 100 });
+  assert.deepEqual(comparison.dimensions.promo.metrics.spend_yuan, { current: 100, previous: 50, delta: 50, delta_pct: 100 });
   assert.deepEqual(comparison.dimensions.funnel.metrics.total_orders, { current: 1, previous: 2, delta: -1, delta_pct: -50 });
-  assert.deepEqual(comparison.dimensions.orders.metrics.unship, {
-    current: 1, previous: null, delta: null, delta_pct: null, note: 'current_snapshot_only',
+  assert.deepEqual(comparison.dimensions.orders.metrics.pending_ship_count, {
+    current: 1, previous: null, delta: null, delta_pct: null, note: '仅有当前快照，无上期数据',
   });
   assert.deepEqual(comparison.dimensions.inventory.metrics.total, {
-    current: 1, previous: null, delta: null, delta_pct: null, note: 'current_snapshot_only',
+    current: 1, previous: null, delta: null, delta_pct: null, note: '仅有当前快照，无上期数据',
   });
 });

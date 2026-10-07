@@ -11,14 +11,15 @@ it('keeps empty shipping statistics unknown while an empty order total is zero',
 
 it('aggregates mixed field spellings, refunds and interpolated shipping times without mutation', () => {
   const orders = [
-    { order_status: 'paid', order_time: 100, ship_time: 3700, refund_status: false },
+    { order_status: 1, order_status_str: '已发货，待收货', order_time: 100, ship_time: 3700, refund_status: false },
     { orderStatus: 2, orderTime: 100, shipping_time: 10900, afterSaleType: 2 },
     { order_time: 100, ship_time: 50, refund_status: true },
-    { order_status: 'paid', order_time: '100', ship_time: '200' },
+    { order_status_str: '已发货，待收货', order_time: '100', ship_time: '200' },
   ];
   const before = structuredClone(orders);
   const result = computeOrderStats(orders);
-  assert.deepEqual(result.status_distribution, { paid: 2, 2: 1, unknown: 1 });
+  // 键为上游中文标签；无标签时回退 '未知(<code>)'，两者皆无归入 '未知'
+  assert.deepEqual(result.status_distribution, { '已发货，待收货': 2, '未知(2)': 1, 未知: 1 });
   assert.equal(result.total, 4);
   assert.deepEqual(result.shipping_seconds, { samples: 2, p50: 7200, p95: 10440 });
   assert.equal(result.refund_count, 2);

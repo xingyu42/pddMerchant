@@ -70,5 +70,5 @@ export async function collectPromoInput(page, ctx, { since, until } = {}) {
   if (since) params.since = since instanceof Date ? since : new Date(since * 1000);
   if (until) params.until = until instanceof Date ? until : new Date(until * 1000);
   const report = await getPromoReport(page, params, ctx);
-  return { totals: report?.totals ?? null };
+  return { totals: report?.totals ?? null, warnings: report?.unitWarnings ?? [] };
 }

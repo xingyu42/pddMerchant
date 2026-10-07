@@ -13,6 +13,7 @@ import { provisionConsumerAuth } from '../services/auth-account-storage.js';
 import { redactValue } from '../infra/logger.js';
 import { resolveConsumerAccountContext } from '../infra/consumer-account-resolver.js';
 import { randomUUID } from 'node:crypto';
+import { toConsumerLoginView } from '../services/views/auth.js';
 
 export async function run(options = {}, { runtimeConfig } = {}) {
   if (options.consumer) {
@@ -47,12 +48,12 @@ async function runConsumerLogin(opts, runtimeConfig) {
   const timeoutMs = opts.timeoutMs ?? (qr ? TIMEOUTS.LOGIN_QR : TIMEOUTS.LOGIN_HEADED);
 
   if (isMockEnabled()) {
-    const mode = qr ? 'qr' : 'headed';
+    const mode = qr ? 'consumer-qr' : 'consumer-headed';
     const envelope = {
       ok: true,
       command,
-      data: { url: consumerLoginUrl, mode, message: '消费端授权成功（mock）' },
-      meta: { latency_ms: Date.now() - startedAt, warnings: [] },
+      data: toConsumerLoginView({ url: consumerLoginUrl, mode }, { fixture: true }),
+      meta: { latency_ms: Date.now() - startedAt, exit_code: ExitCodes.OK, warnings: [] },
     };
     emit(envelope, { json: opts.json, noColor: opts.noColor });
     return envelope;
@@ -102,14 +103,10 @@ async function runConsumerLogin(opts, runtimeConfig) {
     const envelope = {
       ok: true,
       command,
-      data: {
-        url: result.url,
-        mode: result.mode,
-        ...(provisioned ? { account: redactValue(provisioned.account.uid) } : {}),
-        ...(result.qrImagePath ? { qrImagePath: result.qrImagePath } : {}),
-        message: '消费端授权成功',
-      },
-      meta: { latency_ms: Date.now() - startedAt, warnings: [] },
+      data: toConsumerLoginView(result, {
+        accountFingerprint: provisioned ? redactValue(provisioned.account.uid) : null,
+      }),
+      meta: { latency_ms: Date.now() - startedAt, exit_code: ExitCodes.OK, warnings: [] },
     };
     emit(envelope, { json: opts.json, noColor: opts.noColor });
     return envelope;

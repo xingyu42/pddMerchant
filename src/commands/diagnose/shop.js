@@ -1,43 +1,6 @@
 import { withCommand } from '../_runner.js';
 import { renderShopDashboard } from './_render.js';
-import { diagnoseShop } from '../../services/diagnose/index.js';
-import { collectOrdersInput, collectGoodsInput, collectPromoInput } from '../../services/diagnose/collectors.js';
-import { resolveCompareWindows, compareShopDiagnosis } from '../../services/diagnose/trend-compare.js';
-import { getLogger } from '../../infra/logger.js';
-
-async function settleDimension(label, promise, log) {
-  try {
-    return await promise;
-  } catch (err) {
-    log.debug({ err: err?.message, dimension: label }, 'diagnose.shop: dimension collection failed');
-    return undefined;
-  }
-}
-
-async function collectDiagnosis(page, ctx, { since, until, windowDays } = {}) {
-  const hasContext = typeof page?.context === 'function';
-  const goodsPage = hasContext ? await page.context().newPage() : page;
-  const promoPage = hasContext ? await page.context().newPage() : page;
-  const log = ctx.log ?? getLogger();
-  try {
-    const [orders, goods, promo] = await Promise.all([
-      settleDimension('orders', collectOrdersInput(page, ctx, { since, until, windowDays }), log),
-      settleDimension('goods', collectGoodsInput(goodsPage, ctx), log),
-      settleDimension('promo', collectPromoInput(promoPage, ctx, { since, until }), log),
-    ]);
-    return diagnoseShop({
-      orders,
-      goods,
-      promo,
-      funnel: orders?.listStats ? { orderStats: orders.listStats, windowDays: orders.windowDays ?? windowDays ?? 7 } : undefined,
-    });
-  } finally {
-    if (hasContext) {
-      await goodsPage.close().catch(() => {});
-      await promoPage.close().catch(() => {});
-    }
-  }
-}
+import { getShopDiagnosis } from '../../services/diagnose/reports.js';
 
 export const run = withCommand({
   name: 'diagnose.shop',
@@ -45,46 +8,7 @@ export const run = withCommand({
   needsMall: 'switch',
   render: renderShopDashboard,
   async run(ctx) {
-    const page = ctx.page;
-    const compare = ctx.config.compare ?? false;
-    const days = ctx.config.days ?? 7;
-
-    if (!compare) {
-      return collectDiagnosis(page, ctx, { windowDays: days });
-    }
-
-    const nowSec = Math.floor(Date.now() / 1000);
-    const windows = resolveCompareWindows({ nowSec, days });
-
-    const [currentResult, previousResult] = await Promise.allSettled([
-      collectDiagnosis(page, ctx, {
-        since: windows.current.since,
-        until: windows.current.until,
-        windowDays: days,
-      }),
-      collectDiagnosis(page, ctx, {
-        since: windows.previous.since,
-        until: windows.previous.until,
-        windowDays: days,
-      }),
-    ]);
-
-    const current = currentResult.status === 'fulfilled' ? currentResult.value : null;
-    const previous = previousResult.status === 'fulfilled' ? previousResult.value : null;
-
-    if (!current) return diagnoseShop();
-
-    const comparison = compareShopDiagnosis({ current, previous });
-
-    return {
-      ...current,
-      compare: {
-        current_window: windows.current,
-        previous_window: windows.previous,
-        status: current.status === 'full' && previous?.status === 'full' ? 'full' : 'partial',
-        ...comparison,
-      },
-    };
+    return getShopDiagnosis(ctx, { compare: ctx.config.compare ?? false, days: ctx.config.days ?? 7 });
   },
 });
 

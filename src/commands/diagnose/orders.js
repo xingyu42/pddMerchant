@@ -1,7 +1,6 @@
 import { withCommand } from '../_runner.js';
-import { collectOrdersInput } from '../../services/diagnose/collectors.js';
 import { renderSingleDashboard } from './_render.js';
-import { summarizeOrders } from '../../services/diagnose/index.js';
+import { getOrdersDiagnosis } from '../../services/diagnose/reports.js';
 
 export const run = withCommand({
   name: 'diagnose.orders',
@@ -9,9 +8,7 @@ export const run = withCommand({
   needsMall: 'switch',
   render: renderSingleDashboard,
   async run(ctx) {
-    const mallId = ctx.mallCtx?.activeId ?? null;
-    const input = await collectOrdersInput(ctx.page, { ...ctx, mallId });
-    return summarizeOrders(input || {});
+    return getOrdersDiagnosis(ctx);
   },
 });
 

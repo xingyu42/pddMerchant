@@ -23,22 +23,47 @@ function formatDateTime(d) {
   return d.toISOString().slice(0, 10) + ' 00:00:00';
 }
 
-// 新版 poseidon 报表接口金额字段为 MoneyVO {unit, value, unitCode}，拍平回裸数字供下游消费。
-// 兼容裸数字、null、字符串、非对象输入；无效值归 0。
+// MoneyVO.unit → 换算为元的除数（research/upstream-schema-2026-10.md §5）
+const MONEY_UNIT_DIVISOR = { YUAN: 1, FEN: 100 };
+
+function finiteOrNull(value) {
+  if (value == null || value === '' || typeof value === 'boolean') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+// 新版 poseidon 报表接口金额字段为 MoneyVO {unit, value, unitCode}，拍平为「元」裸数字。
+// unit=YUAN 原值、FEN ÷100；其他非空未知单位 → { value: null, unknownUnit }；无 unit 的裸数字 / 字符串按元处理。
+// 缺失或无效值 → null（不补 0）。
+export function parseMoney(v) {
+  if (v == null || typeof v !== 'object') return { value: finiteOrNull(v), unknownUnit: null };
+  if (!('value' in v)) return { value: null, unknownUnit: null };
+  const amount = finiteOrNull(v.value);
+  const unit = typeof v.unit === 'string' ? v.unit.trim().toUpperCase() : '';
+  if (unit === '') return { value: amount, unknownUnit: null };
+  if (!Object.hasOwn(MONEY_UNIT_DIVISOR, unit)) return { value: null, unknownUnit: v.unit };
+  return { value: amount === null ? null : amount / MONEY_UNIT_DIVISOR[unit], unknownUnit: null };
+}
+
 export function moneyToNumber(v) {
-  if (v == null) return 0;
-  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
-  if (typeof v === 'object' && 'value' in v) {
-    const n = Number(v.value);
-    return Number.isFinite(n) ? n : 0;
-  }
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
+  return parseMoney(v).value;
+}
+
+// 单次 normalize 内收集未知金额单位，供 service 汇入 meta.warnings
+function createMoneyReader() {
+  const unknownUnits = new Set();
+  const read = (v) => {
+    const { value, unknownUnit } = parseMoney(v);
+    if (unknownUnit != null) unknownUnits.add(String(unknownUnit));
+    return value;
+  };
+  const warnings = () => [...unknownUnits].map((unit) => `推广金额单位未知（${unit}），相关金额输出为 null`);
+  return { read, warnings };
 }
 
 // entityReportList 元素的金额/计数字段可能直接挂在元素上，也可能嵌套在 reportInfo 里
 // （OQ1：当前店铺无投放数据无法实测，两种结构都兼容）。?? 链优先取顶层，回退到 reportInfo。
-export function flattenEntity(e) {
+export function flattenEntity(e, money = moneyToNumber) {
   if (e == null) return null;
   const r = e.reportInfo ?? {};
   return {
@@ -57,30 +82,28 @@ export function flattenEntity(e) {
     groupName: e.groupName ?? r.groupName,
     impression: Number(e.impression ?? r.impression ?? 0),
     click: Number(e.click ?? r.click ?? 0),
-    gmv: moneyToNumber(e.gmv ?? r.gmv),
-    spend: moneyToNumber(e.spend ?? r.spend ?? e.cost ?? r.cost),
-    ctr: moneyToNumber(e.ctr ?? r.ctr),
-    netGmv: moneyToNumber(e.netGmv ?? r.netGmv),
+    gmv: money(e.gmv ?? r.gmv),
+    spend: money(e.spend ?? r.spend ?? e.cost ?? r.cost),
+    netGmv: money(e.netGmv ?? r.netGmv),
   };
 }
 
-// 拍平 totalSumReport / sumReport 中的 MoneyVO 字段为裸数字。
+// 拍平 totalSumReport / sumReport 中的 MoneyVO 字段为元。
 // 只输出下游实际消费的字段集合（避免 60+ 个原始字段经 ...totals 展开泄露到 envelope，
 // 违反 spec「raw 不泄露到 command」）。新增下游消费者时按需补字段。
-function flattenTotals(totals) {
+// spend 与 cost 为同一口径（spend ?? cost），不再重复输出 cost；上游 ctr 口径未知，由下游按点击/曝光计算。
+function flattenTotals(totals, money = moneyToNumber) {
   if (totals == null) return {};
   return {
     impression: Number(totals.impression ?? 0),
     click: Number(totals.click ?? 0),
-    gmv: moneyToNumber(totals.gmv),
-    spend: moneyToNumber(totals.spend ?? totals.cost),
-    cost: moneyToNumber(totals.cost ?? totals.spend),
-    netGmv: moneyToNumber(totals.netGmv),
-    ctr: moneyToNumber(totals.ctr),
-    costPerOrder: moneyToNumber(totals.costPerOrder),
-    goodsFavSpend: moneyToNumber(totals.goodsFavSpend),
-    mallFavSpend: moneyToNumber(totals.mallFavSpend),
-    inquirySpend: moneyToNumber(totals.inquirySpend),
+    gmv: money(totals.gmv),
+    spend: money(totals.spend ?? totals.cost),
+    netGmv: money(totals.netGmv),
+    costPerOrder: money(totals.costPerOrder),
+    goodsFavSpend: money(totals.goodsFavSpend),
+    mallFavSpend: money(totals.mallFavSpend),
+    inquirySpend: money(totals.inquirySpend),
   };
 }
 
@@ -145,23 +168,12 @@ export const PROMO_ENTITY_REPORT = {
   normalize: (raw) => {
     const result = readReport(raw, 'promo.entityReport', 'totalSumReport', 'entityReportList');
     for (const entity of result.entityReportList) requireMetrics(entity, 'promo.entityReport', 'entityReportList[]');
-    const totals = flattenTotals(result.totalSumReport);
+    const money = createMoneyReader();
+    const totals = flattenTotals(result.totalSumReport, money.read);
     const entities = result.entityReportList
-      .map(flattenEntity)
+      .map((entity) => flattenEntity(entity, money.read))
       .filter(Boolean);
-    return {
-      entities,
-      totals,
-      impression: totals.impression ?? 0,
-      click: totals.click ?? 0,
-      ctr: totals.ctr ?? 0,
-      gmv: totals.gmv ?? 0,
-      spend: totals.spend ?? 0,
-      cost: totals.cost ?? 0,
-      netGmv: totals.netGmv ?? 0,
-      costPerOrder: totals.costPerOrder ?? 0,
-      raw,
-    };
+    return { entities, totals, unitWarnings: money.warnings(), raw };
   },
   isSuccess: hasSuccessfulResult,
 };
@@ -191,9 +203,10 @@ export const PROMO_HOURLY_REPORT = {
   },
   normalize: (raw) => {
     const result = readReport(raw, 'promo.hourlyReport', 'sumReport', 'hourlyPoints');
+    const money = createMoneyReader();
     return {
-      totals: flattenTotals(result.sumReport), hourlyPoints: result.hourlyPoints,
-      anchorPoints: result.anchorPoints ?? {}, raw,
+      totals: flattenTotals(result.sumReport, money.read), hourlyPoints: result.hourlyPoints,
+      anchorPoints: result.anchorPoints ?? {}, unitWarnings: money.warnings(), raw,
     };
   },
   isSuccess: hasSuccessfulResult,

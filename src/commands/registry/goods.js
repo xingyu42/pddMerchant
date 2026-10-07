@@ -60,7 +60,7 @@ export function register(program, wireAction) {
       .command('price')
       .description('修改价格')
       .requiredOption('--goods-id <id>', '商品 ID', (v) => Number(v))
-      .requiredOption('--price <cents>', '价格（分）', (v) => Number(v))
+      .requiredOption('--price-yuan <yuan>', '价格（元，最多 2 位小数，例如 29.9）')
       .option('--sku-id <id>', 'SKU ID（可选）')
       .option('--confirm', '确认执行（默认 dry-run）'),
     'goods.update.price',
@@ -91,7 +91,7 @@ export function register(program, wireAction) {
     goodsUpdate
       .command('batch')
       .description('批量编辑（JSON 输入）')
-      .requiredOption('--changes <json>', '变更列表 JSON: [{"goods_id":1001,"field":"price","value":2999}]')
+      .requiredOption('--changes <json>', '变更列表 JSON: [{"goods_id":1001,"field":"price_yuan","value":29.9}]（field: status|price_yuan|stock|title，价格单位为元）')
       .option('--confirm', '确认执行（默认 dry-run）'),
     'goods.update.batch',
     updateBatch.run

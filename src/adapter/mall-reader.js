@@ -129,7 +129,7 @@ function normalizeMallRecord(raw, activeId) {
   const id = String(raw.mallId ?? raw.mall_id ?? raw.id ?? '');
   const name = String(raw.mallName ?? raw.mall_name ?? raw.name ?? '');
   const isCurrent = activeId != null && String(activeId) === id;
-  return { id, name, active: isCurrent, is_current: isCurrent };
+  return { id, name, is_current: isCurrent };
 }
 
 function normalizeMallList(rawList, activeId) {
@@ -266,7 +266,7 @@ export async function listMalls(page) {
   const ctx = await resolveMallContext(page);
   if (ctx.malls.length > 0) return ctx.malls;
   if (ctx.activeId) {
-    return [{ id: ctx.activeId, name: ctx.activeName, active: true, is_current: true }];
+    return [{ id: ctx.activeId, name: ctx.activeName, is_current: true }];
   }
   throw new PddCliError({
     code: 'E_MALL_LIST_EMPTY',

@@ -1,3 +1,5 @@
+import { toPct } from '../../infra/units.js';
+
 const STALE_SAMPLE_LIMIT = 10;
 const LOW_STOCK_THRESHOLD = 10;
 
@@ -15,7 +17,7 @@ function readGoodsId(raw) {
   return null;
 }
 
-// 上游订单件数字段为 goods_number；缺失时多件订单会被按 1 件计入销量
+// 上游订单件数字段为 goods_number（research/upstream-schema-2026-10.md §1）
 function readQuantity(raw, fallback = 1) {
   const q = Number(raw?.quantity ?? raw?.goods_number ?? raw?.goods_quantity ?? raw?.goodsQuantity);
   if (Number.isFinite(q) && q > 0) return q;
@@ -132,8 +134,8 @@ function computeStale(orders30d, goodsItems) {
     const sold = soldCount.get(key) ?? 0;
     if (sold === 0 && g.quantity > 0) {
       staleList.push({
+        goods_id: g.goods_id,
         goods_name: g.raw_name || g.goods_name,
-        units_sold_30d: 0,
         quantity: g.quantity,
       });
     }
@@ -187,21 +189,18 @@ export function summarizeInventory({
     else if (qty < LOW_STOCK_THRESHOLD) lowStock += 1;
   }
 
-  const outRate = total > 0 ? Number((outOfStock / total).toFixed(4)) : null;
-  const lowOrOutRate = total > 0 ? Number(((outOfStock + lowStock) / total).toFixed(4)) : null;
-
   const detail = {
     data_quality: dataQuality,
     total,
-    out_of_stock: outOfStock,
-    low_stock: lowStock,
+    out_of_stock_count: outOfStock,
+    low_stock_count: lowStock,
     low_stock_threshold: LOW_STOCK_THRESHOLD,
-    out_of_stock_rate: outRate,
-    low_or_out_rate: lowOrOutRate,
+    out_of_stock_rate_pct: total > 0 ? toPct(outOfStock / total) : null,
+    low_or_out_rate_pct: total > 0 ? toPct((outOfStock + lowStock) / total) : null,
   };
 
   if (Number.isFinite(goodsTotal) && goodsTotal > total) {
-    detail.total_reported = goodsTotal;
+    detail.reported_total = goodsTotal;
     hints.push(`当前仅分析前 ${total} 件商品（共 ${goodsTotal} 件），统计可能不完整`);
   }
   if (goodsIncomplete) hints.push('商品扫描不完整，库存统计仅代表已采样本');

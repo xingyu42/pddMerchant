@@ -1,3 +1,5 @@
+import { round, toFiniteNumber, toPct } from '../../infra/units.js';
+
 function resolveSpend(totals) {
   if (totals == null) return null;
   if (typeof totals.spend === 'number') return totals.spend;
@@ -19,14 +21,14 @@ export function summarizePromo({ totals } = {}) {
 
   const impression = Number(totals.impression ?? 0);
   const click = Number(totals.click ?? 0);
-  const gmv = Number(totals.gmv ?? 0);
+  // 成交金额缺失（含 MoneyVO 单位未知）→ null，不补 0
+  const gmv = toFiniteNumber(totals.gmv);
   const spend = resolveSpend(totals);
 
   const issues = [];
   const hints = [];
 
-  const ctr = impression > 0 ? click / impression : 0;
-  const roi = spend != null && spend > 0 ? gmv / spend : null;
+  const roi = spend != null && spend > 0 && gmv !== null ? gmv / spend : null;
 
   if (spend == null) {
     hints.push('无花费数据，ROI 不可评估');
@@ -38,10 +40,11 @@ export function summarizePromo({ totals } = {}) {
     detail: {
       impression,
       click,
-      gmv,
-      spend,
-      ctr: Number(ctr.toFixed(4)),
-      roi: roi == null ? null : Number(roi.toFixed(2)),
+      gmv_yuan: round(gmv, 2),
+      spend_yuan: spend == null ? null : round(spend, 2),
+      // 曝光为 0 时点击率无分母 → null
+      ctr_pct: impression > 0 ? toPct(click / impression) : null,
+      roi: roi == null ? null : round(roi, 2),
     },
   };
 }

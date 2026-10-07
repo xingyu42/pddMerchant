@@ -8,7 +8,8 @@ describe('merchant authentication CLI contract', () => {
       const result = runCli(args);
       assert.equal(result.status, 0);
       assert.equal(result.envelope.ok, true);
-      assert.equal(result.envelope.data.mallId, '900001');
+      assert.equal(result.envelope.data.mall_id, '900001');
+      assert.ok(result.envelope.data.headline.length > 0);
       assert.ok(!result.stdout.includes('PASS_ID'));
       assert.ok(!result.stdout.includes('qr_pending'));
       assert.ok(!result.stdout.includes('auth-state.json'));
@@ -38,7 +39,8 @@ describe('merchant authentication CLI contract', () => {
     const authState = { cookies: [{ name: 'PASS_ID', value: 'synthetic-secret' }], origins: [] };
     const valid = runCli(['doctor'], { authState });
     assert.equal(valid.status, 0);
-    assert.equal(valid.envelope.data.logged_in.detail.verdict, 'verified');
+    assert.equal(valid.envelope.data.logged_in.detail.verdict, '已验证');
+    assert.equal(valid.envelope.data.auth_file.detail.cookie_count, 1);
     assert.ok(!valid.stdout.includes('synthetic-secret'));
     assert.ok(!Object.hasOwn(valid.envelope.data, 'daemon'));
     const uncertain = runCli(['doctor'], { authState, authIndeterminate: true });

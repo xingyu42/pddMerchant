@@ -195,7 +195,7 @@ describe('merchant login registration boundary', () => {
         authorize();
         const result = await pending;
         assert.equal(result.ok, true, JSON.stringify(result.error));
-        assert.equal(result.data.account, 'recovery-shop');
+        assert.equal(result.data.account_slug, 'recovery-shop');
         assert.equal((await loadAuthState(target)).state.merchant_auth.mall_id, '900001');
       } finally {
         controller.abort();

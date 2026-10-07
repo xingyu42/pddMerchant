@@ -8,14 +8,14 @@ describe('goods sales and inventory facts', () => {
     const result = segmentGoods(structuredClone(SAMPLE_SEGMENTATION_INPUT), { windowDays: 30 });
     const tea = result.items.find((item) => item.goods_id === '101');
     const cup = result.items.find((item) => item.goods_id === '202');
-    assert.equal(tea.units_sold_30d, 6);
+    assert.equal(tea.units_sold, 6);
     assert.equal(tea.observed_units_sold, 6);
     assert.equal(tea.stock_days, 60);
-    assert.equal(cup.units_sold_30d, 3);
+    assert.equal(cup.units_sold, 3);
     assert.equal(cup.quantity, 0);
     assert.equal(cup.stock_days, 0);
     assert.equal(result.summary.matched_by, 'goods_id');
-    assert.equal(result.summary.total_goods, 2);
+    assert.equal(result.total, 2);
   });
 
   it('uses the requested sales window for stock-day calculations', () => {
@@ -26,13 +26,13 @@ describe('goods sales and inventory facts', () => {
 
   it('distinguishes a complete zero-sales period from unknown sales', () => {
     const complete = segmentGoods({ ...structuredClone(SAMPLE_SEGMENTATION_INPUT), orders30d: [] });
-    assert.equal(complete.items[0].units_sold_30d, 0);
+    assert.equal(complete.items[0].units_sold, 0);
     assert.equal(complete.items[0].observed_units_sold, 0);
     assert.equal(complete.items[0].stock_days, null);
     assert.equal(complete.summary.data_completeness, 'no_orders');
     assert.equal(complete.summary.data_quality.orders_complete, true);
     const missing = segmentGoods({ ...structuredClone(SAMPLE_SEGMENTATION_INPUT), orders30d: undefined });
-    assert.equal(missing.items[0].units_sold_30d, null);
+    assert.equal(missing.items[0].units_sold, null);
     assert.equal(missing.items[0].observed_units_sold, 0);
     assert.equal(missing.items[0].stock_days, null);
     assert.equal(missing.summary.data_quality.orders_complete, false);
@@ -43,7 +43,7 @@ describe('goods sales and inventory facts', () => {
     ['rate limit', { ratelimited: true }, 'orders_ratelimited'],
   ])('retains observed sales but not full-period estimates after order %s', (_label, flags, flag) => {
     const result = segmentGoods({ ...structuredClone(SAMPLE_SEGMENTATION_INPUT), ...flags });
-    assert.equal(result.items[0].units_sold_30d, null);
+    assert.equal(result.items[0].units_sold, null);
     assert.equal(result.items[0].observed_units_sold, 6);
     assert.equal(result.items[0].stock_days, null);
     assert.equal(result.summary.data_completeness, 'partial_orders');
@@ -61,7 +61,7 @@ describe('goods sales and inventory facts', () => {
     assert.equal(result.summary.data_completeness, 'partial_goods');
     assert.equal(result.summary.data_quality.goods_complete, false);
     assert.equal(result.summary.data_quality.orders_complete, true);
-    assert.equal(result.items[0].units_sold_30d, 6);
+    assert.equal(result.items[0].units_sold, 6);
     assert.equal(result.items[0].stock_days, 60);
   });
 
@@ -78,7 +78,7 @@ describe('goods sales and inventory facts', () => {
   it('reports an empty catalog without treating a truncated empty sample as complete', () => {
     const empty = segmentGoods({ goods: [], orders30d: [] });
     assert.deepEqual(empty.items, []);
-    assert.equal(empty.summary.total_goods, 0);
+    assert.equal(empty.total, 0);
     assert.equal(empty.summary.data_completeness, 'empty');
     const partial = segmentGoods({ goods: [], orders30d: [], goodsTotal: 10 });
     assert.equal(partial.summary.data_completeness, 'partial');
@@ -91,7 +91,7 @@ describe('goods sales and inventory facts', () => {
       orders30d: [{ goods_id: '101', goods_name: '\uff34\uff45\uff41', quantity: 5 }],
     });
     assert.equal(result.summary.matched_by, 'mixed');
-    assert.equal(result.items[0].units_sold_30d, 5);
+    assert.equal(result.items[0].units_sold, 5);
     assert.equal(result.items[0].stock_days, 60);
   });
 
@@ -104,7 +104,7 @@ describe('goods sales and inventory facts', () => {
     assert.equal(result.summary.ambiguous_groups, 1);
     assert.equal(result.items.length, 1);
     assert.equal(result.items[0].goods_name, 'Cup');
-    assert.equal(result.items[0].units_sold_30d, 1);
+    assert.equal(result.items[0].units_sold, 1);
     assert.ok(result.warnings.length > 0);
   });
 
@@ -115,5 +115,15 @@ describe('goods sales and inventory facts', () => {
     assert.equal(result.items[0].promo_roi, 1.25);
     assert.equal(result.items[1].promo_roi, 0);
     assert.equal(result.summary.data_completeness, 'full');
+  });
+
+  it('states counts and data completeness in the headline without judgement', () => {
+    const complete = segmentGoods(structuredClone(SAMPLE_SEGMENTATION_INPUT), { windowDays: 7 });
+    assert.deepEqual(complete.headline, ['近 7 天统计商品 2 件', '有销量 2 件，零销量 0 件']);
+    const partial = segmentGoods({ ...structuredClone(SAMPLE_SEGMENTATION_INPUT), goodsScanTruncated: true, ratelimited: true });
+    assert.deepEqual(partial.headline, [
+      '近 30 天统计商品 2 件', '订单采集不完整，全周期销量与可售天数未计算', '商品采集不完整，仅统计已采集商品',
+    ]);
+    assert.deepEqual(segmentGoods({ goods: [], orders30d: [] }).headline, ['近 30 天无可统计商品']);
   });
 });

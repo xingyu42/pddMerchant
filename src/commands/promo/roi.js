@@ -1,5 +1,5 @@
 import { withCommand } from '../_runner.js';
-import { getPromoRoi } from '../../services/promo-roi.js';
+import { getPromoRoiView } from '../../services/promo-roi.js';
 
 export const run = withCommand({
   name: 'promo.roi',
@@ -7,9 +7,7 @@ export const run = withCommand({
   needsMall: 'switch',
   async run(ctx) {
     const { page: pageNum, size, since, by, includeInactive } = ctx.config;
-    const result = await getPromoRoi(ctx.page, { page: pageNum, size, since, by, includeInactive }, ctx);
-    const { warnings: resultWarnings, ...data } = result;
-    return { data, warnings: resultWarnings };
+    return getPromoRoiView(ctx.page, { page: pageNum, size, since, by, includeInactive }, ctx);
   },
 });
 

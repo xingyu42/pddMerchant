@@ -37,7 +37,7 @@ src/adapter/ (Patchright 集成 + XHR 拦截)
 src/infra/ (跨层基础设施)
 ```
 
-**守卫**: `test/layering-guard.unit.test.js` 禁止反向导入
+**守卫**: 原 `test/layering-guard.unit.test.js` 已在 `cc0cb1c` 删除，分层目前靠 review 约束
 
 ---
 
@@ -230,10 +230,9 @@ test/
 ├── adapter/、infra/、services/ # 分层测试
 ├── e2e/*.e2e.test.js        # fixture 模式下 spawn CLI 子进程
 ├── pbt/*.pbt.test.js        # 属性测试（项目 harness 与 fast-check 并存）
-├── fixtures/                # Mock 数据
-│   ├── endpoints/           # XHR 响应 fixture
-│   └── consumer-login/      # 消费者登录 fixture
-└── layering-guard.unit.test.js  # 架构守卫
+├── contract/                # 输出契约 v2 守卫（data-contract-v2.test.js 覆盖全部注册命令）
+├── fixtures/test-data.js    # 合成 fixture 构造器（由 helpers/isolated-cli.js 写入临时沙箱）
+└── helpers/                 # isolated-cli（runCli 沙箱）、data-contract 检查器、envelope 断言
 ```
 
 Vitest 按 `test/**/*.test.js` 自动发现。`PBT_SEED` / `PBT_RUNS` 只控制项目 `_harness.js`；fast-check 用例使用自身的 seed、path 和 `numRuns` 复现。
@@ -366,12 +365,18 @@ new PddCliError({
     hint: '请检查商品标题是否包含敏感词'
   },
   meta: {
-    warnings: ['图片尺寸低于推荐值'],
+    v: 2,
     exit_code: 6,
-    timestamp: '2026-07-10T12:00:00.000Z'
+    latency_ms: 0,
+    xhr_count: 0,
+    warnings: ['图片尺寸低于推荐值']
   }
 }
 ```
+
+成功时 `data` 遵循输出契约 v2：恒为对象并含中文事实 `headline`；列表为 `{ headline, items, total, ... }`；
+键名 snake_case，金额元 `_yuan`、比率百分数 `_pct`、时间 `_at`（北京时间），枚举为中文标签，缺失为 `null`。
+详见 `.trellis/spec/infra/envelope-errors-output.md`。
 
 ---
 
