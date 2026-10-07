@@ -4,6 +4,13 @@ import { ORDER_LIST, ORDER_DETAIL, ORDER_STATS } from '../../src/adapter/endpoin
 import { isNetworkError } from '../helpers/error-matchers.js';
 
 describe('order response contracts', () => {
+  it('initializes the merchant runtime before page-api list/stats calls (diagnose uses fresh pages)', () => {
+    for (const spec of [ORDER_LIST, ORDER_STATS]) {
+      assert.equal(spec.strategy, 'page-api');
+      assert.match(spec.nav?.url ?? '', /^https:\/\/mms\.pinduoduo\.com/);
+    }
+  });
+
   it('preserves real zero counts and a genuinely empty list', () => {
     const raw = { success: true, result: { totalItemNum: 0, pageItems: [] } };
     assert.deepEqual(ORDER_LIST.normalize(raw), { total: 0, orders: [], raw });

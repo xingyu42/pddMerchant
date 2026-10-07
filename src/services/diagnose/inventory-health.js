@@ -15,8 +15,9 @@ function readGoodsId(raw) {
   return null;
 }
 
+// 上游订单件数字段为 goods_number；缺失时多件订单会被按 1 件计入销量
 function readQuantity(raw, fallback = 1) {
-  const q = Number(raw?.quantity ?? raw?.goods_quantity ?? raw?.goodsQuantity);
+  const q = Number(raw?.quantity ?? raw?.goods_number ?? raw?.goods_quantity ?? raw?.goodsQuantity);
   if (Number.isFinite(q) && q > 0) return q;
   return fallback;
 }

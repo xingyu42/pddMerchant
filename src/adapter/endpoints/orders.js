@@ -100,6 +100,8 @@ export const ORDER_STATS = {
   name: 'orders.stats',
   fixtureIsServiceFacing: true,
   strategy: 'page-api',
+  // diagnose 在新开的空白页上并发采集统计，必须先初始化商家运行时，否则 page API client 不可用
+  nav: { url: PDD_HOME },
   apiUrl: '/mars/app/order/statisticWithType',
   buildPayload: () => ({ subType: 5, additionalTypeSet: [] }),
   normalize: (raw) => {
