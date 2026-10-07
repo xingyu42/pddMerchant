@@ -4,6 +4,7 @@ import {
   summarizeOrders, summarizeInventory, summarizePromo, summarizeFunnel, diagnoseShop,
 } from '../../src/services/diagnose/index.js';
 import { compareShopDiagnosis, resolveCompareWindows } from '../../src/services/diagnose/trend-compare.js';
+import { toDimensionView } from '../../src/services/views/diagnose.js';
 import { SAMPLE_LIST_STATS, SAMPLE_GOODS } from '../fixtures/test-data.js';
 
 describe('diagnostic source availability and facts', () => {
@@ -143,6 +144,20 @@ describe('diagnostic source availability and facts', () => {
     const orders = summarizeOrders({ stats: { unship: 0, delay: 0 }, listStats: unknown });
     assert.equal(orders.detail.refund_rate_pct, null);
     assert.ok(orders.hints.some((hint) => hint.includes('退款数据不可用')));
+  });
+
+  it('words the orders refund headline by why the rate is null and keeps the reason out of output', () => {
+    const empty = { ...structuredClone(SAMPLE_LIST_STATS), total: 0, refund_count: 0, refund_rate: null };
+    const noOrders = toDimensionView('orders', summarizeOrders({ listStats: empty }));
+    assert.ok(noOrders.headline.includes('样本无订单，退款率无法计算'));
+    assert.ok(!noOrders.hints.some((hint) => hint.includes('退款数据不可用')));
+    assert.equal(Object.hasOwn(noOrders, 'refund_unknown_reason'), false);
+    assert.equal(Object.hasOwn(noOrders.detail, 'refund_unknown_reason'), false);
+
+    const unknown = { ...structuredClone(SAMPLE_LIST_STATS), refund_count: null, refund_rate: null };
+    const fieldMissing = toDimensionView('orders', summarizeOrders({ listStats: unknown }));
+    assert.ok(fieldMissing.headline.includes('样本退款数据不可用'));
+    assert.ok(!fieldMissing.headline.some((line) => line.includes('退款 0 单')));
   });
 
   it('requires every source for a full shop summary and attributes missing-source hints', () => {

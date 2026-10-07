@@ -15,15 +15,24 @@ function pct(value) {
   return value == null ? '无法计算' : `${value}%`;
 }
 
-function ordersHeadline({ detail }) {
+// 退款率为 null 时按内部原因码区分措辞（summarizeOrders.refund_unknown_reason）
+const REFUND_UNKNOWN_SENTENCE = Object.freeze({
+  no_orders: '样本无订单，退款率无法计算',
+  field_missing: '样本退款数据不可用',
+});
+
+function refundSentence(detail, reason) {
+  if (detail.refund_rate_pct != null) return `样本退款率 ${detail.refund_rate_pct}%`;
+  return REFUND_UNKNOWN_SENTENCE[reason] ?? '样本退款数据不可用';
+}
+
+function ordersHeadline({ detail, refund_unknown_reason: reason }) {
   const lines = [];
   if (detail.pending_ship_count != null) {
     lines.push(`待发货 ${detail.pending_ship_count} 单，延迟发货 ${detail.delayed_ship_count} 单`);
   }
   if (detail.shipping_p95_hours != null) lines.push(`下单至发货时长 P95 ${detail.shipping_p95_hours} 小时`);
-  if (detail.refund_rate_pct !== undefined) {
-    lines.push(detail.refund_rate_pct == null ? '样本退款数据不可用' : `样本退款率 ${detail.refund_rate_pct}%`);
-  }
+  if (detail.refund_rate_pct !== undefined) lines.push(refundSentence(detail, reason));
   return lines.length > 0 ? lines : ['订单数据缺失'];
 }
 
