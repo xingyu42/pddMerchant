@@ -11,6 +11,7 @@ import {
 import { resolveEndpointStrategy } from './endpoint-strategy-resolver.js';
 import { executeAttempt } from './endpoint-attempt.js';
 import { executePageApiRequest } from './page-api-client.js';
+import { TIMEOUTS } from '../infra/timeouts.js';
 
 const RETRY_DELAYS_MS = [1000, 2000, 4000];
 export const SUCCESS_BUSINESS_CODES = new Set([0, 1000000]);
@@ -326,7 +327,7 @@ export class PlaywrightEndpointClient {
   async _attemptOnce(page, meta, params, ctx, log, navUrl) {
     const { strategy } = resolveEndpointStrategy(meta);
     if (strategy === 'page-api') {
-      return this._attemptPageApi(page, meta, params, ctx);
+      return this._attemptPageApi(page, meta, params, ctx, navUrl);
     }
     if (strategy === 'fetch') {
       return this._attemptFetch(page, meta, params, ctx, log, navUrl);
@@ -334,7 +335,39 @@ export class PlaywrightEndpointClient {
     return this._attemptLegacy(page, meta, params, ctx, log, navUrl);
   }
 
-  async _attemptPageApi(page, meta, params, ctx) {
+  async _preparePageApi(page, meta, ctx, navUrl) {
+    if (!navUrl) return;
+    throwIfAborted(ctx.signal);
+    const remaining = remainingMs(ctx);
+    if (remaining === 0) throw timeoutError();
+
+    try {
+      const currentUrl = typeof page.url === 'function' ? page.url() : page.url;
+      if (new URL(currentUrl).origin === new URL(navUrl).origin) return;
+    } catch {
+      // Fresh pages have no merchant runtime; initialize the supplied page in place.
+    }
+
+    try {
+      await page.goto(navUrl, {
+        waitUntil: meta.nav?.waitUntil ?? 'domcontentloaded',
+        timeout: Math.min(meta.navTimeout ?? TIMEOUTS.QUICK_NAV, remaining),
+      });
+    } catch (err) {
+      if (err instanceof PddCliError) throw err;
+      throwIfAborted(ctx.signal);
+      if (remainingMs(ctx) === 0) throw timeoutError();
+      throw new PddCliError({
+        code: 'E_NETWORK',
+        message: `${meta.name}: navigation failed: ${err?.message}`,
+        hint: '检查网络连通性或登录态',
+        detail: { url: navUrl },
+        exitCode: ExitCodes.NETWORK,
+      });
+    }
+  }
+
+  async _attemptPageApi(page, meta, params, ctx, navUrl) {
     const missingFields = [];
     if (typeof meta.buildPayload !== 'function') missingFields.push('buildPayload');
     if (typeof meta.apiUrl !== 'string' || meta.apiUrl.length === 0) missingFields.push('apiUrl');
@@ -348,6 +381,7 @@ export class PlaywrightEndpointClient {
       });
     }
     const payload = meta.buildPayload(params, ctx);
+    await this._preparePageApi(page, meta, ctx, navUrl);
     throwIfAborted(ctx.signal);
     const requestBudgetMs = remainingMs(ctx);
     if (requestBudgetMs === 0) throw timeoutError();

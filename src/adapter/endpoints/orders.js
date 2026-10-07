@@ -1,5 +1,6 @@
 import { readBusinessError } from '../run-endpoint.js';
 import { ExitCodes, responseShapeError } from '../../infra/errors.js';
+import { PDD_HOME } from '../auth-state.js';
 
 function readListResult(raw) {
   const result = raw?.result;
@@ -32,6 +33,7 @@ export const ORDER_LIST = {
   name: 'orders.list',
   fixtureIsServiceFacing: true,
   strategy: 'page-api',
+  nav: { url: PDD_HOME },
   apiUrl: '/mangkhut/mms/recentOrderList',
   buildPayload: (params = {}) => ({
     orderType: params.orderType ?? 2,
