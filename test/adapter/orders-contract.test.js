@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it, vi } from 'vitest';
-import { ORDER_LIST, ORDER_DETAIL, ORDER_STATS } from '../../src/adapter/endpoints/orders.js';
+import {
+  ORDER_LIST, ORDER_DETAIL, ORDER_STATS, ORDER_LIST_CLI_SCOPES, ORDER_LIST_DEFAULT_SCOPE, ORDER_LIST_SCOPES,
+} from '../../src/adapter/endpoints/orders.js';
 import { isNetworkError } from '../helpers/error-matchers.js';
 
 describe('order response contracts', () => {
@@ -71,13 +73,46 @@ describe('order request and business errors', () => {
     assert.equal(defaults.groupEndTime, 1700000000);
     assert.equal(defaults.pageNumber, 1);
     assert.equal(defaults.pageSize, 20);
-    const supplied = ORDER_LIST.buildPayload({ page: 3, size: 50, since: 0, until: 200, orderType: 7 });
+    const supplied = ORDER_LIST.buildPayload({ page: 3, size: 50, since: 0, until: 200 });
     assert.equal(supplied.pageNumber, 3);
     assert.equal(supplied.pageSize, 50);
     assert.equal(supplied.groupStartTime, 0);
     assert.equal(supplied.groupEndTime, 200);
-    assert.equal(supplied.orderType, 7);
     assert.deepEqual(ORDER_DETAIL.buildPayload({ order_sn: 'SYN-1' }), { orderSn: 'SYN-1', source: 'MMS' });
+    vi.useRealTimers();
+  });
+
+  it('defaults to every order including after-sales, refunded and cancelled ones', () => {
+    const defaults = ORDER_LIST.buildPayload({});
+    assert.equal(defaults.orderType, 0);
+    assert.equal(defaults.afterSaleType, 0);
+    assert.equal(ORDER_LIST_DEFAULT_SCOPE, 'all');
+  });
+
+  it.each([
+    ['all', 0, 0],
+    ['valid', 0, 1],
+    ['pending_ship', 1, 1],
+    ['shipped', 2, 1],
+    ['received', 3, 1],
+    ['after_sales', 0, 2],
+  ])('maps scope %s to orderType %i / afterSaleType %i', (scope, orderType, afterSaleType) => {
+    const payload = ORDER_LIST.buildPayload({ scope });
+    assert.equal(payload.orderType, orderType);
+    assert.equal(payload.afterSaleType, afterSaleType);
+    assert.deepEqual(ORDER_LIST_SCOPES[scope], { orderType, afterSaleType });
+  });
+
+  it('ignores a raw orderType passthrough and rejects unknown scopes as usage errors', () => {
+    assert.equal(ORDER_LIST.buildPayload({ orderType: 7 }).orderType, 0);
+    for (const scope of ['bogus', 'toString', '']) {
+      assert.throws(() => ORDER_LIST.buildPayload({ scope }), (err) => err.code === 'E_USAGE' && err.exitCode === 2);
+    }
+  });
+
+  it('exposes only verified user-facing scopes to the CLI (internal valid excluded)', () => {
+    assert.deepEqual([...ORDER_LIST_CLI_SCOPES], ['all', 'pending_ship', 'shipped', 'received', 'after_sales']);
+    for (const scope of ORDER_LIST_CLI_SCOPES) assert.ok(Object.hasOwn(ORDER_LIST_SCOPES, scope));
   });
 
   it.each([

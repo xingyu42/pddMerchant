@@ -1,6 +1,6 @@
 import { runEndpoint } from '../adapter/run-endpoint.js';
 import {
-  ORDER_LIST, ORDER_DETAIL, ORDER_STATS, ORDER_LIST_DEFAULT_DAYS,
+  ORDER_LIST, ORDER_DETAIL, ORDER_STATS, ORDER_LIST_DEFAULT_DAYS, ORDER_LIST_CLI_SCOPES, ORDER_LIST_DEFAULT_SCOPE,
 } from '../adapter/endpoints/orders.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { toLocalDate } from '../infra/units.js';
@@ -8,6 +8,10 @@ import {
   orderStatusLabel, toLocalOrderStatsView, toOrderDetailView, toOrderView, toRemoteOrderStatsView,
 } from './views/order.js';
 import { mallIdOf, yuanText } from './views/_shared.js';
+import { ORDER_SCOPE_LABEL } from './views/labels.js';
+
+// 命令层经 service 取得 --status 可选值（commands 不直接 import adapter）
+export { ORDER_LIST_CLI_SCOPES, ORDER_LIST_DEFAULT_SCOPE };
 
 export async function listOrders(page, params = {}, ctx = {}) {
   return runEndpoint(page, ORDER_LIST, params, ctx);
@@ -42,13 +46,31 @@ function percentile(sorted, p) {
   return sorted[lo] + (sorted[hi] - sorted[lo]) * frac;
 }
 
+// 售后口径只依据上游 after_sales_status（research order-list-filters-2026-10-08 §3）：
+// 5 = 退款成功；其他非空码 = 售后处理中；null = 无售后。
+// refund_status / refundStatus / after_sale_type / afterSaleType 在真实数据中不存在，不读取。
+const AFTER_SALES_REFUNDED = 5;
+
+// 样本中没有任何订单带 after_sales_status 键 → 售后数据不可用（null），不得伪造为 0
+function countAfterSales(list) {
+  const hasField = list.some((order) => order && Object.hasOwn(order, 'after_sales_status'));
+  let refunded = 0;
+  let open = 0;
+  for (const order of list) {
+    const code = order?.after_sales_status;
+    if (code == null) continue;
+    if (Number(code) === AFTER_SALES_REFUNDED) refunded += 1;
+    else open += 1;
+  }
+  return { hasField, refunded, open };
+}
+
 export function computeOrderStats(orders) {
   const list = Array.isArray(orders) ? orders : [];
   const total = list.length;
 
   const statusDistribution = {};
   const shippingDurations = [];
-  let refundCount = 0;
 
   for (const o of list) {
     const key = orderStatusLabel(o) ?? UNKNOWN_STATUS;
@@ -59,17 +81,11 @@ export function computeOrderStats(orders) {
     if (typeof orderTime === 'number' && typeof shipTime === 'number' && shipTime > orderTime) {
       shippingDurations.push(shipTime - orderTime);
     }
-
-    const hasRefund = Boolean(
-      o?.refund_status
-      ?? o?.refundStatus
-      ?? (o?.after_sale_type && o.after_sale_type !== 1)
-      ?? (o?.afterSaleType && o.afterSaleType !== 1)
-    );
-    if (hasRefund) refundCount += 1;
   }
 
   shippingDurations.sort((a, b) => a - b);
+  const afterSales = countAfterSales(list);
+  const known = total === 0 || afterSales.hasField;
 
   return {
     total,
@@ -79,8 +95,9 @@ export function computeOrderStats(orders) {
       p50: percentile(shippingDurations, 50),
       p95: percentile(shippingDurations, 95),
     },
-    refund_rate: total > 0 ? refundCount / total : 0,
-    refund_count: refundCount,
+    refund_rate: total > 0 && afterSales.hasField ? afterSales.refunded / total : null,
+    refund_count: known ? afterSales.refunded : null,
+    after_sales_count: known ? afterSales.open : null,
   };
 }
 
@@ -102,20 +119,31 @@ function windowLabel({ since, until }) {
   return start && end ? `${start} 至 ${end}` : '指定时间范围内';
 }
 
-function listHeadline(params, total, items) {
-  const window = windowLabel(params);
-  if (total === 0 && items.length === 0) return [`${window}无订单`];
-  const pageNumber = params.page ?? 1;
-  const pageLabel = pageNumber > 1 ? `第 ${pageNumber} 页` : '本页';
-  if (items.length === 0) return [`${window}共 ${total} 单，${pageLabel}无订单`];
-  return [`${window}共 ${total} 单，${pageLabel} ${items.length} 单`, `${pageLabel}状态：${countByStatus(items)}`];
+// 范围标签：all →「全部订单」，其余如「待发货订单」
+function scopeText(scope) {
+  return `${ORDER_SCOPE_LABEL[scope] ?? ORDER_SCOPE_LABEL[ORDER_LIST_DEFAULT_SCOPE]}订单`;
 }
 
+function listHeadline(params, total, items) {
+  const window = windowLabel(params);
+  const scope = params.scope ?? ORDER_LIST_DEFAULT_SCOPE;
+  if (total === 0 && items.length === 0) {
+    return [scope === ORDER_LIST_DEFAULT_SCOPE ? `${window}无订单` : `${window}无${scopeText(scope)}`];
+  }
+  const pageNumber = params.page ?? 1;
+  const pageLabel = pageNumber > 1 ? `第 ${pageNumber} 页` : '本页';
+  const summary = `${window}${scopeText(scope)}共 ${total} 单`;
+  if (items.length === 0) return [`${summary}，${pageLabel}无订单`];
+  return [`${summary}，${pageLabel} ${items.length} 单`, `${pageLabel}状态：${countByStatus(items)}`];
+}
+
+// params.scope：ORDER_LIST_CLI_SCOPES 之一，缺省为全部订单（含售后 / 退款 / 已取消）
 export async function getOrderListView(page, params = {}, ctx = {}) {
-  const result = await listOrders(page, params, ctx);
+  const query = { ...params, scope: params.scope ?? ORDER_LIST_DEFAULT_SCOPE };
+  const result = await listOrders(page, query, ctx);
   const items = (Array.isArray(result?.orders) ? result.orders : []).map(toOrderView);
   const total = result?.total ?? null;
-  return { headline: listHeadline(params, total, items), items, total, mall_id: mallIdOf(ctx) };
+  return { headline: listHeadline(query, total, items), items, total, mall_id: mallIdOf(ctx) };
 }
 
 function shippingSentence(order) {
@@ -143,7 +171,10 @@ function localStatsSentence(local) {
   const ship = local.ship_p95_hours == null
     ? '无已发货样本'
     : `下单至发货时长 P95 ${local.ship_p95_hours} 小时`;
-  return `本地样本 ${local.order_count} 单：退款 ${local.refund_count} 单，${ship}`;
+  const refund = local.refund_count == null
+    ? '退款数据不可用'
+    : `退款成功 ${local.refund_count} 单，售后处理中 ${local.after_sales_count} 单`;
+  return `本地样本 ${local.order_count} 单：${refund}，${ship}`;
 }
 
 function statsHeadline(remote, local) {
@@ -156,7 +187,8 @@ function statsHeadline(remote, local) {
 
 export async function getOrderStatsView(page, { size = 50 } = {}, ctx = {}) {
   const remote = toRemoteOrderStatsView(await getOrderStats(page, ctx));
-  const listResult = await listOrders(page, { page: 1, size }, ctx);
+  // 本地样本须包含售后订单（scope all），否则退款统计在请求层即被排除
+  const listResult = await listOrders(page, { page: 1, size, scope: 'all' }, ctx);
   const local = toLocalOrderStatsView(computeOrderStats(listResult.orders));
   return { headline: statsHeadline(remote, local), remote, local, mall_id: mallIdOf(ctx) };
 }

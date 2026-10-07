@@ -1,5 +1,5 @@
 import { readBusinessError } from '../run-endpoint.js';
-import { ExitCodes, responseShapeError } from '../../infra/errors.js';
+import { ExitCodes, PddCliError, responseShapeError } from '../../infra/errors.js';
 import { PDD_HOME } from '../auth-state.js';
 
 function readListResult(raw) {
@@ -32,6 +32,33 @@ function readStatsResult(raw) {
 // 订单列表默认时间窗（天）：未指定 since 时的查询起点
 export const ORDER_LIST_DEFAULT_DAYS = 7;
 
+// 订单范围 → recentOrderList 过滤参数（orderType / afterSaleType 的唯一来源）。
+// 只收录已采样验证的组合：.trellis/tasks/10-08-orders-status-and-refund/research/order-list-filters-2026-10-08.md
+// orderType：0 全部 / 1 待发货 / 2 已发货待收货 / 3 已收货；afterSaleType：0 不过滤 / 1 仅无售后 / 2 售后处理中
+export const ORDER_LIST_SCOPES = Object.freeze({
+  all: Object.freeze({ orderType: 0, afterSaleType: 0 }), // 全部（含售后/退款/取消）
+  valid: Object.freeze({ orderType: 0, afterSaleType: 1 }), // 全部发货状态，仅无售后（销量口径，内部用）
+  pending_ship: Object.freeze({ orderType: 1, afterSaleType: 1 }), // 待发货（= statisticWithType.unship）
+  shipped: Object.freeze({ orderType: 2, afterSaleType: 1 }), // 已发货待收货（= unreceive）
+  received: Object.freeze({ orderType: 3, afterSaleType: 1 }), // 已收货
+  after_sales: Object.freeze({ orderType: 0, afterSaleType: 2 }), // 售后处理中
+});
+export const ORDER_LIST_DEFAULT_SCOPE = 'all';
+// CLI `orders list --status` 可选值（不含内部销量口径 valid）
+export const ORDER_LIST_CLI_SCOPES = Object.freeze(['all', 'pending_ship', 'shipped', 'received', 'after_sales']);
+
+function resolveScope(scope = ORDER_LIST_DEFAULT_SCOPE) {
+  if (!Object.hasOwn(ORDER_LIST_SCOPES, scope)) {
+    throw new PddCliError({
+      code: 'E_USAGE',
+      message: `未知订单范围：${scope}`,
+      hint: `可选：${ORDER_LIST_CLI_SCOPES.join('|')}`,
+      exitCode: ExitCodes.USAGE,
+    });
+  }
+  return ORDER_LIST_SCOPES[scope];
+}
+
 export const ORDER_LIST = {
   name: 'orders.list',
   fixtureIsServiceFacing: true,
@@ -39,8 +66,7 @@ export const ORDER_LIST = {
   nav: { url: PDD_HOME },
   apiUrl: '/mangkhut/mms/recentOrderList',
   buildPayload: (params = {}) => ({
-    orderType: params.orderType ?? 2,
-    afterSaleType: 1,
+    ...resolveScope(params.scope ?? ORDER_LIST_DEFAULT_SCOPE),
     remarkStatus: -1,
     urgeShippingStatus: -1,
     groupStartTime: params.since ?? Math.floor((Date.now() - ORDER_LIST_DEFAULT_DAYS * 86400000) / 1000),

@@ -107,6 +107,12 @@ const V2_CASES = [
     entityFields: { 'items[]': ORDER_VIEW_FIELDS },
   },
   {
+    command: 'orders.list',
+    args: ['orders', 'list', '--status', 'pending_ship'],
+    fixtures: createFactFixtures(),
+    entityFields: { 'items[]': ORDER_VIEW_FIELDS },
+  },
+  {
     command: 'orders.detail',
     args: ['orders', 'detail', '--sn', 'SYN-DETAIL'],
     fixtures: createFactFixtures(),

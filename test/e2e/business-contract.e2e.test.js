@@ -34,7 +34,35 @@ describe('offline CLI envelopes and process exits', () => {
     assert.equal(envelope.data.total, 2);
     assert.deepEqual(envelope.data.items.map((order) => order.order_sn), ['SYN-PAGE-2']);
     assert.equal(envelope.data.mall_id, '900001');
-    assert.deepEqual(envelope.data.headline, ['近 7 天共 2 单，第 2 页 1 单', '第 2 页状态：已发货，待收货 1 单']);
+    assert.deepEqual(envelope.data.headline, ['近 7 天全部订单共 2 单，第 2 页 1 单', '第 2 页状态：已发货，待收货 1 单']);
+  });
+
+  it('filters orders by --status and labels the scope in the headline', () => {
+    const { status, envelope } = runCli(['orders', 'list', '--status', 'pending_ship'], { fixtures: {
+      'endpoints/orders.list.json': { total: 1, orders: [createUpstreamOrder({ order_status_str: '待发货', shipping_time: 0 })] },
+    } });
+    assert.equal(status, 0);
+    assert.equal(envelope.ok, true);
+    assert.deepEqual(envelope.data.headline, ['近 7 天待发货订单共 1 单，本页 1 单', '本页状态：待发货 1 单']);
+  });
+
+  it('labels refunded and in-progress after-sales orders in the default list', () => {
+    const { status, envelope } = runCli(['orders', 'list'], { fixtures: {
+      'endpoints/orders.list.json': { total: 2, orders: [
+        createUpstreamOrder({ order_sn: 'SYN-REFUND', order_status_str: '已发货，退款成功', after_sales_status: 5 }),
+        createUpstreamOrder({ order_sn: 'SYN-AS', after_sales_status: 10 }),
+      ] },
+    } });
+    assert.equal(status, 0);
+    assert.deepEqual(envelope.data.items.map((order) => order.after_sales_status), ['退款成功', '售后处理中']);
+  });
+
+  it('rejects an unknown --status with usage exit 2 before any endpoint call', () => {
+    const { status, envelope } = runCli(['orders', 'list', '--status', 'bogus']);
+    assert.equal(status, 2);
+    assert.equal(envelope.ok, false);
+    assert.equal(envelope.error.code, 'E_USAGE');
+    assert.equal(envelope.data, null);
   });
 
   it('preserves an actual empty order result', () => {

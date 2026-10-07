@@ -55,11 +55,21 @@ describe('order view projection', () => {
     assert.equal(toOrderView(undefined).order_sn, null);
   });
 
-  it('falls back to an unknown label for status codes and after-sales codes', () => {
+  it('falls back to an unknown label for status codes and unregistered after-sales codes', () => {
     const view = toOrderView({ order_status: 5, after_sales_status: 3 });
     assert.equal(view.status, '未知(5)');
     assert.equal(view.after_sales_status, '未知(3)');
     assert.equal(toOrderView({ orderSn: 'SYN-CAMEL', orderStatus: 2 }).order_sn, 'SYN-CAMEL');
+  });
+
+  it.each([
+    [5, '退款成功'],
+    [10, '售后处理中'],
+    [11, '售后处理中'],
+    [99, '未知(99)'],
+    [null, null],
+  ])('labels after_sales_status %s as %s', (code, label) => {
+    assert.equal(toOrderView(createUpstreamOrder({ after_sales_status: code })).after_sales_status, label);
   });
 
   it('treats zero timestamps as not happened', () => {
@@ -89,18 +99,27 @@ describe('order stats views', () => {
 
   it('converts local seconds to hours and ratios to percentages', () => {
     const local = toLocalOrderStatsView(computeOrderStats([
-      { order_status_str: '已发货，待收货', order_time: 100, shipping_time: 3700 },
-      { order_status_str: '已发货，待收货', order_time: 100, shipping_time: 9100, refund_status: true },
+      { order_status_str: '已发货，待收货', order_time: 100, shipping_time: 3700, after_sales_status: 10 },
+      { order_status_str: '已发货，退款成功', order_time: 100, shipping_time: 9100, after_sales_status: 5 },
     ]));
     assert.deepEqual(local, {
       order_count: 2,
-      status_distribution: { '已发货，待收货': 2 },
+      status_distribution: { '已发货，待收货': 1, '已发货，退款成功': 1 },
       ship_samples: 2,
       ship_p50_hours: 1.8,
       ship_p95_hours: 2.4,
       refund_count: 1,
+      after_sales_count: 1,
       refund_rate_pct: 50,
     });
+  });
+
+  it('keeps refund facts null when the sample lacks the after-sales field', () => {
+    const local = toLocalOrderStatsView(computeOrderStats([{ order_status_str: '已收货' }]));
+    assert.equal(local.order_count, 1);
+    assert.equal(local.refund_count, null);
+    assert.equal(local.after_sales_count, null);
+    assert.equal(local.refund_rate_pct, null);
   });
 
   it('keeps empty samples unknown rather than zero', () => {
@@ -109,5 +128,6 @@ describe('order stats views', () => {
     assert.equal(local.ship_p50_hours, null);
     assert.equal(local.ship_p95_hours, null);
     assert.equal(local.refund_rate_pct, null);
+    assert.equal(local.refund_count, 0);
   });
 });

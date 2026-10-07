@@ -132,6 +132,19 @@ describe('diagnostic source availability and facts', () => {
     assert.deepEqual(complete.detail.status_distribution, { '已发货，待收货': 4 });
   });
 
+  it('propagates unknown refund counts to funnel and orders rates instead of assuming zero', () => {
+    const unknown = { ...structuredClone(SAMPLE_LIST_STATS), refund_count: null, refund_rate: null };
+    const funnel = summarizeFunnel({ orderStats: unknown, windowDays: 7 });
+    assert.equal(funnel.detail.total_orders, 4);
+    assert.equal(funnel.detail.refund_count, null);
+    assert.equal(funnel.detail.refund_rate_pct, null);
+    assert.equal(funnel.detail.fulfillment_rate_pct, null);
+    assert.ok(funnel.hints.some((hint) => hint.includes('退款数据不可用')));
+    const orders = summarizeOrders({ stats: { unship: 0, delay: 0 }, listStats: unknown });
+    assert.equal(orders.detail.refund_rate_pct, null);
+    assert.ok(orders.hints.some((hint) => hint.includes('退款数据不可用')));
+  });
+
   it('requires every source for a full shop summary and attributes missing-source hints', () => {
     const input = {
       orders: { stats: { unship: 0, delay: 0 }, listStats: structuredClone(SAMPLE_LIST_STATS) },

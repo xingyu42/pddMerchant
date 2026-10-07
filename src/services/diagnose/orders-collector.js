@@ -11,7 +11,9 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// options.scope：订单范围，默认 'valid'（全部发货状态、仅无售后 = 销量口径）；需要退款数据的调用方传 'all'
 export async function collectOrdersForStaleAnalysis(page, ctx = {}, options = {}) {
+  const scope = options.scope ?? 'valid';
   const pageSize = options.pageSize ?? STALE_PAGE_SIZE;
   const maxPages = options.maxPages ?? STALE_MAX_PAGES;
   const delayMs = options.delayMs ?? PAGE_DELAY_MS;
@@ -32,6 +34,7 @@ export async function collectOrdersForStaleAnalysis(page, ctx = {}, options = {}
         size: pageSize,
         since,
         until: now,
+        scope,
       }, ctx);
     } catch (err) {
       if (err instanceof PddCliError && err.code === 'E_RATE_LIMIT') {

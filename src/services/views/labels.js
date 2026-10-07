@@ -7,6 +7,16 @@ export const DATA_STATUS_LABEL = Object.freeze({ full: '数据完整', partial: 
 // diagnose 维度
 export const DIMENSION_LABEL = Object.freeze({ orders: '订单', inventory: '库存', promo: '推广', funnel: '履约' });
 
+// orders.list 订单范围（--status）；内部销量口径 valid 不对外展示
+export const ORDER_SCOPE_LABEL = Object.freeze({
+  all: '全部', pending_ship: '待发货', shipped: '已发货待收货', received: '已收货', after_sales: '售后处理中',
+});
+
+// 订单 after_sales_status（.trellis/tasks/10-08-orders-status-and-refund/research/order-list-filters-2026-10-08.md §3）：
+// 5 = 退款成功（高置信：与 order_status_str「…退款成功」、pay_status 4、fulfillmentStatus 31/32 一致 9/9）；
+// 10 / 11 = 售后处理中（中置信：与 afterSaleType=2 过滤结果 4/4 吻合，二者子类区别无证据）
+export const AFTER_SALES_STATUS_LABEL = Object.freeze({ 5: '退款成功', 10: '售后处理中', 11: '售后处理中' });
+
 // 商品与订单的匹配方式（goods.segment / diagnose.inventory）
 export const MATCHED_BY_LABEL = Object.freeze({
   goods_id: '按商品 ID 匹配',

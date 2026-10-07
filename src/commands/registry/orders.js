@@ -12,7 +12,8 @@ export function register(program, wireAction) {
       .option('--page <n>', '页码', (v) => Number(v), 1)
       .option('--size <n>', '每页数量', (v) => Number(v), 20)
       .option('--since <unix>', '起始时间（Unix 秒）', (v) => Number(v))
-      .option('--until <unix>', '结束时间（Unix 秒）', (v) => Number(v)),
+      .option('--until <unix>', '结束时间（Unix 秒）', (v) => Number(v))
+      .option('--status <scope>', '订单范围：all|pending_ship|shipped|received|after_sales', 'all'),
     'orders.list',
     list.run
   );

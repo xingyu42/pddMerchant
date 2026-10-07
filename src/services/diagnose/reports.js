@@ -36,7 +36,8 @@ export async function getFunnelDiagnosis(ctx, { days } = {}) {
   const { orders, truncated, ratelimited } = await collectOrdersForStaleAnalysis(
     ctx.page,
     { ...ctx, mallId: mallIdOf(ctx) },
-    { scanDays: windowDays, maxPages, pageSize: STALE_PAGE_SIZE },
+    // 履约漏斗需要看到退款 / 售后订单 → 全部范围
+    { scanDays: windowDays, maxPages, pageSize: STALE_PAGE_SIZE, scope: 'all' },
   );
   const result = summarizeFunnel({ orderStats: computeOrderStats(orders), windowDays });
   if (truncated || ratelimited) result.status = 'partial';

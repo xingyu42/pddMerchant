@@ -21,7 +21,9 @@ function ordersHeadline({ detail }) {
     lines.push(`待发货 ${detail.pending_ship_count} 单，延迟发货 ${detail.delayed_ship_count} 单`);
   }
   if (detail.shipping_p95_hours != null) lines.push(`下单至发货时长 P95 ${detail.shipping_p95_hours} 小时`);
-  if (detail.refund_rate_pct !== undefined) lines.push(`样本退款率 ${pct(detail.refund_rate_pct)}`);
+  if (detail.refund_rate_pct !== undefined) {
+    lines.push(detail.refund_rate_pct == null ? '样本退款数据不可用' : `样本退款率 ${detail.refund_rate_pct}%`);
+  }
   return lines.length > 0 ? lines : ['订单数据缺失'];
 }
 
@@ -44,6 +46,7 @@ function promoHeadline({ detail }) {
 function funnelHeadline({ detail }) {
   if (detail.total_orders == null) return ['订单数据缺失'];
   const window = detail.window_days == null ? '' : `近 ${detail.window_days} 天`;
+  if (detail.refund_count == null) return [`${window}订单 ${detail.total_orders} 单，退款数据不可用`];
   return [`${window}订单 ${detail.total_orders} 单，退款 ${detail.refund_count} 单（退款率 ${pct(detail.refund_rate_pct)}）`];
 }
 

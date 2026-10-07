@@ -25,10 +25,11 @@ export function summarizeOrders({ stats, listStats } = {}) {
     hints.push('已发货样本不足，无法计算 P95');
   }
 
-  // 无订单样本时退款率无分母 → null
-  const refundRate = listStats?.refund_rate;
-  if (typeof refundRate === 'number') {
-    detail.refund_rate_pct = listStats.total > 0 ? toPct(refundRate) : null;
+  // 无订单样本（无分母）或售后字段缺失时退款率 → null，不按 0 计
+  if (listStats) {
+    const refundRate = listStats.refund_rate;
+    detail.refund_rate_pct = typeof refundRate === 'number' && listStats.total > 0 ? toPct(refundRate) : null;
+    if (listStats.total > 0 && listStats.refund_count == null) hints.push('订单样本缺少售后状态字段，退款数据不可用');
   }
 
   if (stats) {

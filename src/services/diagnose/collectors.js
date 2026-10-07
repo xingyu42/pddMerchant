@@ -17,7 +17,8 @@ export async function collectOrdersInput(page, ctx, { since, until, windowDays =
   try {
     const [statsResult, listResult] = await Promise.allSettled([
       getOrderStats(statsPage, ctx),
-      listOrders(page, { page: 1, size: 50, since: sinceSec, until: nowSec }, ctx),
+      // 退款统计需要包含售后订单 → 全部范围
+      listOrders(page, { page: 1, size: 50, since: sinceSec, until: nowSec, scope: 'all' }, ctx),
     ]);
     if (statsResult.status === 'rejected') {
       log.debug({ err: statsResult.reason?.message }, 'diagnose: order stats collection failed');

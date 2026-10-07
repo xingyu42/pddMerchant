@@ -3,6 +3,7 @@
 // 收件人 / 联系方式 / 地址等 PII 不进入视图（D5）。
 import { labelOf, round, toFiniteNumber, toLocalDateTime, toPct, yuanFromFen } from '../../infra/units.js';
 import { pick, text } from './_shared.js';
+import { AFTER_SALES_STATUS_LABEL } from './labels.js';
 
 export const ORDER_VIEW_FIELDS = Object.freeze([
   'order_sn', 'status', 'goods_id', 'goods_name', 'spec', 'quantity',
@@ -45,8 +46,8 @@ export function toOrderView(raw) {
     express_company: expressCompany(raw),
     tracking_number: text(raw?.tracking_number),
     buyer_memo: text(raw?.buyer_memo),
-    // 售后状态无值域证据：非空码一律输出 '未知(<code>)'
-    after_sales_status: labelOf({}, raw?.after_sales_status),
+    // 售后状态码表见 labels.js（research order-list-filters-2026-10-08 §3）；未登记码输出 '未知(<code>)'
+    after_sales_status: labelOf(AFTER_SALES_STATUS_LABEL, raw?.after_sales_status),
   };
 }
 
@@ -74,7 +75,8 @@ function secondsToHours(seconds) {
   return seconds == null ? null : round(seconds / 3600, 1);
 }
 
-// computeOrderStats 结果 → v2：秒 → 小时（1 位），比率 → 百分数；无样本时比率为 null 而非 0
+// computeOrderStats 结果 → v2：秒 → 小时（1 位），比率 → 百分数；
+// 无样本或售后字段缺失时比率为 null 而非 0；售后字段缺失时退款 / 售后计数同为 null
 export function toLocalOrderStatsView(stats) {
   const shipping = stats.shipping_seconds;
   return {
@@ -84,6 +86,7 @@ export function toLocalOrderStatsView(stats) {
     ship_p50_hours: secondsToHours(shipping.p50),
     ship_p95_hours: secondsToHours(shipping.p95),
     refund_count: stats.refund_count,
-    refund_rate_pct: stats.total > 0 ? toPct(stats.refund_rate) : null,
+    after_sales_count: stats.after_sales_count,
+    refund_rate_pct: stats.refund_rate == null ? null : toPct(stats.refund_rate),
   };
 }

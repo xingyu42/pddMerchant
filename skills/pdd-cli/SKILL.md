@@ -128,10 +128,15 @@ node bin/pdd.js config validate --json              # 分层校验；配置损�
 ### 📦 订单 orders
 
 ```bash
-node bin/pdd.js orders list --page 1 --size 20 [--since <unix>] [--until <unix>]
+node bin/pdd.js orders list --page 1 --size 20 [--since <unix>] [--until <unix>] [--status all|pending_ship|shipped|received|after_sales]
 node bin/pdd.js orders detail --sn <订单号/shipping_id>
 node bin/pdd.js orders stats --size 50      # 远程 + 本地聚合 P50/P95
 ```
+
+- `orders list` 默认 `--status all`：返回全部订单（待发货、已发货待收货、已收货、售后中、退款成功、已取消）。`pending_ship` 待发货、`shipped` 已发货待收货、`received` 已收货（这三项不含售后中的订单）、`after_sales` 售后处理中；其他取值以退出码 2 拒绝。时间窗默认近 7 天（按成团时间），更早的待发货订单不会出现在列表中，待发货总数以 `orders stats` 为准。`--size` 取 100 会被上游拒绝，50 可用。
+- 订单 `after_sales_status`：`退款成功` / `售后处理中` / `null`（无售后）/ `未知(<code>)`。
+- 退款统计只依据 `after_sales_status`：`orders stats` 本地样本给出 `refund_count`（退款成功）、`after_sales_count`（售后处理中）与 `refund_rate_pct`。若上游订单缺少售后状态字段，这三项及 `diagnose funnel` 的 `refund_count` / `refund_rate_pct` / `fulfillment_rate_pct` 均为 `null`，headline 写「退款数据不可用」——这不是 0。
+- `diagnose inventory` / `goods segment` 的销量统计计入待发货、已发货、已收货订单，不计退款、售后中与已取消订单；`diagnose orders/shop/funnel` 的退款统计使用全部订单。
 
 ### 🛍️ 商品 goods
 
