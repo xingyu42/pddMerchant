@@ -1,23 +1,18 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+@AGENTS.md
 
-## Project
+## Claude Code Notes
 
-pddMerchant — Pinduoduo merchant backend CLI tool. Uses Patchright's Playwright-compatible API to automate Chromium, intercepts XHR responses, and exposes an AI-friendly envelope contract. Pure JavaScript (Node.js ESM), no TypeScript, no build step.
+- The `pdd-*` project skills under `.agents/skills/` are not auto-discovered by Claude Code; when a task matches one, read `.agents/skills/<name>/SKILL.md` directly.
 
 ## Commands
 
 ```bash
 npm test                              # Run all tests (vitest)
 npx vitest run test/<file>.test.js    # Run a single test file
-npx vitest                            # Watch mode
 npx patchright install chromium       # Required: install the fallback Chromium runtime
 ```
-
-- No active linter (`npm run lint` only prints `no-lint`)
-- No build step — ESM runs directly
-- PBT config: `PBT_SEED=<n>` / `PBT_RUNS=<n>` control only the project `_harness.js`; fast-check tests use their reported seed/path
 
 ## Architecture
 
@@ -33,50 +28,27 @@ src/adapter/fixtures/    Mock-mode providers (core.js owns the single fixture ca
 src/infra/               Cross-cutting: envelope, errors, logger, timeouts, abort
 ```
 
-Dependencies flow one way: `commands/ → services/ → adapter/ → infra/`. Never import upward (the former `test/layering-guard.unit.test.js` was removed in `cc0cb1c`; layering is currently enforced by review only).
+Layering (`commands → services → adapter → infra`) is enforced by review only — no guard test.
 
 ## Conventions
 
-- ESM-only (`import`/`export`), `const` preferred, `async/await` only — no `.then()` chains
-- Dependencies tiered: devDeps=free; Playwright ecosystem deps=review-only; new-domain deps=evaluate (maintenance, size, alternatives); deprecated/vulnerable=blocked
-- Envelope `{ ok, command, data, error, meta }` is the sacred output contract — only `meta.warnings` can grow; `meta.v` is `2` (forced by `buildEnvelope`)
+- ESM-only, `const` preferred, `async/await` only — no `.then()` chains
+- New dependencies: devDeps are free; anything outside the Playwright ecosystem needs evaluation (maintenance, size, alternatives); deprecated/vulnerable are blocked
+- Envelope: only `meta.warnings` can grow; `meta.v` is `2` (forced by `buildEnvelope`)
 - `data` contract v2 (guarded by `test/contract/data-contract-v2.test.js`, which must cover every registered command): `data` is always an object with a factual Chinese `headline: string[]`; lists are `{ headline, items, total, ... }`; keys are snake_case; money is yuan with `_yuan`, rates are 0-100 with `_pct`, times `_at` as `YYYY-MM-DD HH:mm:ss` (Asia/Shanghai); enums are output as Chinese labels; missing values are `null`, never 0; upstream objects and PII never reach `data`
 - Price input is yuan: `goods update price --price-yuan <元>`, batch `field: "price_yuan"`; upstream still receives fen (exact string parsing via `parseYuanToFen`)
-- 8 exit codes: 0=OK, 1=GENERAL, 2=USAGE, 3=AUTH, 4=RATE_LIMIT, 5=NETWORK, 6=BUSINESS, 7=PARTIAL
-- All errors use `PddCliError` with exit code mapping (`src/infra/errors.js`)
-- Logging via `src/infra/logger.js` (pino with SHA256 redaction) — never use `console.log`
-- Sensitive fields auto-redacted: `anti_content`, `authorization`, `cookies`, `goods_image`, `phone`, `addr`, `receiver_name`, `receiver_phone`, `receiver_address`, `password`, `credential`, `mobile`, `masterPassword`, `ciphertext`
+- Exit codes: 0=OK, 1=GENERAL, 2=USAGE, 3=AUTH, 4=RATE_LIMIT, 5=NETWORK, 6=BUSINESS, 7=PARTIAL
+- Redacted keys are defined by `REDACT_KEYS` in `src/infra/logger.js`; add new sensitive fields there
 - Functions < 50 lines, nesting ≤ 3 levels, no single-letter vars except loop counters
 - Conventional Commits with emoji: `✨ feat` / `🐛 fix` / `🔧 chore` / `📝 docs` / `♻️ refactor`
 
-## Environment Variables
-
-| Variable | Purpose |
-|----------|---------|
-| `PDD_TEST_ADAPTER=fixture` | Enable mock mode (skip real browser) |
-| `PDD_TEST_FIXTURE_DIR=<path>` | Point to fixture data directory |
-| `PDD_AUTH_STATE_PATH=<path>` | Explicit merchant auth-state override; fallback is `data/merchant/stores/default/auth-state.json`, registered accounts use registry slugs |
-| `PDD_CONSUMER_AUTH_STATE_PATH=<path>` | Explicit consumer auth-state override; fallback is `data/consumer/accounts/default/auth-state.json`, registered accounts use registry slugs |
-| `PDD_ACCOUNTS_DIR` / `PDD_ACCOUNT_REGISTRY_PATH` | Override merchant account directory and registry |
-| `PDD_CONSUMER_ACCOUNTS_DIR` / `PDD_CONSUMER_ACCOUNT_REGISTRY_PATH` | Override consumer account directory and registry |
-| `PDD_ALLOW_INSECURE_AUTH_STATE=1` | Continue when POSIX mode 0600 cannot be set (not recommended) |
-| `PDD_DEBUG_RAW=1` | Emit pre-strip raw payloads to stderr as redacted JSONL (per-value 64KiB truncation); stdout envelope unaffected |
-| `PDD_MALL_ID_STRICT_PARSE=0` | Allow mall IDs up to 64 chars (default: 1-15 digits) |
-| `PDD_SCRAPE_SIMULATE` | Set `0` to disable human-behavior simulation during scraping (default: enabled) |
-| `PDD_FULL_COUNT_DISCOUNT_RATE` | Full-count discount rate for goods publish `@e86` field (default: `0.95` = 9.5折; range 0.5-0.99; accepts percentage form e.g. `95`). Invalid values fail with `E_CONFIG_INVALID` |
-| `PDD_SCRAPE_SOFTBLOCK_THRESHOLD` | Consecutive IP soft-block hits before source-scrape enters cooldown backoff (default: 2) |
-| `PDD_SCRAPE_SOFTBLOCK_COOLDOWN_MS` | IP soft-block cooldown duration in ms (default: 7200000 = 2h); during cooldown `goods publish` scrape short-circuits before requesting. State persists in `data/scrape-cooldown.json` |
-| `PLAYWRIGHT_DOWNLOAD_HOST` | Mirror for Playwright browser downloads |
-
-CLI logs use fixed daily files under `log/cli/`; bootstrap logs use stderr. `PDD_LOG_DESTINATION` is unsupported. Merchant authentication is checked on demand at login, ordinary commands and doctor; no auth daemon is started.
-
 ## Testing
 
-- Framework: `vitest` + `assert/strict` — auto-discovers `test/**/*.test.js`
-- Test seam: `PDD_TEST_ADAPTER=fixture` short-circuits adapter entry points (modules guard on `isMockEnabled()`) via `mock-dispatcher.js` (no DI)
-- E2E tests spawn child processes with fixture adapter
-- PBT uses both the project zero-dependency harness (`test/pbt/_harness.js`) and the `fast-check` devDependency
-- Test data in `test/fixtures/` (endpoint responses, error scenarios)
+- `vitest` + `assert/strict`; test data in `test/fixtures/`
+- `PDD_TEST_ADAPTER=fixture` short-circuits adapter entry points (modules guard on `isMockEnabled()`) via `mock-dispatcher.js` (no DI); `PDD_TEST_FIXTURE_DIR=<path>` points to alternate fixtures
+- E2E tests spawn child processes with the fixture adapter
+- `PDD_DEBUG_RAW=1` emits pre-strip raw payloads to stderr as redacted JSONL; stdout envelope unaffected
+- Other runtime env vars (auth-state paths, account registries, scrape/publish tuning): see the `pdd-local-development` skill, or grep `process.env.PDD_` under `src/`
 
 ## Gotchas
 

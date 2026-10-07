@@ -201,11 +201,10 @@ PDD_QINGGUO_AREA=<可选，6 位地区代码；多个用英文逗号分隔>
 npm test                           # 全部测试（vitest；数量以本地输出为准）
 npx vitest run test/<file>.test.js # 单文件
 npm run test:watch                 # 监听模式
-npm run test:endpoints             # endpoint 规范校验
 npm run check                      # 当前项目门禁，等同于 npm test
 ```
 
-分层：smoke（契约）/ unit（模块）/ e2e（进程）/ PBT（属性测试）。PBT 同时使用项目 `_harness.js` 和 `fast-check`；`PBT_SEED` / `PBT_RUNS` 只控制项目 harness，fast-check 用例在测试内配置运行参数和失败复现信息。`npm run lint` 当前仅输出 `no-lint`，不是有效 lint 门禁；项目没有 build 命令，也没有仓库级 CI workflow。
+分层：`test/contract/`（data 契约 v2 守卫，覆盖全部已注册命令）/ `test/e2e/`（子进程）/ `test/services`、`test/commands`、`test/adapter`、`test/infra`（模块）。当前没有属性测试（PBT）。`npm run lint` 当前仅输出 `no-lint`，不是有效 lint 门禁；项目没有 build 命令，也没有仓库级 CI workflow。
 
 ---
 
