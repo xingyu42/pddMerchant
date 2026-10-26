@@ -1,0 +1,32 @@
+{
+  "id": "tech-debt-cleanup",
+  "name": "tech-debt-cleanup",
+  "title": "技术债务清理",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "xingyu",
+  "assignee": "xingyu",
+  "createdAt": "2026-07-10",
+  "completedAt": "2026-07-19",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "07-10-multi-sku-fill",
+    "07-10-detail-images-upload",
+    "07-10-property-mapping",
+    "07-10-discount-config-abstract",
+    "07-10-phase2-cleanup"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

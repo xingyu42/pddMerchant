@@ -1,0 +1,28 @@
+{
+  "id": "config-example-runtime-defaults",
+  "name": "config-example-runtime-defaults",
+  "title": "将运行时默认值迁移到示例配置",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "xingyu",
+  "assignee": "xingyu",
+  "createdAt": "2026-07-18",
+  "completedAt": "2026-07-18",
+  "branch": null,
+  "base_branch": "codex/e2e",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "07-18-config-management-command"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

@@ -1,0 +1,30 @@
+{
+  "id": "cross-cutting-quality-config-daemon-scamper-planning",
+  "name": "cross-cutting-quality-config-daemon-scamper-planning",
+  "title": "Cross-cutting quality config daemon SCAMPER planning",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "xingyu",
+  "assignee": "xingyu",
+  "createdAt": "2026-07-08",
+  "completedAt": "2026-07-08",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "07-08-quality-gate-ci-lint-diagnostics-plan",
+    "07-08-daemon-auth-refresher-lifecycle-diagnostics-invariants",
+    "07-08-config-env-path-contract-diagnostics-drift-map"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

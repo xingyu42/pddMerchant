@@ -1,0 +1,76 @@
+# Workspace Index - xingyu
+
+> Journal tracking for AI development sessions.
+
+---
+
+## Current Status
+
+<!-- @@@auto:current-status -->
+- **Active File**: `journal-1.md`
+- **Total Sessions**: 36
+- **Last Active**: 2026-10-08
+<!-- @@@/auto:current-status -->
+
+---
+
+## Active Documents
+
+<!-- @@@auto:active-documents -->
+| File | Lines | Status |
+|------|-------|--------|
+| `journal-1.md` | ~1130 | Active |
+<!-- @@@/auto:active-documents -->
+
+---
+
+## Session History
+
+<!-- @@@auto:session-history -->
+| # | Date | Title | Commits | Branch |
+|---|------|-------|---------|--------|
+| 36 | 2026-10-08 | 订单列表状态覆盖与退款口径修复 | `35d5b21` | `main` |
+| 35 | 2026-10-07 | Archive merchant authentication migration | `aecc0ae` | `main` |
+| 34 | 2026-09-05 | Archive offline business tests | `1bab59b67b3b82a250fae595eb5a2733b50693ff` | `main` |
+| 33 | 2026-09-05 | Remove operating advice and archive | `c6a0b13` | `main` |
+| 32 | 2026-09-05 | Audit functional fixes F1-F9 | `fd4076f` | `main` |
+| 31 | 2026-09-05 | Close abandoned daemon auth persistence experiment | - | `main` |
+| 30 | 2026-07-31 | 收紧订单 page-api 可靠性 | `03c53f7` | `main` |
+| 29 | 2026-07-30 | 统一整理项目文档与技能说明 | `500a075` | `main` |
+| 28 | 2026-07-25 | 收尾并归档日志系统任务 | `30fda83` | `main` |
+| 27 | 2026-07-25 | 规范化登录态数据目录 | `a322b8c` | `main` |
+| 26 | 2026-07-25 | 商家登录保活与 daemon 自动续期 | `38eb4fe`, `bf89a24` | `main` |
+| 25 | 2026-07-19 | 满件折扣配置与保存校验 | `1eb7434` | `codex/e2e` |
+| 24 | 2026-07-19 | Archive completed goods-publish form tasks | `00120d4` | `codex/e2e` |
+| 23 | 2026-07-18 | 收口 readBusinessError 测试审查项 | - | `codex/e2e` |
+| 22 | 2026-07-18 | 统一运行配置与 config 管理命令 | `c2e8cdf` | `codex/e2e` |
+| 21 | 2026-07-18 | 补齐商品属性、SKU 预览图与尺码表停用 | `5b3dda3` | `codex/e2e` |
+| 20 | 2026-07-17 | 完成商品草稿真实 E2E 验收 | `169c5f6`, `fae7386` | `codex/e2e` |
+| 19 | 2026-07-15 | 完成真 Headless 浏览器一致性增强 | `3adf1a5` | `main` |
+| 18 | 2026-07-14 | 补强无头浏览器环境一致性 | `6792614` | `main` |
+| 17 | 2026-07-13 | Fable 指导测试套件精简 | `3f3ec1c` | `main` |
+| 16 | 2026-07-08 | Daemon auth refresher lifecycle invariants | `3bb2ef8` | `main` |
+| 15 | 2026-07-08 | Config env path contract diagnostics | - | `main` |
+| 14 | 2026-07-08 | Quality gate check script | `af91de6` | `main` |
+| 13 | 2026-07-08 | Observability logging redaction invariant | `8b4a93e` | `main` |
+| 12 | 2026-07-08 | Auth account mall lifecycle invariant coverage | `ca77da7` | `main` |
+| 11 | 2026-07-07 | Command runtime edge contract coverage | `f2429c3` | `main` |
+| 10 | 2026-07-07 | OpenSpec strict validation cleanup | - | `main` |
+| 9 | 2026-07-07 | Command runtime spec synchronization | - | `main` |
+| 8 | 2026-07-07 | Batch policy helper extraction | `c4ca930` | `main` |
+| 7 | 2026-07-07 | Batch orchestration invariants | `94dfd54` | `main` |
+| 6 | 2026-07-07 | Command runtime SCAMPER invariants | `8fedd5e` | `main` |
+| 5 | 2026-07-07 | Fixture/live parity diagnostics | `1c2cae2` | `main` |
+| 4 | 2026-07-07 | 完成端点生命周期提取 + 归档优化项目 | `f04fe3e` | `main` |
+| 3 | 2026-07-07 | 实施端点策略解析器 + 并行准备生命周期提取 | `e4d4709` | `main` |
+| 2 | 2026-07-07 | 冻结端点执行不变量 + 补充设计文档 | `39d9f25` | `main` |
+| 1 | 2026-07-07 | 实施端点规约诊断验证器 | `98d9cc3` | `main` |
+<!-- @@@/auto:session-history -->
+
+---
+
+## Notes
+
+- Sessions are appended to journal files
+- New journal file created when current exceeds 2000 lines
+- Use `add_session.py` to record sessions

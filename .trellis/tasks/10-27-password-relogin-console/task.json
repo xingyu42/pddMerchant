@@ -1,0 +1,32 @@
+{
+  "id": "password-relogin-console",
+  "name": "password-relogin-console",
+  "title": "账密重登与人工接管控制台",
+  "description": "为商家登录增加账号密码自动重登线路：密码不经 LLM，经常驻 daemon 托管的 Web 控制台录入与人工接管挑战；存储迁到 SQLite。父任务负责需求总表、子任务映射与集成验收。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "xingyu",
+  "assignee": "xingyu",
+  "createdAt": "2026-10-27",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-27-remove-login-token-consumption",
+    "10-27-sqlite-auth-storage",
+    "10-27-password-relogin-core",
+    "10-27-daemon-console",
+    "10-27-session-lifetime-research"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

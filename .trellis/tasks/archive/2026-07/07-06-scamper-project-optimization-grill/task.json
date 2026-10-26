@@ -1,0 +1,31 @@
+{
+  "id": "scamper-project-optimization-grill",
+  "name": "scamper-project-optimization-grill",
+  "title": "SCAMPER project optimization grill",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "xingyu",
+  "assignee": "xingyu",
+  "createdAt": "2026-07-06",
+  "completedAt": "2026-07-07",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "07-07-endpoint-spec-diagnostics",
+    "07-07-endpoint-refactor-invariants",
+    "07-07-endpoint-strategy-resolver",
+    "07-07-endpoint-attempt-lifecycle-extraction"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

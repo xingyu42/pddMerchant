@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/adapter/index.md", "reason": "adapter 层规范索引"}
+{"file": ".trellis/spec/adapter/auth-mall-context.md", "reason": "商家认证核验、冻结候选与提交契约；本任务需更新"}
+{"file": ".trellis/spec/infra/logging-redaction.md", "reason": "凭据脱敏与错误 detail 约束"}
+{"file": ".trellis/spec/standards/coding-style.md", "reason": "函数长度、嵌套与命名约束"}
+{"file": ".trellis/spec/standards/testing.md", "reason": "vitest 约定与模拟传输测试方式"}

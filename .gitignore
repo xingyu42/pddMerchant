@@ -4,7 +4,6 @@
 .ccg/
 .codex/
 .cursor/
-.trellis/
 .claude/
 
 node_modules/
@@ -16,8 +15,14 @@ log/
 .DS_Store
 .env
 
-CONTEXT.md
 issue.md
+
+# Trellis: track planning artifacts and specs only; research binaries/captures stay local
+.trellis/.runtime/
+**/raw-sensitive/
+.trellis/tasks/**/research/**
+!.trellis/tasks/**/research/**/
+!.trellis/tasks/**/research/**/*.md
 
 
 

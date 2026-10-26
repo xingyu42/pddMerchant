@@ -1,0 +1,28 @@
+{
+  "id": "workbench-login-survival-longitudinal",
+  "name": "workbench-login-survival-longitudinal",
+  "title": "Workbench 商家登录长期存活研究",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "xingyu",
+  "assignee": "xingyu",
+  "createdAt": "2026-08-28",
+  "completedAt": "2026-08-28",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "disposition": "cancelled_by_user"
+  }
+}

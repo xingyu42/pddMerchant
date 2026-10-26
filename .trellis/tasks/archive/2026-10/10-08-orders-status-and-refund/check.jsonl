@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/adapter/endpoint-xhr-contracts.md", "reason": "ORDER_LIST buildPayload/normalize rules; no invented zeros"}
+{"file": ".trellis/spec/services/domain-service-contracts.md", "reason": "Service-level stats and views layer conventions"}
+{"file": ".trellis/spec/commands/command-contracts.md", "reason": "orders list option validation, E_USAGE, factual headline"}
+{"file": ".trellis/spec/infra/envelope-errors-output.md", "reason": "v2 data contract: missing values null never 0"}
+{"file": ".trellis/spec/architecture/dependency-flow.md", "reason": "commands must not import adapter directly"}
+{"file": ".trellis/spec/standards/coding-style.md", "reason": "Function size/nesting limits"}
+{"file": ".trellis/spec/standards/testing.md", "reason": "vitest + fixture e2e conventions"}
+{"file": ".trellis/tasks/10-08-orders-status-and-refund/research/order-list-filters-2026-10-08.md", "reason": "Live evidence for orderType/afterSaleType semantics and after_sales_status codes"}
+{"file": ".trellis/tasks/10-07-domain-view-contract-v2/research/upstream-schema-2026-10.md", "reason": "Order view whitelist and prior out-of-scope findings §6"}

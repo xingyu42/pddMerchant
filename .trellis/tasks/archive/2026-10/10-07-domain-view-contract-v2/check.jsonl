@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/infra/envelope-errors-output.md", "reason": "Verify v2 envelope + field conventions are documented and enforced"}
+{"file": ".trellis/spec/services/domain-service-contracts.md", "reason": "Verify no raw upstream objects reach commands"}
+{"file": ".trellis/spec/commands/command-contracts.md", "reason": "Verify headline is factual only, no advice/scores"}
+{"file": ".trellis/spec/infra/logging-redaction.md", "reason": "Verify PII never appears in views"}
+{"file": ".trellis/spec/architecture/dependency-flow.md", "reason": "Verify layering guard still passes"}
+{"file": ".trellis/spec/standards/testing.md", "reason": "Verify contract guard test covers all registered commands"}

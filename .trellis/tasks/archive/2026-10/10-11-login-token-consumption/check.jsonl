@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/adapter/auth-mall-context.md", "reason": "核对请求前三目标校验契约及规范更新"}
+{"file": ".trellis/spec/infra/logging-redaction.md", "reason": "核对错误与日志不含凭据"}
+{"file": ".trellis/spec/infra/envelope-errors-output.md", "reason": "核对错误码与 envelope 不变"}
+{"file": ".trellis/spec/standards/testing.md", "reason": "核对红灯用例与测试覆盖"}

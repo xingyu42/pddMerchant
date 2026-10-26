@@ -1,0 +1,11 @@
+{"file": ".trellis/spec/infra/envelope-errors-output.md", "reason": "Envelope contract being upgraded to v2; meta.v sites and top-level invariants"}
+{"file": ".trellis/spec/services/domain-service-contracts.md", "reason": "Services must normalize raw payloads; home of the new views layer"}
+{"file": ".trellis/spec/commands/command-contracts.md", "reason": "withCommand return shape, factual-only output boundary for headline"}
+{"file": ".trellis/spec/commands/runner-lifecycle.md", "reason": "normalizeRunResult reserved keys data/meta/warnings"}
+{"file": ".trellis/spec/adapter/endpoint-xhr-contracts.md", "reason": "normalize rules: reject missing fields, no invented zeros"}
+{"file": ".trellis/spec/adapter/fixture-mode.md", "reason": "Fixture short-circuit means projections must live below runEndpoint; stale fixture path to fix"}
+{"file": ".trellis/spec/infra/logging-redaction.md", "reason": "PII fields excluded from views; redaction still applies"}
+{"file": ".trellis/spec/architecture/dependency-flow.md", "reason": "Layering guard: infra/units.js shared by services and adapter"}
+{"file": ".trellis/spec/standards/coding-style.md", "reason": "Function size/nesting limits, ESM conventions"}
+{"file": ".trellis/spec/standards/testing.md", "reason": "vitest conventions, fixture sandbox e2e"}
+{"file": ".trellis/tasks/10-07-domain-view-contract-v2/research/upstream-schema-2026-10.md", "reason": "Upstream field whitelist, units (fen), status labels, PII exclusions — sole source for views"}

@@ -1,0 +1,28 @@
+{
+  "id": "analyze-pinduoduo-merchant-login-keepalive",
+  "name": "analyze-pinduoduo-merchant-login-keepalive",
+  "title": "分析 pinduoduo 商家工作台登录保活原理",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "xingyu",
+  "assignee": "xingyu",
+  "createdAt": "2026-07-24",
+  "completedAt": "2026-07-25",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "07-25-fix-auth-refresh-persistence"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

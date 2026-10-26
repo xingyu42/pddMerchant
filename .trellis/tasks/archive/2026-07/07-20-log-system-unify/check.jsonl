@@ -1,0 +1,2 @@
+{"file":".trellis/spec/infra/logging-redaction.md","reason":"核对固定日志路径、channel 路由、按日本地轮转和脱敏契约"}
+{"file":".trellis/spec/infra/env-paths.md","reason":"核对 log/cli 与 log/daemon 固定路径及已移除的日志路径配置"}

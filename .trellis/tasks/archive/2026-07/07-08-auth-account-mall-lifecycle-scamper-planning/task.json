@@ -1,0 +1,28 @@
+{
+  "id": "auth-account-mall-lifecycle-scamper-planning",
+  "name": "auth-account-mall-lifecycle-scamper-planning",
+  "title": "Auth account mall lifecycle SCAMPER planning",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "xingyu",
+  "assignee": "xingyu",
+  "createdAt": "2026-07-08",
+  "completedAt": "2026-07-08",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "07-08-auth-account-mall-lifecycle-diagnostics-invariants"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

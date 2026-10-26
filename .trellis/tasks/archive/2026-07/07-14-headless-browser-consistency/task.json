@@ -1,0 +1,37 @@
+{
+  "id": "headless-browser-consistency",
+  "name": "headless-browser-consistency",
+  "title": "Linux 真 Headless 浏览器一致性增强",
+  "description": "在保持 headless:true 的前提下消除浏览器运行时环境矛盾，并完成 Linux 双路径与四个浏览器检测站验收；Ping0 仅作网络观察。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": "adapter browser runtime, consumer contexts, tests, ADR and runtime spec",
+  "package": null,
+  "priority": "P1",
+  "creator": "xingyu",
+  "assignee": "xingyu",
+  "createdAt": "2026-07-15",
+  "completedAt": "2026-07-15",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "3adf1a5",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "src/adapter/browser.js",
+    "test/adapter/browser-runtime-contract.unit.test.js",
+    "test/adapter/browser-consumer-context.test.js",
+    ".trellis/spec/adapter/browser-runtime.md",
+    "docs/adr/0002-use-strict-headless-consistency-profile.md",
+    "CONTEXT.md"
+  ],
+  "notes": "Task directory keeps the approved 07-14 plan identifier; created and executed on 2026-07-15.",
+  "meta": {
+    "blocks": [
+      "07-13-fix-goods-publish-draft-validation-fill"
+    ]
+  }
+}

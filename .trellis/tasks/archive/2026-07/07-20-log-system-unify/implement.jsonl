@@ -1,0 +1,2 @@
+{"file":".trellis/spec/infra/logging-redaction.md","reason":"实现时遵循 logger destination、redaction 与 foreground stderr 契约"}
+{"file":".trellis/spec/infra/env-paths.md","reason":"实现时遵循仓库固定 channel 日志目录约定"}
