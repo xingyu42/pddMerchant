@@ -204,8 +204,12 @@ export async function closeAllBrowsers({ timeoutMs = 5000 } = {}) {
   finally { closeAllPromise = null; }
 }
 
-export async function launchBrowser({ headed = false, storageStatePath } = {}) {
+export async function launchBrowser({ headed = false, storageStatePath, storageState } = {}) {
   if (isMockEnabled()) return mockLaunchBrowser();
+  if (storageStatePath && storageState) throw browserRuntimeError('storage_state_ambiguous');
+  if (storageState && (!Array.isArray(storageState.cookies) || !Array.isArray(storageState.origins))) {
+    throw browserRuntimeError('snapshot_shape_invalid');
+  }
 
   let browser = null;
   let context = null;
@@ -215,7 +219,7 @@ export async function launchBrowser({ headed = false, storageStatePath } = {}) {
     browser = registerBrowser(launched.browser);
     const profile = await createRuntimeProfile(browser, { headed, channel: launched.channel });
     browserProfiles.set(browser, profile);
-    context = await createConfiguredContext(browser, profile, { storageStatePath });
+    context = await createConfiguredContext(browser, profile, { storageStatePath, storageState });
     page = await context.newPage();
     return { browser, context, page };
   } catch (err) {

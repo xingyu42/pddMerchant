@@ -21,6 +21,20 @@ async function setupBrowser() {
 }
 
 describe('frozen authentication context', () => {
+  it('accepts internal storageState input without leaking source metadata or rereading a file', async () => {
+    const { browser, runtime } = await setupBrowser();
+    try {
+      const state = { cookies: [{ name: 'PASS_ID', value: 'synthetic' }], origins: [], merchant_auth: { repair_credential: 'secret' } };
+      await runtime.launchBrowser({ storageState: state });
+      const options = browser.newContext.mock.calls.at(-1)[0];
+      assert.deepEqual(Object.keys(options.storageState).sort(), ['cookies', 'origins']);
+      state.cookies[0].value = 'changed';
+      assert.equal(options.storageState.cookies[0].value, 'synthetic');
+      await assert.rejects(runtime.launchBrowser({ storageState: state, storageStatePath: 'unused' }), { code: 'E_BROWSER_RUNTIME' });
+      await assert.rejects(runtime.launchBrowser({ storageState: { cookies: [] } }), { code: 'E_BROWSER_RUNTIME' });
+    } finally { await runtime.closeBrowser(browser); vi.doUnmock('patchright'); }
+  });
+
   it('copies standard storage fields without passing merchant metadata to the browser', async () => {
     const { browser, runtime } = await setupBrowser();
     try {

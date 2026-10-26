@@ -62,3 +62,6 @@ If you're using Codex or another agent-capable tool, additional project-scoped h
 Managed by Trellis. Edits outside this block are preserved; edits inside may be overwritten by a future `trellis update`.
 
 <!-- TRELLIS:END -->
+
+禁止在回答中使用“不是A而是B”这种句式，除非有绝对必要。
+在回答中，禁止使用“不能/不等于/不把/不是/不能看作”等类似内容进行边界限定，除非我明确关心此处的边界。
