@@ -92,6 +92,42 @@ export function credentialDecryptFailed() {
   });
 }
 
+export function masterKeyMissing() {
+  return new PddCliError({
+    code: 'E_MASTER_KEY_MISSING',
+    message: '认证数据的主密钥文件缺失',
+    hint: '请恢复原主密钥文件，或清空数据库后重新登录并录入密码',
+    exitCode: ExitCodes.AUTH,
+  });
+}
+
+export function masterKeyMismatch() {
+  return new PddCliError({
+    code: 'E_MASTER_KEY_MISMATCH',
+    message: '主密钥与认证数据库的指纹不匹配',
+    hint: '请恢复原主密钥文件，或清空数据库后重新登录并录入密码',
+    exitCode: ExitCodes.AUTH,
+  });
+}
+
+export function masterKeyInsecure() {
+  return new PddCliError({
+    code: 'E_MASTER_KEY_INSECURE',
+    message: '主密钥文件权限不安全',
+    hint: '请将主密钥文件权限设置为 0600 后重试',
+    exitCode: ExitCodes.AUTH,
+  });
+}
+
+export function secretDecryptFailed() {
+  return new PddCliError({
+    code: 'E_SECRET_DECRYPT_FAILED',
+    message: '认证数据解密失败',
+    hint: '请恢复原主密钥文件，或重新登录并录入密码',
+    exitCode: ExitCodes.AUTH,
+  });
+}
+
 export function authChallengeRequired(type) {
   return new PddCliError({
     code: 'E_AUTH_CHALLENGE_REQUIRED',

@@ -7,6 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export const PROJECT_ROOT = join(__dirname, '..', '..');
 export const DATA_DIR = join(PROJECT_ROOT, 'data');
+export const DB_PATH = process.env.PDD_DB_PATH ? resolve(process.env.PDD_DB_PATH) : join(DATA_DIR, 'pdd.db');
 export const MERCHANT_DATA_DIR = join(DATA_DIR, 'merchant');
 export const CONSUMER_DATA_DIR = join(DATA_DIR, 'consumer');
 export const CONFIG_DIR = join(PROJECT_ROOT, 'config');
