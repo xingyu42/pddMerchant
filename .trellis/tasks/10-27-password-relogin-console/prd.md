@@ -79,7 +79,7 @@
 |---|---|---|---|---|
 | ① | `10-27-remove-login-token-consumption` | 清理前置 | 无 | 已完成并归档 |
 | ② | `10-27-sqlite-auth-storage` | R2、R6.3 部分 | ① | 已完成并归档（2026-10-27 合并到 main，`e09c783`） |
-| ③ | `10-27-password-relogin-core` | R1、R5.2、R5.3 | ② | 实现中：P1–P5 已完成（分支 `feat/password-relogin-core`），待最终审查与合并。真实账号实验已做 2 次，结论见该任务 `research/real-login-experiment.md` |
+| ③ | `10-27-password-relogin-core` | R1、R5.2、R5.3 | ② | 已完成并归档（2026-10-27 合并到 main，`4b28bce`）。真实账号实验 2 次，结论见 `archive/2026-10/10-27-password-relogin-core/research/real-login-experiment.md` |
 | ④ | `10-27-daemon-console` | R3、R4、R5.1、R6.1、R6.2 | ③ | 规划中（移交项：租约 pid 复用时的阻塞，随心跳续期一并处理；来自 ③：提供 `pdd console link`，接入 ③ 预留的 `setAccountPassword` / `clearAccountPassword` / `clearReloginBlock` / `recordTakeoverTimeout` / `getReloginSummary`；交互式重登从设备延续的上下文开始（已保存状态去掉 `PASS_ID`），由人工完成首次短信以建立设备信任，成功后提交新状态；在接管视图中观察第 2 次实验停住的页面，校准 `PASSWORD_LOGIN_SELECTORS` / `PASSWORD_LOGIN_TEXTS`） |
 | ⑤ | `10-27-session-lifetime-research` | 根因调研 | 无（可并行） | 规划中 |
 
