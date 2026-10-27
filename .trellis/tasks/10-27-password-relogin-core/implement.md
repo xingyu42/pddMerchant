@@ -27,18 +27,19 @@
 
 - [x] `src/adapter/password-login.js`：`attemptPasswordLogin`，选择器初版取自 `a468d02^:src/adapter/password-login.js`（design 第 4 节）。
 - [x] `src/adapter/fixtures/auth.js` / `mock-dispatcher.js`：`mockPasswordLogin` 及三个 `PDD_TEST_PASSWORD_LOGIN*` 测试变量。
-- [x] `scripts/experiments/password-login-probe.mjs`（design 第 12 节）。
+- [x] `scripts/experiments/password-login-probe.mjs`（design 第 12 节；实验完成后已删除）。
 - [x] 测试：用 fake page 覆盖每个结果分支，并断言挑战分支在提交之后零点击；实验脚本做静态检查，确认没有写库或提交调用。
 
 验证：跑适配器测试，然后跑 `npm test`。Claude 额外逐行审查实验脚本：输入回显、报告字段、只读请求。
 
 ### 闸门：N19 真实账号实验（用户本人执行）
 
-- [ ] 向用户确认时间窗口。
-- [ ] 用户在自己的终端运行脚本，最多 3 次，遇到滑块立即停止。
-- [ ] Claude 读取 `log/password-login-experiment-*.json`，整理成 `research/real-login-experiment.md`。
-- [ ] 根据实验结果校准 `PASSWORD_LOGIN_SELECTORS` / `PASSWORD_LOGIN_TEXTS`。需要改代码时派发 Codex 小修，并单独提交。
-- [ ] 如果实验结论推翻了 design 中的某项假设（例如短信在未点击时就自动发出），先回到规划修改 design，再进入 P3。
+- [x] 向用户确认时间窗口。
+- [x] 第 1 次（空白上下文）：短信验证，提交即自动发短信。第 2 次（保留设备状态、去掉 `PASS_ID`）：90s 未识别状态，未收到短信。
+- [x] 整理为 `research/real-login-experiment.md`。
+- [x] 选择器校准：两次都没有命中挑战元素，暂无可校准的数据；留待 ④ 接管视图观察后补充。
+- [x] 实验推翻了"不点击就不发送"的假设：已回到规划修改 design 5.3（重登改为设备延续的上下文）和 14a 节，经用户确认后进入 P3。
+- [x] 实验脚本按用户要求删除。
 
 ### P3 接入普通命令
 
