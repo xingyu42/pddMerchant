@@ -1,9 +1,7 @@
-import { existsSync } from 'node:fs';
 import { chromium } from 'patchright';
 import { isMockEnabled, mockLaunchBrowser, mockCloseBrowser } from './mock-dispatcher.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
-import { loadAuthState } from './auth-state.js';
 
 const DEFAULT_VIEWPORT = Object.freeze({ width: 1902, height: 984 });
 const DEFAULT_SCREEN = Object.freeze({ width: 1920, height: 1080 });
@@ -158,7 +156,6 @@ async function createRuntimeProfile(browser, { headed, channel }) {
   });
 }
 
-// storageStatePath 已由 createConfiguredContext 预解析为 storageState。
 function contextOptionsFor(profile, { storageState, proxy } = {}) {
   const options = {
     ...profile.contextOptions,
@@ -171,12 +168,7 @@ function contextOptionsFor(profile, { storageState, proxy } = {}) {
 }
 
 async function createConfiguredContext(browser, profile, options) {
-  let configured = options;
-  if (options?.storageStatePath && existsSync(options.storageStatePath) && !options.storageState) {
-    const loaded = await loadAuthState(options.storageStatePath);
-    configured = { ...options, storageState: loaded.state };
-  }
-  const context = await browser.newContext(contextOptionsFor(profile, configured));
+  const context = await browser.newContext(contextOptionsFor(profile, options));
   try {
     if (profile.installConsistencyScript) {
       await context.addInitScript(installHeadlessConsistencyProfile);
@@ -204,9 +196,8 @@ export async function closeAllBrowsers({ timeoutMs = 5000 } = {}) {
   finally { closeAllPromise = null; }
 }
 
-export async function launchBrowser({ headed = false, storageStatePath, storageState } = {}) {
+export async function launchBrowser({ headed = false, storageState } = {}) {
   if (isMockEnabled()) return mockLaunchBrowser();
-  if (storageStatePath && storageState) throw browserRuntimeError('storage_state_ambiguous');
   if (storageState && (!Array.isArray(storageState.cookies) || !Array.isArray(storageState.origins))) {
     throw browserRuntimeError('snapshot_shape_invalid');
   }
@@ -219,7 +210,7 @@ export async function launchBrowser({ headed = false, storageStatePath, storageS
     browser = registerBrowser(launched.browser);
     const profile = await createRuntimeProfile(browser, { headed, channel: launched.channel });
     browserProfiles.set(browser, profile);
-    context = await createConfiguredContext(browser, profile, { storageStatePath, storageState });
+    context = await createConfiguredContext(browser, profile, { storageState });
     page = await context.newPage();
     return { browser, context, page };
   } catch (err) {
@@ -274,14 +265,14 @@ export async function withBrowser(options, fn) {
   }
 }
 
-export async function createConsumerContext(browser, { storageStatePath, proxy } = {}) {
+export async function createConsumerContext(browser, { storageState, proxy } = {}) {
   const profile = browserProfiles.get(browser);
   if (!profile) throw browserRuntimeError('browser_profile_missing');
 
   let context = null;
   let page = null;
   try {
-    context = await createConfiguredContext(browser, profile, { storageStatePath, proxy });
+    context = await createConfiguredContext(browser, profile, { storageState, proxy });
     page = await context.newPage();
   } catch (err) {
     await closePartialContext(page, context);

@@ -1,78 +1,27 @@
-import { AUTH_STATE_PATH, accountAuthStatePath } from './paths.js';
-import { PddCliError, ExitCodes } from './errors.js';
-import { accountNotFound, accountRequired } from './errors.js';
-import { loadAccountRegistry, getAccount, listAccounts } from './account-registry.js';
+import { PddCliError, ExitCodes, accountNotFound, accountRequired } from './errors.js';
+import { getAccount, getAccountById, listAccounts } from './account-store.js';
 
-export async function resolveAccountContext({ account, authStatePath, needsAuth = true, warnings = [] } = {}) {
-  const hasExplicitPath = Boolean(authStatePath);
+function contextOf(account, source, warnings) {
+  return { accountId: account?.id ?? null, slug: account?.slug ?? null,
+    displayName: account?.display_name ?? null, account, source, warnings };
+}
 
-  if (hasExplicitPath && account) {
-    throw new PddCliError({
-      code: 'E_USAGE',
-      message: '--account and a custom auth state path are mutually exclusive',
-      hint: 'Use one or the other, not both',
-      exitCode: ExitCodes.USAGE,
-    });
+export async function resolveAccountContext({ account, accountId, needsAuth = true, warnings = [] } = {}) {
+  if (account || accountId != null) {
+    const found = accountId != null ? getAccountById(accountId) : getAccount(account, { allowDisplayName: true });
+    if (!found || found.kind !== 'merchant') throw accountNotFound(account ?? String(accountId));
+    return contextOf(found, 'flag', warnings);
   }
-
-  if (authStatePath) {
-    return { slug: null, displayName: null, authPath: authStatePath, account: null, source: 'explicit-path', warnings };
+  const accounts = listAccounts({ includeDisabled: true });
+  const selected = accounts.find((entry) => entry.is_default);
+  if (selected) return contextOf(selected, 'default', warnings);
+  const enabled = accounts.filter((entry) => !entry.disabled);
+  if (enabled.length === 1) return contextOf(enabled[0], 'auto-single', warnings);
+  if (enabled.length > 1) throw accountRequired();
+  if (needsAuth) {
+    throw new PddCliError({ code: 'E_AUTH_EXPIRED', message: '尚未登录商家账号', hint: '执行 pdd login 完成授权', exitCode: ExitCodes.AUTH });
   }
-
-  const reg = await loadAccountRegistry().catch((err) => {
-    if (err instanceof PddCliError) throw err;
-    return null;
-  });
-
-  if (account) {
-    if (!reg || Object.keys(reg.accounts).length === 0) {
-      throw accountNotFound(account);
-    }
-    const found = await getAccount(account, { allowDisplayName: true });
-    return {
-      slug: found.slug,
-      displayName: found.displayName,
-      authPath: accountAuthStatePath(found.slug),
-      account: found,
-      source: 'flag',
-      warnings,
-    };
-  }
-
-  if (!reg || Object.keys(reg.accounts).length === 0) {
-    return { slug: null, displayName: null, authPath: AUTH_STATE_PATH, account: null, source: 'unregistered-default', warnings };
-  }
-
-  if (reg.defaultAccount && reg.accounts[reg.defaultAccount]) {
-    const def = reg.accounts[reg.defaultAccount];
-    return {
-      slug: def.slug,
-      displayName: def.displayName,
-      authPath: accountAuthStatePath(def.slug),
-      account: def,
-      source: 'default',
-      warnings,
-    };
-  }
-
-  const enabled = Object.values(reg.accounts).filter((a) => !a.disabled);
-  if (enabled.length === 1) {
-    const sole = enabled[0];
-    return {
-      slug: sole.slug,
-      displayName: sole.displayName,
-      authPath: accountAuthStatePath(sole.slug),
-      account: sole,
-      source: 'auto-single',
-      warnings,
-    };
-  }
-
-  if (enabled.length > 1) {
-    throw accountRequired();
-  }
-
-  return { slug: null, displayName: null, authPath: AUTH_STATE_PATH, account: null, source: 'unregistered-default', warnings };
+  return contextOf(null, null, warnings);
 }
 
 export function accountMetaForEnvelope(accountContext) {

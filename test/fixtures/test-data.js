@@ -161,12 +161,11 @@ export function createPublishFixtures() {
   };
 }
 
-// 商家账号 registry（version 1），值均为合成数据；第一个账号为默认账号
-export function createAccountRegistry(slugs = ['shop-a', 'shop-b']) {
-  const accounts = Object.fromEntries(slugs.map((slug, index) => [slug, {
-    slug, displayName: `Synthetic ${slug}`, mallId: String(900001 + index), credential: null,
-    createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z',
-    lastLoginAt: '2026-10-06T16:30:05.000Z', lastRefreshAt: null, disabled: false, migratedFrom: null,
-  }]));
-  return { version: 1, defaultAccount: slugs[0] ?? null, updatedAt: '2026-10-01T00:00:00.000Z', accounts };
+// 合成数据库账号；第一个账号为默认账号。
+export function createAccounts(slugs = ['shop-a', 'shop-b']) {
+  return slugs.map((slug, index) => ({
+    slug, display_name: `Synthetic ${slug}`, identity: String(900001 + index),
+    created_at: '2026-10-01T00:00:00.000Z', updated_at: '2026-10-01T00:00:00.000Z',
+    last_login_at: '2026-10-06T16:30:05.000Z', disabled: false, is_default: index === 0,
+  }));
 }

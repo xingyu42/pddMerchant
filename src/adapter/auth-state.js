@@ -1,169 +1,106 @@
-import { chmod, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { platform } from 'node:os';
-import { createHash } from 'node:crypto';
+import { get, run, transaction, isInTransaction } from '../infra/db.js';
+import { aad, seal, open } from '../infra/secret-box.js';
+import { getMasterKey } from '../infra/master-key.js';
 import { getLogger } from '../infra/logger.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { isMockEnabled, mockIsConsumerAuthValid } from './mock-dispatcher.js';
-import { acquireLock, releaseLock } from '../infra/auth-lock.js';
 
-const PDD_HOME = 'https://mms.pinduoduo.com';
+export const PDD_HOME = 'https://mms.pinduoduo.com';
+export const CONSUMER_HOME = 'https://mobile.yangkeduo.com';
 
-let _tmpSeq = 0;
-
-function validateShape(state) {
-  if (!state || typeof state !== 'object') return false;
-  if (!Array.isArray(state.cookies)) return false;
-  if (!Array.isArray(state.origins)) return false;
-  return true;
+export function validateShape(state) {
+  return Boolean(state && typeof state === 'object' && Array.isArray(state.cookies) && Array.isArray(state.origins));
 }
 
-function revisionOf(raw) {
-  return createHash('sha256').update(raw).digest('hex');
+export function authStateConflict() {
+  return new PddCliError({ code: 'E_AUTH_STATE_CONFLICT', message: '登录态或账号已被其他任务更新，请重新执行登录或命令', exitCode: ExitCodes.AUTH });
 }
 
-export async function getAuthStateRevision(path) {
-  try {
-    return revisionOf(await readFile(path));
-  } catch (err) {
-    if (err?.code === 'ENOENT') return null;
-    throw err;
+function metadataOf(row) {
+  if (!row.bound_mall_id && !row.check_verdict && !row.last_check_verdict) return null;
+  return {
+    version: 1, mall_id: row.bound_mall_id, usable: Boolean(row.usable),
+    check_verdict: row.check_verdict, scope: row.scope, checked_at: row.checked_at,
+    ...(row.last_check_verdict ? { last_check: {
+      verdict: row.last_check_verdict, reason: row.last_check_reason, checked_at: row.last_check_at,
+    } } : {}),
+  };
+}
+
+export function getAuthStateRevision(accountId) {
+  try { return get('SELECT revision FROM auth_states WHERE account_id = ?', accountId)?.revision ?? 0; }
+  catch (error) { throw storageError(error); }
+}
+
+function storageError(error, code = 'E_AUTH_STATE_IO', message = '无法访问登录态') {
+  return error instanceof PddCliError ? error : new PddCliError({ code, message, exitCode: ExitCodes.AUTH });
+}
+
+export function loadAuthState(accountId, options = {}) {
+  try { return readAuthState(accountId, options); }
+  catch (error) { throw storageError(error); }
+}
+
+function readAuthState(accountId, { allowCorrupt = false } = {}) {
+  const row = accountId == null ? null : get('SELECT * FROM auth_states WHERE account_id = ?', accountId);
+  if (!row) return { accountId, exists: false, state: null, revision: 0, metadata: null, corrupt: false };
+  const snapshot = open(row.state_sealed, aad('auth_states', accountId));
+  const corrupt = !validateShape(snapshot);
+  if (corrupt && !allowCorrupt) {
+    throw new PddCliError({ code: 'E_AUTH_STATE_CORRUPT', message: '登录材料格式无效', hint: '执行 pdd login 重新登录', exitCode: ExitCodes.AUTH });
   }
+  const metadata = metadataOf(row);
+  const state = { ...snapshot, ...(metadata ? { merchant_auth: metadata } : {}) };
+  return { accountId, exists: true, state, revision: row.revision, metadata, corrupt };
 }
 
-// POSIX 下凭据临时文件必须收紧到 0600；PDD_ALLOW_INSECURE_AUTH_STATE=1 时仅告警继续。
-async function restrictTmpPermissions(tmpPath) {
-  if (platform() === 'win32') return;
-  try {
-    await chmod(tmpPath, 0o600);
-  } catch (err) {
-    if (process.env.PDD_ALLOW_INSECURE_AUTH_STATE !== '1') {
-      throw new PddCliError({
-        code: 'E_AUTH_STATE_INSECURE',
-        message: '登录凭据文件权限设置失败',
-        hint: 'Set PDD_ALLOW_INSECURE_AUTH_STATE=1 to bypass (not recommended)',
-        detail: { fs_code: err?.code ?? null },
-        exitCode: ExitCodes.AUTH,
-      });
-    }
-    getLogger().warn({ code: err?.code ?? null, auth_path: tmpPath }, 'chmod 600 failed, continuing (insecure override)');
-  }
+function persistSnapshot(state, accountId, expectedRevision) {
+  const metadata = state.merchant_auth ?? {};
+  const lastCheck = metadata.last_check ?? {};
+  const sealed = seal({ cookies: state.cookies, origins: state.origins }, aad('auth_states', accountId));
+  const values = [sealed, metadata.mall_id ?? null, Number(metadata.usable ?? true), metadata.check_verdict ?? null,
+    metadata.scope ?? null, metadata.checked_at ?? null, lastCheck.verdict ?? null, lastCheck.reason ?? null,
+    lastCheck.checked_at ?? null, new Date().toISOString()];
+  const revision = expectedRevision ?? getAuthStateRevision(accountId);
+  if (!get('SELECT id FROM accounts WHERE id = ?', accountId)) throw authStateConflict();
+  const result = revision === 0
+    ? run(`INSERT INTO auth_states(account_id, revision, state_sealed, bound_mall_id, usable, check_verdict, scope,
+      checked_at, last_check_verdict, last_check_reason, last_check_at, updated_at)
+      VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(account_id) DO NOTHING`, accountId, ...values)
+    : run(`UPDATE auth_states SET state_sealed = ?, bound_mall_id = ?, usable = ?, check_verdict = ?, scope = ?,
+      checked_at = ?, last_check_verdict = ?, last_check_reason = ?, last_check_at = ?, updated_at = ?,
+      revision = revision + 1 WHERE account_id = ? AND revision = ?`, ...values, accountId, revision);
+  if (result.changes === 0) throw authStateConflict();
+  return revision + 1;
 }
 
-export async function saveAuthState(context, path) {
-  await mkdir(dirname(path), { recursive: true });
-  const { token: lockToken } = await acquireLock(path, { timeoutMs: 15_000 });
-
-  try {
-    const tmpPath = `${path}.${process.pid}.${++_tmpSeq}.tmp`;
-    await context.storageState({ path: tmpPath });
-    try {
-      await restrictTmpPermissions(tmpPath);
-    } catch (err) {
-      await unlink(tmpPath).catch(() => {});
-      throw err;
-    }
-    await rename(tmpPath, path);
-    return path;
-  } finally {
-    await releaseLock(path, lockToken).catch((err) => {
-      getLogger().warn({ code: err?.code ?? null, auth_path: path }, 'auth-state: lock release failed');
-    });
-  }
-}
-
-// 调用方须已持有 path 的认证锁；返回写入内容的修订号，免去写后回读。
-export async function saveAuthStateSnapshot(state, path, { beforeCommit } = {}) {
+export function saveAuthStateSnapshot(state, accountId, { expectedRevision } = {}) {
   if (!validateShape(state)) {
     throw new PddCliError({ code: 'E_AUTH_STATE_CORRUPT', message: '冻结登录材料格式无效', exitCode: ExitCodes.AUTH });
   }
-  await mkdir(dirname(path), { recursive: true });
-  const tmpPath = `${path}.${process.pid}.${++_tmpSeq}.tmp`;
-  const raw = Buffer.from(JSON.stringify(state), 'utf8');
   try {
-    await writeFile(tmpPath, raw, { mode: 0o600, flag: 'wx' });
-    await restrictTmpPermissions(tmpPath);
-    if (beforeCommit) await beforeCommit();
-    await rename(tmpPath, path);
-    return revisionOf(raw);
+    if (!isInTransaction()) getMasterKey();
+    const write = () => persistSnapshot(state, accountId, expectedRevision);
+    return isInTransaction() ? write() : transaction(write);
   } catch (error) {
     if (error instanceof PddCliError) throw error;
-    throw new PddCliError({ code: 'E_AUTH_STATE_SAVE_FAILED', message: '登录材料未能保存', detail: { fs_code: error?.code ?? null }, exitCode: ExitCodes.AUTH });
-  } finally {
-    await unlink(tmpPath).catch(() => {});
+    throw new PddCliError({ code: 'E_AUTH_STATE_SAVE_FAILED', message: '登录材料未能保存', exitCode: ExitCodes.AUTH });
   }
 }
 
-export async function loadAuthState(path) {
-  if (!existsSync(path)) {
-    return { path, exists: false, state: null };
-  }
-  return { path, exists: true, state: parseAuthState(await readFile(path, 'utf8')) };
+export function deleteAuthState(accountId) {
+  const remove = () => ({ removed: true, existed: run('DELETE FROM auth_states WHERE account_id = ?', accountId).changes > 0 });
+  try { return isInTransaction() ? remove() : transaction(remove); }
+  catch (error) { throw storageError(error, 'E_AUTH_STATE_DELETE_FAILED', '删除登录态失败'); }
 }
-
-// 单次读取同时得到解析结果与修订号（与 getAuthStateRevision 同一哈希）。
-export async function loadAuthStateWithRevision(path, { allowCorrupt = false } = {}) {
-  let raw;
-  try { raw = await readFile(path); }
-  catch (err) {
-    if (err?.code === 'ENOENT') return { state: null, revision: null };
-    throw err;
-  }
-  const state = parseAuthState(raw.toString('utf8'), { allowCorrupt });
-  return { state, revision: revisionOf(raw), corrupt: !validateShape(state) };
-}
-
-function parseAuthState(raw, { allowCorrupt = false } = {}) {
-  let state;
-  try { state = JSON.parse(raw); }
-  catch {
-    if (allowCorrupt) return null;
-    throw new PddCliError({ code: 'E_AUTH_STATE_CORRUPT', message: '登录凭据文件不是有效 JSON', exitCode: ExitCodes.AUTH });
-  }
-
-  if (!validateShape(state) && !allowCorrupt) {
-    throw new PddCliError({
-      code: 'E_AUTH_STATE_CORRUPT',
-      message: '登录凭据格式无效（缺少 cookies 或 origins）',
-      hint: '执行 pdd login 重新登录以生成有效的 auth-state',
-      detail: { reason: 'shape_invalid' },
-      exitCode: ExitCodes.AUTH,
-    });
-  }
-  return state;
-}
-
-export async function deleteAuthState(path) {
-  try {
-    await unlink(path);
-    return { removed: true, existed: true };
-  } catch (err) {
-    if (err?.code === 'ENOENT') return { removed: true, existed: false };
-    throw new PddCliError({
-      code: 'E_AUTH_STATE_DELETE_FAILED',
-      message: '删除登录凭据失败',
-      hint: '停止使用当前账号并检查登录态文件权限后重试',
-      detail: { fs_code: err?.code ?? null },
-      exitCode: ExitCodes.AUTH,
-    });
-  }
-}
-
-export { PDD_HOME, validateShape };
-
-const CONSUMER_HOME = 'https://mobile.yangkeduo.com';
 
 export async function isConsumerAuthValid(page, { timeoutMs = 15000 } = {}) {
   if (isMockEnabled()) return mockIsConsumerAuthValid();
   try {
     await page.goto(CONSUMER_HOME, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
-    const finalUrl = page.url();
-    return !finalUrl.includes('/login');
+    return !page.url().includes('/login');
   } catch (err) {
     getLogger().debug({ err: err?.message }, 'isConsumerAuthValid navigation failed');
     return false;
   }
 }
-
-export { CONSUMER_HOME };

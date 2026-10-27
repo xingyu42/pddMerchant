@@ -1,5 +1,5 @@
 import { launchBrowser, closeBrowser, createConsumerContext, createSnapshotContext } from '../adapter/browser.js';
-import { saveAuthState, PDD_HOME } from '../adapter/auth-state.js';
+import { PDD_HOME } from '../adapter/auth-state.js';
 import {
   captureQrElement,
   saveQrPng,
@@ -19,7 +19,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { verifyMerchantContext, assertMerchantVerified } from '../adapter/merchant-auth.js';
-import { withMerchantAuthUpdate, boundMerchantMallId, commitMerchantCandidate, recordMerchantCheck, assertAuthTask, verifyStoredMerchant } from '../adapter/merchant-auth-storage.js';
+import { boundMerchantMallId, recordMerchantCheck, assertAuthTask, verifyStoredMerchant } from '../adapter/merchant-auth-storage.js';
 import { MERCHANT_CHECK_URL, hasPassId } from '../adapter/merchant-auth-probe.js';
 import { abortableSleep, budgetMs } from '../infra/abort.js';
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
@@ -33,7 +33,7 @@ async function waitForMerchantCandidate(context, task) {
 }
 
 async function performMerchantLogin(options) {
-  const { authStatePath, expectedMallId, signal, qr, headed, onQrCaptured, qrCaptureTimeoutMs } = options;
+  const { transaction, expectedMallId, qr } = options;
   const timeoutMs = options.timeoutMs ?? (qr ? TIMEOUTS.LOGIN_QR : TIMEOUTS.LOGIN_HEADED);
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new PddCliError({ code: 'E_USAGE', message: '登录超时必须是正数', exitCode: ExitCodes.USAGE });
@@ -41,63 +41,75 @@ async function performMerchantLogin(options) {
   if (isMockEnabled()) {
     const result = await verifyMerchantContext(null, { expectedMallId });
     assertMerchantVerified(result);
-    return { path: authStatePath, identity: result.identity, mode: qr ? 'qr' : 'headed', url: PDD_HOME, candidate: null };
+    return { identity: result.identity, mode: qr ? 'qr' : 'headed', url: PDD_HOME, candidate: result.candidate };
   }
   const deadlineAt = Math.min(options.deadlineAt ?? Infinity, Date.now() + timeoutMs);
-  return withMerchantAuthUpdate(authStatePath, async (transaction) => {
-    let browser;
-    let qrDirectory;
-    let timer;
-    const onAbort = () => { void closeBrowser(browser).catch(() => {}); };
-    signal?.addEventListener('abort', onAbort, { once: true });
-    try {
-      timer = setTimeout(onAbort, budgetMs({ deadlineAt }));
-      const reuseState = transaction.state && !transaction.corrupt;
-      const launched = await launchBrowser({ headed, storageStatePath: reuseState ? transaction.path : undefined });
-      browser = launched.browser;
-      assertAuthTask(transaction);
-      let { context, page } = launched;
-      const task = { signal, deadlineAt, expectedMallId: expectedMallId ?? boundMerchantMallId(transaction.state) };
-      let result = reuseState ? await verifyStoredMerchant(context, transaction.state, task) : null;
-      if (result && result.verdict !== 'verified') {
-        await recordMerchantCheck(result, transaction);
-        if (result.verdict !== 'rejected') assertMerchantVerified(result);
-        await context.close();
-        context = await createSnapshotContext(browser, { cookies: [], origins: [] });
-        page = await context.newPage();
-      }
-      let qrContentPresent;
-      if (!result || result.verdict !== 'verified') {
-        assertAuthTask(transaction);
-        if (qr) {
-          qrDirectory = await mkdtemp(join(tmpdir(), 'pdd-merchant-login-'));
-          const pngBuffer = await captureQrElement(page, { timeout: budgetMs(task, qrCaptureTimeoutMs ?? TIMEOUTS.QR_CAPTURE) });
-          const imagePath = await saveQrPng(pngBuffer, { dir: qrDirectory });
-          const qrContent = decodeQrContent(pngBuffer);
-          qrContentPresent = Boolean(qrContent);
-          if (onQrCaptured) await onQrCaptured({ imagePath, qrContent, pngBuffer });
-        } else {
-          await page.goto(PDD_HOME, { waitUntil: 'domcontentloaded', timeout: budgetMs(task, TIMEOUTS.NAV) });
-          getLogger().info('等待用户在独立浏览器中授权');
-        }
-        await waitForMerchantCandidate(context, task);
-        await page.close();
-        result = await verifyMerchantContext(context, task);
-      }
-      assertMerchantVerified(result);
-      const savedPath = await commitMerchantCandidate(result.candidate, transaction);
-      return { path: savedPath, identity: result.identity, candidate: result.candidate, url: PDD_HOME, mode: qr ? 'qr' : 'headed', qrContentPresent };
-    } catch (error) {
-      assertAuthTask(transaction);
-      if (error instanceof PddCliError) throw error;
-      throw new PddCliError({ code: 'E_AUTH_FLOW_FAILED', message: '商家授权或校验未完成', exitCode: ExitCodes.AUTH });
-    } finally {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', onAbort);
-      await closeBrowser(browser);
-      if (qrDirectory) await rm(qrDirectory, { recursive: true, force: true });
+  return acquireMerchantLogin({ ...options, deadlineAt }, transaction);
+}
+
+async function acquireMerchantLogin(options, transaction) {
+  const { signal, deadlineAt, headed, qr, expectedMallId } = options;
+  let browser;
+  let qrDirectory;
+  let timer;
+  const onAbort = () => { void closeBrowser(browser).catch(() => {}); };
+  signal?.addEventListener('abort', onAbort, { once: true });
+  try {
+    timer = setTimeout(onAbort, budgetMs({ deadlineAt }));
+    const reuseState = transaction.state && !transaction.corrupt;
+    const launched = await launchBrowser({ headed, storageState: reuseState ? transaction.state : undefined });
+    browser = launched.browser;
+    assertAuthTask(transaction);
+    const task = { signal, deadlineAt, expectedMallId: expectedMallId ?? boundMerchantMallId(transaction.state) };
+    const session = await prepareMerchantSession(launched, transaction, task, reuseState);
+    let result = session.result;
+    let qrContentPresent;
+    if (!result || result.verdict !== 'verified') {
+      if (qr) qrDirectory = await mkdtemp(join(tmpdir(), 'pdd-merchant-login-'));
+      const acquired = await authorizeMerchantSession(session, options, task, qrDirectory);
+      result = acquired.result;
+      qrContentPresent = acquired.qrContentPresent;
     }
-  }, { signal, deadlineAt, recoveryMallId: expectedMallId });
+    assertMerchantVerified(result);
+    return { identity: result.identity, candidate: result.candidate, url: PDD_HOME, mode: qr ? 'qr' : 'headed', qrContentPresent };
+  } catch (error) {
+    assertAuthTask(transaction);
+    if (error instanceof PddCliError) throw error;
+    throw new PddCliError({ code: 'E_AUTH_FLOW_FAILED', message: '商家授权或校验未完成', exitCode: ExitCodes.AUTH });
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
+    await closeBrowser(browser);
+    if (qrDirectory) await rm(qrDirectory, { recursive: true, force: true });
+  }
+}
+
+async function prepareMerchantSession({ browser, context, page }, transaction, task, reuseState) {
+  const result = reuseState ? await verifyStoredMerchant(context, transaction.state, task) : null;
+  if (!result || result.verdict === 'verified') return { context, page, result };
+  recordMerchantCheck(result, transaction);
+  if (result.verdict !== 'rejected') assertMerchantVerified(result);
+  await context.close();
+  const emptyContext = await createSnapshotContext(browser, { cookies: [], origins: [] });
+  return { context: emptyContext, page: await emptyContext.newPage(), result };
+}
+
+async function authorizeMerchantSession({ context, page }, options, task, qrDirectory) {
+  assertAuthTask(task);
+  let qrContentPresent;
+  if (options.qr) {
+    const pngBuffer = await captureQrElement(page, { timeout: budgetMs(task, options.qrCaptureTimeoutMs ?? TIMEOUTS.QR_CAPTURE) });
+    const imagePath = await saveQrPng(pngBuffer, { dir: qrDirectory });
+    const qrContent = decodeQrContent(pngBuffer);
+    qrContentPresent = Boolean(qrContent);
+    if (options.onQrCaptured) await options.onQrCaptured({ imagePath, qrContent, pngBuffer });
+  } else {
+    await page.goto(PDD_HOME, { waitUntil: 'domcontentloaded', timeout: budgetMs(task, TIMEOUTS.NAV) });
+    getLogger().info('等待用户在独立浏览器中授权');
+  }
+  await waitForMerchantCandidate(context, task);
+  await page.close();
+  return { result: await verifyMerchantContext(context, task), qrContentPresent };
 }
 
 export function performQrLogin(options) {
@@ -109,7 +121,6 @@ export function performHeadedLogin(options) {
 }
 
 export async function performConsumerQrLogin({
-  authStatePath,
   timeoutMs,
   headed = false,
   onQrCaptured,
@@ -144,9 +155,9 @@ export async function performConsumerQrLogin({
     }
 
     const identity = await identityObserver.wait();
-    const savedPath = await saveAuthState(consumer.context, authStatePath);
+    const state = await consumer.context.storageState();
     getSharedScrapeCooldown(scrapeCooldownConfig).recordSuccess();
-    return { path: savedPath, identity, url: result.url, mode: 'consumer-qr', qrImagePath: imagePath };
+    return { state, identity, url: result.url, mode: 'consumer-qr', qrImagePath: imagePath };
   } finally {
     identityObserver?.dispose();
     await closeBrowser(browser);
@@ -154,7 +165,6 @@ export async function performConsumerQrLogin({
 }
 
 export async function performConsumerHeadedLogin({
-  authStatePath,
   timeoutMs,
   consumerLoginUrl,
   scrapeCooldownConfig,
@@ -163,7 +173,7 @@ export async function performConsumerHeadedLogin({
   let browser = null;
   let identityObserver = null;
   try {
-    const launched = await launchBrowser({ headed: true, storageStatePath: null });
+    const launched = await launchBrowser({ headed: true });
     browser = launched.browser;
     const { context, page } = launched;
     identityObserver = createConsumerIdentityObserver(page);
@@ -182,9 +192,9 @@ export async function performConsumerHeadedLogin({
     }
 
     const identity = await identityObserver.wait();
-    const savedPath = await saveAuthState(context, authStatePath);
+    const state = await context.storageState();
     getSharedScrapeCooldown(scrapeCooldownConfig).recordSuccess();
-    return { path: savedPath, identity, url: result.url, mode: 'consumer-headed' };
+    return { state, identity, url: result.url, mode: 'consumer-headed' };
   } finally {
     identityObserver?.dispose();
     await closeBrowser(browser);

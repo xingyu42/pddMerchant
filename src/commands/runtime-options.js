@@ -11,7 +11,6 @@ export async function prepareCommandRuntime(opts) {
   opts.timeoutMs ??= runtimeConfig.timeoutMs;
   opts.timeout ??= opts.timeoutMs;
   opts.mall ??= runtimeConfig.defaultMall;
-  opts.authStatePath ??= runtimeConfig.authStatePath;
 
   return runtimeConfig;
 }

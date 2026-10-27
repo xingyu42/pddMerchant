@@ -4,6 +4,8 @@ import { run } from '../../src/commands/diagnose/shop.js';
 import { clearFixtureCache } from '../../src/adapter/mock-dispatcher.js';
 import { createFactResponses } from '../fixtures/test-data.js';
 import { createCliSandbox, runtimeConfig } from '../helpers/isolated-cli.js';
+import { seedDb, DEFAULT_ACCOUNT } from '../helpers/seed-db.js';
+import { openDatabase, closeDatabase } from '../../src/infra/db.js';
 
 const { dispatch, emitSpy } = vi.hoisted(() => ({ dispatch: vi.fn(), emitSpy: vi.fn() }));
 vi.mock('../../src/adapter/mock-dispatcher.js', async (importOriginal) => ({
@@ -16,6 +18,8 @@ vi.mock('../../src/infra/output.js', async (importOriginal) => ({
 let sandbox;
 beforeEach(() => {
   sandbox = createCliSandbox();
+  seedDb(sandbox.env.PDD_DB_PATH, { accounts: [DEFAULT_ACCOUNT] });
+  openDatabase(sandbox.env.PDD_DB_PATH);
   for (const [key, value] of Object.entries(sandbox.env)) {
     if (key.startsWith('PDD_')) vi.stubEnv(key, value);
   }
@@ -26,6 +30,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   clearFixtureCache();
+  closeDatabase();
   sandbox.dispose();
 });
 
@@ -52,7 +57,7 @@ it('requests distinct comparison windows and computes their nonzero differences'
   });
 
   const envelope = await run({
-    json: true, compare: true, days: 7, timeoutMs: 5000, authStatePath: sandbox.env.PDD_AUTH_STATE_PATH,
+    json: true, compare: true, days: 7, timeoutMs: 5000,
   }, { runtimeConfig });
   assert.equal(envelope.ok, true);
   assert.equal(emitSpy.mock.calls.length, 1);

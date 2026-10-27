@@ -1,18 +1,27 @@
 #!/usr/bin/env node
-import { Command } from 'commander';
-import { emit, ENVELOPE_VERSION } from '../src/infra/output.js';
-import { ExitCodes, mapErrorToExit, errorToEnvelope } from '../src/infra/errors.js';
-import { createLogger, redactRecursive } from '../src/infra/logger.js';
-import { prepareCommandRuntime } from '../src/commands/runtime-options.js';
-import { closeAllBrowsers } from '../src/adapter/browser.js';
-import { register as registerCore } from '../src/commands/registry/core.js';
-import { register as registerConfig } from '../src/commands/registry/config.js';
-import { register as registerShops } from '../src/commands/registry/shops.js';
-import { register as registerOrders } from '../src/commands/registry/orders.js';
-import { register as registerGoods } from '../src/commands/registry/goods.js';
-import { register as registerPromo } from '../src/commands/registry/promo.js';
-import { register as registerDiagnose } from '../src/commands/registry/diagnose.js';
-import { register as registerAccount } from '../src/commands/registry/account.js';
+if (Number(process.versions.node.split('.')[0]) < 24) {
+  process.stdout.write(JSON.stringify({
+    ok: false, command: 'pdd', data: null,
+    error: { code: 'E_USAGE', message: 'pdd-cli 需要 Node.js 24 或更新版本', hint: '请升级到 Node.js 24 后重试', detail: null },
+    meta: { v: 2, exit_code: 2, latency_ms: 0, xhr_count: 0, warnings: [] },
+  }) + '\n');
+  process.exit(2);
+}
+
+const { Command } = await import('commander');
+const { emit, ENVELOPE_VERSION } = await import('../src/infra/output.js');
+const { ExitCodes, mapErrorToExit, errorToEnvelope } = await import('../src/infra/errors.js');
+const { createLogger, redactRecursive } = await import('../src/infra/logger.js');
+const { prepareCommandRuntime } = await import('../src/commands/runtime-options.js');
+const { closeAllBrowsers } = await import('../src/adapter/browser.js');
+const { register: registerCore } = await import('../src/commands/registry/core.js');
+const { register: registerConfig } = await import('../src/commands/registry/config.js');
+const { register: registerShops } = await import('../src/commands/registry/shops.js');
+const { register: registerOrders } = await import('../src/commands/registry/orders.js');
+const { register: registerGoods } = await import('../src/commands/registry/goods.js');
+const { register: registerPromo } = await import('../src/commands/registry/promo.js');
+const { register: registerDiagnose } = await import('../src/commands/registry/diagnose.js');
+const { register: registerAccount } = await import('../src/commands/registry/account.js');
 
 let shuttingDown = false;
 const shutdownController = new AbortController();

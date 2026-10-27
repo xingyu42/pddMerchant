@@ -66,6 +66,7 @@
 ### P5 spec 同步（由 Claude 执行）
 
 - [ ] 改写 design 第 9 节列出的 spec 文件：`auth-mall-context.md` 的存储与锁相关条款整体改写，`env-paths.md`、`testing.md`、`runner-lifecycle.md`、`browser-runtime.md`、`domain-service-contracts.md`。
+- [ ] 写入 P2 审查时用户确认的决定（2026-10-27）：fixture 模式下 `login` 会向库写入假商家账号和假消费者账号（消费者设为默认）。这是 S-b 的直接结果，测试一律使用临时 `PDD_DB_PATH`。同时说明账号 ID 按 `meta.account_sequence` 单调分配，删除后不复用（AAD 绑定账号 ID）。
 - **验收**：spec 描述与代码一致（逐条对照签名和错误码）。
 
 ## 最终审查与合并

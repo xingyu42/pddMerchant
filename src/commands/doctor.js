@@ -8,13 +8,9 @@ import {
 import { loadAuthState, isConsumerAuthValid } from '../adapter/auth-state.js';
 import { assertMerchantVerified } from '../adapter/merchant-auth.js';
 import { verifyStoredMerchant } from '../adapter/merchant-auth-storage.js';
-import {
-  AUTH_STATE_PATH,
-  accountAuthStatePath,
-} from '../infra/paths.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { existsSync } from 'node:fs';
-import { listAccounts } from '../infra/account-registry.js';
+import { listAccounts } from '../infra/account-store.js';
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
 import { resolveConsumerAccountContext } from '../infra/consumer-account-resolver.js';
 import { toDoctorView } from '../services/views/auth.js';
@@ -30,9 +26,9 @@ export async function checkChromium() {
   }
 }
 
-async function checkAuthFile(path) {
+async function checkAuthFile(accountId) {
   try {
-    const loaded = await loadAuthState(path);
+    const loaded = loadAuthState(accountId);
     if (!loaded.exists) {
       return { ok: false, detail: { exists: false } };
     }
@@ -40,11 +36,12 @@ async function checkAuthFile(path) {
     const origins = Array.isArray(loaded.state?.origins) ? loaded.state.origins.length : 0;
     return { ok: true, detail: { exists: true, cookies, origins } };
   } catch (err) {
+    if (err?.code?.startsWith('E_MASTER_KEY_') || err?.code === 'E_SECRET_DECRYPT_FAILED') throw err;
     return { ok: false, detail: { error: 'auth_state_unreadable' } };
   }
 }
 
-async function checkConsumerLoggedIn(browser, authStatePath) {
+async function checkConsumerLoggedIn(browser, accountId) {
   let consumer = null;
   try {
     if (isMockEnabled()) {
@@ -52,7 +49,7 @@ async function checkConsumerLoggedIn(browser, authStatePath) {
       return { ok: valid, detail: { url: null } };
     }
 
-    consumer = await createConsumerContext(browser, { storageStatePath: authStatePath });
+    consumer = await createConsumerContext(browser, { storageState: loadAuthState(accountId).state });
     const valid = await isConsumerAuthValid(consumer.page);
     return { ok: valid, detail: { url: consumer.page.url() } };
   } catch (err) {
@@ -62,14 +59,14 @@ async function checkConsumerLoggedIn(browser, authStatePath) {
   }
 }
 
-async function checkLoginStates(authStatePath, consumerAuthStatePath, task = {}) {
+async function checkLoginStates(accountId, consumerAccountId, task = {}) {
   let browser = null;
   try {
-    const launched = await launchBrowser({ headed: false, storageStatePath: authStatePath });
+    const loaded = loadAuthState(accountId);
+    const launched = await launchBrowser({ headed: false, storageState: loaded.state });
     browser = launched.browser;
     let merchant = { ok: false, detail: { configured: false, verdict: 'not_configured' } };
-    if (authStatePath) {
-      const loaded = await loadAuthState(authStatePath);
+    if (accountId != null) {
       const result = await verifyStoredMerchant(launched.context, loaded.state, task);
       merchant = { ok: result.verdict === 'verified', detail: {
         configured: true, verdict: result.verdict, reason: result.reason,
@@ -77,13 +74,13 @@ async function checkLoginStates(authStatePath, consumerAuthStatePath, task = {})
         mall_source: result.identity ? 'verified_shop_endpoint' : null,
       } };
     }
-    const consumer = consumerAuthStatePath
-      ? await checkConsumerLoggedIn(browser, consumerAuthStatePath)
+    const consumer = consumerAccountId != null
+      ? await checkConsumerLoggedIn(browser, consumerAccountId)
       : null;
     return { merchant, consumer };
   } catch (err) {
     return {
-      merchant: { ok: false, detail: { configured: Boolean(authStatePath), verdict: 'indeterminate', reason: 'check_failed' } },
+      merchant: { ok: false, detail: { configured: accountId != null, verdict: 'indeterminate', reason: 'check_failed' } },
       consumer: null,
     };
   } finally {
@@ -117,15 +114,59 @@ export function renderDoctor(envelope) {
   return lines.join('\n');
 }
 
+function assertDoctorStorage(data) {
+  const consumerMissing = data.consumer_auth_file.detail?.exists === false;
+  if (!data.consumer_auth_file.ok && !consumerMissing) {
+    throw new PddCliError({
+      code: 'E_CONSUMER_AUTH_STATE_INVALID', message: '用户端登录态文件损坏',
+      hint: '执行 pdd login --consumer 重新授权', detail: data, exitCode: ExitCodes.AUTH,
+    });
+  }
+}
+
+function assertDoctorLogin(data, log) {
+  if (!data.auth_file.ok) {
+    throw new PddCliError({
+      code: 'E_AUTH_STATE_MISSING', message: '登录态文件缺失或损坏',
+      hint: '执行 pdd init 完成首次授权', detail: data, exitCode: ExitCodes.AUTH,
+    });
+  }
+  if (!data.logged_in.ok) {
+    log.debug({ detail: data.logged_in.detail }, 'logged_in check failed');
+    assertMerchantVerified(data.logged_in.detail, { detail: data });
+  }
+  if (data.consumer_auth_file.ok && !data.consumer_logged_in.ok) {
+    log.debug({ detail: data.consumer_logged_in.detail }, 'consumer_logged_in check failed');
+    throw new PddCliError({
+      code: 'E_CONSUMER_AUTH_EXPIRED', message: '用户端登录态已过期',
+      hint: '执行 pdd login --consumer 重新登录', detail: data, exitCode: ExitCodes.AUTH,
+    });
+  }
+}
+
+async function checkDoctorAccounts() {
+  const checks = [];
+  for (const account of listAccounts()) {
+    let authFile;
+    try { authFile = await checkAuthFile(account.id); }
+    catch (error) {
+      if (error?.code !== 'E_SECRET_DECRYPT_FAILED') throw error;
+      authFile = { ok: false, detail: { error: 'auth_state_undecryptable' } };
+    }
+    checks.push({ slug: account.slug, displayName: account.display_name, auth_file: authFile });
+  }
+  return checks;
+}
+
 export const run = withCommand({
   name: 'doctor',
   needsAuth: false,
   needsMall: 'none',
   render: renderDoctor,
   async run(ctx) {
-    const authStatePath = ctx.authPath ?? AUTH_STATE_PATH;
-    const consumerAccount = await resolveConsumerAccountContext({ account: ctx.config?.consumerAccount });
-    const consumerAuthStatePath = consumerAccount.authPath;
+    const accountId = ctx.accountId;
+    const consumerAccount = await resolveConsumerAccountContext({ account: ctx.config?.consumerAccount, needsAuth: false });
+    const consumerAccountId = consumerAccount.accountId;
 
     const data = {
       chromium: { ok: false, detail: null },
@@ -146,66 +187,20 @@ export const run = withCommand({
       });
     }
 
-    data.auth_file = await checkAuthFile(authStatePath);
-    data.consumer_auth_file = await checkAuthFile(consumerAuthStatePath);
-    const consumerFileMissing = data.consumer_auth_file.detail?.exists === false;
-    if (!data.consumer_auth_file.ok && !consumerFileMissing) {
-      throw new PddCliError({
-        code: 'E_CONSUMER_AUTH_STATE_INVALID',
-        message: '用户端登录态文件损坏',
-        hint: '执行 pdd login --consumer 重新授权',
-        detail: data,
-        exitCode: ExitCodes.AUTH,
-      });
-    }
+    data.auth_file = await checkAuthFile(accountId);
+    data.consumer_auth_file = await checkAuthFile(consumerAccountId);
+    assertDoctorStorage(data);
 
     const loginStates = await checkLoginStates(
-      data.auth_file.ok ? authStatePath : null,
-      data.consumer_auth_file.ok ? consumerAuthStatePath : null,
-      { signal: ctx.signal, deadlineAt: ctx.deadlineAt ?? undefined, expectedMallId: ctx.account?.mallId }
+      data.auth_file.ok ? accountId : null,
+      data.consumer_auth_file.ok ? consumerAccountId : null,
+      { signal: ctx.signal, deadlineAt: ctx.deadlineAt ?? undefined, expectedMallId: ctx.account?.identity }
     );
     data.logged_in = loginStates.merchant;
     if (loginStates.consumer) data.consumer_logged_in = loginStates.consumer;
-    if (!data.auth_file.ok) {
-      throw new PddCliError({
-        code: 'E_AUTH_STATE_MISSING',
-        message: '登录态文件缺失或损坏',
-        hint: '执行 pdd init 完成首次授权',
-        detail: data,
-        exitCode: ExitCodes.AUTH,
-      });
-    }
-    if (!data.logged_in.ok) {
-      ctx.log.debug({ detail: data.logged_in.detail }, 'logged_in check failed');
-      assertMerchantVerified(data.logged_in.detail, { detail: data });
-    }
-
-    if (data.consumer_auth_file.ok && !data.consumer_logged_in.ok) {
-      ctx.log.debug({ detail: data.consumer_logged_in.detail }, 'consumer_logged_in check failed');
-      throw new PddCliError({
-        code: 'E_CONSUMER_AUTH_EXPIRED',
-        message: '用户端登录态已过期',
-        hint: '执行 pdd login --consumer 重新登录',
-        detail: data,
-        exitCode: ExitCodes.AUTH,
-      });
-    }
-
-    const accounts = await listAccounts().catch(() => []);
-    if (accounts.length > 0) {
-      data.accounts = [];
-      for (const acct of accounts) {
-        const acctAuthPath = accountAuthStatePath(acct.slug);
-        const fileCheck = await checkAuthFile(acctAuthPath);
-        data.accounts.push({
-          slug: acct.slug,
-          displayName: acct.displayName,
-          auth_file: fileCheck,
-          hasCredential: acct.credential != null,
-        });
-      }
-    }
-
+    assertDoctorLogin(data, ctx.log);
+    const accounts = await checkDoctorAccounts();
+    if (accounts.length > 0) data.accounts = accounts;
     return toDoctorView(data);
   },
 });

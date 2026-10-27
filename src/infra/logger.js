@@ -48,6 +48,8 @@ const REDACT_KEYS = [
   'state_sealed',
   'password_sealed',
   'ct',
+  'iv',
+  'tag',
   'master_key',
   'qrContent',
   'qr_content',

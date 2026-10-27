@@ -6,8 +6,7 @@ import { getLogger } from '../../infra/logger.js';
 import { emit, buildBatchEnvelope, batchRenderer } from '../../infra/output.js';
 import { PddCliError, ExitCodes, errorToEnvelope, batchExitCode } from '../../infra/errors.js';
 import { abortableSleep } from '../../infra/abort.js';
-import { listAccounts } from '../../infra/account-registry.js';
-import { accountAuthStatePath } from '../../infra/paths.js';
+import { listAccounts } from '../../infra/account-store.js';
 import { executeSingle } from './single-lifecycle.js';
 
 const BATCH_JITTER_MIN = 2000;
@@ -43,7 +42,7 @@ export function applyCooldownAttribution(result, slug, sourcesByEndpoint) {
 }
 
 async function listEnabledAccounts() {
-  const allAccounts = await listAccounts({ includeDisabled: true });
+  const allAccounts = listAccounts({ kind: 'merchant', includeDisabled: true });
   if (allAccounts.length === 0) {
     throw new PddCliError({
       code: 'E_USAGE',
@@ -64,26 +63,18 @@ function validateBatchOptions(opts) {
       exitCode: ExitCodes.USAGE,
     });
   }
-  if (opts.authStatePath) {
-    throw new PddCliError({
-      code: 'E_USAGE',
-      message: '--all-accounts and a custom auth state path are mutually exclusive',
-      hint: 'Use --all-accounts alone to iterate registered accounts',
-      exitCode: ExitCodes.USAGE,
-    });
-  }
 
   return opts.mall ? ['unused_flag_mall_in_batch'] : [];
 }
 
-function buildPerAccountOptions(opts, slug, batch) {
+function buildPerAccountOptions(opts, account, batch) {
   return {
     ...opts,
     account: undefined,
-    authStatePath: accountAuthStatePath(slug),
+    accountId: account.id,
     allAccounts: false,
     mall: undefined,
-    _correlationId: `${batch.correlationId}:${slug}`,
+    _correlationId: `${batch.correlationId}:${account.slug}`,
   };
 }
 
@@ -91,8 +82,8 @@ function batchJitterMs(random = Math.random) {
   return BATCH_JITTER_MIN + Math.floor(random() * (BATCH_JITTER_MAX - BATCH_JITTER_MIN));
 }
 
-async function runOneAccount(spec, opts, slug, batch, runtimeConfig) {
-  const perOpts = buildPerAccountOptions(opts, slug, batch);
+async function runOneAccount(spec, opts, account, batch, runtimeConfig) {
+  const perOpts = buildPerAccountOptions(opts, account, batch);
   const perAccountCorrelation = perOpts._correlationId;
 
   const envelope = await executeSingle(spec, perOpts, {
@@ -124,7 +115,7 @@ async function runAccountLoop(spec, opts, accounts, batch, runtimeConfig) {
     const slug = accounts[i].slug;
     batch.log.info({ slug, index: i, total: accounts.length }, 'batch: executing account');
 
-    const result = await runOneAccount(spec, opts, slug, batch, runtimeConfig);
+    const result = await runOneAccount(spec, opts, accounts[i], batch, runtimeConfig);
     // 归因须先于 warnings 上抛：继承警告借下方既有复制循环进入 batchWarnings。
     cooldownSources = applyCooldownAttribution(result, slug, cooldownSources);
     accountResults[slug] = result;

@@ -39,7 +39,6 @@ const CONFIG_FIELD_DEFINITIONS = Object.freeze({
   fullCountDiscountRate: { schema: fullCountDiscountRateSchema, env: 'PDD_FULL_COUNT_DISCOUNT_RATE', kind: 'number', required: true },
   timeoutMs: { schema: z.number().int().positive(), env: 'PDD_TIMEOUT_MS', kind: 'number', required: false },
   defaultMall: { schema: z.string().min(1), env: 'PDD_DEFAULT_MALL', kind: 'string', required: false },
-  authStatePath: { schema: z.string().min(1), env: 'PDD_AUTH_STATE_PATH', kind: 'string', required: false },
 });
 
 const optionalShape = Object.fromEntries(
@@ -58,7 +57,7 @@ const RuntimeConfigSchema = z.object(runtimeShape).strict();
 
 function withoutRetiredAuthSchedule(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-  const { refreshIntervalMs, refreshJitterMs, ...current } = value;
+  const { refreshIntervalMs, refreshJitterMs, authStatePath, ...current } = value;
   return current;
 }
 

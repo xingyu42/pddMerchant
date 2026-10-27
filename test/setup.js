@@ -11,12 +11,7 @@ for (const key of Object.keys(process.env)) {
 Object.assign(process.env, {
   PDD_TEST_ADAPTER: 'fixture',
   PDD_TEST_FIXTURE_DIR: join(root, 'fixtures'),
-  PDD_AUTH_STATE_PATH: join(root, 'merchant-auth.json'),
-  PDD_CONSUMER_AUTH_STATE_PATH: join(root, 'consumer-auth.json'),
-  PDD_ACCOUNTS_DIR: join(root, 'merchant'),
-  PDD_ACCOUNT_REGISTRY_PATH: join(root, 'merchant-registry.json'),
-  PDD_CONSUMER_ACCOUNTS_DIR: join(root, 'consumer'),
-  PDD_CONSUMER_ACCOUNT_REGISTRY_PATH: join(root, 'consumer-registry.json'),
+  PDD_DB_PATH: join(root, 'pdd.db'),
   NO_COLOR: '1',
 });
 
@@ -25,11 +20,17 @@ vi.mock('patchright', () => {
   return { chromium: { launch: blocked, launchPersistentContext: blocked, connectOverCDP: blocked } };
 });
 
-beforeEach(() => {
+let sequence = 0;
+let closeDatabase;
+beforeEach(async () => {
+  const database = await import('../src/infra/db.js');
+  closeDatabase = database.closeDatabase;
+  database.openDatabase(join(root, String(++sequence), 'pdd.db'));
   vi.stubGlobal('fetch', () => { throw new Error('Network fetch is disabled in offline tests'); });
 });
 
 afterEach(() => {
+  closeDatabase();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
@@ -37,6 +38,7 @@ afterEach(() => {
 });
 
 afterAll(() => {
+  closeDatabase();
   rmSync(root, { recursive: true, force: true });
   for (const key of Object.keys(process.env)) {
     if (key.startsWith('PDD_') || key === 'NO_COLOR') delete process.env[key];

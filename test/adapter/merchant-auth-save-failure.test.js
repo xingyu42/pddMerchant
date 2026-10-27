@@ -1,30 +1,29 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, readFile, readdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { it, vi } from 'vitest';
+import { insertAccount } from '../../src/infra/account-store.js';
+import { get, openDatabase } from '../../src/infra/db.js';
+import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
+import { commitMerchantCandidate, withMerchantAuthUpdate } from '../../src/adapter/merchant-auth-storage.js';
+import { verifyMerchantContext } from '../../src/adapter/merchant-auth.js';
+import { createCliSandbox } from '../helpers/isolated-cli.js';
 
-vi.mock('node:fs/promises', async (importOriginal) => {
-  const actual = await importOriginal();
-  return { ...actual, rename: async (from, to) => {
-    if (String(to).endsWith('blocked.json')) throw Object.assign(new Error('synthetic-secret'), { code: 'EACCES' });
-    return actual.rename(from, to);
-  } };
-});
-import { saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
-
-it('preserves the original file and removes temporary materials when rename fails', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'pdd-auth-save-failure-'));
-  const path = join(root, 'blocked.json');
-  const original = JSON.stringify({ cookies: [], origins: [] });
-  try {
-    await writeFile(path, original);
-    await assert.rejects(saveAuthStateSnapshot({ cookies: [{ name: 'PASS_ID', value: 'synthetic' }], origins: [] }, path), (error) => {
-      assert.equal(error.code, 'E_AUTH_STATE_SAVE_FAILED');
-      assert.ok(!JSON.stringify(error).includes('synthetic-secret'));
-      return true;
-    });
-    assert.equal(await readFile(path, 'utf8'), original);
-    assert.deepEqual(await readdir(root), ['blocked.json']);
-  } finally { await rm(root, { recursive: true, force: true }); }
+it('rolls back a failed auth-state transaction and keeps the previous row', async () => {
+  const account = insertAccount({ identity: '900001', displayName: 'Shop' });
+  const state = { cookies: [], origins: [] };
+  saveAuthStateSnapshot(state, account.id);
+  const before = get('SELECT * FROM auth_states WHERE account_id = ?', account.id);
+  const sandbox = createCliSandbox();
+  vi.stubEnv('PDD_TEST_FIXTURE_DIR', sandbox.fixtureDir);
+  let candidate;
+  try { candidate = (await verifyMerchantContext(null)).candidate; }
+  finally { sandbox.dispose(); }
+  openDatabase().exec(`CREATE TRIGGER fail_auth BEFORE UPDATE ON auth_states BEGIN SELECT RAISE(ABORT, 'synthetic-secret'); END`);
+  await assert.rejects(withMerchantAuthUpdate(account.id, (tx) => commitMerchantCandidate(candidate, tx)), (error) => {
+    assert.equal(error.code, 'E_AUTH_STATE_SAVE_FAILED');
+    assert.ok(!JSON.stringify(error).includes('synthetic-secret'));
+    return true;
+  });
+  assert.deepEqual(get('SELECT * FROM auth_states WHERE account_id = ?', account.id), before);
+  assert.deepEqual(loadAuthState(account.id).state, state);
+  assert.equal(get('SELECT count(*) AS total FROM leases').total, 0);
 });

@@ -1,5 +1,5 @@
 import { createConsumerContext } from '../adapter/browser.js';
-import { deleteAuthState } from '../adapter/auth-state.js';
+import { deleteAuthState, loadAuthState } from '../adapter/auth-state.js';
 import { resolveConsumerAccountContext } from '../infra/consumer-account-resolver.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getSharedBreaker } from '../infra/circuit-breaker.js';
@@ -185,9 +185,9 @@ function proxyLeaseSummary(lease, attempt) {
   };
 }
 
-async function invalidateDegradedConsumerAuth(ctx, err, authStatePath) {
+async function invalidateDegradedConsumerAuth(ctx, err, consumerAccountId) {
   if (err?.code !== 'E_RISK_CONTROL_SOFT') return;
-  const cleanup = await deleteAuthState(authStatePath);
+  const cleanup = await deleteAuthState(consumerAccountId);
   err.detail = {
     ...(err.detail && typeof err.detail === 'object' ? err.detail : {}),
     consumer_account_degraded: true,
@@ -199,9 +199,9 @@ async function invalidateDegradedConsumerAuth(ctx, err, authStatePath) {
     'goods-publish: degraded consumer auth removed');
 }
 
-async function scrapeSourceDirect(ctx, goodsId, authStatePath) {
+async function scrapeSourceDirect(ctx, goodsId, consumerAccountId) {
   const consumer = await createConsumerContext(ctx.context.browser(), {
-    storageStatePath: authStatePath,
+    storageState: loadAuthState(consumerAccountId).state,
   });
   try {
     return await scrapeSourceGoods(consumer.page, goodsId, ctx);
@@ -210,14 +210,14 @@ async function scrapeSourceDirect(ctx, goodsId, authStatePath) {
   }
 }
 
-async function runProxyScrapeAttempt(ctx, goodsId, proxyConfig, attempt, authStatePath) {
+async function runProxyScrapeAttempt(ctx, goodsId, proxyConfig, attempt, consumerAccountId) {
   let consumer = null;
   let lease = null;
   try {
     lease = await acquireQingguoProxyLease(proxyConfig, { signal: ctx.signal });
     ctx.log.debug(proxyLeaseSummary(lease, attempt), 'goods-publish: source proxy acquired');
     consumer = await createConsumerContext(ctx.context.browser(), {
-      storageStatePath: authStatePath,
+      storageState: loadAuthState(consumerAccountId).state,
       proxy: {
         server: lease.server,
       },
@@ -244,10 +244,10 @@ async function runProxyScrapeAttempt(ctx, goodsId, proxyConfig, attempt, authSta
   }
 }
 
-async function scrapeSourceWithProxy(ctx, goodsId, proxyConfig, warnings, authStatePath) {
+async function scrapeSourceWithProxy(ctx, goodsId, proxyConfig, warnings, consumerAccountId) {
   for (let attempt = 1; attempt <= SOURCE_PROXY_MAX_ATTEMPTS; attempt++) {
     try {
-      const source = await runProxyScrapeAttempt(ctx, goodsId, proxyConfig, attempt, authStatePath);
+      const source = await runProxyScrapeAttempt(ctx, goodsId, proxyConfig, attempt, consumerAccountId);
       if (attempt > 1) warnings.push('source_proxy_retry_recovered');
       return source;
     } catch (err) {
@@ -388,14 +388,14 @@ async function runPublishFlow(ctx, goodsUrl, opts = {}) {
 
   if (!source) {
     const consumerAccount = await resolveConsumerAccountContext({ account: ctx.config?.consumerAccount });
-    const consumerAuthPath = consumerAccount.authPath;
+    const consumerAccountId = consumerAccount.accountId;
     source = await breaker.wrap('scrape', async () => {
       log.info({ goodsId }, 'goods-publish: Phase A — scraping source');
       try {
-        if (!sourceProxyConfig.enabled) return await scrapeSourceDirect(publishCtx, goodsId, consumerAuthPath);
-        return await scrapeSourceWithProxy(publishCtx, goodsId, sourceProxyConfig, warnings, consumerAuthPath);
+        if (!sourceProxyConfig.enabled) return await scrapeSourceDirect(publishCtx, goodsId, consumerAccountId);
+        return await scrapeSourceWithProxy(publishCtx, goodsId, sourceProxyConfig, warnings, consumerAccountId);
       } catch (err) {
-        await invalidateDegradedConsumerAuth(ctx, err, consumerAuthPath);
+        await invalidateDegradedConsumerAuth(ctx, err, consumerAccountId);
         throw err;
       }
     });

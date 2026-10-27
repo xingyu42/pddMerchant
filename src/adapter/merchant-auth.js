@@ -39,7 +39,11 @@ export async function verifyMerchantContext(context, options = {}) {
     if (!mockIsAuthValid()) return { verdict: 'rejected', reason: 'login_false' };
     const mall = await mockCurrentMall();
     if (options.expectedMallId != null && String(options.expectedMallId) !== String(mall.id)) return { verdict: 'failed', reason: 'identity_mismatch' };
-    return { verdict: 'verified', reason: 'shop_read', checked_at: new Date().toISOString(), identity: { mallId: String(mall.id), displayName: mall.name } };
+    const checkedAt = new Date().toISOString();
+    const identity = { mallId: String(mall.id), displayName: mall.name };
+    const candidate = freeze({ state: { cookies: [], origins: [] }, identity, checked_at: checkedAt, scope: 'shop_read' });
+    verifiedCandidates.add(candidate);
+    return { verdict: 'verified', reason: 'shop_read', checked_at: checkedAt, identity, candidate };
   }
   const task = { ...options, deadlineAt: options.deadlineAt ?? Date.now() + 30500 };
   const snapshot = freeze(structuredClone(await context.storageState()));

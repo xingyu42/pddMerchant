@@ -30,7 +30,6 @@ describe('frozen authentication context', () => {
       assert.deepEqual(Object.keys(options.storageState).sort(), ['cookies', 'origins']);
       state.cookies[0].value = 'changed';
       assert.equal(options.storageState.cookies[0].value, 'synthetic');
-      await assert.rejects(runtime.launchBrowser({ storageState: state, storageStatePath: 'unused' }), { code: 'E_BROWSER_RUNTIME' });
       await assert.rejects(runtime.launchBrowser({ storageState: { cookies: [] } }), { code: 'E_BROWSER_RUNTIME' });
     } finally { await runtime.closeBrowser(browser); vi.doUnmock('patchright'); }
   });
@@ -46,6 +45,18 @@ describe('frozen authentication context', () => {
       assert.equal(options.storageState.cookies[0].value, 'synthetic');
       assert.equal(context.addInitScript.mock.calls.length, 1);
       await context.close();
+    } finally { await runtime.closeBrowser(browser); vi.doUnmock('patchright'); }
+  });
+
+  it('passes consumer storage state only in memory and strips merchant metadata', async () => {
+    const { browser, runtime } = await setupBrowser();
+    try {
+      const state = { cookies: [], origins: [], merchant_auth: { mall_id: '900001' } };
+      const consumer = await runtime.createConsumerContext(browser, { storageState: state, proxy: { server: 'http://synthetic' } });
+      const options = browser.newContext.mock.calls.at(-1)[0];
+      assert.deepEqual(options.storageState, { cookies: [], origins: [] });
+      assert.deepEqual(options.proxy, { server: 'http://synthetic' });
+      await consumer.close();
     } finally { await runtime.closeBrowser(browser); vi.doUnmock('patchright'); }
   });
 
