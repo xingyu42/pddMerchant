@@ -1,12 +1,21 @@
 // 多账号管理视图（输出契约 v2）：数据库记录 → 本地时间 + headline。
 import { isoToLocalDateTime } from '../../infra/units.js';
 import { text } from './_shared.js';
+import { formatPasswordReloginStatus } from './labels.js';
 
 export const ACCOUNT_VIEW_FIELDS = Object.freeze([
   'slug', 'display_name', 'mall_id', 'is_default', 'disabled', 'last_login_at',
+  'has_password', 'password_relogin_status',
 ]);
 
 export const ACCOUNT_REMOVED_VIEW_FIELDS = Object.freeze(['headline', 'slug', 'removed']);
+
+export function toPasswordReloginView(summary) {
+  return {
+    has_password: Boolean(summary?.has_password),
+    password_relogin_status: formatPasswordReloginStatus(summary),
+  };
+}
 
 export function toAccountView(account, defaultSlug) {
   return {
@@ -16,6 +25,7 @@ export function toAccountView(account, defaultSlug) {
     is_default: defaultSlug != null && defaultSlug === account.slug,
     disabled: Boolean(account.disabled),
     last_login_at: isoToLocalDateTime(account.last_login_at),
+    ...toPasswordReloginView(account.relogin),
   };
 }
 

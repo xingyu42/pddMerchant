@@ -239,9 +239,47 @@ it('doctor reports invalid auth without triggering password login', () => {
   seed();
   const result = cli(['doctor']);
   assert.equal(result.status, 3);
+  assert.deepEqual(result.envelope.error.detail.password_relogin, { has_password: true, status: '可用' });
   assert.deepEqual(actionWarnings(result), []);
   assert.deepEqual(attempts(), []);
   assert.equal(state(), null);
+});
+
+it.each([
+  ['blocked', 'wrong_password', '已熔断：密码错误'],
+  ['awaiting_human', 'sms', '等待人工：短信验证'],
+])('account list and doctor report seeded %s state without login or action warnings', (status, reason, label) => {
+  seed();
+  seedDb(sandbox.env.PDD_DB_PATH, { reloginStates: [{ accountId: 1, status, reason }] });
+  database();
+  insertPendingAction(1, { kind: status === 'blocked' ? 'relogin_blocked' : 'human_takeover', reason });
+  const before = state();
+  const listed = cli(['account', 'list']);
+  assert.equal(listed.status, 0);
+  assert.equal(listed.envelope.data.items[0].has_password, true);
+  assert.equal(listed.envelope.data.items[0].password_relogin_status, label);
+  const doctor = cli(['doctor'], { PDD_TEST_AUTH_INVALID: '0' });
+  assert.equal(doctor.status, 0);
+  assert.deepEqual(doctor.envelope.data.password_relogin, { has_password: true, status: label });
+  assert.equal(doctor.envelope.data.accounts[0].has_password, true);
+  assert.equal(doctor.envelope.data.accounts[0].password_relogin_status, label);
+  for (const result of [listed, doctor]) {
+    assert.deepEqual(actionWarnings(result), []);
+    for (const secret of [...Object.values(credential), 'login_name']) assert.equal(result.stdout.includes(secret), false);
+  }
+  assert.deepEqual(attempts(), []);
+  assert.deepEqual(state(), before);
+  assert.equal(openActions().length, 1);
+});
+
+it('doctor reports no password when no current merchant account exists', () => {
+  seed({ accounts: [] });
+  const result = cli(['doctor']);
+  assert.equal(result.status, 3);
+  assert.equal(result.envelope.error.code, 'E_AUTH_STATE_MISSING');
+  assert.deepEqual(result.envelope.error.detail.password_relogin, { has_password: false, status: null });
+  assert.deepEqual(actionWarnings(result), []);
+  assert.deepEqual(attempts(), []);
 });
 
 it('all-accounts recovers in order and aggregates each used account action warning', () => {

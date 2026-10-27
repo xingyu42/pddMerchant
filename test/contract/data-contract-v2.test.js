@@ -78,6 +78,12 @@ const V2_CASES = [
     args: ['account', 'list'],
     accounts: createAccounts(),
     entityFields: { 'items[]': ACCOUNT_VIEW_FIELDS },
+    checkData(data) {
+      for (const item of data.items) {
+        assert.equal(item.has_password, false);
+        assert.equal(item.password_relogin_status, null);
+      }
+    },
   },
   { command: 'account.remove', args: ['account', 'remove', '--slug', 'shop-b'], accounts: createAccounts(),
     entityFields: { '': ACCOUNT_REMOVED_VIEW_FIELDS } },
@@ -92,7 +98,20 @@ const V2_CASES = [
   { command: 'init', args: ['init', '--qr'] },
   { command: 'login', args: ['login', '--qr'] },
   { command: 'login', envelopeCommand: 'login.consumer', args: ['login', '--consumer', '--qr'] },
-  { command: 'doctor', args: ['doctor'], authState: VALID_AUTH_STATE },
+  {
+    command: 'doctor', args: ['doctor'], authState: VALID_AUTH_STATE,
+    entityFields: {
+      password_relogin: ['has_password', 'status'],
+      'accounts[]': ['slug', 'display_name', 'auth_file', 'has_password', 'password_relogin_status'],
+    },
+    checkData(data) {
+      assert.deepEqual(data.password_relogin, { has_password: false, status: null });
+      for (const account of data.accounts) {
+        assert.equal(account.has_password, false);
+        assert.equal(account.password_relogin_status, null);
+      }
+    },
+  },
   {
     // 批量 envelope：accounts 以账号 slug 为键，各账号 data 为命令自身的 v2 data
     command: 'orders.stats',
@@ -274,6 +293,7 @@ describe.skipIf(V2_CASES.length === 0)('output contract v2: command data', () =>
         freeKeyPaths: testCase.freeKeyPaths,
         entityFields: testCase.entityFields,
       });
+      testCase.checkData?.(envelope.data);
     });
   }
 });
