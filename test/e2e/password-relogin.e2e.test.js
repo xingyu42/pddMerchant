@@ -158,7 +158,7 @@ it.each([false, true])('manual login clears awaiting-human state and its action 
   assert.deepEqual(attempts(), ['challenge:sms']);
 });
 
-it.each(['wrong_password', 'account_locked', 'takeover_timeout'])('manual login preserves the %s block and its pending action', (reason) => {
+it.each(['wrong_password', 'account_locked', 'takeover_timeout'])('manual login preserves the %s block/action and resets consecutive timeouts', (reason) => {
   seed();
   if (reason === 'takeover_timeout') {
     seedDb(sandbox.env.PDD_DB_PATH, { reloginStates: [{ accountId: 1, status: 'blocked', reason, consecutiveTakeoverTimeouts: 2 }] });
@@ -167,7 +167,11 @@ it.each(['wrong_password', 'account_locked', 'takeover_timeout'])('manual login 
   } else cli(undefined, { PDD_TEST_PASSWORD_LOGIN: reason });
   const before = state();
   assert.equal(cli(['login', '--qr'], { PDD_TEST_AUTH_INVALID: '0' }).status, 0);
-  assert.deepEqual(state(), before);
+  const after = state();
+  assert.equal(after.status, before.status);
+  assert.equal(after.reason, before.reason);
+  assert.equal(after.last_attempt_at, before.last_attempt_at);
+  assert.equal(after.consecutive_takeover_timeouts, 0);
   assert.equal(openActions()[0].kind, 'relogin_blocked');
 });
 

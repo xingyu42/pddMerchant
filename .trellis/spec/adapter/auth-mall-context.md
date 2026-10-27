@@ -287,6 +287,8 @@ recordReloginOutcome(tx, outcome, { credentialUpdatedAt }) -> PddCliError | null
 reloginInCommand(runtime, tx, browser, authResult) -> { context, page }; // live; lease already held
 reloginForFixture(accountId, runtime);                     // fixture; takes its own lease
 markManualLoginSucceeded(accountId);                       // saveMerchantLogin, existing account only
+deviceState(tx);                                         // cloned cookies/origins, every PASS_ID removed
+commitFixtureRelogin(tx, task);                           // fixture marker, lease + revision CAS
 // reserved for task ④ (implemented and tested in ③)
 setAccountPassword(accountId, { loginName, password });
 clearAccountPassword(accountId);
@@ -315,7 +317,7 @@ getAccountActionWarnings(accountId, slug) -> [{ code: 'account_action_required',
 | challenge | awaiting_human | challenge type | open `human_takeover` action |
 | wrong_password / account_locked | blocked | same | open `relogin_blocked` action |
 | form_changed / network_error / verify_failed | available | same | no breaker |
-| manual login (N9a) | awaiting_human → available | `manual_login` | resolves `human_takeover`; `blocked` stays |
+| manual login (N9a) | awaiting_human → available | `manual_login` | resolves `human_takeover`; resets takeover-timeout counter for every status; `blocked` stays |
 | `setAccountPassword` | available | `password_reset` | `last_attempt_at = null`, counter reset, resolves all open actions |
 | `clearAccountPassword` | available | `password_cleared` | deletes credential, resolves all open actions |
 | `clearReloginBlock` | blocked → available | `manual_unblock` | `last_attempt_at = null`, counter reset, resolves `relogin_blocked` |

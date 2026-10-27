@@ -22,8 +22,11 @@ async function authorize(sandbox, args = []) {
   assert.equal(link.envelope.ok, true);
   const path = new URL(link.envelope.data.url).pathname;
   const port = Number(sandbox.env.PDD_CONSOLE_PORT);
-  const redeemed = await consoleRequest(port, path);
-  assert.equal(redeemed.status, 302);
+  for (let count = 0; count < 2; count++) assert.equal((await consoleRequest(port, path)).status, 200);
+  const redeemed = await consoleRequest(port, '/api/redeem', { method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-PDD-Console': '1' },
+    body: JSON.stringify({ token: path.split('/').at(-1) }) });
+  assert.equal(redeemed.status, 200);
   return { port, link, path, redeemed, cookie: redeemed.headers['set-cookie'][0].split(';')[0] };
 }
 
@@ -49,7 +52,7 @@ it('fixture daemon links, authenticates, writes encrypted credentials without di
     const started = sandbox.cli('start');
     assert.equal(started.envelope.ok, true);
     const { port, link, path, redeemed, cookie } = await authorize(sandbox, ['--account', DEFAULT_ACCOUNT.slug]);
-    assert.equal(redeemed.headers.location, `/#/accounts/${DEFAULT_ACCOUNT.slug}`);
+    assert.equal(JSON.parse(redeemed.body).location, `/#/accounts/${DEFAULT_ACCOUNT.slug}`);
     const headers = { Cookie: cookie };
     const initial = await consoleRequest(port, '/api/accounts', { headers });
     assert.equal(initial.status, 200);
@@ -61,7 +64,9 @@ it('fixture daemon links, authenticates, writes encrypted credentials without di
     assert.deepEqual(JSON.parse(saved.body), { ok: true, has_password: true });
     const updated = await consoleRequest(port, '/api/accounts', { headers });
     assert.equal(JSON.parse(updated.body).items[0].has_password, true);
-    const replay = await consoleRequest(port, path);
+    const replay = await consoleRequest(port, '/api/redeem', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-PDD-Console': '1' },
+      body: JSON.stringify({ token: path.split('/').at(-1) }) });
     assert.equal(replay.status, 410);
     assert.match(replay.body, /链接已失效，请重新获取/);
     assert.equal((await consoleRequest(port, '/api/accounts', { headers: { Cookie: 'pdd_console=unknown' } })).status, 401);
@@ -84,7 +89,7 @@ it('an unbound link lands on the root and grants a normal console session', asyn
   try {
     sandbox.cli('start');
     const { port, redeemed, cookie } = await authorize(sandbox);
-    assert.equal(redeemed.headers.location, '/');
+    assert.equal(JSON.parse(redeemed.body).location, '/');
     const page = await consoleRequest(port, '/', { headers: { Cookie: cookie } });
     assert.equal(page.status, 200);
     assert.match(page.headers['content-security-policy'], /frame-ancestors 'none'/);

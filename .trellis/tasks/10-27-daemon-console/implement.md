@@ -52,14 +52,17 @@ P3 执行结果（2026-10-28）：最终定向 6 个文件、54 项通过；`npm
 
 ## P4 交互式重登、接管、扫码
 
-- [ ] `password-relogin.js`：导出 `deviceState`；`markManualLoginSucceeded` 清零接管超时计数。
-- [ ] `src/adapter/takeover.js`：screencast、指针重放、文字/按键（fake CDP 单测）。
-- [ ] `src/services/console-login.js`：password / qr 两种模式（design 第 6.1 节），10 分钟窗口、超时计数、熔断前置检查。
-- [ ] 会话 API 与 SSE；同账号单会话、全局最多 2 个。
-- [ ] fixture：无浏览器路径 + `fixture-complete` 测试路由。
-- [ ] e2e：挑战 → 接管 → 成功 → 待办关闭 → 普通命令成功；超时两次 → 熔断。
+- [x] `password-relogin.js`：导出 `deviceState`；`markManualLoginSucceeded` 清零接管超时计数。
+- [x] `src/adapter/takeover.js`：screencast、指针重放、文字/按键（fake CDP 单测）。
+- [x] `src/services/console-login.js`：password / qr 两种模式（design 第 6.1 节），10 分钟窗口、超时计数、熔断前置检查。
+- [x] 会话 API 与 SSE；同账号单会话、全局最多 2 个。
+- [x] fixture：无浏览器路径 + `fixture-complete` 测试路由。
+- [x] e2e：挑战 → 接管 → 成功 → 待办关闭 → 普通命令成功；超时两次 → 熔断。
+- [x] 预览安全兑换：GET `/c/:token` 保留 token，外部脚本 POST `/api/redeem` 消费；重放 410。
 
 验证：相关测试 + `npm test`。
+
+P4 执行结果（2026-10-28）：定向 11 个文件、164 项通过；追加触点计时起点重置回归后，接管/SSE 2 个文件、9 项通过。最终 `npm test -- --maxWorkers=2` 全量 62 个文件、944 项通过、1 项平台跳过，`git diff --check` 通过。完整文件清单与接口说明见 `p4-report.md`。前端会话 API 已按现有 `app.js` 对齐；未改 `app.js`、`styles.css`、`index.html` 或 `CLAUDE.md`，未提交。真机验证继续保留在下方列表。
 
 ## P5 前端（Claude）
 

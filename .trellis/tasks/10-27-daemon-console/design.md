@@ -112,7 +112,7 @@ CREATE TABLE console_sessions (
 - `pdd console link [--account <slug>]`（复用全局 `--account`）：
   - daemon 未运行 → `E_DAEMON_NOT_RUNNING`（exit 1），hint `执行 pdd daemon start`；
   - 否则生成 32 字节随机 token（base64url），写 `console_tokens`（10 分钟），输出 `data.url = <base>/c/<token>`、`expires_at`。
-- `GET /c/<token>`：同一事务内校验未过期、未消费 → 标记 `consumed_at`、签发会话（32 字节随机值，8 小时），`Set-Cookie: pdd_console=<v>; HttpOnly; SameSite=Strict; Path=/`（`consolePublicUrl` 为 https 时加 `Secure`），302 到 `/`（带 `--account` 时到该账号页）。重放、过期 → 410 页面，提示重新获取链接。
+- `GET /c/<token>`：返回小型 HTML，加载公开的 `/app/redeem.js`，保持 token 未消费，供聊天应用预览。脚本从 location.pathname 读取 token，以 JSON + `X-PDD-Console: 1` 请求公开 `POST /api/redeem { token }`；该 POST 在同一事务中消费 token、签发 8 小时会话，设置 HttpOnly/SameSite Cookie（公开 URL 为 HTTPS 时加 Secure），返回 `{ location }`。脚本导航到 `/` 或绑定账号页；重放、过期返回 410 JSON 和固定中文提示。HTML 无内联脚本，CSP 保持 script-src self。
 - 其余所有接口要求有效会话，否则 401。会话不续期。
 - `--account` 只决定落地页；会话可以操作所有账号（同一 OS 用户的单人工具，威胁模型只防意外暴露）。
 

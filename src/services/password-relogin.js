@@ -122,7 +122,9 @@ export function recordReloginOutcome(tx, outcome, { credentialUpdatedAt }) {
 
 export function markManualLoginSucceeded(accountId) {
   return write(() => {
-    if (getReloginState(accountId)?.status !== 'awaiting_human') return;
+    const state = getReloginState(accountId);
+    if (state?.consecutive_takeover_timeouts) updateState(accountId, { consecutiveTakeoverTimeouts: 0 });
+    if (state?.status !== 'awaiting_human') return;
     updateState(accountId, { status: 'available', reason: 'manual_login' });
     resolveOpenPendingActions(accountId, 'human_takeover');
   });
@@ -234,7 +236,7 @@ async function runRelogin(tx, decision, task, attempt) {
   renewLease('account', tx.accountId, tx.token);
 }
 
-function deviceState(tx) {
+export function deviceState(tx) {
   if (tx.corrupt || !Array.isArray(tx.state?.cookies) || !Array.isArray(tx.state?.origins)) return { cookies: [], origins: [] };
   return structuredClone({ cookies: tx.state.cookies.filter((cookie) => cookie.name !== 'PASS_ID'), origins: tx.state.origins });
 }
@@ -272,7 +274,7 @@ export async function reloginInCommand(runtime, tx, browser, authResult) {
   });
 }
 
-function commitFixtureRelogin(tx, task) {
+export function commitFixtureRelogin(tx, task) {
   const checkedAt = new Date().toISOString();
   const state = { cookies: [{ name: 'PDD_FIXTURE_RELOGIN', value: '1', domain: '.pinduoduo.com', path: '/' }], origins: [],
     merchant_auth: { version: 1, mall_id: tx.recoveryMallId, usable: true, scope: 'shop_read',

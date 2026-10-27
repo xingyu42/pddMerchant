@@ -23,8 +23,8 @@ export function send(response, status, body, type = 'application/json; charset=u
   response.end(Buffer.isBuffer(body) || typeof body === 'string' ? body : JSON.stringify(body));
 }
 
-export function sendHtml(response, status, message) {
-  send(response, status, `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>pdd 控制台</title><p>${message}</p></html>`,
+export function sendHtml(response, status, message, scripts = '') {
+  send(response, status, `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>pdd 控制台</title><p>${message}</p>${scripts}</html>`,
     'text/html; charset=utf-8');
 }
 

@@ -9,7 +9,8 @@ import { withMerchantAuthUpdate } from '../../src/adapter/merchant-auth-storage.
 import { assertMerchantVerified } from '../../src/adapter/merchant-auth.js';
 import { armDeadline } from '../../src/commands/runner/single-lifecycle.js';
 import { decideRelogin, recordReloginAttempt, recordReloginOutcome, markManualLoginSucceeded,
-  setAccountPassword, clearAccountPassword, clearReloginBlock, recordTakeoverTimeout, getReloginSummary, reloginInCommand } from '../../src/services/password-relogin.js';
+  setAccountPassword, clearAccountPassword, clearReloginBlock, recordTakeoverTimeout, getReloginSummary, reloginInCommand,
+  deviceState } from '../../src/services/password-relogin.js';
 
 const credential = { loginName: 'synthetic-login-54639', password: 'synthetic-password-183646' };
 const now = Date.parse('2026-10-27T00:00:00.000Z');
@@ -276,7 +277,7 @@ it.each([false, true])('manual login resolves only awaiting-human actions (outer
   const state = getReloginState(account.id);
   assert.equal(state.status, 'available');
   assert.equal(state.reason, 'manual_login');
-  assert.equal(state.consecutive_takeover_timeouts, 1);
+  assert.equal(state.consecutive_takeover_timeouts, 0);
   assert.deepEqual(openActions().map((action) => action.kind), ['relogin_blocked']);
 });
 
@@ -295,6 +296,26 @@ it('manual login changes participate in an outer rollback', () => {
   assert.throws(() => transaction(() => { markManualLoginSucceeded(account.id); throw new Error('rollback'); }));
   assert.equal(getReloginState(account.id).status, 'awaiting_human');
   assert.equal(openActions().length, 1);
+});
+
+it.each(['available', 'blocked'])('manual login resets consecutive timeouts while preserving %s', (status) => {
+  seedState({ status, consecutiveTakeoverTimeouts: 1 });
+  const before = getReloginState(account.id);
+  markManualLoginSucceeded(account.id);
+  const after = getReloginState(account.id);
+  assert.equal(after.status, before.status);
+  assert.equal(after.reason, before.reason);
+  assert.equal(after.last_attempt_at, before.last_attempt_at);
+  assert.equal(after.consecutive_takeover_timeouts, 0);
+});
+
+it('exports a cloned device state with every PASS_ID removed and empty corrupt fallback', () => {
+  const state = { cookies: [{ name: 'PASS_ID' }, { name: 'device', value: 'trust' }, { name: 'PASS_ID' }], origins: [] };
+  const device = deviceState({ state });
+  assert.deepEqual(device, { cookies: [{ name: 'device', value: 'trust' }], origins: [] });
+  device.cookies[0].value = 'changed';
+  assert.equal(state.cookies[1].value, 'trust');
+  for (const tx of [{ corrupt: true, state }, { state: {} }, {}]) assert.deepEqual(deviceState(tx), { cookies: [], origins: [] });
 });
 
 it('sets a password and resets state, attempt time, timeout count and every open action', () => {

@@ -3,6 +3,7 @@ import { consoleBaseUrl, isConsoleLoopback, publishConsoleUrl, consoleListenErro
   consoleApiError, consoleRequestError } from '../services/console-runtime.js';
 import { securityHeaders, requestPath, send, rejectHttpClient } from './http.js';
 import { dispatchRoute } from './routes.js';
+import { closeAllConsoleSessions } from '../services/console-login.js';
 
 function validHost(request, runtimeConfig, port) {
   const host = runtimeConfig.consoleHost.toLowerCase();
@@ -22,10 +23,10 @@ async function handleRequest(request, response, context, port) {
     status: response.statusCode, duration_ms: Math.round(performance.now() - startedAt) }, 'console request'));
   try {
     if (!validHost(request, context.runtimeConfig, port)) throw consoleRequestError(421, 'E_CONSOLE_HOST', '访问地址无效');
-    await dispatchRoute(request, response, requestPath(request), context.runtimeConfig, access);
+    await dispatchRoute(request, response, requestPath(request), context.runtimeConfig, access, context);
   } catch (error) {
     const { status, body } = consoleApiError(error);
-    if (!response.writableEnded && !response.destroyed) send(response, status, body);
+    if (!response.writableEnded && !response.destroyed && !response.headersSent) send(response, status, body);
   } finally { request.resume(); }
 }
 
@@ -44,9 +45,12 @@ export function createConsoleServer() {
   let server;
   let context;
   let starting;
+  let controller;
   return {
     async start(nextContext) {
-      context = nextContext;
+      controller = new AbortController();
+      context = { ...nextContext, signal: nextContext.signal
+        ? AbortSignal.any([nextContext.signal, controller.signal]) : controller.signal };
       server = createServer((request, response) => { void handleRequest(request, response, context, server.address()?.port); });
       server.on('clientError', (_error, socket) => rejectHttpClient(socket));
       starting = listen(server, context.runtimeConfig);
@@ -56,8 +60,10 @@ export function createConsoleServer() {
       if (!isConsoleLoopback(context.runtimeConfig.consoleHost)) context.log.warn('控制台使用 http 明文传输，请通过 HTTPS 反向代理访问');
     },
     async stop() {
+      controller?.abort();
       try { await starting; } catch { /* 监听失败时仍清理元数据。 */ }
       publishConsoleUrl(null, context?.ownerTag);
+      await closeAllConsoleSessions();
       if (!server?.listening) return;
       await new Promise((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());

@@ -47,7 +47,8 @@ it('serves public health and protects every API/static route with security heade
   assert.equal(data.last_patrol_at, null);
   assert.match(data.heartbeat_at, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
   assertSecurity(health);
-  for (const path of ['/', '/api/accounts', '/index.html', '/vendor/preact.module.js', '/unknown']) {
+  for (const path of ['/', '/api/accounts', '/api/sessions/unknown', '/api/sessions/unknown/frames',
+    '/index.html', '/vendor/preact.module.js', '/unknown']) {
     const denied = await consoleRequest(port, path);
     assert.equal(denied.status, 401);
     assertSecurity(denied, path === '/');
@@ -58,6 +59,25 @@ it('serves public health and protects every API/static route with security heade
   assertSecurity(page, true);
   assert.equal((await consoleRequest(port, '/missing.js', { headers })).status, 404);
   assert.equal((await consoleRequest(port, '/api/missing', { headers })).status, 404);
+});
+
+it('keeps every interactive POST behind session and JSON guards and omits fixture control in live dispatch', async () => {
+  const { port, headers } = await setup();
+  const paths = ['/api/accounts/unknown/relogin', '/api/accounts/unknown/qr', '/api/sessions/unknown/pointer',
+    '/api/sessions/unknown/text', '/api/sessions/unknown/qr/refresh', '/api/sessions/unknown/cancel',
+    '/api/sessions/unknown/fixture-complete'];
+  const json = { 'Content-Type': 'application/json', 'X-PDD-Console': '1' };
+  for (const path of paths) {
+    assert.equal((await consoleRequest(port, path, { method: 'POST', headers: json, body: '{}' })).status, 401);
+    assert.equal((await consoleRequest(port, path, { method: 'POST', headers, body: '{}' })).status, 403);
+    assert.equal((await consoleRequest(port, path, { method: 'POST', headers: { ...headers, ...json }, body: '{}' })).status, 404);
+  }
+  vi.stubEnv('PDD_TEST_ADAPTER', '');
+  const live = await consoleRequest(port, '/api/sessions/unknown/fixture-complete', {
+    method: 'POST', headers: { ...headers, ...json }, body: '{"outcome":"success"}',
+  });
+  assert.equal(live.status, 404);
+  assert.equal(JSON.parse(live.body).error.code, 'E_NOT_FOUND');
 });
 
 it('rejects a foreign Host and accepts loopback aliases and configured reverse proxy hosts', async () => {
@@ -127,23 +147,35 @@ it.each(['/../package.json', '/%2e%2e/package.json', '/vendor/%2e%2e/%2e%2e/infr
   assertSecurity(response);
 });
 
-it('exchanges links for cookies, redirects bound accounts and returns 410 HTML for replay', async () => {
+it('keeps GET previews reusable and consumes links only on protected JSON POST redemption', async () => {
   const { port } = await setup({ consolePublicUrl: 'https://console.example' });
   const account = insertAccount({ identity: '900001', displayName: 'Shop' });
   const { url } = createConsoleLink({ accountId: account.id });
   const path = new URL(url).pathname;
-  const response = await consoleRequest(port, path);
-  assert.equal(response.status, 302);
-  assert.equal(response.headers.location, `/#/accounts/${account.slug}`);
+  for (let count = 0; count < 2; count++) {
+    const preview = await consoleRequest(port, path);
+    assert.equal(preview.status, 200);
+    assert.equal(preview.headers['set-cookie'], undefined);
+    assert.match(preview.body, /<script src="\/app\/redeem.js" defer><\/script>/);
+    assert.equal(preview.body.includes(path.split('/').at(-1)), false);
+    assertSecurity(preview, true);
+  }
+  assert.equal((await consoleRequest(port, '/app/redeem.js')).status, 200);
+  assert.equal((await consoleRequest(port, '/api/redeem', { method: 'POST', body: '{}' })).status, 403);
+  const options = { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-PDD-Console': '1' },
+    body: JSON.stringify({ token: path.split('/').at(-1) }) };
+  const response = await consoleRequest(port, '/api/redeem', options);
+  assert.equal(response.status, 200);
+  assert.equal(JSON.parse(response.body).location, `/#/accounts/${account.slug}`);
   assert.match(response.headers['set-cookie'][0], /HttpOnly; SameSite=Strict; Path=\/; Secure$/);
   assertSecurity(response);
   const cookie = response.headers['set-cookie'][0].split(';')[0];
   assert.equal((await consoleRequest(port, '/api/accounts', { headers: { Cookie: cookie } })).status, 200);
-  const replay = await consoleRequest(port, path);
+  const replay = await consoleRequest(port, '/api/redeem', options);
   assert.equal(replay.status, 410);
   assert.match(replay.body, /链接已失效，请重新获取/);
-  assertSecurity(replay, true);
-  assert.equal((await consoleRequest(port, '/c/invalid')).status, 410);
+  assertSecurity(replay);
+  assert.equal((await consoleRequest(port, '/c/invalid')).status, 200);
 });
 
 it('projects metadata without decrypting auth state and exposes only labeled account fields', async () => {
