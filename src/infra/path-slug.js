@@ -6,8 +6,6 @@ const WINDOWS_RESERVED = new Set([
   'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9',
 ]);
 
-export const SAFE_STORAGE_SLUG_RE = /^[a-z0-9一-鿿_-]{1,32}$/;
-
 export function slugifyStorageName(displayName, {
   existingSlugs,
   stableId,

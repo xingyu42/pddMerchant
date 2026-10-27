@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
-import { it, vi } from 'vitest';
+import { it } from 'vitest';
 import { insertAccount, setDefaultAccount } from '../../src/infra/account-store.js';
 import { resolveAccountContext, accountMetaForEnvelope } from '../../src/infra/account-resolver.js';
 import { resolveConsumerAccountContext } from '../../src/infra/consumer-account-resolver.js';
 
 it('resolves merchant flag, default and auto-single from the database only', async () => {
-  vi.stubEnv('PDD_AUTH_STATE_PATH', 'ignored-synthetic-path');
   const first = insertAccount({ identity: '900001', displayName: 'First' });
   const sole = await resolveAccountContext();
   assert.equal(sole.source, 'auto-single');
@@ -27,7 +26,6 @@ it('allows credential-free bootstrap and asks for login when authentication is r
 });
 
 it('resolves consumer accounts independently and keeps the same three sources', async () => {
-  vi.stubEnv('PDD_CONSUMER_AUTH_STATE_PATH', 'ignored-synthetic-path');
   assert.equal((await resolveConsumerAccountContext({ needsAuth: false })).accountId, null);
   await assert.rejects(resolveConsumerAccountContext(), { code: 'E_CONSUMER_ACCOUNT_NOT_FOUND' });
   const first = insertAccount({ kind: 'consumer', identity: 'user-1', displayName: 'Consumer' });

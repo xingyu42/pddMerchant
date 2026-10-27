@@ -58,7 +58,7 @@ export function createScrapeCooldown({
     } catch { /* missing/corrupt → zeroed */ }
   }
 
-  // 原子落盘：每进程独立临时文件 + rename（对齐 account-registry）。临时名带 pid，
+  // 原子落盘：每进程独立临时文件 + rename。临时名带 pid，
   // 避免并发 CLI 互写同一 .tmp 引发半截/ENOENT（review Warning#3）。仍未加文件锁；
   // 并发 read-modify-write 的丢失更新至多轻微延后冷却，对"退避"语义可接受（非精确计数器）。
   function persist() {

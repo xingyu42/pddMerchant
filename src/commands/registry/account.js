@@ -11,8 +11,7 @@ export function register(program, wireAction) {
   wireAction(
     account.command('remove')
       .description('移除账号')
-      .requiredOption('--slug <slug>', '账号 slug')
-      .option('--remove-files', '同时删除账号目录'),
+      .requiredOption('--slug <slug>', '账号 slug'),
     'account.remove',
     accountCmd.remove
   );

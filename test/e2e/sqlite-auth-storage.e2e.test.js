@@ -88,7 +88,7 @@ it('sealed cookies stay out of database bytes, command output and diagnostic log
   }
 });
 
-it('requires login when no merchant account exists and ignores retired path environment overrides', () => {
+it('requires login when no merchant account exists', () => {
   const result = runCli(['orders', 'list'], { accounts: [] });
   assert.equal(result.envelope.error.code, 'E_AUTH_EXPIRED');
   assert.equal(result.status, 3);
@@ -135,7 +135,7 @@ it('hides the database path when account storage is inaccessible', () => {
   } finally { sandbox.dispose(); }
 });
 
-it.each([{ flags: [] }, { flags: ['--remove-files'] }])('account removal always cascades with legacy option $flags', ({ flags }) => {
+it('account removal cascades to all stored account data', () => {
   const sandbox = createCliSandbox();
   const previous = getDatabasePath();
   try {
@@ -146,8 +146,9 @@ it.each([{ flags: [] }, { flags: ['--remove-files'] }])('account removal always 
     putReloginState(1, { status: 'available' });
     insertPendingAction(1, { kind: 'human_verification', reason: 'synthetic' });
     const result = spawnSync(process.execPath, [join(projectRoot, 'bin/pdd.js'), 'account', 'remove',
-      '--slug', DEFAULT_ACCOUNT.slug, ...flags, '--json'], { cwd: projectRoot, env: sandbox.env, encoding: 'utf8', timeout: 15000 });
+      '--slug', DEFAULT_ACCOUNT.slug, '--json'], { cwd: projectRoot, env: sandbox.env, encoding: 'utf8', timeout: 15000 });
     assert.equal(result.status, 0);
+    assert.equal(result.stdout.trim().split(/\r?\n/).length, 1);
     assert.equal(JSON.parse(result.stdout).ok, true);
     for (const table of ['accounts', 'auth_states', 'credentials', 'relogin_states', 'pending_actions']) {
       assert.equal(get(`SELECT count(*) AS total FROM ${table}`).total, 0);
@@ -157,6 +158,48 @@ it.each([{ flags: [] }, { flags: ['--remove-files'] }])('account removal always 
     sandbox.dispose();
     openDatabase(previous);
   }
+});
+
+it('rejects account remove --remove-files as an unknown option without removing the account', () => {
+  const sandbox = createCliSandbox();
+  const previous = getDatabasePath();
+  try {
+    seedDb(sandbox.env.PDD_DB_PATH, { accounts: [DEFAULT_ACCOUNT],
+      authStates: [{ slug: DEFAULT_ACCOUNT.slug, state: { cookies: [], origins: [] } }] });
+    const result = spawnSync(process.execPath, [join(projectRoot, 'bin/pdd.js'), 'account', 'remove',
+      '--slug', DEFAULT_ACCOUNT.slug, '--remove-files', '--json'],
+      { cwd: projectRoot, env: sandbox.env, encoding: 'utf8', timeout: 15000 });
+    assert.equal(result.status, 2);
+    assert.equal(result.stdout.trim().split(/\r?\n/).length, 1);
+    const envelope = JSON.parse(result.stdout);
+    assert.equal(envelope.ok, false);
+    assert.equal(envelope.data, null);
+    assert.equal(envelope.meta.v, 2);
+    assert.equal(envelope.meta.exit_code, 2);
+    assert.equal(envelope.error.code, 'E_USAGE');
+    assert.equal(envelope.error.detail.commander_code, 'commander.unknownOption');
+    assert.match(envelope.error.message, /unknown option '--remove-files'/);
+    openDatabase(sandbox.env.PDD_DB_PATH);
+    assert.equal(get('SELECT count(*) AS total FROM accounts').total, 1);
+    assert.equal(get('SELECT count(*) AS total FROM auth_states').total, 1);
+  } finally {
+    closeDatabase();
+    sandbox.dispose();
+    openDatabase(previous);
+  }
+});
+
+it('account remove help lists the slug option without --remove-files', () => {
+  const sandbox = createCliSandbox();
+  try {
+    const result = spawnSync(process.execPath, [join(projectRoot, 'bin/pdd.js'), 'account', 'remove', '--help'],
+      { cwd: projectRoot, env: sandbox.env, encoding: 'utf8', timeout: 15000 });
+    assert.equal(result.status, 0);
+    assert.equal(result.stderr, '');
+    assert.match(result.stdout, /Usage: pdd account remove \[options\]/);
+    assert.match(result.stdout, /--slug <slug>/);
+    assert.equal(result.stdout.includes('--remove-files'), false);
+  } finally { sandbox.dispose(); }
 });
 
 it.each(['missing-key', 'damaged-state'])('doctor preserves explicit encrypted storage error for %s', (failure) => {

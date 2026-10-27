@@ -74,24 +74,6 @@ export function accountAmbiguous(slug, matches) {
   });
 }
 
-export function accountRegistryCorrupt(detail) {
-  return new PddCliError({
-    code: 'E_ACCOUNT_REGISTRY_CORRUPT',
-    message: 'Account registry (accounts.json) is corrupted or invalid',
-    detail,
-    exitCode: ExitCodes.GENERAL,
-  });
-}
-
-export function credentialDecryptFailed() {
-  return new PddCliError({
-    code: 'E_CREDENTIAL_DECRYPT_FAILED',
-    message: 'Failed to decrypt stored credentials — wrong master password or tampered ciphertext',
-    hint: 'Check PDD_MASTER_PASSWORD or re-add the account with "pdd account add"',
-    exitCode: ExitCodes.AUTH,
-  });
-}
-
 export function masterKeyMissing() {
   return new PddCliError({
     code: 'E_MASTER_KEY_MISSING',
