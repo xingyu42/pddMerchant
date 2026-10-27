@@ -1,0 +1,86 @@
+# 实施计划：daemon 与人工接管控制台
+
+设计见 `design.md`。后端由 Codex 编写、Claude 审查；前端（P5）与文档（P7）由 Claude 编写。每个阶段独立提交（需验证通过）。
+
+## 分支
+
+`feat/daemon-console`，基于 main（`894bf94` 之后）。
+
+## P1 基础设施
+
+- [ ] `db.js` v2 迁移（`console_tokens`、`console_sessions`），拒绝阈值改为 `> 2`；测试 v1 → v2 升级与高版本拒绝。
+- [ ] `leases.js` 增加 `staleBy: 'heartbeat'`；`timeoutMs: 0` 立即返回；测试。
+- [ ] `src/infra/daemon-state.js`：租约读写、心跳、停止请求、`meta` 键读写。
+- [ ] `logger.js` / `paths.js`：`channel: 'daemon'` → `log/daemon/`；`SECRET_KEYS` 增加 `token`、`pdd_console`；`REDACT_KEYS` 增加 `session`、`qr_image`、`jpeg`。
+- [ ] `config.js` + `config/config.example.json`：五个扁平键（design 第 9 节）。
+- [ ] `errors.js`：四个新错误工厂。
+
+验证：`npx vitest run test/infra/`。
+
+## P2 daemon 生命周期
+
+- [ ] `src/daemon/run.js` 主循环（抢租约、心跳、停止请求、信号、硬超时退出）。
+- [ ] `browser.js`：`launchBrowser({ ownerTag })` 启动参数标记；`cleanupOrphanBrowsers()`（Linux `/proc`、Windows `Get-CimInstance`）。
+- [ ] `src/commands/daemon.js` + `registry/daemon.js`：`start / stop / status / run`，契约 v2 视图。
+- [ ] runner：`daemon_not_running` 警告（仅当前账号有 open 待办时）。
+- [ ] 更新断言"没有 daemon"的测试（`merchant-auth.e2e.test.js`、`retired-auth-schedule.test.js`）。
+- [ ] e2e：重复 start 单实例、status、stop、强杀后短 TTL 过期再 start。
+
+验证：daemon 相关 e2e + `npm test`。
+
+## P3 控制台服务与鉴权
+
+- [ ] `src/daemon/server.js`：`node:http`、Host 校验、CSRF 头、请求体上限、`no-store`、静态文件前缀校验、`/healthz`。
+- [ ] `src/services/console-auth.js` + `src/commands/console.js`：`console link`、token 兑换、会话 Cookie。
+- [ ] 账号 API：列表、录入/清除密码、解除熔断（白名单视图）。
+- [ ] 测试：token 重放/过期/未绑定、401、421、CSRF、路径穿越；所有响应体与日志不含密码。
+
+验证：`npx vitest run test/daemon/ test/services/console-auth.test.js` + `npm test`。
+
+## P4 交互式重登、接管、扫码
+
+- [ ] `password-relogin.js`：导出 `deviceState`；`markManualLoginSucceeded` 清零接管超时计数。
+- [ ] `src/adapter/takeover.js`：screencast、指针重放、文字/按键（fake CDP 单测）。
+- [ ] `src/services/console-login.js`：password / qr 两种模式（design 第 6.1 节），10 分钟窗口、超时计数、熔断前置检查。
+- [ ] 会话 API 与 SSE；同账号单会话、全局最多 2 个。
+- [ ] fixture：无浏览器路径 + `fixture-complete` 测试路由。
+- [ ] e2e：挑战 → 接管 → 成功 → 待办关闭 → 普通命令成功；超时两次 → 熔断。
+
+验证：相关测试 + `npm test`。
+
+## P5 前端（Claude）
+
+- [ ] vendor Preact / hooks / htm（固定版本、LICENSE、来源、sha256）；`knip.json` 忽略。
+- [ ] 账号列表、账号详情、会话视图（画面、触点 50ms 打包、文字与按键、倒计时、二维码）。
+- [ ] 在 fixture daemon 上手动走通，截图记录。
+
+## P6 巡航（默认关闭）
+
+- [ ] `src/services/patrol.js`：浏览器同构路径、跳过被占用账号、抖动、写 `daemon_last_patrol_at`。
+- [ ] 测试：默认不运行；开启后按账号依次处理；失效时触发重登并遵守限频。
+
+## P7 文档与 spec（Claude）
+
+- [ ] design 第 14 节列出的全部文档与 spec。
+- [ ] 父任务 PRD 子任务表 ④ 状态；改正 R1.4 与背景中的短信描述。
+
+## 真机验证（逐项获得授权后执行）
+
+- [ ] N25 手机触屏轨迹过滑块、SSE 画面延迟。
+- [ ] N26 Linux 下 Hermes 以 systemd 运行时 daemon 是否随之被杀。
+- [ ] N27 强杀 node 后 Chromium 是否残留、启动清理是否生效；Windows `detached + windowsHide` 是否存活。
+- [ ] 结合 ③ 的移交：在接管视图里完成首次短信验证，观察之后的账密重登是否免短信；校准登录页选择器。
+
+## 最终审查与合并
+
+- [ ] 逐条核对 PRD 验收标准。
+- [ ] `trellis-check` 全量检查。
+- [ ] 安全审查：控制台鉴权、CSRF/Host、密码只写、日志脱敏、子进程与信号、遗留进程清理只匹配标记。
+- [ ] `git diff main...feat/daemon-console` 检查范围。
+- [ ] 本地 `--no-ff` 合并到 main，归档任务。
+
+## 风险与回滚点
+
+- v2 迁移不可降级：P1 提交后旧程序拒绝打开新库。
+- `src/commands/runner/*` 的警告改动影响所有命令：P2 后跑全量测试。
+- Windows 后台化方式取决于 N27；若 `detached` 不可靠，回退到 PowerShell `Start-Process`。

@@ -1,0 +1,16 @@
+{"file": ".trellis/spec/architecture/dependency-flow.md", "reason": "layering; src/daemon as an entry point that only calls services"}
+{"file": ".trellis/spec/architecture/runtime-lifecycle.md", "reason": "process lifecycle, signals and shutdown for the resident daemon"}
+{"file": ".trellis/spec/adapter/auth-mall-context.md", "reason": "lease + CAS commit, verifyMerchantContext, section 9 password relogin reused by console login and patrol"}
+{"file": ".trellis/spec/adapter/browser-runtime.md", "reason": "launchBrowser/createSnapshotContext, owner tag and orphan cleanup"}
+{"file": ".trellis/spec/adapter/fixture-mode.md", "reason": "fixture seams for daemon/console e2e without a browser"}
+{"file": ".trellis/spec/infra/sqlite-storage.md", "reason": "v2 migration, leases staleness, short sync transactions"}
+{"file": ".trellis/spec/infra/logging-redaction.md", "reason": "daemon log channel and new secret keys"}
+{"file": ".trellis/spec/infra/env-paths.md", "reason": "new flat config keys and env vars"}
+{"file": ".trellis/spec/infra/envelope-errors-output.md", "reason": "new error codes, warnings, one-line JSON"}
+{"file": ".trellis/spec/commands/command-contracts.md", "reason": "registering daemon/console command groups"}
+{"file": ".trellis/spec/commands/runner-lifecycle.md", "reason": "daemon_not_running warning wiring"}
+{"file": ".trellis/spec/services/domain-service-contracts.md", "reason": "whitelist views and data contract v2 for daemon/console outputs and API"}
+{"file": ".trellis/spec/standards/coding-style.md", "reason": "function size, nesting, naming"}
+{"file": ".trellis/spec/standards/dependencies.md", "reason": "no new runtime deps; vendored preact/htm justification"}
+{"file": ".trellis/spec/standards/testing.md", "reason": "vitest, isolated CLI sandbox, offline preload, contract guard"}
+{"file": ".trellis/tasks/archive/2026-10/10-27-password-relogin-core/research/real-login-experiment.md", "reason": "SMS sent on submit; device trust needs one human SMS pass"}
