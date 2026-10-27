@@ -1,4 +1,5 @@
 import { createDaemonRuntime } from '../services/daemon-runtime.js';
+import { createConsoleServer } from './server.js';
 
 function watchStop(signal, stop) {
   const signals = ['SIGINT', 'SIGTERM', process.platform === 'win32' ? 'SIGBREAK' : 'SIGHUP'];
@@ -74,7 +75,7 @@ async function runOwned(runtime, lease, { signal, components, exit, runtimeConfi
   return { stopped_reason: reason };
 }
 
-export async function runDaemon({ signal, components = [], exit = (code) => process.exit(code),
+export async function runDaemon({ signal, components = [createConsoleServer()], exit = (code) => process.exit(code),
   foreground = true, runtimeConfig } = {}) {
   const runtime = createDaemonRuntime({ foreground, runtimeConfig });
   try {

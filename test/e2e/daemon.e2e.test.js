@@ -3,13 +3,13 @@ import { it } from 'vitest';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { createDaemonSandbox, foregroundDaemon, waitForDaemon } from '../helpers/daemon-cli.js';
 
-it('starts exactly one detached daemon, reports status and stops through the database', () => {
-  const sandbox = createDaemonSandbox();
+it('starts exactly one detached daemon, reports status and stops through the database', async () => {
+  const sandbox = await createDaemonSandbox();
   try {
     const first = sandbox.cli('start').envelope;
     assert.equal(first.ok, true);
     assert.equal(first.data.started, true);
-    assert.equal(first.data.console_url, null);
+    assert.equal(first.data.console_url, `http://127.0.0.1:${sandbox.env.PDD_CONSOLE_PORT}`);
     const second = sandbox.cli('start').envelope;
     assert.equal(second.data.started, false);
     assert.equal(second.data.pid, first.data.pid);
@@ -25,7 +25,7 @@ it('starts exactly one detached daemon, reports status and stops through the dat
 });
 
 it('expires the heartbeat lease after process.kill and permits a fresh start', async () => {
-  const sandbox = createDaemonSandbox();
+  const sandbox = await createDaemonSandbox();
   try {
     const first = sandbox.cli('start').envelope.data;
     process.kill(first.pid, 'SIGKILL');
@@ -42,7 +42,7 @@ it('expires the heartbeat lease after process.kill and permits a fresh start', a
 });
 
 it('foreground run exits with one success envelope on stop_request and duplicate run', async () => {
-  const sandbox = createDaemonSandbox();
+  const sandbox = await createDaemonSandbox();
   const foreground = foregroundDaemon(sandbox);
   try {
     await waitForDaemon(sandbox);

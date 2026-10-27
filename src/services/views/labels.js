@@ -71,6 +71,10 @@ export const PASSWORD_RELOGIN_STATUS_LABEL = Object.freeze({
   available: '可用', awaiting_human: '等待人工', blocked: '已熔断',
 });
 
+export const PENDING_ACTION_KIND_LABEL = Object.freeze({
+  human_takeover: '人工接管', relogin_blocked: '重登熔断',
+});
+
 export const PASSWORD_RELOGIN_REASON_LABEL = Object.freeze({
   sms: '短信验证', slider: '滑块验证', click: '点选验证', risk_confirm: '风控确认',
   unknown: '未识别的验证', wrong_password: '密码错误', account_locked: '账号被锁', takeover_timeout: '接管超时',

@@ -1,7 +1,8 @@
 import {
   DAEMON_LEASE, acquireDaemonLease, heartbeatDaemon, releaseDaemonLease,
-  clearDaemonStopRequest, readDaemonStopRequest, purgeExpiredConsoleRows,
+  clearDaemonStopRequest, readDaemonStopRequest, purgeExpiredConsoleRows, clearDaemonMeta,
 } from '../infra/daemon-state.js';
+import { transaction } from '../infra/db.js';
 import { createLogger, DailyRotatingFileDestination, resolveDefaultLogDirectory } from '../infra/logger.js';
 import { cleanupOrphanBrowsers, closeAllBrowsers } from '../adapter/browser.js';
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
@@ -31,7 +32,7 @@ export function createDaemonRuntime({ foreground = true, runtimeConfig } = {}) {
     acquire: () => acquireDaemonLease(timings),
     heartbeat: (token) => heartbeatDaemon(token, timings),
     release: (token) => releaseDaemonLease(token, { clearStop: true }),
-    clearStop: clearDaemonStopRequest,
+    clearStop: () => transaction(() => { clearDaemonStopRequest(); clearDaemonMeta('daemon_console_url'); }),
     stopRequested: readDaemonStopRequest,
     purge: purgeExpiredConsoleRows,
     cleanupBrowsers: cleanupOrphanBrowsers,

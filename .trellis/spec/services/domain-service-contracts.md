@@ -250,3 +250,73 @@ listOrders(page, { page: 1, size: 50 }, ctx);                       // old defau
 const stats = computeOrderStats((await listOrders(page, { scope: 'all', page: 1, size: 50 }, ctx)).orders);
 // refund_count from after_sales_status === 5; null when the field is absent
 ```
+
+## Scenario: Console Authentication and Account API (P3)
+
+### 1. Scope / Trigger
+
+Applies to `services/console-*.js`, `services/views/console.js`, `daemon/server.js` and its HTTP/routing/static helpers, and `console link`. Interactive sessions and relogin/QR routes belong to P4.
+
+### 2. Signatures
+
+```js
+createConsoleLink({ accountId = null }) -> { url, expires_at }; // internal expires_at: ISO
+redeemConsoleToken(consoleToken) -> { sessionValue, accountSlug }; // sync, one transaction
+resolveConsoleSession(consoleSession) -> { account_id, created_at, expires_at } | null;
+consoleSessionCookie(consoleSession, runtimeConfig) -> string;
+getAuthStateMetadata(accountId) -> metadata | null; // adapter; no decryption
+createConsoleServer() -> { start(context), stop(), address() }; // daemon component
+```
+
+- `pdd console link [--account <slug>]` uses global `--account`, `needsAuth:false`, `needsBrowser:false`; v2 data is `{ headline, url, expires_at }`, with local `expires_at`.
+- `GET /api/accounts` returns `{ items: [...] }`; each item's keys equal `CONSOLE_ACCOUNT_VIEW_FIELDS`: `slug`, `display_name`, `mall_id`, `session_status`, `has_password`, `password_relogin_status`, `pending_actions`.
+- `POST /api/accounts/:slug/password` accepts `{ login_name, password }`, returns `{ ok:true, has_password:true }`; `/password/clear` returns `{ ok:true, has_password:false }`; `/unblock` returns `{ ok:true }`.
+
+### 3. Contracts
+
+- Generate 32 random bytes for token/session values; persist only SHA-256 hex hashes. Links last 10 minutes; sessions last 8 hours without renewal. One short synchronous transaction validates/consumes the token and inserts the session; insertion failure rolls back consumption. A null account binding is valid; the binding only chooses the landing page.
+- Keep raw secrets under `consoleToken` / `consoleSession` names. `sessionValue` is the redemption return field; destructure it immediately as `consoleSession`. The CLI link's `data.url` is the intentional secret-output exception and never enters logs.
+- Cookie: `pdd_console=<value>; HttpOnly; SameSite=Strict; Path=/`; add `Secure` only when `consolePublicUrl` is HTTPS.
+- Metadata reads use `getAuthStateMetadata`, without decrypting stored browser state. Prefer `metadata.last_check.verdict`, falling back to `check_verdict`; map verdicts and open action kinds/reasons through `labels.js`. Missing verdict is null; action timestamps are local strings. Reuse `formatPasswordReloginStatus`.
+- Password writes reuse existing credential services, immediately discard parsed body fields, and return fixed whitelisted data. All account sessions can operate all merchant accounts, including disabled accounts.
+- Only `GET /healthz` and `GET /c/:token` are public. Unauthenticated `/` returns a 401 HTML link hint. Redemption redirects to `/` or `/#/accounts/<slug>`; replay/expiry returns fixed 410 HTML.
+- Require the exact configured listen Host/port or public URL host; loopback listeners also accept `localhost`, `127.0.0.1`, `[::1]` with the listen port. POST writes require JSON plus `X-PDD-Console: 1`; cap the body at 64 KiB. Errors are `{ error:{ code, message } }` with Chinese messages and fixed safe fallbacks.
+- All final responses carry no-store/nosniff/no-referrer/DENY; HTML also carries the strict self-only CSP. Parser failures use a fixed secure 400 response. Static files come only from `console/public` and `/vendor/` -> `console/vendor`, with lexical and realpath prefix checks and an explicit MIME map, including `.mjs`.
+- `CONSOLE_ROUTES` owns method, route template, regex, public flag and handler. Future P4 routes go through the same guard. Access logs contain only method/template/status/duration; unknown paths use wildcard templates.
+
+### 4. Validation & Error Matrix
+
+| Condition | Result |
+| --- | --- |
+| Link creation without valid daemon lease/address | `E_DAEMON_NOT_RUNNING`, exit 1 |
+| Consumed, absent or malformed token | typed `E_CONSOLE_LINK_GONE`; HTTP 410 |
+| Token at/past expiry | typed `E_CONSOLE_LINK_EXPIRED`; HTTP 410 |
+| Absent, unknown or expired cookie | HTTP 401 |
+| Host mismatch | HTTP 421 |
+| Write method/header/content type invalid | HTTP 403 |
+| Body exceeds 65536 bytes / invalid JSON | HTTP 413 / 400 |
+| Unknown merchant slug | HTTP 404, `E_ACCOUNT_NOT_FOUND` |
+| Traversal, encoded traversal, absolute path, root-escaping symlink | HTTP 404 |
+| Listen EADDRINUSE | `E_CONSOLE_PORT_IN_USE` with port/address_in_use; component cleanup releases lease |
+
+### 5. Good/Base/Bad Cases
+
+- Good: list metadata even if the encrypted auth state is unreadable; reset/clear credentials through the existing password-relogin services.
+- Base: an unbound link opens `/` and can list all accounts; a bound link changes only the landing page.
+- Bad: log request URLs/headers/bodies, decrypt state merely to display a verdict, or normalize away traversal before checking path components.
+
+### 6. Tests Required
+
+- `test/services/console-auth.test.js`: replay, exact expiry, unknown/absent cookies, null/account binding, hashed storage, Secure flag, transactional rollback.
+- `test/daemon/server.test.js`, `static.test.js`: Host, CSRF, JSON/body limit, traversal/symlinks/MIME, security headers including parser failures, account whitelist/password actions, safe access templates, occupied port lease cleanup and owner-protected metadata.
+- `test/e2e/console.e2e.test.js`: random-port fixture daemon and temporary DB; start/link/redeem/list/password/replay/stop; plaintext credentials absent from responses, stdout/stderr, CLI/daemon logs and DB bytes; token/session absent from logs.
+- `data-contract-v2.test.js` covers `console.link`; daemon helpers allocate random ports and wait for the published URL. Run targeted tests and full `npm test`.
+
+### 7. Wrong vs Correct
+
+```js
+// Wrong: access logs retain a one-time link secret.
+log.info({ url: request.url, headers: request.headers });
+// Correct: only the stable route template is retained.
+log.info({ method, route: '/c/:token', status, duration_ms });
+```

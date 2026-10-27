@@ -113,6 +113,11 @@ export function getDaemonMeta(key) {
   return readMeta(key);
 }
 
+export function clearDaemonMeta(key) {
+  assertMetaKey(key);
+  return write(() => run('DELETE FROM meta WHERE key = ?', key).changes > 0);
+}
+
 export function purgeExpiredConsoleRows(now = Date.now()) {
   const expiresAt = new Date(now).toISOString();
   return write(() => ({

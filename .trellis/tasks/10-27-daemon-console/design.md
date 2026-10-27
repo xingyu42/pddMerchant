@@ -127,7 +127,8 @@ CREATE TABLE console_sessions (
 | POST | `/api/accounts/:slug/unblock` | `clearReloginBlock` |
 | POST | `/api/accounts/:slug/relogin` | 开始交互式重登，返回 `{ session_id }`（第 6 节） |
 | POST | `/api/accounts/:slug/qr` | 开始扫码登录，返回 `{ session_id }` |
-| GET | `/api/sessions/:id` | 会话状态：`filling` / `takeover` / `qr` / `verifying` / `succeeded` / `failed` / `timed_out`，`qr_image`（data URL，仅扫码态），`expires_at` |
+| GET | `/api/sessions/:id` | `{ state, message, remaining_seconds, expires_at, qr_image }`。state：`filling` / `takeover` / `qr` / `verifying` / `succeeded` / `failed` / `timed_out` / `cancelled`；`message` 为中文说明或 null；`qr_image` 为 data URL，仅扫码态 |
+| POST | `/api/sessions/:id/qr/refresh` | 扫码态下重新截取二维码 |
 | GET | `/api/sessions/:id/frames` | SSE：`event: frame`，`data: { jpeg: <base64>, width, height }` |
 | POST | `/api/sessions/:id/pointer` | `{ events: [{ t, type: 'down'|'move'|'up', x, y }] }`，x/y 为 0–1 归一化坐标 |
 | POST | `/api/sessions/:id/text` | `{ text }` 或 `{ key: 'Enter'|'Backspace'|'Tab' }` |

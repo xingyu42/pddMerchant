@@ -23,6 +23,7 @@ const { register: registerPromo } = await import('../src/commands/registry/promo
 const { register: registerDiagnose } = await import('../src/commands/registry/diagnose.js');
 const { register: registerAccount } = await import('../src/commands/registry/account.js');
 const { register: registerDaemon } = await import('../src/commands/registry/daemon.js');
+const { register: registerConsole } = await import('../src/commands/registry/console.js');
 
 let shuttingDown = false;
 let daemonForeground = false;
@@ -168,6 +169,7 @@ registerPromo(program, wireAction);
 registerDiagnose(program, wireAction);
 registerAccount(program, wireAction);
 registerDaemon(program, wireAction);
+registerConsole(program, wireAction);
 async function main() {
   try {
     await program.parseAsync(process.argv);

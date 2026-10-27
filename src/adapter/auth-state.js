@@ -27,6 +27,14 @@ function metadataOf(row) {
   };
 }
 
+export function getAuthStateMetadata(accountId) {
+  try {
+    const row = get(`SELECT bound_mall_id, usable, check_verdict, scope, checked_at,
+      last_check_verdict, last_check_reason, last_check_at FROM auth_states WHERE account_id = ?`, accountId);
+    return row ? metadataOf(row) : null;
+  } catch (error) { throw storageError(error); }
+}
+
 export function getAuthStateRevision(accountId) {
   try { return get('SELECT revision FROM auth_states WHERE account_id = ?', accountId)?.revision ?? 0; }
   catch (error) { throw storageError(error); }

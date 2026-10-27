@@ -4,6 +4,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { createCliSandbox } from './isolated-cli.js';
 import { assertEnvelopeShape } from './envelope-assertions.js';
+import { freeConsolePort } from './console-http.js';
 
 const cliPath = fileURLToPath(new URL('../../bin/pdd.js', import.meta.url));
 const preload = new URL('./offline-preload.js', import.meta.url).href;
@@ -17,14 +18,20 @@ export function parseDaemonResult(result) {
   return { ...result, envelope };
 }
 
-export function createDaemonSandbox() {
+export async function createDaemonSandbox() {
   const sandbox = createCliSandbox();
   Object.assign(sandbox.env, { PDD_TEST_DAEMON_LEASE_TTL_MS: '3000', PDD_TEST_DAEMON_HEARTBEAT_MS: '100',
-    NODE_OPTIONS: `--import=${preload}` });
+    PDD_CONSOLE_PORT: String(await freeConsolePort()), NODE_OPTIONS: `--import=${preload}` });
   const cli = (action) => parseDaemonResult(spawnSync(process.execPath, [cliPath, 'daemon', action, '--json'], {
     cwd: sandbox.root, env: sandbox.env, encoding: 'utf8', timeout: 25000, windowsHide: true,
   }));
   return { ...sandbox, cli };
+}
+
+export function consoleLink(sandbox, args = []) {
+  return parseDaemonResult(spawnSync(process.execPath, [cliPath, 'console', 'link', ...args, '--json'], {
+    cwd: sandbox.root, env: sandbox.env, encoding: 'utf8', timeout: 15000, windowsHide: true,
+  }));
 }
 
 export function foregroundDaemon(sandbox) {
@@ -47,14 +54,14 @@ export function foregroundDaemon(sandbox) {
 
 export async function waitForDaemon(sandbox) {
   for (let attempt = 0; attempt < 30; attempt++) {
-    if (sandbox.cli('status').envelope.data.running) return;
+    if (sandbox.cli('status').envelope.data.console_url) return;
     await sleep(100);
   }
   assert.fail('foreground daemon did not acquire its lease');
 }
 
 export async function runDaemonContract(action) {
-  const sandbox = createDaemonSandbox();
+  const sandbox = await createDaemonSandbox();
   let foreground;
   try {
     if (action !== 'run') return sandbox.cli(action);
@@ -67,4 +74,12 @@ export async function runDaemonContract(action) {
     if (foreground && foreground.child.exitCode === null) foreground.child.kill();
     sandbox.dispose();
   }
+}
+
+export async function runConsoleLinkContract() {
+  const sandbox = await createDaemonSandbox();
+  try {
+    sandbox.cli('start');
+    return consoleLink(sandbox);
+  } finally { sandbox.cli('stop'); sandbox.dispose(); }
 }

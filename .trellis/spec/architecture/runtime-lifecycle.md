@@ -120,7 +120,7 @@ Applies to `src/daemon/run.js`, daemon commands/services, process adapters and d
 ### 2. Signatures
 
 ```js
-runDaemon({ signal, components = [], exit, foreground = true, runtimeConfig })
+runDaemon({ signal, components = [createConsoleServer()], exit, foreground = true, runtimeConfig })
 // -> { stopped_reason } | { status: 'already_running' }
 // component.start({ signal, ownerTag, log, runtimeConfig }); component.stop();
 withCommand({ needsAuth: false, needsMall: 'none', needsBrowser: false, ... })
@@ -130,10 +130,10 @@ withCommand({ needsAuth: false, needsMall: 'none', needsBrowser: false, ... })
 
 ### 3. Contracts
 
-- `src/daemon/` is a commands-level entry point; its runtime dependencies come through services. Components start in order and stop in reverse order, including a component whose startup failed. P2 passes an empty list; P3 can add the HTTP component. P2 leaves `daemon_console_url` unset.
+- `src/daemon/` is a commands-level entry point; its runtime dependencies come through services. Components start in order and stop in reverse order, including a component whose startup failed. P3 defaults to the HTTP component; tests may inject an explicit empty list. HTTP startup publishes `daemon_console_url`, and shutdown clears it only for the current owner.
 - Acquire the heartbeat lease, immediately clear stale stop requests, then clean marked orphan browsers. Contention returns `already_running` with exit 0. Heartbeat every 30 seconds renews a 90-second lease, checks stop requests and purges expired console rows.
 - SIGINT/SIGTERM and platform-specific SIGBREAK (Windows) or SIGHUP initiate shutdown. Daemon run owns these signals instead of the ordinary CLI signal handler. Stop components, close browsers, then atomically release the owned lease and clear its stop request; a replacement owner's request stays intact. A five-second hard deadline calls the injected `exit(1)` (production: `process.exit`).
-- `start` detaches a hidden process with ignored stdio, inherits env, calls `unref()` and polls at 200ms for ten seconds. `stop` requests cooperative shutdown and polls at 500ms for fifteen seconds, then rechecks owner token, host and unexpired heartbeat in a short synchronous transaction before killing the pid and deleting only the matching row.
+- `start` clears a stopped instance's stale console address in a short transaction, detaches a hidden process with ignored stdio, inherits env, calls `unref()` and polls at 200ms for ten seconds. Readiness requires both a valid lease and a published console address. `stop` requests cooperative shutdown and polls at 500ms for fifteen seconds, then rechecks owner token, host and unexpired heartbeat in a short synchronous transaction before killing the pid and deleting only the matching row.
 - Status fields: `headline`, `running`, `pid`, `started_at`, `heartbeat_at`, `last_patrol_at`, `console_url`, `patrol_enabled`. `_at` values use Asia/Shanghai local strings; missing values are null. Start adds `started`; stop returns `stopped`, `running` and optional `forced`; run returns `stopped_reason`.
 - Fixture-only timing seams: `PDD_TEST_DAEMON_LEASE_TTL_MS` and `PDD_TEST_DAEMON_HEARTBEAT_MS` accept positive safe integers in milliseconds. `daemonTimings()` guards both with `isMockEnabled()`; invalid values fall back to 90000/30000, and live mode ignores both variables. Timing overrides flow explicitly to infra lease helpers.
 - Daemon logs use `channel:'daemon'`; foreground mode tees the existing rotating file destination to stderr through the logger's writable `destination` option. Stdout stays one envelope when the command exits.

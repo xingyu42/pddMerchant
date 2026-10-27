@@ -1,8 +1,9 @@
 import { hostname } from 'node:os';
 import {
   readDaemonLease, requestDaemonStop, readDaemonOwnerToken, withDaemonLeaseOwner,
-  deleteDaemonLease, getDaemonMeta,
+  deleteDaemonLease, getDaemonMeta, clearDaemonMeta,
 } from '../infra/daemon-state.js';
+import { transaction } from '../infra/db.js';
 import { abortableSleep } from '../infra/abort.js';
 import { daemonStartTimeout, daemonStopTimeout } from '../infra/errors.js';
 import { spawnDaemonProcess, killDaemonProcess } from '../adapter/daemon-process.js';
@@ -31,10 +32,16 @@ async function pollLease(predicate, intervalMs, timeoutMs, signal) {
 }
 
 export async function startDaemon({ signal, runtimeConfig } = {}) {
-  if (daemonIsRunning()) return toDaemonStartView(getDaemonStatus(runtimeConfig), false);
-  spawnDaemonProcess();
-  if (!await pollLease((lease) => lease?.running, 200, 10_000, signal)) throw daemonStartTimeout();
-  return toDaemonStartView(getDaemonStatus(runtimeConfig), true);
+  const started = transaction(() => {
+    if (daemonIsRunning()) return false;
+    clearDaemonMeta('daemon_console_url');
+    return true;
+  });
+  if (started) spawnDaemonProcess();
+  if (!await pollLease((lease) => lease?.running && Boolean(getDaemonMeta('daemon_console_url')), 200, 10_000, signal)) {
+    throw daemonStartTimeout();
+  }
+  return toDaemonStartView(getDaemonStatus(runtimeConfig), started);
 }
 
 function forceStop(token) {
@@ -49,7 +56,7 @@ function forceStop(token) {
     catch (error) {
       if (error?.code !== 'ESRCH') throw daemonStopTimeout({ pid: lease.pid, reason: 'kill_failed' });
     }
-    deleteDaemonLease(token);
+    if (deleteDaemonLease(token)) clearDaemonMeta('daemon_console_url');
     return toDaemonStopView(true, true);
   });
 }

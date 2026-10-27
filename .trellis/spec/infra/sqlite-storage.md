@@ -166,7 +166,7 @@ deleteDaemonLease(token) -> boolean; // owner-token CAS; clears stop request onl
 readDaemonLease() -> { running, pid, hostname, acquired_at, heartbeat_at, expires_at } | null;
 requestDaemonStop() -> requestedAt; // ISO string
 readDaemonStopRequest() -> string | null; clearDaemonStopRequest() -> boolean;
-setDaemonMeta(key, value); getDaemonMeta(key) -> string | null;
+setDaemonMeta(key, value); getDaemonMeta(key) -> string | null; clearDaemonMeta(key) -> boolean;
 purgeExpiredConsoleRows(now = Date.now()) -> { tokens, sessions }; // deleted row counts
 ```
 

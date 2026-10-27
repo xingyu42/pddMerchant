@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { hostname } from 'node:os';
 import { beforeEach, it, vi } from 'vitest';
 import { run } from '../../src/infra/db.js';
-import { acquireDaemonLease, readDaemonLease, readDaemonOwnerToken } from '../../src/infra/daemon-state.js';
+import { acquireDaemonLease, readDaemonLease, readDaemonOwnerToken, setDaemonMeta, getDaemonMeta } from '../../src/infra/daemon-state.js';
 import { startDaemon, stopDaemon, getDaemonStatus } from '../../src/services/daemon.js';
 import { spawnDaemonProcess, killDaemonProcess } from '../../src/adapter/daemon-process.js';
 
@@ -11,6 +11,7 @@ beforeEach(() => { spawnDaemonProcess.mockReset(); killDaemonProcess.mockReset()
 
 async function activeLease(host = hostname()) {
   await acquireDaemonLease();
+  setDaemonMeta('daemon_console_url', 'http://127.0.0.1:47821');
   run('UPDATE leases SET pid = ?, hostname = ? WHERE scope = ?', 12345, host, 'daemon');
 }
 
@@ -31,10 +32,27 @@ it('returns existing status without spawning or leaking owner tokens', async () 
 
 it('polls until the child acquires the lease and reports started', async () => {
   vi.useFakeTimers();
-  spawnDaemonProcess.mockImplementation(() => { setTimeout(() => acquireDaemonLease(), 300); });
+  spawnDaemonProcess.mockImplementation(() => { setTimeout(async () => {
+    await acquireDaemonLease();
+    setDaemonMeta('daemon_console_url', 'http://127.0.0.1:47821');
+  }, 300); });
   const result = await advance(startDaemon(), 400);
   assert.equal(result.started, true);
   assert.equal(spawnDaemonProcess.mock.calls.length, 1);
+});
+
+it('clears a stale address and waits for the new listener to publish its URL', async () => {
+  vi.useFakeTimers();
+  setDaemonMeta('daemon_console_url', 'http://stale.example');
+  spawnDaemonProcess.mockImplementation(() => {
+    acquireDaemonLease();
+    setTimeout(() => setDaemonMeta('daemon_console_url', 'http://127.0.0.1:47821'), 600);
+  });
+  const pending = startDaemon();
+  await vi.advanceTimersByTimeAsync(200);
+  assert.equal(getDaemonStatus().console_url, null);
+  const result = await advance(pending, 400);
+  assert.equal(result.console_url, 'http://127.0.0.1:47821');
 });
 
 it('times out after ten seconds if the child never acquires', async () => {
@@ -65,6 +83,7 @@ it('force kills a same-host live lease and deletes only its owner row', async ()
   assert.equal(result.forced, true);
   assert.deepEqual(killDaemonProcess.mock.calls, [[12345]]);
   assert.equal(readDaemonLease(), null);
+  assert.equal(getDaemonMeta('daemon_console_url'), null);
 });
 
 it('rejects foreign-host force stop with safe detail', async () => {

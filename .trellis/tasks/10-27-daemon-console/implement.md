@@ -41,12 +41,14 @@ P2 执行结果（2026-10-27）：`npm test` 全量 53 个文件通过，871 项
 
 ## P3 控制台服务与鉴权
 
-- [ ] `src/daemon/server.js`：`node:http`、Host 校验、CSRF 头、请求体上限、`no-store`、静态文件前缀校验、`/healthz`。
-- [ ] `src/services/console-auth.js` + `src/commands/console.js`：`console link`、token 兑换、会话 Cookie。
-- [ ] 账号 API：列表、录入/清除密码、解除熔断（白名单视图）。
-- [ ] 测试：token 重放/过期/未绑定、401、421、CSRF、路径穿越；所有响应体与日志不含密码。
+- [x] `src/daemon/server.js`：`node:http`、Host 校验、CSRF 头、请求体上限、`no-store`、静态文件前缀校验、`/healthz`。
+- [x] `src/services/console-auth.js` + `src/commands/console.js`：`console link`、token 兑换、会话 Cookie。
+- [x] 账号 API：列表、录入/清除密码、解除熔断（白名单视图）。
+- [x] 测试：token 重放/过期/未绑定、401、421、CSRF、路径穿越；所有响应体与日志不含密码。
 
 验证：`npx vitest run test/daemon/ test/services/console-auth.test.js` + `npm test`。
+
+P3 执行结果（2026-10-28）：最终定向 6 个文件、54 项通过；`npm test` 全量 57 个文件、904 项通过、1 项平台跳过；`git diff --check` 通过。账号列表响应为 `{ items: [...] }`，与并行 P5 前端约定对齐；默认组件启用 HTTP 服务，start 等待地址就绪，停止按租约归属清理地址。详见 `p3-report.md`。未提交，`CLAUDE.md` 保持原样；P4 与 P5 页面仍由后续阶段承接。
 
 ## P4 交互式重登、接管、扫码
 
