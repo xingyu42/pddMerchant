@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/infra/logging-redaction.md", "reason": "verify no password/login name leaks via logs, PDD_DEBUG_RAW, errors"}
+{"file": ".trellis/spec/infra/envelope-errors-output.md", "reason": "error codes, exit codes, warnings shape, one-line stdout"}
+{"file": ".trellis/spec/adapter/auth-mall-context.md", "reason": "lease ownership before writes, CAS commit, no unverified persistence"}
+{"file": ".trellis/spec/infra/sqlite-storage.md", "reason": "no await inside transaction, AAD binding, no path/ciphertext in output"}
+{"file": ".trellis/spec/commands/runner-lifecycle.md", "reason": "runner lifecycle invariants after deadline pause and context swap"}
+{"file": ".trellis/spec/services/domain-service-contracts.md", "reason": "data contract v2 for new view fields"}
+{"file": ".trellis/spec/standards/testing.md", "reason": "required tests and isolation"}

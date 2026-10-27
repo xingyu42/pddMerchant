@@ -1,0 +1,12 @@
+{"file": ".trellis/spec/architecture/dependency-flow.md", "reason": "layering commands -> services -> adapter -> infra for new relogin service and adapters"}
+{"file": ".trellis/spec/adapter/auth-mall-context.md", "reason": "merchant auth lifecycle, lease + CAS commit, verifyMerchantContext and candidate rules reused by relogin"}
+{"file": ".trellis/spec/infra/sqlite-storage.md", "reason": "credentials/relogin_states/pending_actions tables, secret-box AAD, sync short transactions"}
+{"file": ".trellis/spec/infra/logging-redaction.md", "reason": "password-class keys switch to fixed [REDACTED]"}
+{"file": ".trellis/spec/infra/envelope-errors-output.md", "reason": "new error codes, exit 3, meta.warnings object entries, one-line JSON"}
+{"file": ".trellis/spec/infra/env-paths.md", "reason": "new config field and PDD_TEST_PASSWORD_LOGIN* env vars"}
+{"file": ".trellis/spec/commands/runner-lifecycle.md", "reason": "withCommand single/batch lifecycle where relogin, deadline pause and action warnings plug in"}
+{"file": ".trellis/spec/adapter/browser-runtime.md", "reason": "createSnapshotContext / launchBrowser usage for the empty relogin context"}
+{"file": ".trellis/spec/adapter/fixture-mode.md", "reason": "fixture seams for mockPasswordLogin and marker-cookie auth validity"}
+{"file": ".trellis/spec/services/domain-service-contracts.md", "reason": "view whitelist, labels and data contract v2 for account list / doctor fields"}
+{"file": ".trellis/spec/standards/coding-style.md", "reason": "function size, nesting, naming"}
+{"file": ".trellis/spec/standards/testing.md", "reason": "vitest conventions, isolated CLI sandbox with temp PDD_DB_PATH, contract guard"}

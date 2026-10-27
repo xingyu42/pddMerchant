@@ -79,7 +79,7 @@
 |---|---|---|---|---|
 | ① | `10-27-remove-login-token-consumption` | 清理前置 | 无 | 已完成并归档 |
 | ② | `10-27-sqlite-auth-storage` | R2、R6.3 部分 | ① | 已完成并归档（2026-10-27 合并到 main，`e09c783`） |
-| ③ | `10-27-password-relogin-core` | R1、R5.2、R5.3 | ② | 规划中（② 已落定表结构，可细化 design/implement；移交项：日志中密码类字段改为固定 `[REDACTED]`） |
+| ③ | `10-27-password-relogin-core` | R1、R5.2、R5.3 | ② | 规划中（prd/design/implement 已完成，待审批启动；已纳入移交项：日志中密码类字段改为固定 `[REDACTED]`） |
 | ④ | `10-27-daemon-console` | R3、R4、R5.1、R6.1、R6.2 | ③ | 规划中（移交项：租约 pid 复用时的阻塞，随心跳续期一并处理） |
 | ⑤ | `10-27-session-lifetime-research` | 根因调研 | 无（可并行） | 规划中 |
 
