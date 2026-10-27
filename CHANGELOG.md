@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **商家账号密码自动重登**：账号保存了密码时，普通命令发现商家登录态失效会在同一条命令内用账密重登一次，成功后命令继续完成；重登耗时不计入 `--timeout`，单次最长 90 秒。重登从账号已保存的设备状态（去掉会话 Cookie）开始，保留设备信任。密码录入入口由后续控制台提供，当前版本没有录入命令。
+- **遇到验证一律转人工**：短信、滑块、点选、风控确认或无法识别的页面返回 `E_AUTH_HUMAN_REQUIRED`（退出码 3），并暂停该账号的自动重登，直到用户完成登录。
+- **熔断**：密码错误或账号被锁返回 `E_AUTH_RELOGIN_BLOCKED`（退出码 3），之后不再尝试，直到用户重设密码或解除熔断；也可随时 `pdd login --qr` 扫码登录。
+- **限频**：同一账号两次尝试至少间隔 30 分钟，可用配置 `passwordReloginMinIntervalMs` / 环境变量 `PDD_PASSWORD_RELOGIN_MIN_INTERVAL_MS` 调整；窗口内返回的错误附 `detail.relogin = 'throttled'` 与 `next_attempt_at`。
+- **并发复用**：多个进程同时发现同一账号失效时只登录一次，其余进程等待并复用新的登录态。
+- **待办提醒**：需要认证的命令会在 `meta.warnings` 中附 `{ code: 'account_action_required', account, reason }`，提示该账号有待用户处理的事项（成功与失败均会附带）。
+- **输出字段**：`account list` 每项新增 `has_password`、`password_relogin_status`；`doctor` 新增 `password_relogin = { has_password, status }`，`accounts[]` 每项新增同样两项。状态为中文，例如 `可用`、`等待人工：短信验证`、`已熔断：密码错误`。`doctor` 与 `account list` 不触发重登。
+- **新错误码**（均为退出码 3）：`E_AUTH_HUMAN_REQUIRED`、`E_AUTH_RELOGIN_BLOCKED`、`E_AUTH_RELOGIN_FAILED`；`E_PASSWORD_LOGIN_FORM_CHANGED` 文案改为中文。
+
+### Changed
+
+- **脱敏**：`password`、`credential(s)`、`login_name` / `loginName`、`masterPassword`、`master_key`、`password_sealed` 在日志与调试输出中固定为 `[REDACTED]`，不再输出可被枚举的指纹。
+
+### Removed
+
+- 无调用方的 `E_AUTH_CHALLENGE_REQUIRED`（`authChallengeRequired`）。
+
+---
+
 ## V0.5 Migration Notes
 
 > V0.4 → V0.5 的对外变更清单。升级到 `0.5.0` 后，请重新登录每个商家和消费者账号。

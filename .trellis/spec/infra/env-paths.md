@@ -25,6 +25,10 @@ PDD_FULL_COUNT_DISCOUNT_RATE=<0.50-0.99|50-99>
 PDD_SOURCE_PROXY_PROVIDER=qingguo
 PDD_QINGGUO_AUTH_KEY=<extraction-auth-key>
 PDD_QINGGUO_AREA=<six-digit-area-codes>
+PDD_PASSWORD_RELOGIN_MIN_INTERVAL_MS=<ms>   # passwordReloginMinIntervalMs，正整数，默认 1800000
+PDD_TEST_PASSWORD_LOGIN=<outcome>           # fixture only，见 adapter/fixture-mode.md
+PDD_TEST_PASSWORD_LOGIN_DELAY_MS=<ms>       # fixture only
+PDD_TEST_PASSWORD_LOGIN_TRACE=<file>        # fixture only
 PLAYWRIGHT_DOWNLOAD_HOST=<url>
 ```
 
@@ -40,6 +44,8 @@ config/config.example.json (required)
 普通 CLI MUST 使用 `src/infra/config.js` 的严格 loader。纳入 Schema 的公开环境变量只允许在该模块集中映射；service/adapter MUST 通过冻结的 `runtimeConfig` 或显式参数消费，禁止再次直接读取对应 `process.env` 或复制默认值。商家认证后台已移除；旧本地 refreshIntervalMs/refreshJitterMs/authStatePath 仅兼容忽略，不映射对应环境变量、不暴露为公开字段（`config set` 这些字段返回未知字段），其他未知键仍拒绝。
 
 `PDD_DB_PATH` 不属于公开运行配置 Schema：它在 `src/infra/paths.js` 解析为 `DB_PATH`（`resolve()` 后的绝对路径），主密钥固定为 `dirname(DB_PATH)/master.key`。0.5.0 已删除 `PDD_AUTH_STATE_PATH`、`PDD_CONSUMER_AUTH_STATE_PATH`、`PDD_ACCOUNTS_DIR`、`PDD_CONSUMER_ACCOUNTS_DIR`、`PDD_ACCOUNT_REGISTRY_PATH`、`PDD_CONSUMER_ACCOUNT_REGISTRY_PATH`、`PDD_ALLOW_INSECURE_AUTH_STATE`、`PDD_MASTER_PASSWORD`，不得重新加入读取点。
+
+`passwordReloginMinIntervalMs`（env `PDD_PASSWORD_RELOGIN_MIN_INTERVAL_MS`）是同一账号两次自动重登尝试之间的最短间隔，默认值只由 `config/config.example.json` 持有（1800000，即 30 分钟），经 `runtimeConfig` 传给 `decideRelogin`；非正整数在严格 loader 中报配置错误。`decideRelogin` 收到缺失或非法值时按 30 分钟处理，避免测试或直接调用绕过限频。重登自身预算为 `TIMEOUTS.LOGIN_PASSWORD = 90_000`（`src/infra/timeouts.js`），不可配置。
 
 `consumerLoginUrl` 的默认值 MUST 只由 `config/config.example.json` 持有，`PDD_CONSUMER_LOGIN_URL` 只作为更高优先级覆盖。登录 command/service MUST 沿调用链显式传入 URL，消费者登录 adapter 不得保留模块级默认地址。
 
@@ -89,6 +95,7 @@ tmp/goods-publish-source-cache/<numeric-goods-id>.json
 | no merchant account and the command needs auth | `E_AUTH_EXPIRED` with `pdd login` hint                           |
 | retired storage env var is set                  | ignored (no reader exists)                                       |
 | numeric env invalid or negative                 | usage/config error, no platform request                          |
+| `PDD_PASSWORD_RELOGIN_MIN_INTERVAL_MS` not a positive integer | config error; nothing runs                           |
 | full-count discount outside range or not representable as an integer percent | `E_CONFIG_INVALID`, no platform request |
 | Qingguo provider enabled with missing credential on cache miss | `E_USAGE` before cost-template, proxy, or PDD live requests |
 | unsupported source proxy provider on cache miss | `E_USAGE`, no direct fallback                                    |

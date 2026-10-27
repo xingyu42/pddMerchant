@@ -127,7 +127,7 @@ export function isMockEnabled() {
 
 适用于修改商家认证检查、登录、doctor、命令回写和账号租约。认证后台、daemon 命令、定时 refresher 和自动启动已移除；不得重引入后台依赖。
 
-LoginToken 消费路径（任务 10-11）已于 2026-10-27 放弃：实测未过期会话也恢复不了，服务端过期后无法续期。不保留独立 Token 来源，也不从保存材料重建工作 Cookie；后续由账密重登（任务 10-27-password-relogin-console）承接。
+LoginToken 消费路径（任务 10-11）已于 2026-10-27 放弃：实测未过期会话也恢复不了，服务端过期后无法续期。不保留独立 Token 来源，也不从保存材料重建工作 Cookie；后续由账密重登承接，见第 9 节。
 
 ### 2. Signatures
 
@@ -254,4 +254,147 @@ const account = findAccountByIdentity('merchant', mallId) ?? insertAccount({ ide
 if (initial && (account?.id !== initial.accountId || getAuthStateRevision(account.id) !== initial.revision)) {
   throw authStateConflict();
 }
+```
+
+## 9. Scenario: Implicit Password Relogin and Circuit Breaker
+
+### 1. Scope / Trigger
+
+Applies when changing password credential storage, the password login adapter, `services/password-relogin.js`, the relogin step inside `withCommand()`, lease waiting during relogin, or `relogin_states` / `pending_actions` writes. Origin: task `10-27-password-relogin-core`.
+
+Real-account findings (2026-10-27): submitting the password form from a blank context triggered SMS verification, and the SMS was sent by the submit itself. A saved device state without `PASS_ID` stalled unclassified for 90s. Device trust appears to require one human SMS pass on the same device state (task ④ takeover view); until then, live relogin is expected to end in `awaiting_human`.
+
+### 2. Signatures
+
+```js
+// adapter/password-credential.js — AAD aad('credentials', accountId); sealed plaintext { v: 1, login_name, password }
+savePasswordCredential(accountId, { loginName, password }); // non-empty strings <= 128 chars, else E_USAGE without values
+loadPasswordCredential(accountId) -> { loginName, password } | null; // decrypt failure: E_SECRET_DECRYPT_FAILED
+hasPasswordCredential(accountId) -> boolean;                // row existence only, never decrypts
+deletePasswordCredential(accountId);
+
+// adapter/password-login.js — one submit click; classified results are returned, only cancel/timeout throws
+attemptPasswordLogin(page, { loginName, password }, { signal, deadlineAt }) ->
+  { outcome: 'success' }
+  | { outcome: 'challenge', challenge: 'sms' | 'slider' | 'click' | 'risk_confirm' | 'unknown' }
+  | { outcome: 'wrong_password' | 'account_locked' | 'form_changed' | 'network_error' };
+
+// services/password-relogin.js
+decideRelogin(accountId, { now, minIntervalMs, authResult })
+  -> { action: 'attempt', credential, credentialUpdatedAt } | { action: 'fail', error }; // sync, read-only
+recordReloginAttempt(tx);                                  // sync; last_attempt_at before browser work
+recordReloginOutcome(tx, outcome, { credentialUpdatedAt }) -> PddCliError | null; // sync
+reloginInCommand(runtime, tx, browser, authResult) -> { context, page }; // live; lease already held
+reloginForFixture(accountId, runtime);                     // fixture; takes its own lease
+markManualLoginSucceeded(accountId);                       // saveMerchantLogin, existing account only
+// reserved for task ④ (implemented and tested in ③)
+setAccountPassword(accountId, { loginName, password });
+clearAccountPassword(accountId);
+clearReloginBlock(accountId);
+recordTakeoverTimeout(accountId);
+getReloginSummary(accountId) -> { has_password, status, reason, last_attempt_at };
+getAccountActionWarnings(accountId, slug) -> [{ code: 'account_action_required', account, reason }];
+```
+
+### 3. Contracts
+
+- ③ has no CLI entry that accepts a password. Credentials reach the DB only through `setAccountPassword` (④ console) or test helpers.
+- Relogin runs only for `needsAuth` commands, only after `assertAuthValid` returns `rejected` (including `known_rejected`). `indeterminate` never triggers relogin. doctor, `account list` and other `needsAuth:false` commands never relogin and never append action warnings.
+- Decision order is fixed:
+  1. no credential → the original `E_AUTH_EXPIRED` (prompt `pdd login`);
+  2. `blocked` → `E_AUTH_RELOGIN_BLOCKED`;
+  3. `awaiting_human` → `E_AUTH_HUMAN_REQUIRED`;
+  4. within `passwordReloginMinIntervalMs` of `last_attempt_at` → error rebuilt from the last reason (`success` → `E_AUTH_EXPIRED`, `form_changed` → `E_PASSWORD_LOGIN_FORM_CHANGED`, other → `E_AUTH_RELOGIN_FAILED`) with detail `{ relogin: 'throttled', next_attempt_at }`;
+  5. otherwise attempt. The credential is decrypted only here.
+- State machine (`relogin_states`; a missing row means `available`):
+
+| Event | status | reason | Side effects |
+| --- | --- | --- | --- |
+| attempt starts | unchanged | unchanged | `last_attempt_at = now` before browser work, so a crash still counts |
+| success | available | `success` | takeover-timeout counter reset |
+| challenge | awaiting_human | challenge type | open `human_takeover` action |
+| wrong_password / account_locked | blocked | same | open `relogin_blocked` action |
+| form_changed / network_error / verify_failed | available | same | no breaker |
+| manual login (N9a) | awaiting_human → available | `manual_login` | resolves `human_takeover`; `blocked` stays |
+| `setAccountPassword` | available | `password_reset` | `last_attempt_at = null`, counter reset, resolves all open actions |
+| `clearAccountPassword` | available | `password_cleared` | deletes credential, resolves all open actions |
+| `clearReloginBlock` | blocked → available | `manual_unblock` | `last_attempt_at = null`, counter reset, resolves `relogin_blocked` |
+| `recordTakeoverTimeout` | counter +1; at 2 → blocked | `takeover_timeout` | opens `relogin_blocked`; an existing block is kept as is |
+
+- At most one open pending action per `(account, kind)`; a duplicate insert keeps the existing row.
+- State and action writes run in one short synchronous transaction after `assertLeaseOwner('account', accountId, tx.token)`.
+- Stale-outcome guard: when `credentials.updated_at` differs from `credentialUpdatedAt` captured at decision time, blocking outcomes (`awaiting_human` / `blocked`) are skipped and only the error is returned, so a password reset during an attempt wins.
+- The live relogin context is device-continuous: `tx.state` cookies/origins with every `PASS_ID` cookie removed. Only a corrupt or shape-invalid state falls back to an empty context.
+- On `success` the login page closes and `verifyMerchantContext(newContext, { expectedMallId: tx.recoveryMallId })` must return `verified`; then `commitMerchantCandidate` → outcome `success` → `renewLease`. Non-verified → `verify_failed` / `E_AUTH_RELOGIN_FAILED`; identity mismatch surfaces as `E_ACCOUNT_IDENTITY_MISMATCH`. The runner swaps to the returned `{ context, page }` and closes the old context; failure paths close the new context.
+- Budget: relogin has its own `TIMEOUTS.LOGIN_PASSWORD` (90s) budget. The command deadline is paused with `armDeadline().pause()` and resumed in `finally`; SIGINT still aborts through the combined signal.
+- Lease wait: a waiter extends past its normal 15s wait only while the holder's `last_attempt_at` is within `LOGIN_PASSWORD`, up to `last_attempt_at + LOGIN_PASSWORD + 15s`, still bounded by its own `deadlineAt` and signal. After acquiring, it reads the new revision, verifies it and does not log in again.
+- Adapter: challenge detection reads visible DOM only — no click, drag or "send code" after the single submit click. A state still unclassified at the deadline is `challenge: 'unknown'` (go to a human, never retry blindly). Raw Playwright errors map to fixed reasons; `err.message` never reaches logs or envelopes.
+- Action warnings: for needsAuth commands, on both success and error paths (live and fixture), every open action of the account actually used becomes `{ code: 'account_action_required', account: slug, reason }`, including actions written by the same run. Batch mode aggregates per-account warnings and relogs accounts one by one.
+- Error detail passes through the `reloginDetail()` whitelist: `account`, `reason`, `challenge`, `relogin`, `next_attempt_at`. Login name, password, URL and page text never appear.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior |
+| --- | --- |
+| rejected, no credential | `E_AUTH_EXPIRED`; no attempt, no state write |
+| rejected, status `blocked` | `E_AUTH_RELOGIN_BLOCKED` (exit 3); no attempt |
+| rejected, status `awaiting_human` | `E_AUTH_HUMAN_REQUIRED` (exit 3); no attempt |
+| rejected, inside throttle window | rebuilt error + `relogin: 'throttled'`, `next_attempt_at`; no attempt |
+| attempt → challenge | `E_AUTH_HUMAN_REQUIRED` `{ account, challenge }`; open `human_takeover`; warning in the same envelope |
+| attempt → wrong_password / account_locked | `E_AUTH_RELOGIN_BLOCKED`; open `relogin_blocked`; later commands make no attempt |
+| attempt → form_changed | `E_PASSWORD_LOGIN_FORM_CHANGED`; status stays available |
+| attempt → network_error / verify_failed | `E_AUTH_RELOGIN_FAILED`; status stays available |
+| attempt → success, verified | candidate committed, lease renewed, command continues on the new context, exit 0 |
+| verified shop differs from the account | `E_ACCOUNT_IDENTITY_MISMATCH`; nothing committed |
+| relogin exceeds 90s or SIGINT | cancel error; new context closed; command deadline resumed |
+| auth check `indeterminate` | original indeterminate error; no relogin |
+| two processes, both rejected | one attempt (trace has one line); the waiter reuses the new revision; both exit 0 |
+
+### 5. Good/Base/Bad Cases
+
+- Good: start relogin from `tx.state` minus `PASS_ID`, so device cookies survive and the committed state keeps the trust.
+- Good: write `last_attempt_at` before launching the browser.
+- Base: no stored credential → behavior identical to before ③.
+- Bad: retry after a challenge, click "send code", or drag a slider.
+- Bad: widen every lease wait to 120s; other commands must still fail fast behind a long-running lease holder.
+- Bad: copy a Playwright `err.message` into detail or logs (it may echo filled values).
+
+### 6. Tests Required
+
+- `test/adapter/password-credential.test.js`: round trip, AAD bound to the account, tamper, input validation, no values in errors.
+- `test/services/password-relogin.test.js`: decision order, every state-machine row, throttle reconstruction, single open action, foreign lease rejected, stale-outcome guard.
+- `test/adapter/password-login.test.js`: every outcome via a fake page; no click/press after the submit click on challenge branches.
+- `test/infra/leases.test.js`: `extendUntil` extension and termination. `test/commands/runner-deadline.test.js`: pause/resume.
+- `test/e2e/password-relogin.e2e.test.js` (fixture, temp `PDD_DB_PATH`): success with one-line stdout; four challenges; breaker with no further trace lines; three unlock paths; throttle; two-process single attempt; `PDD_DEBUG_RAW=1` leaves no password in stdout/stderr/log/DB bytes; doctor and account list never relogin; `--all-accounts` relogs sequentially.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```js
+// A blank context always triggers SMS on this account and discards device trust.
+const context = await browser.newContext();
+await attemptPasswordLogin(await context.newPage(), credential, task);
+```
+
+#### Correct
+
+```js
+const device = { cookies: tx.state.cookies.filter((cookie) => cookie.name !== 'PASS_ID'), origins: tx.state.origins };
+const context = await createSnapshotContext(browser, structuredClone(device));
+const result = await attemptPasswordLogin(await context.newPage(), credential, task);
+```
+
+#### Wrong
+
+```js
+// Overwrites state after the user reset the password mid-attempt.
+putReloginState(accountId, { status: 'blocked', reason: 'wrong_password' });
+```
+
+#### Correct
+
+```js
+// recordReloginOutcome skips blocking writes when credentials.updated_at changed since decideRelogin.
+const error = recordReloginOutcome(tx, result, { credentialUpdatedAt: decision.credentialUpdatedAt });
 ```

@@ -56,16 +56,16 @@
 
 ### P4 输出：account list、doctor、标签
 
-- [ ] `labels.js` 新增两张标签表；`views/account.js` 增加 `has_password` / `password_relogin_status` 并更新 `ACCOUNT_VIEW_FIELDS`。
-- [ ] `doctor.js` 输出 `password_relogin` 与 `accounts[]` 的新字段，并更新 `renderDoctor`。
-- [ ] 更新契约测试与视图测试。
+- [x] `labels.js` 新增两张标签表；`views/account.js` 增加 `has_password` / `password_relogin_status` 并更新 `ACCOUNT_VIEW_FIELDS`。
+- [x] `doctor.js` 输出 `password_relogin` 与 `accounts[]` 的新字段，并更新 `renderDoctor`。
+- [x] 更新契约测试与视图测试。
 
 验证：`npx vitest run test/contract/data-contract-v2.test.js`，然后跑 `npm test`。
 
 ### P5 文档与 spec（Claude）
 
-- [ ] design 第 14 节列出的 spec 与文档。
-- [ ] 更新父任务 PRD 子任务表中 ③ 的状态。
+- [x] design 第 14 节列出的 spec 与文档。
+- [x] 更新父任务 PRD 子任务表中 ③ 的状态。
 
 ## 最终审查与合并
 

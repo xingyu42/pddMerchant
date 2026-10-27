@@ -85,6 +85,21 @@ Exit codes：
 | platform business failure | `ok: false`, business error, exit code 6                            |
 | partial batch             | partial envelope semantics, exit code 7, warnings/details preserved |
 
+Password relogin errors（`src/infra/errors.js`，全部 exit 3；场景见 [auth-mall-context.md](../adapter/auth-mall-context.md) 第 9 节）：
+
+| 工厂函数 | code | message | hint | detail |
+| --- | --- | --- | --- | --- |
+| `authHumanRequired` | `E_AUTH_HUMAN_REQUIRED` | 账号登录需要人工完成验证 | 执行 pdd console link 获取控制台链接并转给用户；不要在聊天中索要密码 | `{ account, challenge }` |
+| `reloginBlocked` | `E_AUTH_RELOGIN_BLOCKED` | 账号自动重登已熔断 | 执行 pdd console link 重设密码或解除熔断，或执行 pdd login --qr 扫码登录 | `{ account, reason }` |
+| `reloginFailed` | `E_AUTH_RELOGIN_FAILED` | 自动重登未完成 | 稍后重试或执行 pdd login | `{ account, reason, relogin?, next_attempt_at? }` |
+| `passwordLoginFormChanged` | `E_PASSWORD_LOGIN_FORM_CHANGED` | 登录页结构已变化，无法自动填写账密 | 执行 pdd login --qr 扫码登录，并反馈此问题 | `{ account, reason? }` |
+
+- 四个工厂的 detail 都经 `reloginDetail()` 白名单：`account`（string）、`challenge` / `reason`（仅已知重登原因码）、`relogin: 'throttled'`、`next_attempt_at`（`YYYY-MM-DD HH:mm:ss`）。登录名、密码、URL、页面文字一律丢弃。
+- 限频窗口内的 `E_AUTH_EXPIRED` 同样附 `{ relogin: 'throttled', next_attempt_at }`。
+- 旧的 `authChallengeRequired` 已删除。
+
+Warning `account_action_required`：`{ code: 'account_action_required', account: <slug>, reason }`，仅 needsAuth 命令附加，覆盖成功与失败两条路径，只针对本次实际使用的账号；批量模式按账号汇总。doctor、`account list` 等 needsAuth:false 命令从不附加。
+
 ## 5. Good/Base/Bad Cases
 
 - Good：service returns plain data; runner builds envelope and sets exit code。

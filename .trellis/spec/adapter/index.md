@@ -7,7 +7,7 @@ Adapter 层隔离真实平台交互：Playwright 浏览器、XHR/fetch 捕获、
 | 文件                                                     | 内容                                                      | 使用场景             |
 | -------------------------------------------------------- | --------------------------------------------------------- | -------------------- |
 | [endpoint-xhr-contracts.md](./endpoint-xhr-contracts.md) | endpoint spec、XHR 捕获、business error、rate limit       | 新增/修改平台接口    |
-| [auth-mall-context.md](./auth-mall-context.md)           | auth state、账号、mall context 解析/切换                  | 登录、店铺、账号隔离 |
+| [auth-mall-context.md](./auth-mall-context.md)           | auth state、账号、mall context 解析/切换；密码重登与熔断（第 9 节） | 登录、店铺、账号隔离、自动重登 |
 | [fixture-mode.md](./fixture-mode.md)                     | `PDD_TEST_ADAPTER=fixture`、mock dispatcher、fixture 命名 | 测试 seam、离线 e2e  |
 | [browser-runtime.md](./browser-runtime.md)               | Patchright 启动、Context、主世界 evaluate、清理            | 浏览器运行时与页面执行 |
 
