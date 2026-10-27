@@ -14,7 +14,8 @@ import { getLogger } from '../../infra/logger.js';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { resolveAccountContext } from '../../infra/account-resolver.js';
 import { budgetMs, remainingMs, throwIfAborted, timeoutError } from '../../infra/abort.js';
-import { executeFixture, buildCommandCtx } from './fixture-runtime.js';
+import { reloginInCommand } from '../../services/password-relogin.js';
+import { executeFixture, buildCommandCtx, appendActionWarnings } from './fixture-runtime.js';
 import { finalizeSuccess, finalizeError } from './envelope-finalizer.js';
 
 function anySignal(signals) {
@@ -46,19 +47,33 @@ async function resolveAccount(opts, needsAuth, warnings) {
   });
 }
 
-function armDeadline(opts, parentSignal, startedAt) {
-  let abortController = null;
+export function armDeadline(opts, parentSignal, startedAt) {
+  const timeoutMs = Number.isFinite(opts.timeoutMs) && opts.timeoutMs > 0 ? opts.timeoutMs : null;
+  const abortController = timeoutMs ? new AbortController() : null;
   let deadlineTimer = null;
-  if (typeof opts.timeoutMs === 'number' && opts.timeoutMs > 0) {
-    abortController = new AbortController();
-    deadlineTimer = setTimeout(() => abortController.abort(), opts.timeoutMs);
-  }
+  let deadlineAt = timeoutMs ? startedAt + timeoutMs : null;
+  let remaining = null;
+  const arm = () => { deadlineTimer = setTimeout(() => abortController.abort(), Math.max(0, deadlineAt - Date.now())); };
+  if (timeoutMs) arm();
   const { signal, dispose } = anySignal([parentSignal, abortController?.signal]);
   return {
     signal,
-    dispose,
-    deadlineTimer,
-    deadlineAt: typeof opts.timeoutMs === 'number' && Number.isFinite(opts.timeoutMs) && opts.timeoutMs > 0 ? startedAt + opts.timeoutMs : null,
+    get deadlineAt() { return deadlineAt; },
+    pause() {
+      if (!timeoutMs || remaining !== null) return;
+      throwIfAborted(signal);
+      remaining = Math.max(0, deadlineAt - Date.now());
+      if (remaining === 0) throw timeoutError();
+      clearTimeout(deadlineTimer);
+      deadlineAt = null;
+    },
+    resume() {
+      if (!timeoutMs || remaining === null) return;
+      deadlineAt = Date.now() + remaining;
+      remaining = null;
+      arm();
+    },
+    dispose() { clearTimeout(deadlineTimer); dispose(); },
   };
 }
 
@@ -72,8 +87,10 @@ async function assertAuthValid(context, runtime, transaction) {
     signal, deadlineAt: deadlineAt ?? undefined, expectedMallId: runtime.accountCtx?.account?.identity,
   });
   if (result.verdict !== 'verified') await recordMerchantCheck(result, transaction);
+  if (result.verdict === 'rejected') return result;
   assertMerchantVerified(result);
   runtime.verifiedMallId = result.identity.mallId;
+  return result;
 }
 
 async function resolveLiveMall(needsMall, page, opts, runtimeConfig) {
@@ -114,9 +131,17 @@ async function executeLiveOperation(spec, runtime) {
   const operation = async (transaction) => withBrowser({
     headed: opts.headed,
     storageState: transaction?.state,
-  }, async ({ context, page }) => {
+  }, async ({ browser, context: initialContext, page: initialPage }) => {
+    let context = initialContext;
+    let page = initialPage;
     if (spec.needsAuth) {
-      await assertAuthValid(context, runtime, transaction);
+      const authResult = await assertAuthValid(context, runtime, transaction);
+      if (authResult.verdict === 'rejected') {
+        const replacement = await reloginInCommand(runtime, transaction, browser, authResult);
+        await context.close();
+        ({ context, page } = replacement);
+        runtime.verifiedMallId = transaction.state.merchant_auth.mall_id;
+      }
       await page.goto(PDD_HOME, { waitUntil: 'domcontentloaded', timeout: budgetMs(runtime, 60000) });
     }
 
@@ -139,6 +164,7 @@ async function executeLiveOperation(spec, runtime) {
     await pageSession.closeAll();
     await persistAuthStateAfterSuccess(spec, runtime, context, transaction, page);
 
+    appendActionWarnings(spec, runtime);
     return finalizeSuccess(spec, runtime, result);
   });
   return spec.needsAuth
@@ -146,8 +172,12 @@ async function executeLiveOperation(spec, runtime) {
     : operation(null);
 }
 
-function executeLive(spec, runtime) {
-  return executeLiveOperation(spec, runtime).catch((err) => finalizeError(spec, runtime, err));
+async function executeLive(spec, runtime) {
+  try { return await executeLiveOperation(spec, runtime); }
+  catch (err) {
+    appendActionWarnings(spec, runtime);
+    return finalizeError(spec, runtime, err);
+  }
 }
 
 export async function executeSingle(spec, opts = {}, {
@@ -166,7 +196,7 @@ export async function executeSingle(spec, opts = {}, {
     : getLogger();
 
   const accountCtx = await resolveAccount(opts, needsAuth, warnings);
-  const { signal, deadlineTimer, deadlineAt, dispose } = armDeadline(opts, parentSignal ?? opts.signal, startedAt);
+  const deadline = armDeadline(opts, parentSignal ?? opts.signal, startedAt);
 
   const runtime = {
     opts,
@@ -176,8 +206,9 @@ export async function executeSingle(spec, opts = {}, {
     warnings,
     log,
     accountCtx,
-    signal,
-    deadlineAt,
+    signal: deadline.signal,
+    get deadlineAt() { return deadline.deadlineAt; },
+    deadline,
     runtimeConfig,
   };
 
@@ -191,7 +222,6 @@ export async function executeSingle(spec, opts = {}, {
     if (isMockEnabled()) return await executeFixture(normSpec, runtime);
     return await executeLive(normSpec, runtime);
   } finally {
-    if (deadlineTimer) clearTimeout(deadlineTimer);
-    dispose();
+    deadline.dispose();
   }
 }

@@ -43,12 +43,12 @@
 
 ### P3 接入普通命令
 
-- [ ] `src/infra/leases.js`：支持 `extendUntil`；`merchant-auth-storage.js` 传入"重登中"判定（design 第 6 节）。
-- [ ] `single-lifecycle.js`：`armDeadline` 增加 pause/resume，上下文改为可替换，调用 `reloginInCommand`，加入 `appendActionWarnings`。
-- [ ] `fixture-runtime.js`：失效判定加上标记 Cookie，调用 `reloginForFixture`，加入待办警告。
-- [ ] `services/password-relogin.js`：实现两条入口（design 5.3）。
-- [ ] `services/auth-account-storage.js`：实现 `markManualLoginSucceeded`（design 第 7 节）。
-- [ ] e2e：design 第 13 节列出的全部 fixture 场景，新文件 `test/e2e/password-relogin.e2e.test.js`。
+- [x] `src/infra/leases.js`：支持 `extendUntil`；`merchant-auth-storage.js` 传入"重登中"判定（design 第 6 节）。
+- [x] `single-lifecycle.js`：`armDeadline` 增加 pause/resume，上下文改为可替换，调用 `reloginInCommand`，加入 `appendActionWarnings`。
+- [x] `fixture-runtime.js`：失效判定加上标记 Cookie，调用 `reloginForFixture`，加入待办警告。
+- [x] `services/password-relogin.js`：实现两条入口（design 5.3）。
+- [x] `services/auth-account-storage.js`：实现 `markManualLoginSucceeded`（design 第 7 节）。
+- [x] e2e：design 第 13 节列出的全部 fixture 场景，新文件 `test/e2e/password-relogin.e2e.test.js`。
 
 验证：跑新 e2e，再跑 `test/e2e/sqlite-auth-storage.e2e.test.js`、`test/adapter/merchant-auth-storage.test.js`、`test/infra/leases.test.js`，最后跑 `npm test`。
 

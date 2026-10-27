@@ -7,8 +7,9 @@ import { getLogger } from '../../src/infra/logger.js';
 import { savePasswordCredential, deletePasswordCredential } from '../../src/adapter/password-credential.js';
 import { withMerchantAuthUpdate } from '../../src/adapter/merchant-auth-storage.js';
 import { assertMerchantVerified } from '../../src/adapter/merchant-auth.js';
+import { armDeadline } from '../../src/commands/runner/single-lifecycle.js';
 import { decideRelogin, recordReloginAttempt, recordReloginOutcome, markManualLoginSucceeded,
-  setAccountPassword, clearAccountPassword, clearReloginBlock, recordTakeoverTimeout, getReloginSummary } from '../../src/services/password-relogin.js';
+  setAccountPassword, clearAccountPassword, clearReloginBlock, recordTakeoverTimeout, getReloginSummary, reloginInCommand } from '../../src/services/password-relogin.js';
 
 const credential = { loginName: 'synthetic-login-54639', password: 'synthetic-password-183646' };
 const now = Date.parse('2026-10-27T00:00:00.000Z');
@@ -86,6 +87,38 @@ it('uses Date.now when the decision time is omitted', () => {
   seedState();
   vi.spyOn(Date, 'now').mockReturnValue(now);
   assert.equal(decideRelogin(account.id, { minIntervalMs }).action, 'fail');
+});
+
+it.each([undefined, null, 0, -1, NaN, Infinity, '1800000'])('defaults invalid minIntervalMs %s to thirty minutes', (interval) => {
+  putCredential(account.id, 'damaged ciphertext');
+  seedState();
+  const result = decideRelogin(account.id, { now, minIntervalMs: interval });
+  safeError(result.error, 'E_AUTH_RELOGIN_FAILED');
+  assert.equal(result.action, 'fail');
+  assert.equal(result.error.detail.relogin, 'throttled');
+  assert.equal(result.error.detail.next_attempt_at, '2026-10-27 08:29:59');
+  assert.throws(() => decideRelogin(account.id, { now: now + minIntervalMs - 1000, minIntervalMs: interval }),
+    { code: 'E_SECRET_DECRYPT_FAILED' });
+});
+
+it('does not write last_attempt_at when the command budget is exhausted before relogin', async () => {
+  savePasswordCredential(account.id, credential);
+  await withMerchantAuthUpdate(account.id, async (tx) => {
+    vi.useFakeTimers();
+    const startedAt = Date.now();
+    const deadline = armDeadline({ timeoutMs: 100 }, null, startedAt);
+    const runtime = { deadline, signal: deadline.signal, get deadlineAt() { return deadline.deadlineAt; } };
+    vi.setSystemTime(startedAt + 101);
+    assert.equal(deadline.signal.aborted, false);
+    try {
+      await assert.rejects(() => reloginInCommand(runtime, tx, {}), { code: 'E_TIMEOUT' });
+    } finally {
+      deadline.dispose();
+      vi.useRealTimers();
+    }
+  });
+  assert.equal(getReloginSummary(account.id).last_attempt_at, null);
+  assert.equal(getReloginState(account.id), null);
 });
 
 it('throttles a crashed first attempt with a null previous reason', async () => {

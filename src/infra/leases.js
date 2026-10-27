@@ -40,13 +40,18 @@ function tryAcquire(scope, key, token, ttlMs, signal) {
 }
 
 export async function acquireLease(scope, key, {
-  timeoutMs = DEFAULT_TIMEOUT_MS, retryMs = 200, ttlMs = timeoutMs + 30_000, signal,
+  timeoutMs = DEFAULT_TIMEOUT_MS, retryMs = 200, ttlMs = timeoutMs + 30_000, signal, extendUntil, deadlineAt,
 } = {}) {
   const token = randomUUID();
-  const deadline = Date.now() + timeoutMs;
+  let deadline = Math.min(Date.now() + timeoutMs, deadlineAt ?? Infinity);
   throwIfAborted(signal);
-  while (Date.now() < deadline) {
+  while (true) {
     throwIfAborted(signal);
+    if (Date.now() >= deadline) {
+      const extended = Math.min(extendUntil?.() ?? deadline, deadlineAt ?? Infinity);
+      if (!Number.isFinite(extended) || extended <= Date.now() || extended <= deadline) break;
+      deadline = extended;
+    }
     if (tryAcquire(scope, String(key), token, ttlMs, signal)) return { token };
     const jitter = Math.floor(Math.random() * 100);
     await abortableSleep(Math.min(retryMs + jitter, Math.max(1, deadline - Date.now())), signal);

@@ -1,6 +1,7 @@
 import { acquireLease, releaseLease, assertLeaseOwner } from '../infra/leases.js';
 import { transaction as databaseTransaction } from '../infra/db.js';
-import { getAccountById } from '../infra/account-store.js';
+import { getAccountById, getReloginState } from '../infra/account-store.js';
+import { TIMEOUTS } from '../infra/timeouts.js';
 import { getMasterKey } from '../infra/master-key.js';
 import { loadAuthState, authStateConflict, saveAuthStateSnapshot } from './auth-state.js';
 import { assertVerifiedMerchantCandidate, verifyMerchantContext } from './merchant-auth.js';
@@ -41,7 +42,13 @@ async function updateMerchantAuth(accountId, fn, options = {}) {
   assertAuthTask(options);
   const timeoutMs = budgetMs(options, 15000);
   const ttlMs = Math.max(0, (options.deadlineAt ?? Date.now() + timeoutMs) - Date.now()) + 30000;
-  const lock = await acquireLease('account', accountId, { timeoutMs, ttlMs, signal: options.signal });
+  const extendUntil = () => {
+    const startedAt = Date.parse(getReloginState(accountId)?.last_attempt_at);
+    return Date.now() < startedAt + TIMEOUTS.LOGIN_PASSWORD ? startedAt + TIMEOUTS.LOGIN_PASSWORD + 15000 : null;
+  };
+  const lock = await acquireLease('account', accountId, {
+    timeoutMs, ttlMs, signal: options.signal, deadlineAt: options.deadlineAt, extendUntil,
+  });
   try {
     assertAuthTask(options);
     const account = getAccountById(accountId);

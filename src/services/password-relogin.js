@@ -1,9 +1,15 @@
 import { hasPasswordCredential, loadPasswordCredential, savePasswordCredential, deletePasswordCredential } from '../adapter/password-credential.js';
-import { assertMerchantVerified } from '../adapter/merchant-auth.js';
+import { assertMerchantVerified, verifyMerchantContext } from '../adapter/merchant-auth.js';
+import { createSnapshotContext } from '../adapter/browser.js';
+import { attemptPasswordLogin } from '../adapter/password-login.js';
+import { loadAuthState, saveAuthStateSnapshot } from '../adapter/auth-state.js';
+import { withMerchantAuthUpdate, commitMerchantCandidate, assertAuthTask } from '../adapter/merchant-auth-storage.js';
+import { mockPasswordLogin } from '../adapter/mock-dispatcher.js';
 import { getAccountById, getCredential, getReloginState, putReloginState,
-  ensureOpenPendingAction, resolveOpenPendingActions } from '../infra/account-store.js';
+  ensureOpenPendingAction, resolveOpenPendingActions, listPendingActions } from '../infra/account-store.js';
 import { transaction, isInTransaction } from '../infra/db.js';
-import { assertLeaseOwner } from '../infra/leases.js';
+import { assertLeaseOwner, renewLease } from '../infra/leases.js';
+import { TIMEOUTS } from '../infra/timeouts.js';
 import { getLogger } from '../infra/logger.js';
 import { getMasterKey } from '../infra/master-key.js';
 import { isoToLocalDateTime } from '../infra/units.js';
@@ -45,8 +51,8 @@ function updateState(accountId, changes) {
   });
 }
 
-function authExpired(detail) {
-  try { assertMerchantVerified({ verdict: 'rejected', reason: 'auth_missing' }, { detail }); }
+function authExpired(detail, authResult = { verdict: 'rejected', reason: 'auth_missing' }) {
+  try { assertMerchantVerified(authResult, { detail }); }
   catch (error) { return error; }
 }
 
@@ -58,14 +64,15 @@ function throttleError(account, state, minIntervalMs) {
   return reloginFailed(detail);
 }
 
-export function decideRelogin(accountId, { now = Date.now(), minIntervalMs }) {
-  if (!hasPasswordCredential(accountId)) return { action: 'fail', error: authExpired() };
+export function decideRelogin(accountId, { now = Date.now(), minIntervalMs, authResult }) {
+  if (!hasPasswordCredential(accountId)) return { action: 'fail', error: authExpired(undefined, authResult) };
   const account = merchantAccount(accountId);
   const state = getReloginState(accountId);
   if (state?.status === 'blocked') return { action: 'fail', error: reloginBlocked({ account: account.slug, reason: state.reason }) };
   if (state?.status === 'awaiting_human') return { action: 'fail', error: authHumanRequired({ account: account.slug, challenge: state.reason }) };
-  if (state?.last_attempt_at && now - Date.parse(state.last_attempt_at) < minIntervalMs) {
-    return { action: 'fail', error: throttleError(account, state, minIntervalMs) };
+  const intervalMs = Number.isFinite(minIntervalMs) && minIntervalMs > 0 ? minIntervalMs : 1_800_000;
+  if (state?.last_attempt_at && now - Date.parse(state.last_attempt_at) < intervalMs) {
+    return { action: 'fail', error: throttleError(account, state, intervalMs) };
   }
   const row = getCredential(accountId);
   return { action: 'attempt', credential: loadPasswordCredential(accountId), credentialUpdatedAt: row.updated_at };
@@ -166,4 +173,126 @@ export function getReloginSummary(accountId) {
   const state = getReloginState(accountId);
   return { has_password: hasPassword, status: state?.status ?? 'available',
     reason: state?.reason ?? null, last_attempt_at: state?.last_attempt_at ?? null };
+}
+
+export function getAccountActionWarnings(accountId, slug) {
+  return listPendingActions(accountId).filter((action) => action.status === 'open')
+    .map((action) => ({ code: 'account_action_required', account: slug, reason: action.reason }));
+}
+
+function hasFixtureRelogin(state) {
+  return state?.cookies?.some((cookie) => cookie.name === 'PDD_FIXTURE_RELOGIN' && cookie.value === '1') ?? false;
+}
+
+export function fixtureSessionRecovered(accountId) {
+  return hasFixtureRelogin(loadAuthState(accountId).state);
+}
+
+async function withReloginBudget(runtime, tx, operation) {
+  runtime.deadline.pause();
+  const controller = new AbortController();
+  const task = {
+    signal: runtime.signal ? AbortSignal.any([runtime.signal, controller.signal]) : controller.signal,
+    deadlineAt: Date.now() + TIMEOUTS.LOGIN_PASSWORD,
+  };
+  const timer = setTimeout(() => controller.abort(new PddCliError({ code: 'E_AUTH_TIMEOUT', exitCode: ExitCodes.NETWORK })), TIMEOUTS.LOGIN_PASSWORD);
+  const previousSignal = tx.signal;
+  tx.signal = task.signal;
+  tx.deadlineAt = task.deadlineAt;
+  try {
+    recordReloginAttempt(tx);
+    return await operation(task);
+  }
+  finally {
+    clearTimeout(timer);
+    runtime.deadline.resume();
+    tx.signal = previousSignal;
+    tx.deadlineAt = runtime.deadlineAt;
+  }
+}
+
+function beginRelogin(tx, runtime, authResult) {
+  assertAuthTask(tx);
+  const decision = decideRelogin(tx.accountId, { minIntervalMs: runtime.runtimeConfig?.passwordReloginMinIntervalMs, authResult });
+  if (decision.action === 'fail') throw decision.error;
+  return decision;
+}
+
+async function runRelogin(tx, decision, task, attempt) {
+  assertAuthTask(task);
+  let result;
+  try { result = await attempt(decision.credential); }
+  catch (error) {
+    assertAuthTask(task);
+    if (error instanceof PddCliError) throw error;
+    result = { outcome: 'network_error' };
+  }
+  assertAuthTask(task);
+  const error = recordReloginOutcome(tx, result, decision);
+  if (result.verification?.reason === 'identity_mismatch') assertMerchantVerified(result.verification);
+  if (error) throw error;
+  renewLease('account', tx.accountId, tx.token);
+}
+
+function deviceState(tx) {
+  if (tx.corrupt || !Array.isArray(tx.state?.cookies) || !Array.isArray(tx.state?.origins)) return { cookies: [], origins: [] };
+  return structuredClone({ cookies: tx.state.cookies.filter((cookie) => cookie.name !== 'PASS_ID'), origins: tx.state.origins });
+}
+
+export async function reloginInCommand(runtime, tx, browser, authResult) {
+  const decision = beginRelogin(tx, runtime, authResult);
+  return withReloginBudget(runtime, tx, async (task) => {
+    let context;
+    let retained = false;
+    const onAbort = () => { void context?.close().catch(() => {}); };
+    task.signal.addEventListener('abort', onAbort, { once: true });
+    try {
+      await runRelogin(tx, decision, task, async (credential) => {
+        context = await createSnapshotContext(browser, deviceState(tx));
+        assertAuthTask(task);
+        const loginPage = await context.newPage();
+        const result = await attemptPasswordLogin(loginPage, credential, task);
+        assertAuthTask(task);
+        if (result.outcome !== 'success') return result;
+        await loginPage.close();
+        const verified = await verifyMerchantContext(context, { ...task, expectedMallId: tx.recoveryMallId });
+        if (verified.verdict !== 'verified') return { outcome: 'verify_failed', verification: verified };
+        commitMerchantCandidate(verified.candidate, tx);
+        return result;
+      });
+      const page = await context.newPage();
+      assertAuthTask(task);
+      retained = true;
+      return { context, page };
+    } finally {
+      task.signal.removeEventListener('abort', onAbort);
+      if (!retained && context) { try { await context.close(); } catch { /* 保留原重登错误。 */ } }
+    }
+  });
+}
+
+function commitFixtureRelogin(tx, task) {
+  const checkedAt = new Date().toISOString();
+  const state = { cookies: [{ name: 'PDD_FIXTURE_RELOGIN', value: '1', domain: '.pinduoduo.com', path: '/' }], origins: [],
+    merchant_auth: { version: 1, mall_id: tx.recoveryMallId, usable: true, scope: 'shop_read',
+      check_verdict: 'verified', checked_at: checkedAt,
+      last_check: { verdict: 'verified', reason: 'shop_read', checked_at: checkedAt } } };
+  write(() => {
+    assertAuthTask(task);
+    assertLeaseOwner('account', tx.accountId, tx.token);
+    tx.revision = saveAuthStateSnapshot(state, tx.accountId, { expectedRevision: tx.revision });
+  });
+  tx.state = state;
+}
+
+export async function reloginForFixture(accountId, runtime) {
+  return withMerchantAuthUpdate(accountId, async (tx) => {
+    if (hasFixtureRelogin(tx.state)) return;
+    const decision = beginRelogin(tx, runtime);
+    return withReloginBudget(runtime, tx, (task) => runRelogin(tx, decision, task, async () => {
+      const result = await mockPasswordLogin(task);
+      if (result.outcome === 'success') commitFixtureRelogin(tx, task);
+      return result;
+    }));
+  }, { signal: runtime.signal, deadlineAt: runtime.deadlineAt });
 }
