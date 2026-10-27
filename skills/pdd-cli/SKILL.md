@@ -204,7 +204,7 @@ node bin/pdd.js account remove --slug <slug>             # 级联删除账号及
 
 ### 按需认证检查
 
-登录、普通命令及 doctor 独立检查商家认证，成功命令只回写重新验证通过的冻结材料。认证后台和 daemon 命令已移除；闲置时不运行定时任务。网络无法判定（退出码 5）不代表登录失效，明确失效（退出码 3）才提示重新登录。
+登录、普通命令及 doctor 独立检查商家认证，成功命令只回写重新验证通过的冻结材料。普通命令从不自动拉起后台进程；需要人工处理时由显式启动的 `pdd daemon` 托管控制台（见下节）。网络无法判定（退出码 5）不代表登录失效，明确失效（退出码 3）才提示重新登录。
 
 ### 密码自动重登
 
@@ -213,6 +213,7 @@ node bin/pdd.js account remove --slug <slug>             # 级联删除账号及
 | 看到 | 处理 |
 |------|------|
 | `error.code = E_AUTH_HUMAN_REQUIRED`（登录遇到短信、滑块等验证） | 执行 `node bin/pdd.js console link`，把链接转给用户，由用户本人完成验证 |
+| `meta.warnings` 中有 `{ code: 'daemon_not_running' }`，或 `console link` 返回 `E_DAEMON_NOT_RUNNING` | 先执行 `node bin/pdd.js daemon start`，再执行 `console link` |
 | `meta.warnings` 中有 `{ code: 'account_action_required', account, reason }` | 同上，对 `account` 指明的账号执行 `console link` 并把链接转给用户；命令本身可能已经成功 |
 | `error.code = E_AUTH_RELOGIN_BLOCKED`（密码错误、账号被锁或接管多次超时，已熔断） | 执行 `console link` 让用户重设密码或解除熔断；用户无法处理时改用 `node bin/pdd.js login --qr` 扫码登录 |
 | `error.code = E_PASSWORD_LOGIN_FORM_CHANGED` | 改用 `login --qr` 扫码登录，并告知用户登录页已变化 |
@@ -221,6 +222,19 @@ node bin/pdd.js account remove --slug <slug>             # 级联删除账号及
 - **任何情况下都不要在聊天中向用户索要密码或登录名**，也不要尝试替用户输入验证码。
 - 同一账号两次自动重登至少间隔 30 分钟（`PDD_PASSWORD_RELOGIN_MIN_INTERVAL_MS`），遇到验证或熔断后会暂停，直到用户处理；反复重试命令不会加快恢复。
 - `account list` 和 `doctor` 的 `has_password` / `password_relogin_status`（doctor 为 `password_relogin.status`）显示是否保存了密码及当前状态，如 `可用`、`等待人工：短信验证`、`已熔断：密码错误`；这两个命令本身不会触发重登。
+
+### daemon 与控制台
+
+```bash
+node bin/pdd.js daemon start                 # 后台启动；已运行则直接返回状态（含 console_url）
+node bin/pdd.js daemon status                # running / heartbeat_at / last_patrol_at / patrol_enabled
+node bin/pdd.js console link [--account <slug>]   # 一次性链接，10 分钟有效；data.url 原样转给用户
+node bin/pdd.js daemon stop
+```
+
+- `console link` 输出的链接含一次性凭证：只转发给用户本人，不要写入文件、日志或其他会话。
+- 用户在控制台中录入密码、过验证、扫码；你只需等待用户告知完成，再重试原命令。不要轮询或代替用户操作控制台。
+- daemon 不随机器启动；看到 `daemon_not_running` 时启动它即可，平时不必常开。
 
 ## 典型工作流
 

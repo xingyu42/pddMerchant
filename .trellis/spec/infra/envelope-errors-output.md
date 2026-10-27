@@ -98,6 +98,27 @@ Password relogin errors（`src/infra/errors.js`，全部 exit 3；场景见 [aut
 - 限频窗口内的 `E_AUTH_EXPIRED` 同样附 `{ relogin: 'throttled', next_attempt_at }`。
 - 旧的 `authChallengeRequired` 已删除。
 
+daemon 与控制台错误（`src/infra/errors.js` / `services/console-runtime.js`）：
+
+| code | exit / HTTP | 场景 |
+| --- | --- | --- |
+| `E_DAEMON_NOT_RUNNING` | exit 1 | `console link` 时 daemon 未运行（hint `执行 pdd daemon start`） |
+| `E_DAEMON_START_TIMEOUT` | exit 1 | `daemon start` 10 秒内未见心跳 |
+| `E_DAEMON_STOP_TIMEOUT` | exit 1 | 租约属于其他主机，或强杀后仍未释放；detail 仅 `{ pid?, port?, reason }` |
+| `E_CONSOLE_PORT_IN_USE` | exit 1 | 监听端口被占用 |
+| `E_CONSOLE_HOST` | 421 | Host 头不匹配（防 DNS rebinding） |
+| `E_CONSOLE_CSRF` | 403 | 状态变更请求缺少 JSON 类型或 `X-PDD-Console: 1` |
+| `E_CONSOLE_UNAUTHORIZED` | 401 | 无有效控制台会话 |
+| `E_CONSOLE_LINK_GONE` / `E_CONSOLE_LINK_EXPIRED` | 410 | 一次性链接已兑换或过期 |
+| `E_CONSOLE_BODY_TOO_LARGE` | 413 | 请求体超过 64 KiB |
+| `E_CONSOLE_BUSY` | 429 | 已有两个账号的登录会话 |
+| `E_CONSOLE_SESSION_NOT_FOUND` / `E_CONSOLE_SESSION_STATE` | 404 / 409 | 会话不存在或当前状态不接受该操作 |
+| `E_CONSOLE_STOPPING` | 503 | daemon 正在停止 |
+
+控制台 API 错误体为 `{ error: { code, message } }`，message 中文，不含密码、登录名、token、路径。
+
+Warning `daemon_not_running`：`{ code: 'daemon_not_running' }`，仅当 needsAuth 命令的当前账号有 open 待办且 daemon 租约无效时附加，每个 envelope（含批量）最多一条。`daemon start` 在非回环监听地址时附 `{ code: 'console_plaintext_http' }`。
+
 Warning `account_action_required`：`{ code: 'account_action_required', account: <slug>, reason }`，仅 needsAuth 命令附加，覆盖成功与失败两条路径，只针对本次实际使用的账号；批量模式按账号汇总。doctor、`account list` 等 needsAuth:false 命令从不附加。
 
 ## 5. Good/Base/Bad Cases

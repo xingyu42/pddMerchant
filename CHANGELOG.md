@@ -4,7 +4,7 @@
 
 ### Added
 
-- **商家账号密码自动重登**：账号保存了密码时，普通命令发现商家登录态失效会在同一条命令内用账密重登一次，成功后命令继续完成；重登耗时不计入 `--timeout`，单次最长 90 秒。重登从账号已保存的设备状态（去掉会话 Cookie）开始，保留设备信任。密码录入入口由后续控制台提供，当前版本没有录入命令。
+- **商家账号密码自动重登**：账号保存了密码时，普通命令发现商家登录态失效会在同一条命令内用账密重登一次，成功后命令继续完成；重登耗时不计入 `--timeout`，单次最长 90 秒。重登从账号已保存的设备状态（去掉会话 Cookie）开始，保留设备信任。密码只能在 daemon 控制台录入，CLI 没有任何密码入参。
 - **遇到验证一律转人工**：短信、滑块、点选、风控确认或无法识别的页面返回 `E_AUTH_HUMAN_REQUIRED`（退出码 3），并暂停该账号的自动重登，直到用户完成登录。
 - **熔断**：密码错误或账号被锁返回 `E_AUTH_RELOGIN_BLOCKED`（退出码 3），之后不再尝试，直到用户重设密码或解除熔断；也可随时 `pdd login --qr` 扫码登录。
 - **限频**：同一账号两次尝试至少间隔 30 分钟，可用配置 `passwordReloginMinIntervalMs` / 环境变量 `PDD_PASSWORD_RELOGIN_MIN_INTERVAL_MS` 调整；窗口内返回的错误附 `detail.relogin = 'throttled'` 与 `next_attempt_at`。
@@ -12,10 +12,17 @@
 - **待办提醒**：需要认证的命令会在 `meta.warnings` 中附 `{ code: 'account_action_required', account, reason }`，提示该账号有待用户处理的事项（成功与失败均会附带）。
 - **输出字段**：`account list` 每项新增 `has_password`、`password_relogin_status`；`doctor` 新增 `password_relogin = { has_password, status }`，`accounts[]` 每项新增 `has_password`、`password_relogin_status`。状态为中文，例如 `可用`、`等待人工：短信验证`、`已熔断：密码错误`。`doctor` 与 `account list` 不触发重登。
 - **新错误码**（均为退出码 3）：`E_AUTH_HUMAN_REQUIRED`、`E_AUTH_RELOGIN_BLOCKED`、`E_AUTH_RELOGIN_FAILED`；`E_PASSWORD_LOGIN_FORM_CHANGED` 文案改为中文。
+- **`pdd daemon start / stop / status / run`**：显式启动的常驻进程（自行后台化，无开机自启），SQLite 心跳租约保证单实例（30 秒心跳、90 秒过期）；`stop` 先发停止请求，15 秒未退出再强杀本机进程。日志写 `log/daemon/YYYY-MM-DD.log`。
+- **网页控制台**：`pdd console link [--account <slug>]` 生成 10 分钟一次性链接，打开后兑换为 8 小时会话。可录入/清除密码（只写不回显）、解除熔断、开始重登并在浏览器画面中完成短信/滑块等验证（接管最长 10 分钟，连续 2 次超时熔断）、改用扫码登录。默认只监听 `127.0.0.1:47821`。
+- **配置**：`consoleHost`、`consolePort`、`consolePublicUrl`、`patrolEnabled`（默认 `false`）、`patrolIntervalMs`（默认 30 分钟），对应 `PDD_CONSOLE_*` / `PDD_PATROL_*` 环境变量。
+- **可选巡航**：开启后逐账号检查登录态，失效时按熔断与限频规则自动重登。
+- **warning `daemon_not_running`**：账号有待处理事项而 daemon 未运行时附加；新错误码 `E_DAEMON_NOT_RUNNING`、`E_DAEMON_START_TIMEOUT`、`E_DAEMON_STOP_TIMEOUT`、`E_CONSOLE_PORT_IN_USE`。
 
 ### Changed
 
 - **脱敏**：`password`、`credential(s)`、`login_name` / `loginName`、`masterPassword`、`master_key`、`password_sealed` 在日志与调试输出中固定为 `[REDACTED]`，不再输出可被枚举的指纹。
+- **数据库升级到 schema v2**（新增控制台链接与会话表）：新版首次运行自动升级，旧版本程序会拒绝打开升级后的数据库；如需回退旧版本，请删除数据库后重新登录。
+- 人工登录成功会清零"接管超时"连续计数。
 
 ### Removed
 
