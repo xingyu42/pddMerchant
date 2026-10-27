@@ -13,30 +13,12 @@ import { createPageSession } from '../../adapter/page-session.js';
 import { getLogger } from '../../infra/logger.js';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { resolveAccountContext } from '../../infra/account-resolver.js';
-import { budgetMs, remainingMs, throwIfAborted, timeoutError } from '../../infra/abort.js';
+import { armDeadline, budgetMs, remainingMs, throwIfAborted, timeoutError } from '../../infra/abort.js';
 import { reloginInCommand } from '../../services/password-relogin.js';
 import { executeFixture, buildCommandCtx, appendActionWarnings } from './fixture-runtime.js';
 import { finalizeSuccess, finalizeError } from './envelope-finalizer.js';
 
-function anySignal(signals) {
-  const filtered = signals.filter(Boolean);
-  const noop = () => {};
-  if (filtered.length === 0) return { signal: null, dispose: noop };
-  if (filtered.length === 1) return { signal: filtered[0], dispose: noop };
-  if (typeof AbortSignal.any === 'function') return { signal: AbortSignal.any(filtered), dispose: noop };
-  const controller = new AbortController();
-  const listeners = [];
-  const dispose = () => {
-    for (const [source, listener] of listeners) source.removeEventListener('abort', listener);
-  };
-  for (const s of filtered) {
-    if (s.aborted) { controller.abort(s.reason); dispose(); break; }
-    const listener = () => { controller.abort(s.reason); dispose(); };
-    listeners.push([s, listener]);
-    s.addEventListener('abort', listener, { once: true });
-  }
-  return { signal: controller.signal, dispose };
-}
+export { armDeadline } from '../../infra/abort.js';
 
 async function resolveAccount(opts, needsAuth, warnings) {
   return resolveAccountContext({
@@ -45,36 +27,6 @@ async function resolveAccount(opts, needsAuth, warnings) {
     needsAuth,
     warnings,
   });
-}
-
-export function armDeadline(opts, parentSignal, startedAt) {
-  const timeoutMs = Number.isFinite(opts.timeoutMs) && opts.timeoutMs > 0 ? opts.timeoutMs : null;
-  const abortController = timeoutMs ? new AbortController() : null;
-  let deadlineTimer = null;
-  let deadlineAt = timeoutMs ? startedAt + timeoutMs : null;
-  let remaining = null;
-  const arm = () => { deadlineTimer = setTimeout(() => abortController.abort(), Math.max(0, deadlineAt - Date.now())); };
-  if (timeoutMs) arm();
-  const { signal, dispose } = anySignal([parentSignal, abortController?.signal]);
-  return {
-    signal,
-    get deadlineAt() { return deadlineAt; },
-    pause() {
-      if (!timeoutMs || remaining !== null) return;
-      throwIfAborted(signal);
-      remaining = Math.max(0, deadlineAt - Date.now());
-      if (remaining === 0) throw timeoutError();
-      clearTimeout(deadlineTimer);
-      deadlineAt = null;
-    },
-    resume() {
-      if (!timeoutMs || remaining === null) return;
-      deadlineAt = Date.now() + remaining;
-      remaining = null;
-      arm();
-    },
-    dispose() { clearTimeout(deadlineTimer); dispose(); },
-  };
 }
 
 async function assertAuthValid(context, runtime, transaction) {

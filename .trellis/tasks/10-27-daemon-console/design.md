@@ -183,6 +183,8 @@ CREATE TABLE console_sessions (
 - `patrolEnabled`（默认 `false`）、`patrolIntervalMs`（默认 `1_800_000`），间隔 ±20% 抖动。
 - 每轮依次处理未停用的商家账号：复用普通命令同一条校验路径——`withMerchantAuthUpdate` → `withBrowser({ storageState: tx.state, ownerTag })` → `verifyStoredMerchant`；`rejected` 时 `reloginInCommand`（遵守熔断、限频、租约）；校验结论按现有规则 `recordMerchantCheck`。拿不到账号租约就跳过该账号（`timeoutMs: 0`），不阻塞用户命令。
 - 不访问业务接口，不打开首页。每轮结束写 `daemon_last_patrol_at`。
+- P6 落地：首轮先等抖动间隔，后续每轮完成后重新计时，轮次串行。普通校验成功保留原快照；普通命令的最终回写依赖业务成功，巡航沿用此约束。密码重登成功仍由既有核心提交已核验候选；rejected/indeterminate 沿用 `recordMerchantCheck`。中断轮次保留上次完成时间。
+- 每账号普通校验预算 120 秒，复用下沉到 `infra/abort.js` 的 `armDeadline`；重登仍按既有规则暂停该预算并使用独立 90 秒。fixture 在巡航已有租约内调用 `reloginForFixture(..., { tx })`，通过仅 fixture 生效的 `PDD_TEST_PATROL_INTERVAL_MS` 正安全整数毫秒覆盖间隔。
 - 选择浏览器路径的理由：与普通命令的请求形态完全同构，不新增"只有 Node 直连"的节奏（⑤ 的 H1），也无需修改"Cookie 由浏览器挑选"的 spec。
 - ⑤ 有结论后再评估默认值与请求方式。
 

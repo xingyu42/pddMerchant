@@ -288,8 +288,8 @@ export function commitFixtureRelogin(tx, task) {
   tx.state = state;
 }
 
-export async function reloginForFixture(accountId, runtime) {
-  return withMerchantAuthUpdate(accountId, async (tx) => {
+export async function reloginForFixture(accountId, runtime, { tx: heldTransaction } = {}) {
+  const operation = async (tx) => {
     if (hasFixtureRelogin(tx.state)) return;
     const decision = beginRelogin(tx, runtime);
     return withReloginBudget(runtime, tx, (task) => runRelogin(tx, decision, task, async () => {
@@ -297,5 +297,7 @@ export async function reloginForFixture(accountId, runtime) {
       if (result.outcome === 'success') commitFixtureRelogin(tx, task);
       return result;
     }));
-  }, { signal: runtime.signal, deadlineAt: runtime.deadlineAt });
+  };
+  if (heldTransaction) return operation(heldTransaction);
+  return withMerchantAuthUpdate(accountId, operation, { signal: runtime.signal, deadlineAt: runtime.deadlineAt });
 }

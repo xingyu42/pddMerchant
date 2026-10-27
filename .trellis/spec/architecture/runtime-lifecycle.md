@@ -120,7 +120,7 @@ Applies to `src/daemon/run.js`, daemon commands/services, process adapters and d
 ### 2. Signatures
 
 ```js
-runDaemon({ signal, components = [createConsoleServer()], exit, foreground = true, runtimeConfig })
+runDaemon({ signal, components = [createConsoleServer(), createPatrol()], exit, foreground = true, runtimeConfig })
 // -> { stopped_reason } | { status: 'already_running' }
 // component.start({ signal, ownerTag, log, runtimeConfig }); component.stop();
 withCommand({ needsAuth: false, needsMall: 'none', needsBrowser: false, ... })
@@ -172,4 +172,63 @@ process.kill(lease.pid);
 deleteLeaseUnconditionally();
 // Correct: recheck ownership/host/heartbeat while holding a short sync transaction.
 withDaemonLeaseOwner(ownerToken, () => forceStopOwnedLease());
+```
+
+## 9. Scenario: Opt-In Merchant Patrol (P6)
+
+### 1. Scope / Trigger
+
+Applies to `services/patrol.js`, daemon component wiring, shared deadlines and fixture patrol timing. Patrol is explicitly enabled and uses the ordinary command's browser auth path.
+
+### 2. Signatures
+
+```js
+createPatrol({ random = Math.random, clock = { now, sleep } }) // -> { start(context), stop() }
+runPatrolRound({ signal, ownerTag, log, runtimeConfig }, clock)
+armDeadline(opts, parentSignal, startedAt) // infra/abort.js; single-lifecycle.js keeps its re-export
+withMerchantAuthUpdate(accountId, callback, { timeoutMs: 0, signal, deadlineAt })
+reloginForFixture(accountId, runtime, { tx }) // optional existing account transaction; no nested lease
+```
+
+### 3. Contracts
+
+- Start only when `runtimeConfig.patrolEnabled === true`. Wait a jittered interval before the first round and after each completed round; no overlapping rounds. Delay is `round(patrolIntervalMs * (0.8 + random() * 0.4))`.
+- Enumerate enabled merchant accounts in ID order and check sequentially. Acquire each account lease once with `timeoutMs:0`; contention logs info `{ account: slug, code:'patrol_account_busy' }` and skips. Re-check disabled status after acquiring the lease. Account failures log only slug and a fixed error code, then continue.
+- Live flow: `withBrowser({ storageState:tx.state, ownerTag })` -> `verifyStoredMerchant` with the bound account identity -> `recordMerchantCheck` for non-verified results -> `reloginInCommand` for rejected results; other results use `assertMerchantVerified`. No homepage navigation or business endpoints.
+- A verified check alone retains the saved snapshot: ordinary commands only perform their final snapshot commit after a successful business result. Password relogin keeps its existing verified candidate commit. Rejected/indeterminate checks retain the existing check-recording rules.
+- Each account has a 120s deadline. Relogin pauses/resumes it and retains its independent 90s budget. Daemon cancellation remains active throughout; abort closes and awaits the current account browser, releases the lease and skips remaining accounts. An interrupted round leaves the previous completion timestamp intact.
+- Complete rounds (including no accounts or all skipped/failed accounts) write ISO `daemon_last_patrol_at`. Status and `/healthz` expose its existing local-time projection.
+- Fixture uses `mockIsAuthValid` / `fixtureSessionRecovered` and `reloginForFixture` inside the held lease, with no browser. `PDD_TEST_PATROL_INTERVAL_MS` accepts a positive safe integer only in fixture mode; invalid values and live mode use `runtimeConfig.patrolIntervalMs`. It changes timing only; default-disabled patrol stays off.
+
+### 4. Validation & Error Matrix
+
+| Condition | Result |
+| --- | --- |
+| Disabled/default config | No timer, round, browser or timestamp write |
+| Busy account lease | Immediate skip; info with slug and fixed code |
+| Rejected auth | Existing breaker, throttle and awaiting-human decisions |
+| Indeterminate auth | Record check in live mode; no password attempt |
+| Account failure / account timeout | Fixed-code warning; next account still runs |
+| Daemon stop during account | Abort, await browser cleanup, release lease; no completed-round timestamp |
+| Round-level storage failure | `E_PATROL_ROUND_FAILED` warning; retry after the next interval |
+
+### 5. Good/Base/Bad Cases
+
+- Good: challenge creates one human action; the next round does not submit another password attempt.
+- Base: an occupied account is skipped while a later enabled merchant is checked.
+- Bad: patrol commits a merely checked snapshot as if a business command had succeeded, or acquires a second fixture lease inside the first.
+
+### 6. Tests Required
+
+- `test/services/patrol.test.js`: jitter limits, timing seam guards, strict opt-in, delayed first round, occupied/disabled/consumer skips, sequential live verification under leases, unchanged verified revision, check recording, fixed-code failures, cancellation/awaited cleanup, account timeout, throttle and breaker.
+- `test/e2e/patrol.e2e.test.js`: offline fixture daemon, one successful password attempt across rounds, challenge -> awaiting-human/open action with no second attempt, timestamps in status/healthz, default-off with a short timing seam.
+- Shared deadline/runner/auth storage tests and `npm test -- --maxWorkers=2` after changing this cross-layer flow.
+
+### 7. Wrong vs Correct
+
+```js
+// Wrong: a nested fixture lease waits on the patrol's own account lease.
+await withMerchantAuthUpdate(id, () => reloginForFixture(id, runtime));
+// Correct: pass the held transaction and retain the existing relogin state machine.
+await withMerchantAuthUpdate(id, (tx) => reloginForFixture(id, runtime, { tx }), { timeoutMs: 0 });
 ```

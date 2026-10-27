@@ -1,4 +1,5 @@
 import { createDaemonRuntime } from '../services/daemon-runtime.js';
+import { createPatrol } from '../services/patrol.js';
 import { createConsoleServer } from './server.js';
 
 function watchStop(signal, stop) {
@@ -75,7 +76,7 @@ async function runOwned(runtime, lease, { signal, components, exit, runtimeConfi
   return { stopped_reason: reason };
 }
 
-export async function runDaemon({ signal, components = [createConsoleServer()], exit = (code) => process.exit(code),
+export async function runDaemon({ signal, components = [createConsoleServer(), createPatrol()], exit = (code) => process.exit(code),
   foreground = true, runtimeConfig } = {}) {
   const runtime = createDaemonRuntime({ foreground, runtimeConfig });
   try {

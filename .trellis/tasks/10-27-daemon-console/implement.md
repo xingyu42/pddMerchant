@@ -72,8 +72,12 @@ P4 执行结果（2026-10-28）：定向 11 个文件、164 项通过；追加�
 
 ## P6 巡航（默认关闭）
 
-- [ ] `src/services/patrol.js`：浏览器同构路径、跳过被占用账号、抖动、写 `daemon_last_patrol_at`。
-- [ ] 测试：默认不运行；开启后按账号依次处理；失效时触发重登并遵守限频。
+- [x] `src/services/patrol.js`：浏览器同构路径、跳过被占用账号、抖动、写 `daemon_last_patrol_at`。
+- [x] 测试：默认不运行；开启后按账号依次处理；失效时触发重登并遵守限频。
+
+P6 实现说明：默认组件加入巡航，严格 `patrolEnabled === true` 才运行；首轮先等待，轮次串行。校验通过保留原快照，密码重登成功由既有核心提交；详见 design 第 8 节及 `p6-report.md`。仅 fixture 的 `PDD_TEST_PATROL_INTERVAL_MS` 支持短间隔测试，live 忽略。未提交，未改 `CLAUDE.md` 或 `src/console/`。
+
+P6 验证结果（2026-10-28）：最终定向 6 个文件、120 项通过；`npm test -- --maxWorkers=2` 全量 64 个文件、969 项通过、1 项平台跳过；`git diff --check` 通过。未执行真实账号或浏览器验证。
 
 ## P7 文档与 spec（Claude）
 
