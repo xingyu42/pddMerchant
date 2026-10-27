@@ -22,5 +22,7 @@
   "parent": "10-27-password-relogin-console",
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {
+    "phase": "P1–P4 已提交；P5（spec 同步）进行中"
+  }
 }

@@ -75,13 +75,13 @@
 
 ## 子任务映射
 
-| 顺序 | 子任务 | 覆盖需求 | 依赖 |
-|---|---|---|---|
-| ① | `10-27-remove-login-token-consumption` | 清理前置 | 无 |
-| ② | `10-27-sqlite-auth-storage` | R2、R6.3 部分 | ① |
-| ③ | `10-27-password-relogin-core` | R1、R5.2、R5.3 | ② |
-| ④ | `10-27-daemon-console` | R3、R4、R5.1、R6.1、R6.2 | ③ |
-| ⑤ | `10-27-session-lifetime-research` | 根因调研 | 无（可并行） |
+| 顺序 | 子任务 | 覆盖需求 | 依赖 | 状态 |
+|---|---|---|---|---|
+| ① | `10-27-remove-login-token-consumption` | 清理前置 | 无 | 已完成并归档 |
+| ② | `10-27-sqlite-auth-storage` | R2、R6.3 部分 | ① | 进行中：P1–P4 已提交（P1 `f2b8085`、P2 `cca1927`、P3 `a45b800`，P4 见 git log），P5 进行中 |
+| ③ | `10-27-password-relogin-core` | R1、R5.2、R5.3 | ② | 规划中 |
+| ④ | `10-27-daemon-console` | R3、R4、R5.1、R6.1、R6.2 | ③ | 规划中 |
+| ⑤ | `10-27-session-lifetime-research` | 根因调研 | 无（可并行） | 规划中 |
 
 ③④ 的 `design.md` / `implement.md` 依赖 ② 落定的表结构，在 ② 完成后再细化。
 

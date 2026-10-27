@@ -260,12 +260,8 @@ PDD_TEST_FIXTURE_DIR=./test/fixtures
 ### 6.1 核心配置
 | 变量                       | 用途                                                       | 默认值                 |
 | -------------------------- | ---------------------------------------------------------- | ---------------------- |
-| `PDD_AUTH_STATE_PATH`      | 显式商家鉴权文件覆盖                                       | 无注册表时为 `data/merchant/stores/default/auth-state.json`；注册后使用 registry 中的 slug |
-| `PDD_CONSUMER_AUTH_STATE_PATH` | 显式消费者鉴权文件覆盖                                | 无注册表时为 `data/consumer/accounts/default/auth-state.json`；注册后使用 registry 中的 slug |
-| `PDD_ACCOUNTS_DIR` / `PDD_ACCOUNT_REGISTRY_PATH` | 商家店铺目录/注册表覆盖              | `data/merchant/stores/` / `registry.json` |
-| `PDD_CONSUMER_ACCOUNTS_DIR` / `PDD_CONSUMER_ACCOUNT_REGISTRY_PATH` | 消费者账号目录/注册表覆盖 | `data/consumer/accounts/` / `registry.json` |
+| `PDD_DB_PATH`             | 商家/消费者账号与加密登录态的 SQLite 数据库                 | `data/pdd.db`；`master.key` 随数据库同目录保存 |
 | （固定路径，无 env）           | CLI 运行日志目录（按日轮转）                               | `log/cli/`；引导阶段写 stderr |
-| `PDD_ALLOW_INSECURE_AUTH_STATE` | POSIX 权限设置失败时允许继续（不推荐）                    | `0` |
 | `PDD_DEBUG_RAW`            | 输出原始 payload（JSONL）                                  | `0`                    |
 | `PDD_MALL_ID_STRICT_PARSE` | 严格校验店铺 ID                                            | `1`                    |
 | `PLAYWRIGHT_DOWNLOAD_HOST` | Patchright 浏览器下载镜像（沿用 Playwright-core 环境变量） | —                      |
@@ -292,22 +288,22 @@ PDD_TEST_FIXTURE_DIR=./test/fixtures
 ## 七、数据持久化
 
 ### 7.1 文件结构
+
+运行环境要求 Node.js >= 24，使用内置 SQLite。
+
 ```
 data/
-├── merchant/
-│   └── stores/
-│       ├── registry.json
-│       ├── default/auth-state.json       # 无注册表回退
-│       └── <slug>/auth-state.json        # 注册账号
-├── consumer/
-│   └── accounts/
-│       ├── registry.json
-│       ├── default/auth-state.json       # 无注册表回退
-│       └── <slug>/auth-state.json        # 注册账号
+├── pdd.db                      # 账号与加密登录态（SQLite，WAL 模式）
+├── master.key                  # 自动生成的主密钥
 └── scrape-cooldown.json         # 源抓取冷却状态
 ```
 
-### 7.2 auth-state.json 结构
+`PDD_DB_PATH` 覆盖数据库位置，主密钥始终位于数据库同目录。数据库与密钥均为敏感文件，勿提交，备份与恢复时须一起保留。旧 JSON 数据保留原样，升级后重新登录所有商家和消费者账号；`doctor` 检测到旧数据时只输出固定提示。
+
+### 7.2 登录态存储与并发
+
+商家与消费者账号统一按账号 ID 关联登录态。以下 `cookies/origins` 对象加密存入 SQLite，使用时在内存中解密交给浏览器；商家绑定与校验元数据单独保存。
+
 ```json
 {
   "cookies": [
@@ -323,6 +319,8 @@ data/
   ]
 }
 ```
+
+认证更新通过账号租约协调，最终在短事务内按 revision CAS（修订号匹配才提交）更新；浏览器和网络等待在事务外进行。删除账号会级联删除该账号的登录态及关联数据。
 
 ---
 

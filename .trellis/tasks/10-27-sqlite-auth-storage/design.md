@@ -277,7 +277,7 @@ assertLeaseOwner(scope, key, token)      // 不匹配则抛 E_AUTH_LOCK_LOST
   - `skills/pdd-cli/SKILL.md:238-243`
   - `docs/architecture-overview.md` §7.1、§7.2
   - `docs/goods-publish-api-recon.md:45`
-- `CHANGELOG.md`：新增 BREAKING 一节；`package.json` 中 `version` 改为 `0.2.0`，`engines` 改为 `>=24`。
+- `CHANGELOG.md`：新增 BREAKING 一节；`package.json` 中 `version` 改为 `0.5.0`，`engines` 改为 `>=24`。
 
 ## 10. 需要审阅确认的语义变化
 

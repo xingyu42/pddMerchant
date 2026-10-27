@@ -1,5 +1,25 @@
 # Changelog
 
+## V0.5 Migration Notes
+
+> V0.4 → V0.5 的对外变更清单。升级到 `0.5.0` 后，请重新登录每个商家和消费者账号。
+
+### Breaking
+
+- **账号和登录态统一存入 SQLite**：默认数据库为 `data/pdd.db`，可用 `PDD_DB_PATH` 覆盖。自动生成的主密钥默认位于 `data/master.key`，始终与数据库同目录；两者均为敏感文件，勿提交，并须一起备份、恢复。
+- **旧数据保留原样**：旧 JSON 注册表和 auth-state 文件均不迁移、不删除；`doctor` 检测到时提示“检测到旧版数据，已不再使用，可手动删除”，输出不含旧文件路径或内容。
+- **以下 8 个环境变量已删除**：`PDD_AUTH_STATE_PATH`、`PDD_CONSUMER_AUTH_STATE_PATH`、`PDD_ACCOUNTS_DIR`、`PDD_CONSUMER_ACCOUNTS_DIR`、`PDD_ACCOUNT_REGISTRY_PATH`、`PDD_CONSUMER_ACCOUNT_REGISTRY_PATH`、`PDD_ALLOW_INSECURE_AUTH_STATE`、`PDD_MASTER_PASSWORD`。存储位置统一由 `PDD_DB_PATH` 指定。
+- **`account remove --remove-files` 已移除**：携带此选项现为 unknown option；删除账号始终级联删除该账号的登录态及关联数据。
+- **`authStatePath` 配置字段退役**：旧本地配置中的该字段会被忽略，`config set authStatePath` 返回未知字段错误。
+- **账号视图字段调整**：删除 `has_credential` / `last_refresh_at`，消费这些字段的脚本需同步调整。
+- **要求 Node.js >= 24**：低版本启动时 stdout 输出一行 `E_USAGE` envelope，退出码为 `2`，并提示升级。
+
+### 升级方式
+
+使用 Node.js >= 24，逐个执行 `pdd login` 登录商家账号、`pdd login --consumer` 登录消费者账号，再运行 `pdd doctor` 自检。旧数据确认无需保留后可手动清理；备份时同时保留数据库与同目录的主密钥。
+
+---
+
 ## V0.4 Migration Notes
 
 > V0.3 → V0.4 的对外变更清单。若你在 V0.3 下写了自动化脚本，请按此节核对兼容性。

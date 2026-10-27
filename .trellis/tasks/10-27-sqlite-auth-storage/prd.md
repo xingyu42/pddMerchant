@@ -35,7 +35,7 @@
 - N14 删除基于文件的存储层：`auth-state.js` 的文件读写部分、`auth-lock.js`、两个 JSON 注册表、`paths.js` 中的账号目录函数；以单库事务取代文件锁与修订号。
 - N15 删除环境变量：`PDD_AUTH_STATE_PATH`、`PDD_CONSUMER_AUTH_STATE_PATH`、`PDD_ACCOUNTS_DIR`、`PDD_CONSUMER_ACCOUNTS_DIR`、`PDD_ACCOUNT_REGISTRY_PATH`、`PDD_CONSUMER_ACCOUNT_REGISTRY_PATH`、`PDD_ALLOW_INSECURE_AUTH_STATE`、`PDD_MASTER_PASSWORD`。同步移除依赖显式路径的逻辑（例如 `--all-accounts` 与显式 auth-state 路径互斥的校验）。
 - N16 不迁移旧数据：旧 JSON 与 auth-state 文件不读、不删。`doctor` 检测到旧文件时报告“检测到旧版数据，已不再使用，可手动删除”。
-- N17 版本号升至 `0.2.0`；`CHANGELOG.md` 新增 BREAKING 一节，说明存储改为 SQLite 且不迁移、删除的环境变量、`engines >=24`、升级方式（重新登录各账号）。
+- N17 版本号升至 `0.5.0`（与 `CHANGELOG.md` 已有的 V0.1–V0.4 编号连续，2026-10-27 用户确认）；`CHANGELOG.md` 新增 V0.5 BREAKING 一节，说明存储改为 SQLite 且不迁移、删除的环境变量、`engines >=24`、升级方式（重新登录各账号）。
 
 ### 测试与契约
 

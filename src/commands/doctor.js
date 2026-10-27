@@ -14,7 +14,10 @@ import { listAccounts } from '../infra/account-store.js';
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
 import { resolveConsumerAccountContext } from '../infra/consumer-account-resolver.js';
 import { toDoctorView } from '../services/views/auth.js';
+import { hasLegacyStorage } from '../services/doctor-storage.js';
 import { AUTH_REASON_LABEL, AUTH_VERDICT_LABEL } from '../services/views/labels.js';
+
+const LEGACY_STORAGE_MESSAGE = '检测到旧版数据，已不再使用，可手动删除';
 
 export async function checkChromium() {
   if (isMockEnabled()) return { ok: true, detail: { fixture: true } };
@@ -164,11 +167,14 @@ export const run = withCommand({
   needsMall: 'none',
   render: renderDoctor,
   async run(ctx) {
+    const legacyStorage = await hasLegacyStorage();
+    if (legacyStorage) ctx.warnings.push({ code: 'legacy_storage_detected' });
     const accountId = ctx.accountId;
     const consumerAccount = await resolveConsumerAccountContext({ account: ctx.config?.consumerAccount, needsAuth: false });
     const consumerAccountId = consumerAccount.accountId;
 
     const data = {
+      ...(legacyStorage ? { headline: [LEGACY_STORAGE_MESSAGE] } : {}),
       chromium: { ok: false, detail: null },
       auth_file: { ok: false, detail: null },
       logged_in: { ok: false, detail: null },
@@ -201,7 +207,9 @@ export const run = withCommand({
     assertDoctorLogin(data, ctx.log);
     const accounts = await checkDoctorAccounts();
     if (accounts.length > 0) data.accounts = accounts;
-    return toDoctorView(data);
+    const view = toDoctorView(data);
+    if (legacyStorage) view.headline.push(LEGACY_STORAGE_MESSAGE);
+    return view;
   },
 });
 
