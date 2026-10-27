@@ -69,8 +69,8 @@
 
 ## 最终审查与合并
 
-- [ ] 逐条核对 PRD 验收标准。
-- [ ] 跑 `trellis-check` 全量检查。
-- [ ] 对 `password-credential.js`、`password-login.js`、`password-relogin.js`、`logger.js` 和实验脚本做安全审查，重点看密码是否会经错误、日志、调试输出或 detail 泄露。
-- [ ] 用 `git diff main...feat/password-relogin-core` 检查改动范围。
-- [ ] 用户同意后，在本地以 `--no-ff` 合并到 main，然后归档任务。
+- [x] 逐条核对 PRD 验收标准。
+- [x] 跑 `trellis-check` 全量检查（发现截止时间未转人工的 High 缺陷，已在 `680cef6` 修复）。
+- [x] 对 `password-credential.js`、`password-login.js`、`password-relogin.js`、`logger.js` 和实验脚本做安全审查，重点看密码是否会经错误、日志、调试输出或 detail 泄露。
+- [x] 用 `git diff main...feat/password-relogin-core` 检查改动范围。
+- [x] 用户同意后，在本地以 `--no-ff` 合并到 main，然后归档任务。
