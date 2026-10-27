@@ -24,6 +24,11 @@ const fullCountDiscountRateSchema = z.number().finite()
     { message: 'must use increments of 0.01' },
   );
 
+const consolePublicUrlSchema = z.union([z.literal(''), z.string().url().refine(
+  (value) => /^https?:\/\//i.test(value),
+  { message: 'must be an absolute HTTP(S) URL' },
+)]);
+
 const CONFIG_FIELD_DEFINITIONS = Object.freeze({
   logLevel: { schema: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']), env: 'PDD_LOG_LEVEL', kind: 'string', required: true },
   rateLimitQps: { schema: qpsSchema, env: 'PDD_RATE_LIMIT_QPS', kind: 'number', required: true },
@@ -31,6 +36,11 @@ const CONFIG_FIELD_DEFINITIONS = Object.freeze({
   cooldownThreshold: { schema: z.number().int().positive(), env: 'PDD_COOLDOWN_THRESHOLD', kind: 'number', required: true },
   cooldownMs: { schema: z.number().int().positive(), env: 'PDD_COOLDOWN_MS', kind: 'number', required: true },
   passwordReloginMinIntervalMs: { schema: z.number().int().positive(), env: 'PDD_PASSWORD_RELOGIN_MIN_INTERVAL_MS', kind: 'number', required: true },
+  consoleHost: { schema: z.string().trim().min(1), env: 'PDD_CONSOLE_HOST', kind: 'string', required: true },
+  consolePort: { schema: z.number().int().min(1).max(65535), env: 'PDD_CONSOLE_PORT', kind: 'number', required: true },
+  consolePublicUrl: { schema: consolePublicUrlSchema, env: 'PDD_CONSOLE_PUBLIC_URL', kind: 'string', required: true },
+  patrolEnabled: { schema: z.boolean(), env: 'PDD_PATROL_ENABLED', kind: 'boolean', required: true },
+  patrolIntervalMs: { schema: z.number().int().min(300000), env: 'PDD_PATROL_INTERVAL_MS', kind: 'number', required: true },
   writeRateTokensPerMinute: { schema: z.number().int().positive(), env: 'PDD_WRITE_RATE_TPM', kind: 'number', required: true },
   scrapeSoftBlockThreshold: { schema: z.number().int().positive(), env: 'PDD_SCRAPE_SOFTBLOCK_THRESHOLD', kind: 'number', required: true },
   scrapeSoftBlockCooldownMs: { schema: z.number().int().positive(), env: 'PDD_SCRAPE_SOFTBLOCK_COOLDOWN_MS', kind: 'number', required: true },
@@ -148,7 +158,8 @@ function readEnvLayer(env = process.env) {
   const values = {};
   for (const [key, definition] of Object.entries(CONFIG_FIELD_DEFINITIONS)) {
     const raw = env[definition.env];
-    if (raw == null || raw === '') continue;
+    // Validate an explicitly empty host instead of silently falling back to the baseline.
+    if (raw == null || (raw === '' && key !== 'consoleHost' && !definition.schema.safeParse('').success)) continue;
     values[key] = coerceEnvValue(raw, definition.kind);
   }
   return validateLayer(values, ConfigSchema, { source: 'environment' });

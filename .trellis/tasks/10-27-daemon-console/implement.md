@@ -8,14 +8,23 @@
 
 ## P1 基础设施
 
-- [ ] `db.js` v2 迁移（`console_tokens`、`console_sessions`），拒绝阈值改为 `> 2`；测试 v1 → v2 升级与高版本拒绝。
-- [ ] `leases.js` 增加 `staleBy: 'heartbeat'`；`timeoutMs: 0` 立即返回；测试。
-- [ ] `src/infra/daemon-state.js`：租约读写、心跳、停止请求、`meta` 键读写。
-- [ ] `logger.js` / `paths.js`：`channel: 'daemon'` → `log/daemon/`；`SECRET_KEYS` 增加 `token`、`pdd_console`；`REDACT_KEYS` 增加 `session`、`qr_image`、`jpeg`。
-- [ ] `config.js` + `config/config.example.json`：五个扁平键（design 第 9 节）。
-- [ ] `errors.js`：四个新错误工厂。
+- [x] `db.js` v2 迁移（`console_tokens`、`console_sessions`），拒绝阈值改为 `> 2`；测试 v1 → v2 升级与高版本拒绝。
+- [x] `leases.js` 增加 `staleBy: 'heartbeat'`；`timeoutMs: 0` 尝试一次，失败立即抛 `E_LOCK_TIMEOUT`；测试。
+- [x] `src/infra/daemon-state.js`：租约读写、心跳、停止请求、`meta` 键读写。
+- [x] `logger.js` / `paths.js`：`channel: 'daemon'` → `log/daemon/`；`SECRET_KEYS` 增加 `token`、`pdd_console`；`REDACT_KEYS` 增加 `session`、`qr_image`、`jpeg`。
+- [x] `config.js` + `config/config.example.json`：五个扁平键（design 第 9 节）。
+- [x] `errors.js`：四个新错误工厂。
 
 验证：`npx vitest run test/infra/`。
+
+P1 执行结果（2026-10-27）：基础设施 13 个测试文件通过，157 项通过、1 项平台跳过；`npm test` 全量 47 个文件通过，793 项通过、1 项平台跳过；`git diff --check` 通过。未提交。
+
+P1 衔接说明：
+- `acquireDaemonLease()` 将 `E_LOCK_TIMEOUT` 转为 `null`；其他错误保持抛出。底层租约仍使用异常契约。
+- `setDaemonMeta` / `getDaemonMeta` 仅接受 `daemon_last_patrol_at`、`daemon_console_url`，值为字符串；停止请求由专用函数管理（ISO 时间字符串或 `null`）。
+- `purgeExpiredConsoleRows(now)` 接受可转换为 Date 的时间，返回 `{ tokens, sessions }` 删除行数，两个表在同一同步事务中清理。
+- daemon 错误 detail 只保留正整数 `pid`、1–65535 的整数 `port`，及固定 reason：`foreign_host`、`lease_active`、`kill_failed`、`address_in_use`。
+- 脱敏键检索未发现现有固定业务字段冲突；内部 `token` 为租约凭据，`session` 为流程变量。发现动态键风险：批量 `data.accounts` 以 slug 为键，slug 若为五个新增脱敏键之一，该账号整项会被脱敏。已报告；P1 按设计保留脱敏名单，输出结构与 slug 规则保持原样，后续需单独处理。
 
 ## P2 daemon 生命周期
 

@@ -71,6 +71,41 @@ describe('leases', () => {
     assert.deepEqual(readLease(), original);
   });
 
+  it('takes over an expired same-host live pid with the heartbeat rule', async () => {
+    seedLease({ expiresAt: PAST });
+    const { token } = await acquireLease('account', 42, { staleBy: 'heartbeat', timeoutMs: 0 });
+    assert.notEqual(token, 'previous-owner');
+    assert.equal(readLease().owner_token, token);
+  });
+
+  it('keeps an unexpired heartbeat lease even when its local pid is dead', async () => {
+    seedLease({ pid: deadPid() });
+    const original = readLease();
+    await assert.rejects(acquireLease('account', 42, { staleBy: 'heartbeat', timeoutMs: 0 }), { code: 'E_LOCK_TIMEOUT' });
+    assert.deepEqual(readLease(), original);
+  });
+
+  it('tries once with zero timeout, without sleeping or extending the wait', async () => {
+    vi.useFakeTimers();
+    const extendUntil = vi.fn(() => Date.now() + 1000);
+    const { token } = await acquireLease('account', 42, { timeoutMs: 0 });
+    const original = readLease();
+    run('UPDATE leases SET expires_at = ? WHERE scope = ? AND key = ?', PAST, 'account', '42');
+    await assert.rejects(acquireLease('account', 42, { timeoutMs: 0, extendUntil }), { code: 'E_LOCK_TIMEOUT' });
+    assert.equal(readLease().owner_token, token);
+    assert.equal(readLease().acquired_at, original.acquired_at);
+    assert.equal(extendUntil.mock.calls.length, 0);
+    assert.equal(vi.getTimerCount(), 0);
+  });
+
+  it('applies the heartbeat rule on later attempts in a wait', async () => {
+    vi.useFakeTimers();
+    seedLease({ expiresAt: new Date(Date.now() + 100).toISOString() });
+    const waiting = acquireLease('account', 42, { staleBy: 'heartbeat', timeoutMs: 500, retryMs: 1 });
+    await vi.advanceTimersByTimeAsync(300);
+    assert.equal(readLease().owner_token, (await waiting).token);
+  });
+
   it('takes over a foreign-host row only after expires_at regardless of its pid', async () => {
     seedLease({ host: `${hostname()}-foreign`, pid: process.pid });
     const original = readLease();

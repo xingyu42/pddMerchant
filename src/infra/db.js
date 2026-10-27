@@ -75,6 +75,22 @@ CREATE TABLE pending_actions (
 CREATE UNIQUE INDEX pending_actions_one_open ON pending_actions(account_id, kind) WHERE status = 'open';
 `;
 
+const SCHEMA_V2 = `
+CREATE TABLE console_tokens (
+  token_hash TEXT PRIMARY KEY,
+  account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  consumed_at TEXT
+);
+CREATE TABLE console_sessions (
+  session_hash TEXT PRIMARY KEY,
+  account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+`;
+
 let database = null;
 let databasePath = null;
 let databaseGeneration = 0;
@@ -103,16 +119,15 @@ function executeTransaction(connection, callback) {
 function migrate(connection) {
   executeTransaction(connection, () => {
     const version = connection.prepare('PRAGMA user_version').get().user_version;
-    if (version > 1) {
+    if (version > 2) {
       throw new PddCliError({
         code: 'E_DATABASE_VERSION_UNSUPPORTED', message: '数据库由更新版本的 pdd-cli 创建，请升级 pdd-cli',
         hint: '请升级 pdd-cli 后重试', exitCode: ExitCodes.AUTH,
       });
     }
-    if (version < 1) {
-      connection.exec(SCHEMA_V1);
-      connection.exec('PRAGMA user_version = 1');
-    }
+    if (version < 1) connection.exec(SCHEMA_V1);
+    if (version < 2) connection.exec(SCHEMA_V2);
+    connection.exec('PRAGMA user_version = 2');
   });
 }
 

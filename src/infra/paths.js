@@ -10,6 +10,7 @@ export const DB_PATH = process.env.PDD_DB_PATH ? resolve(process.env.PDD_DB_PATH
 export const CONFIG_DIR = join(PROJECT_ROOT, 'config');
 export const LOG_DIR = join(PROJECT_ROOT, 'log');
 export const CLI_LOG_DIR = join(LOG_DIR, 'cli');
+export const DAEMON_LOG_DIR = join(LOG_DIR, 'daemon');
 
 export const CONFIG_EXAMPLE_PATH = join(CONFIG_DIR, 'config.example.json');
 export const CONFIG_PATH = join(CONFIG_DIR, 'config.json');
