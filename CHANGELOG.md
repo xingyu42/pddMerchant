@@ -10,7 +10,7 @@
 - **限频**：同一账号两次尝试至少间隔 30 分钟，可用配置 `passwordReloginMinIntervalMs` / 环境变量 `PDD_PASSWORD_RELOGIN_MIN_INTERVAL_MS` 调整；窗口内返回的错误附 `detail.relogin = 'throttled'` 与 `next_attempt_at`。
 - **并发复用**：多个进程同时发现同一账号失效时只登录一次，其余进程等待并复用新的登录态。
 - **待办提醒**：需要认证的命令会在 `meta.warnings` 中附 `{ code: 'account_action_required', account, reason }`，提示该账号有待用户处理的事项（成功与失败均会附带）。
-- **输出字段**：`account list` 每项新增 `has_password`、`password_relogin_status`；`doctor` 新增 `password_relogin = { has_password, status }`，`accounts[]` 每项新增同样两项。状态为中文，例如 `可用`、`等待人工：短信验证`、`已熔断：密码错误`。`doctor` 与 `account list` 不触发重登。
+- **输出字段**：`account list` 每项新增 `has_password`、`password_relogin_status`；`doctor` 新增 `password_relogin = { has_password, status }`，`accounts[]` 每项新增 `has_password`、`password_relogin_status`。状态为中文，例如 `可用`、`等待人工：短信验证`、`已熔断：密码错误`。`doctor` 与 `account list` 不触发重登。
 - **新错误码**（均为退出码 3）：`E_AUTH_HUMAN_REQUIRED`、`E_AUTH_RELOGIN_BLOCKED`、`E_AUTH_RELOGIN_FAILED`；`E_PASSWORD_LOGIN_FORM_CHANGED` 文案改为中文。
 
 ### Changed

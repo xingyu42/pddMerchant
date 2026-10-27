@@ -251,7 +251,8 @@ export async function reloginInCommand(runtime, tx, browser, authResult) {
         context = await createSnapshotContext(browser, deviceState(tx));
         assertAuthTask(task);
         const loginPage = await context.newPage();
-        const result = await attemptPasswordLogin(loginPage, credential, task);
+        const loginTask = { ...task, deadlineAt: task.deadlineAt - TIMEOUTS.LOGIN_PASSWORD_RESERVE };
+        const result = await attemptPasswordLogin(loginPage, credential, loginTask);
         assertAuthTask(task);
         if (result.outcome !== 'success') return result;
         await loginPage.close();

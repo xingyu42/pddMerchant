@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, it, vi } from 'vitest';
 import { mockMerchantProbeTransport } from '../helpers/merchant-probe-transport.js';
 import { savePasswordCredential } from '../../src/adapter/password-credential.js';
 import { getReloginState, listPendingActions } from '../../src/infra/account-store.js';
+import { TIMEOUTS } from '../../src/infra/timeouts.js';
 
 const control = vi.hoisted(() => ({ state: null, mallId: 900001, selectedMallId: 900001, login: true, malformed: false,
   page: null, browserCalls: 0, outcome: null, snapshots: [], originalContext: null, failPage: false, candidateState: null }));
@@ -35,7 +36,8 @@ vi.mock('../../src/adapter/browser.js', () => ({
 }));
 vi.mock('../../src/adapter/password-login.js', () => ({
   attemptPasswordLogin: vi.fn(async (page, _credential, task) => {
-    assert.ok(task.deadlineAt - Date.now() > 80000);
+    assert.ok(task.deadlineAt - Date.now() > 60000);
+    assert.ok(task.deadlineAt - Date.now() <= TIMEOUTS.LOGIN_PASSWORD - TIMEOUTS.LOGIN_PASSWORD_RESERVE);
     if (control.outcome?.outcome === 'success') {
       page.context().session.cookies.push({ name: 'PASS_ID', value: 'synthetic-new-session' });
       control.candidateState = structuredClone(page.context().session);
@@ -213,6 +215,41 @@ describe('live merchant command authentication lifecycle', () => {
     assert.deepEqual(result.meta.warnings, [{ code: 'account_action_required', account: 'shop', reason: 'slider' }]);
     assert.equal(listPendingActions(accountId)[0].status, 'open');
     assert.equal(loadAuthState(accountId).state.merchant_auth.last_check.verdict, 'rejected');
+  });
+
+  it('records an unknown challenge at the adapter deadline within the full relogin budget', async () => {
+    control.login = false;
+    savePasswordCredential(accountId, { loginName: 'synthetic-login', password: 'synthetic-password' });
+    vi.useFakeTimers();
+    let reloginDeadline;
+    attemptPasswordLogin.mockImplementationOnce(async (_page, _credential, task) => {
+      reloginDeadline = Date.parse(getReloginState(accountId).last_attempt_at) + TIMEOUTS.LOGIN_PASSWORD;
+      await vi.advanceTimersByTimeAsync(task.deadlineAt - Date.now());
+      assert.equal(Date.now(), task.deadlineAt);
+      return { outcome: 'challenge', challenge: 'unknown' };
+    });
+    const run = vi.fn();
+    try {
+      const result = await runOperation(run);
+      assert.equal(result.error.code, 'E_AUTH_HUMAN_REQUIRED');
+      assert.equal(result.error.detail.challenge, 'unknown');
+      assert.equal(result.meta.exit_code, 3);
+      assert.equal(attemptPasswordLogin.mock.calls.length, 1);
+      const task = attemptPasswordLogin.mock.calls[0][2];
+      assert.equal(TIMEOUTS.LOGIN_PASSWORD_RESERVE, 20_000);
+      assert.equal(task.deadlineAt, reloginDeadline - 20_000);
+      assert.equal(task.signal.aborted, false);
+      const state = getReloginState(accountId);
+      assert.equal(state.status, 'awaiting_human');
+      assert.equal(state.reason, 'unknown');
+      const actions = listPendingActions(accountId).filter((action) => action.status === 'open');
+      assert.deepEqual(actions.map((action) => [action.kind, action.reason]), [['human_takeover', 'unknown']]);
+      assert.deepEqual(result.meta.warnings, [{ code: 'account_action_required', account: 'shop', reason: 'unknown' }]);
+      assert.equal(run.mock.calls.length, 0);
+      assert.equal(control.snapshots.at(-1).context.close.mock.calls.length, 1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each(['identity_mismatch', 'indeterminate'])('rejects a successful password submission with %s verification', async (failure) => {

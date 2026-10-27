@@ -322,11 +322,11 @@ getAccountActionWarnings(accountId, slug) -> [{ code: 'account_action_required',
 | `recordTakeoverTimeout` | counter +1; at 2 → blocked | `takeover_timeout` | opens `relogin_blocked`; an existing block is kept as is |
 
 - At most one open pending action per `(account, kind)`; a duplicate insert keeps the existing row.
-- State and action writes run in one short synchronous transaction after `assertLeaseOwner('account', accountId, tx.token)`.
+- Attempt/outcome writes (`recordReloginAttempt`, `recordReloginOutcome`, fixture commit) run in one short synchronous transaction after `assertLeaseOwner('account', accountId, tx.token)`. `markManualLoginSucceeded` runs inside `saveMerchantLogin`'s lease-checked transaction. The reserved ④ helpers (`setAccountPassword`, `clearAccountPassword`, `clearReloginBlock`, `recordTakeoverTimeout`) write in a short transaction without taking the lease; races with an in-flight attempt are resolved by the stale-outcome guard.
 - Stale-outcome guard: when `credentials.updated_at` differs from `credentialUpdatedAt` captured at decision time, blocking outcomes (`awaiting_human` / `blocked`) are skipped and only the error is returned, so a password reset during an attempt wins.
 - The live relogin context is device-continuous: `tx.state` cookies/origins with every `PASS_ID` cookie removed. Only a corrupt or shape-invalid state falls back to an empty context.
 - On `success` the login page closes and `verifyMerchantContext(newContext, { expectedMallId: tx.recoveryMallId })` must return `verified`; then `commitMerchantCandidate` → outcome `success` → `renewLease`. Non-verified → `verify_failed` / `E_AUTH_RELOGIN_FAILED`; identity mismatch surfaces as `E_ACCOUNT_IDENTITY_MISMATCH`. The runner swaps to the returned `{ context, page }` and closes the old context; failure paths close the new context.
-- Budget: relogin has its own `TIMEOUTS.LOGIN_PASSWORD` (90s) budget. The command deadline is paused with `armDeadline().pause()` and resumed in `finally`; SIGINT still aborts through the combined signal.
+- Budget: relogin has its own `TIMEOUTS.LOGIN_PASSWORD` (90s) budget. The adapter uses a deadline shortened by `TIMEOUTS.LOGIN_PASSWORD_RESERVE` (20s), giving it `LOGIN_PASSWORD - LOGIN_PASSWORD_RESERVE` (70s); the reserve covers outcome recording and `verifyMerchantContext`, which keep the full task deadline. Both tasks share the same signal. The command deadline is paused with `armDeadline().pause()` and resumed in `finally`; SIGINT still aborts through the combined signal.
 - Lease wait: a waiter extends past its normal 15s wait only while the holder's `last_attempt_at` is within `LOGIN_PASSWORD`, up to `last_attempt_at + LOGIN_PASSWORD + 15s`, still bounded by its own `deadlineAt` and signal. After acquiring, it reads the new revision, verifies it and does not log in again.
 - Adapter: challenge detection reads visible DOM only — no click, drag or "send code" after the single submit click. A state still unclassified at the deadline is `challenge: 'unknown'` (go to a human, never retry blindly). Raw Playwright errors map to fixed reasons; `err.message` never reaches logs or envelopes.
 - Action warnings: for needsAuth commands, on both success and error paths (live and fixture), every open action of the account actually used becomes `{ code: 'account_action_required', account: slug, reason }`, including actions written by the same run. Batch mode aggregates per-account warnings and relogs accounts one by one.
@@ -341,6 +341,7 @@ getAccountActionWarnings(accountId, slug) -> [{ code: 'account_action_required',
 | rejected, status `awaiting_human` | `E_AUTH_HUMAN_REQUIRED` (exit 3); no attempt |
 | rejected, inside throttle window | rebuilt error + `relogin: 'throttled'`, `next_attempt_at`; no attempt |
 | attempt → challenge | `E_AUTH_HUMAN_REQUIRED` `{ account, challenge }`; open `human_takeover`; warning in the same envelope |
+| adapter deadline (70s), still unclassified | `E_AUTH_HUMAN_REQUIRED` `{ account, challenge: 'unknown' }` (exit 3); state `awaiting_human` / `unknown`; one open `human_takeover` and action warning recorded within the full 90s budget |
 | attempt → wrong_password / account_locked | `E_AUTH_RELOGIN_BLOCKED`; open `relogin_blocked`; later commands make no attempt |
 | attempt → form_changed | `E_PASSWORD_LOGIN_FORM_CHANGED`; status stays available |
 | attempt → network_error / verify_failed | `E_AUTH_RELOGIN_FAILED`; status stays available |
@@ -364,6 +365,7 @@ getAccountActionWarnings(accountId, slug) -> [{ code: 'account_action_required',
 - `test/adapter/password-credential.test.js`: round trip, AAD bound to the account, tamper, input validation, no values in errors.
 - `test/services/password-relogin.test.js`: decision order, every state-machine row, throttle reconstruction, single open action, foreign lease rejected, stale-outcome guard.
 - `test/adapter/password-login.test.js`: every outcome via a fake page; no click/press after the submit click on challenge branches.
+- `test/adapter/merchant-auth-lifecycle.test.js`: adapter waits until its shortened deadline and returns `unknown`; assert the 20s reserve, exit 3, `awaiting_human` / `unknown`, one open `human_takeover` and the same-run action warning with fake timers.
 - `test/infra/leases.test.js`: `extendUntil` extension and termination. `test/commands/runner-deadline.test.js`: pause/resume.
 - `test/e2e/password-relogin.e2e.test.js` (fixture, temp `PDD_DB_PATH`): success with one-line stdout; four challenges; breaker with no further trace lines; three unlock paths; throttle; two-process single attempt; `PDD_DEBUG_RAW=1` leaves no password in stdout/stderr/log/DB bytes; doctor and account list never relogin; `--all-accounts` relogs sequentially.
 
@@ -382,7 +384,8 @@ await attemptPasswordLogin(await context.newPage(), credential, task);
 ```js
 const device = { cookies: tx.state.cookies.filter((cookie) => cookie.name !== 'PASS_ID'), origins: tx.state.origins };
 const context = await createSnapshotContext(browser, structuredClone(device));
-const result = await attemptPasswordLogin(await context.newPage(), credential, task);
+const loginTask = { ...task, deadlineAt: task.deadlineAt - TIMEOUTS.LOGIN_PASSWORD_RESERVE };
+const result = await attemptPasswordLogin(await context.newPage(), credential, loginTask);
 ```
 
 #### Wrong

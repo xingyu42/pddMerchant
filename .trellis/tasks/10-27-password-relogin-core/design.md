@@ -100,7 +100,7 @@ attemptPasswordLogin(page, { loginName, password }, { signal, deadlineAt }) ->
 **live**：`reloginInCommand(runtime, tx, browser) -> { context, page }`，由 runner 在 `assertAuthValid` 得到 `rejected` 后调用。此时已持有租约。
 
 1. 调用 `decideRelogin`，结果是 fail 时直接抛错；然后记录"开始尝试"。
-2. 暂停命令截止时间（第 6 节）。重登任务使用独立预算：`deadlineAt = now + TIMEOUTS.LOGIN_PASSWORD`，`signal` 为父信号（SIGINT）加重登自身计时器。
+2. 暂停命令截止时间（第 6 节）。重登任务使用独立预算：`deadlineAt = now + TIMEOUTS.LOGIN_PASSWORD`，`signal` 为父信号（SIGINT）加重登自身计时器。适配器使用同一信号，截止时间提前 `TIMEOUTS.LOGIN_PASSWORD_RESERVE`（20s），获得 70s 登录预算，预留时间用于结果记录和 `verifyMerchantContext`，后两者继续使用完整的 90s 重登任务。
 3. 创建设备延续的快照上下文：取 `tx.state` 的 cookies/origins，去掉所有 `PASS_ID` 会话 Cookie，其余（设备标识类 Cookie、localStorage）原样保留，`createSnapshotContext(browser, filtered)` 后 `newPage()`，再执行 `attemptPasswordLogin`。`tx.state` 不可用（corrupt）时才退回空上下文。依据：实验显示空白上下文必触发短信；用户经验是账密登录过一次短信后，同一设备后续登录不再要求短信（2026-10-27，`research/real-login-experiment.md`）。重登成功后提交的候选状态自然包含新的设备 Cookie，信任得以延续。
 4. 如果是 success：关闭登录页，执行 `verifyMerchantContext(newContext, { expectedMallId: account.identity })`。
    - 结果为 `verified`：`commitMerchantCandidate(candidate, tx)`，记为 success，`renewLease`，关闭旧上下文，返回新的 `{ context, page }`。

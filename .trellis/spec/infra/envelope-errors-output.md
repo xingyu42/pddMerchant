@@ -94,7 +94,7 @@ Password relogin errors（`src/infra/errors.js`，全部 exit 3；场景见 [aut
 | `reloginFailed` | `E_AUTH_RELOGIN_FAILED` | 自动重登未完成 | 稍后重试或执行 pdd login | `{ account, reason, relogin?, next_attempt_at? }` |
 | `passwordLoginFormChanged` | `E_PASSWORD_LOGIN_FORM_CHANGED` | 登录页结构已变化，无法自动填写账密 | 执行 pdd login --qr 扫码登录，并反馈此问题 | `{ account, reason? }` |
 
-- 四个工厂的 detail 都经 `reloginDetail()` 白名单：`account`（string）、`challenge` / `reason`（仅已知重登原因码）、`relogin: 'throttled'`、`next_attempt_at`（`YYYY-MM-DD HH:mm:ss`）。登录名、密码、URL、页面文字一律丢弃。
+- 四个工厂的 detail 都经 `reloginDetail()` 白名单：`account`（string）、`challenge` / `reason`（仅已知重登原因码；`reason` 另允许 `null`，即崩溃后首次尝试无结果时的限频错误）、`relogin: 'throttled'`、`next_attempt_at`（`YYYY-MM-DD HH:mm:ss`）。登录名、密码、URL、页面文字一律丢弃。
 - 限频窗口内的 `E_AUTH_EXPIRED` 同样附 `{ relogin: 'throttled', next_attempt_at }`。
 - 旧的 `authChallengeRequired` 已删除。
 
