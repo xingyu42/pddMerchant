@@ -9,9 +9,10 @@
 唯一运行时边界：
 
 ```js
-launchBrowser({ headed?, storageStatePath?, storageState? }) -> Promise<{ browser, context, page }>
+launchBrowser({ headed?, storageState? }) -> Promise<{ browser, context, page }>
 withBrowser(options, fn) -> Promise<unknown>
-createConsumerContext(browser, { storageStatePath?, proxy? }) -> Promise<{ context, page, close }>
+createConsumerContext(browser, { storageState?, proxy? }) -> Promise<{ context, page, close }>
+createSnapshotContext(browser, storageState) -> Promise<BrowserContext>
 getBrowserExecutablePath() -> string
 evaluateInMainWorld(pageOrFrame, pageFunction, arg?) -> Promise<unknown>
 ```
@@ -55,8 +56,8 @@ Headless 固定配置：
 - MUST NOT 修改 webdriver、plugins、WebGL、Canvas、Audio、memory、Client Hints、languages、色深或 GPU。
 - Headed Context MUST 仅设置 `viewport:null`，不得覆盖 UA、locale、timezone、DPR、screen 或窗口属性，不得安装一致性脚本。
 - Consumer Context MUST 继承所属 Browser 的 RuntimeProfile；`proxy` 只能加入该 fresh consumer Context，merchant/login/doctor 保持直连。
-- Browser helper 只把 `storageStatePath` 当作 Context 输入，不自行写回文件；商家 runner/auth refresher 只能通过 auth-state 模块在锁保护下保存，消费者代理 Context 不写回共享登录快照。
-- `launchBrowser` MAY 接收内部 storageState 对象（供存储层从库中读出登录态后直接交给浏览器，不落临时文件）：必须有 cookies/origins 数组，与 storageStatePath 互斥；仅复制标准浏览器字段，不把 merchant_auth 等元数据传给浏览器。不增加公开参数、不改变 RuntimeProfile。
+- Browser helper 只接收调用方从库中解密出的 `storageState` 对象作为 Context 输入（不落临时文件、不自行写回）：必须有 cookies/origins 数组，否则拒绝；仅复制 `cookies`/`origins` 标准字段，不把 merchant_auth 等元数据传给浏览器。不增加公开参数、不改变 RuntimeProfile。
+- 商家 runner 只能通过 `withMerchantAuthUpdate` 的租约 + CAS 提交保存登录态；消费者代理 Context 不写回共享登录快照。
 
 ## 5. Patchright And Lifecycle Contracts
 
