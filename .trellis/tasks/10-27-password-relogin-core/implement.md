@@ -12,14 +12,14 @@
 
 ### P1 基础：凭据、状态机、错误码、脱敏
 
-- [ ] `src/infra/logger.js`：新增 `SECRET_KEYS`，命中时值固定为 `[REDACTED]`（design 第 11 节）。
-- [ ] `src/infra/errors.js`：新增 `authHumanRequired`、`reloginBlocked`、`reloginFailed`；改写 `passwordLoginFormChanged`；删除 `authChallengeRequired`（design 第 8 节）。
-- [ ] `src/infra/timeouts.js`：新增 `LOGIN_PASSWORD`。
-- [ ] `src/infra/config.js`：新增 `passwordReloginMinIntervalMs` / `PDD_PASSWORD_RELOGIN_MIN_INTERVAL_MS`，默认值同步到 `config.example.json`（若存在）。
-- [ ] `src/adapter/password-credential.js`（design 第 3 节）。
-- [ ] `src/services/password-relogin.js`：只实现状态机、`decideRelogin`，以及 ④ 预留的 service 函数（design 5.1、5.2、5.4）。两条入口留到 P3。
-- [ ] `test/helpers`：新增凭据写入辅助函数。
-- [ ] 补齐 design 第 13 节中对应这些模块的单元测试。
+- [x] `src/infra/logger.js`：新增 `SECRET_KEYS`，命中时值固定为 `[REDACTED]`（design 第 11 节）。
+- [x] `src/infra/errors.js`：新增 `authHumanRequired`、`reloginBlocked`、`reloginFailed`；改写 `passwordLoginFormChanged`；删除 `authChallengeRequired`（design 第 8 节）。
+- [x] `src/infra/timeouts.js`：新增 `LOGIN_PASSWORD`。
+- [x] `src/infra/config.js`：新增 `passwordReloginMinIntervalMs` / `PDD_PASSWORD_RELOGIN_MIN_INTERVAL_MS`，默认值同步到 `config.example.json`（若存在）。
+- [x] `src/adapter/password-credential.js`（design 第 3 节）。
+- [x] `src/services/password-relogin.js`：只实现状态机、`decideRelogin`，以及 ④ 预留的 service 函数（design 5.1、5.2、5.4）。两条入口留到 P3。
+- [x] `test/helpers`：新增凭据写入辅助函数。
+- [x] 补齐 design 第 13 节中对应这些模块的单元测试。
 
 验证：`npx vitest run test/infra/logger*.test.js test/adapter/password-credential.test.js test/services/password-relogin.test.js`，然后跑 `npm test`。
 

@@ -4,7 +4,12 @@ import { join } from 'node:path';
 import pino from 'pino';
 import { CLI_LOG_DIR } from './paths.js';
 
+const SECRET_KEYS = ['password', 'password_sealed', 'masterPassword', 'master_key',
+  'credential', 'credentials', 'login_name', 'loginName'];
+const SECRET_KEY_SET = new Set(SECRET_KEYS);
+
 const REDACT_KEYS = [
+  ...SECRET_KEYS,
   'cookies',
   'cookie',
   'Cookie',
@@ -39,15 +44,9 @@ const REDACT_KEYS = [
   'receiverPhone',
   'receiver_address',
   'receiverAddress',
-  'password',
-  'credential',
-  'credentials',
   'mobile',
-  'masterPassword',
   'ciphertext',
   'state_sealed',
-  'password_sealed',
-  'master_key',
   'qrContent',
   'qr_content',
   'auth_path',
@@ -85,7 +84,8 @@ function fingerprint(value) {
   return 'fp:' + createHash('sha256').update(str).digest('hex').slice(0, 8);
 }
 
-function redactKey(v) {
+function redactKey(v, key) {
+  if (SECRET_KEY_SET.has(key)) return '[REDACTED]';
   if (typeof v === 'string' && v.startsWith('fp:')) return v;
   return fingerprint(v);
 }
@@ -99,7 +99,7 @@ function redactRecursive(value, seen) {
   if (value instanceof Map) {
     const out = new Map();
     for (const [k, v] of value) {
-      out.set(k, REDACT_KEY_SET.has(k) ? redactKey(v) : redactRecursive(v, seen));
+      out.set(k, REDACT_KEY_SET.has(k) ? redactKey(v, k) : redactRecursive(v, seen));
     }
     return out;
   }
@@ -117,14 +117,14 @@ function redactRecursive(value, seen) {
   if (value instanceof Error) {
     const out = { message: value.message, stack: value.stack };
     for (const k of Object.keys(value)) {
-      out[k] = REDACT_KEY_SET.has(k) ? redactKey(value[k]) : redactRecursive(value[k], seen);
+      out[k] = REDACT_KEY_SET.has(k) ? redactKey(value[k], k) : redactRecursive(value[k], seen);
     }
     return out;
   }
 
   const out = {};
   for (const k of Object.keys(value)) {
-    out[k] = REDACT_KEY_SET.has(k) ? redactKey(value[k]) : redactRecursive(value[k], seen);
+    out[k] = REDACT_KEY_SET.has(k) ? redactKey(value[k], k) : redactRecursive(value[k], seen);
   }
   return out;
 }
@@ -306,4 +306,4 @@ export function redactValue(value) {
   return fingerprint(value);
 }
 
-export { REDACT_KEYS, REDACT_KEY_SET, redactRecursive };
+export { SECRET_KEYS, REDACT_KEYS, REDACT_KEY_SET, redactRecursive };

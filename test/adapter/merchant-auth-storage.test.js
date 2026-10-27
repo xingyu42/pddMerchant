@@ -181,7 +181,10 @@ describe('leased verified merchant state', () => {
   it('redacts credential aliases and sealed material', () => {
     const keys = ['LoginToken', 'login_token', 'PASS_ID', 'cookie_headers', 'state_sealed', 'password_sealed', 'master_key'];
     const redacted = redactRecursive(Object.fromEntries(keys.map((key) => [key, 'synthetic-secret'])));
-    assert.ok(keys.every((key) => redacted[key].startsWith('fp:')));
+    for (const key of keys) {
+      if (['password_sealed', 'master_key'].includes(key)) assert.equal(redacted[key], '[REDACTED]');
+      else assert.match(redacted[key], /^fp:/);
+    }
     assert.ok(!JSON.stringify(redacted).includes('synthetic-secret'));
   });
 
@@ -189,6 +192,7 @@ describe('leased verified merchant state', () => {
     const accounts = Object.fromEntries(['tag', 'ct', 'iv'].map((slug) => [slug, { ok: true, data: { slug } }]));
     const redacted = redactRecursive({ accounts, state_sealed: 'synthetic-state', password_sealed: 'synthetic-password', master_key: 'synthetic-key' });
     assert.deepEqual(redacted.accounts, accounts);
-    for (const key of ['state_sealed', 'password_sealed', 'master_key']) assert.match(redacted[key], /^fp:/);
+    assert.match(redacted.state_sealed, /^fp:/);
+    for (const key of ['password_sealed', 'master_key']) assert.equal(redacted[key], '[REDACTED]');
   });
 });

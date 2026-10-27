@@ -4,6 +4,7 @@
   "rateLimitBurst": 3,
   "cooldownThreshold": 3,
   "cooldownMs": 300000,
+  "passwordReloginMinIntervalMs": 1800000,
   "writeRateTokensPerMinute": 20,
   "scrapeSoftBlockThreshold": 2,
   "scrapeSoftBlockCooldownMs": 7200000,

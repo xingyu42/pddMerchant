@@ -111,11 +111,48 @@ export function secretDecryptFailed(detail) {
   });
 }
 
-export function authChallengeRequired(type) {
+const RELOGIN_REASONS = new Set(['success', 'sms', 'slider', 'click', 'risk_confirm', 'unknown',
+  'wrong_password', 'account_locked', 'form_changed', 'network_error', 'verify_failed',
+  'takeover_timeout', 'manual_login', 'password_reset', 'password_cleared', 'manual_unblock']);
+
+function reloginDetail(detail) {
+  if (!detail) return null;
+  const safe = {};
+  if (typeof detail.account === 'string') safe.account = detail.account;
+  for (const key of ['challenge', 'reason']) {
+    if (RELOGIN_REASONS.has(detail[key]) || (key === 'reason' && detail[key] === null)) safe[key] = detail[key];
+  }
+  if (detail.relogin === 'throttled') safe.relogin = 'throttled';
+  if (typeof detail.next_attempt_at === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(detail.next_attempt_at)) {
+    safe.next_attempt_at = detail.next_attempt_at;
+  }
+  return safe;
+}
+
+export function authHumanRequired(detail) {
   return new PddCliError({
-    code: 'E_AUTH_CHALLENGE_REQUIRED',
-    message: `Login requires interactive challenge: ${type || 'captcha/SMS/slider'}`,
-    hint: 'Use QR login or complete the challenge manually',
+    code: 'E_AUTH_HUMAN_REQUIRED',
+    message: '账号登录需要人工完成验证',
+    hint: '执行 pdd console link 获取控制台链接并转给用户；不要在聊天中索要密码',
+    detail: reloginDetail(detail),
+    exitCode: ExitCodes.AUTH,
+  });
+}
+
+export function reloginBlocked(detail) {
+  return new PddCliError({
+    code: 'E_AUTH_RELOGIN_BLOCKED', message: '账号自动重登已熔断',
+    hint: '执行 pdd console link 重设密码或解除熔断，或执行 pdd login --qr 扫码登录',
+    detail: reloginDetail(detail),
+    exitCode: ExitCodes.AUTH,
+  });
+}
+
+export function reloginFailed(detail) {
+  return new PddCliError({
+    code: 'E_AUTH_RELOGIN_FAILED', message: '自动重登未完成',
+    hint: '稍后重试或执行 pdd login',
+    detail: reloginDetail(detail),
     exitCode: ExitCodes.AUTH,
   });
 }
@@ -123,9 +160,9 @@ export function authChallengeRequired(type) {
 export function passwordLoginFormChanged(detail) {
   return new PddCliError({
     code: 'E_PASSWORD_LOGIN_FORM_CHANGED',
-    message: 'PDD login form structure has changed — selectors no longer match',
-    detail,
-    hint: 'Report this issue; fallback to QR login',
+    message: '登录页结构已变化，无法自动填写账密',
+    detail: reloginDetail(detail),
+    hint: '执行 pdd login --qr 扫码登录，并反馈此问题',
     exitCode: ExitCodes.AUTH,
   });
 }
