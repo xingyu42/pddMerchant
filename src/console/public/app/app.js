@@ -356,7 +356,8 @@ function SessionView({ id, slug }) {
       <a class="back" href=${back}>← 返回</a>
       <h1>登录会话</h1>
       <${Notice} error=${error} />
-      ${state && html`<p class=${`state state-${state}`}>${STATE_TEXT[state] ?? state}${session.message ? `：${session.message}` : ''}</p>`}
+      ${state && html`<p class=${`state state-${state}`}>${STATE_TEXT[state] ?? state}</p>`}
+      ${session?.message && html`<p class="muted">${session.message}</p>`}
       ${!finished && session && html`<${Countdown} seconds=${session.remaining_seconds} />`}
       ${state === 'takeover' && html`<${TakeoverScreen} id=${id} /><${TextInput} id=${id} />`}
       ${state === 'qr' && html`<${QrPanel} id=${id} image=${session.qr_image} />`}
