@@ -25,10 +25,10 @@
 
 ### P2 密码登录适配器、fixture 模拟与实验脚本
 
-- [ ] `src/adapter/password-login.js`：`attemptPasswordLogin`，选择器初版取自 `a468d02^:src/adapter/password-login.js`（design 第 4 节）。
-- [ ] `src/adapter/fixtures/auth.js` / `mock-dispatcher.js`：`mockPasswordLogin` 及三个 `PDD_TEST_PASSWORD_LOGIN*` 测试变量。
-- [ ] `scripts/experiments/password-login-probe.mjs`（design 第 12 节）。
-- [ ] 测试：用 fake page 覆盖每个结果分支，并断言挑战分支在提交之后零点击；实验脚本做静态检查，确认没有写库或提交调用。
+- [x] `src/adapter/password-login.js`：`attemptPasswordLogin`，选择器初版取自 `a468d02^:src/adapter/password-login.js`（design 第 4 节）。
+- [x] `src/adapter/fixtures/auth.js` / `mock-dispatcher.js`：`mockPasswordLogin` 及三个 `PDD_TEST_PASSWORD_LOGIN*` 测试变量。
+- [x] `scripts/experiments/password-login-probe.mjs`（design 第 12 节）。
+- [x] 测试：用 fake page 覆盖每个结果分支，并断言挑战分支在提交之后零点击；实验脚本做静态检查，确认没有写库或提交调用。
 
 验证：跑适配器测试，然后跑 `npm test`。Claude 额外逐行审查实验脚本：输入回显、报告字段、只读请求。
 
