@@ -20,12 +20,16 @@ receiver_name, receiver_phone, receiver_address, password, credential,
 mobile, masterPassword, ciphertext, state_sealed, password_sealed, master_key
 ```
 
+其中 `SECRET_KEYS`（`password`、`password_sealed`、`masterPassword`、`master_key`、`credential`、`credentials`、`login_name`、`loginName`）命中时固定输出 `'[REDACTED]'`，不输出指纹：8 位 sha256 指纹可被枚举，短密码和 11 位手机号都能反推。其余 `REDACT_KEYS` 保持 `fp:` 指纹，便于关联比对。`SECRET_KEYS` 是 `REDACT_KEYS` 的子集，新增密码类字段时加到 `SECRET_KEYS`。
+
 `iv` / `tag` / `ct` 不在列表中：secret-box 的密封结果以 JSON 字符串存在 `state_sealed` / `password_sealed` 下，这三个名字不会作为对象键出现；而 `tag`、`ct` 可能是合法的账号 slug（批量 envelope 的 `data.accounts` 以 slug 为键），加入会误伤业务数据。
 
 ## 3. Contracts
 
 - Runtime code MUST NOT use `console.log` for logs; use `src/infra/logger.js` or `ctx.log`。
-- Sensitive values MUST be SHA256/fingerprint redacted rather than printed raw。
+- Sensitive values MUST be SHA256/fingerprint redacted rather than printed raw。Password-class keys (`SECRET_KEYS`) MUST output the fixed `'[REDACTED]'` marker; never a fingerprint.
+- `PDD_DEBUG_RAW` goes through the same `redactRecursive`, so `SECRET_KEYS` rules apply to raw payload output too.
+- Password login code MUST NOT log `err.message` from Playwright (it may echo filled values); map to fixed reasons instead.
 - Log path is NOT configurable (`PDD_LOG_DESTINATION` / `logDestination` removed).
 - Runtime log files MUST live under `log/cli/YYYY-MM-DD.log` (local calendar day). The merchant auth daemon and its log channel are removed; existing historical files are not deleted.
 - Daily rotation MUST auto-switch across midnight without restart; historical day files are retained.
@@ -39,6 +43,7 @@ mobile, masterPassword, ciphertext, state_sealed, password_sealed, master_key
 | 条件                                             | 行为                                                     |
 | ------------------------------------------------ | -------------------------------------------------------- |
 | log object contains sensitive key                | replace value with fingerprint/redacted marker           |
+| key in `SECRET_KEYS` (password / login name / master key) | fixed `'[REDACTED]'`; no fingerprint             |
 | caller tries console logging runtime status      | reject in review; use logger/stderr helper through infra |
 | legacy `PDD_LOG_DESTINATION` environment variable | not mapped; fixed channel directories remain in effect |
 | legacy local `logDestination` key                 | strict config error; migration intentionally excluded  |
@@ -58,6 +63,7 @@ mobile, masterPassword, ciphertext, state_sealed, password_sealed, master_key
 - Logger tests for CLI / foreground / bootstrap channel routing。
 - Debug raw tests for redaction + truncation + stderr-only behavior。
 - Login/auth tests ensuring QR/cookie/credential content is never exposed.
+- `test/infra/logger-redaction.test.js`: `SECRET_KEYS` output `[REDACTED]`; neither the password nor its sha256 fingerprint prefix appears. `test/e2e/password-relogin.e2e.test.js`: with `PDD_DEBUG_RAW=1`, stdout/stderr/log files/DB bytes contain no password plaintext.
 
 ## 7. Wrong vs Correct
 
@@ -124,4 +130,4 @@ function fingerprint(value) {
 
 ### Redact keys set (`src/infra/logger.js:4-39`)
 
-Full list in source; key pattern: all casing variants of a sensitive concept share one canonical key name in `REDACT_KEYS`.
+Full list in source; key pattern: all casing variants of a sensitive concept share one canonical key name in `REDACT_KEYS`. `SECRET_KEYS` is spread first into `REDACT_KEYS`; `redactKey(v, key)` checks `SECRET_KEY_SET` before fingerprinting.

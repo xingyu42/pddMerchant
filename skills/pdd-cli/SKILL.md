@@ -84,7 +84,7 @@ node bin/pdd.js orders list --json
 | 2 | USAGE 用法/参数错误 | 6 | BUSINESS 业务错误 |
 | 3 | AUTH 鉴权失效 | 7 | PARTIAL 部分成功 |
 
-退出码 `3`（AUTH）→ 提示用户重新登录（`node bin/pdd.js login`）。退出码 `4`（RATE_LIMIT）→ 3 连 429 触发 5 分钟全局冷却，需等待后重试。
+退出码 `3`（AUTH）→ 先看 `error.code`：`E_AUTH_HUMAN_REQUIRED` / `E_AUTH_RELOGIN_BLOCKED` 按下文「密码自动重登」处理，其余提示用户重新登录（`node bin/pdd.js login`）。退出码 `4`（RATE_LIMIT）→ 3 连 429 触发 5 分钟全局冷却，需等待后重试。
 
 ## 全局选项（放在子命令前）
 
@@ -206,6 +206,22 @@ node bin/pdd.js account remove --slug <slug>             # 级联删除账号及
 
 登录、普通命令及 doctor 独立检查商家认证，成功命令只回写重新验证通过的冻结材料。认证后台和 daemon 命令已移除；闲置时不运行定时任务。网络无法判定（退出码 5）不代表登录失效，明确失效（退出码 3）才提示重新登录。
 
+### 密码自动重登
+
+账号保存了密码时，普通命令发现商家登录态失效会在同一条命令内自动用账密重登一次，成功则命令照常完成。密码只能由用户本人在控制台录入。
+
+| 看到 | 处理 |
+|------|------|
+| `error.code = E_AUTH_HUMAN_REQUIRED`（登录遇到短信、滑块等验证） | 执行 `node bin/pdd.js console link`，把链接转给用户，由用户本人完成验证 |
+| `meta.warnings` 中有 `{ code: 'account_action_required', account, reason }` | 同上，对 `account` 指明的账号执行 `console link` 并把链接转给用户；命令本身可能已经成功 |
+| `error.code = E_AUTH_RELOGIN_BLOCKED`（密码错误、账号被锁或接管多次超时，已熔断） | 执行 `console link` 让用户重设密码或解除熔断；用户无法处理时改用 `node bin/pdd.js login --qr` 扫码登录 |
+| `error.code = E_PASSWORD_LOGIN_FORM_CHANGED` | 改用 `login --qr` 扫码登录，并告知用户登录页已变化 |
+| `error.code = E_AUTH_RELOGIN_FAILED`，或 `error.detail.relogin = 'throttled'` | 自动重登暂不可用；稍后重试，或提示用户执行 `login` |
+
+- **任何情况下都不要在聊天中向用户索要密码或登录名**，也不要尝试替用户输入验证码。
+- 同一账号两次自动重登至少间隔 30 分钟（`PDD_PASSWORD_RELOGIN_MIN_INTERVAL_MS`），遇到验证或熔断后会暂停，直到用户处理；反复重试命令不会加快恢复。
+- `account list` 和 `doctor` 的 `has_password` / `password_relogin_status`（doctor 为 `password_relogin.status`）显示是否保存了密码及当前状态，如 `可用`、`等待人工：短信验证`、`已熔断：密码错误`；这两个命令本身不会触发重登。
+
 ## 典型工作流
 
 **首次上手：**
@@ -250,10 +266,10 @@ node bin/pdd.js goods publish --url <链接> --cost-template <id> --confirm --js
 - **AI 消费一律加 `--json`**，并结合退出码判断成败，勿只解析文本。
 - **写操作默认 dry-run**：`goods update *` 不加 `--confirm` 只预演，不改线上数据；确认参数后再加 `--confirm`。
 - **价格单位是元**：`--price-yuan 29.9` 表示 29.90 元（上游仍以分提交，CLI 精确换算）；输出中的金额字段（`*_yuan`）同为元。
-- **鉴权失效（退出码 3）** → 重新 `login`。**限流（退出码 4）** → 等待冷却后重试。
+- **鉴权失效（退出码 3）** → 按「密码自动重登」一节分辨错误码；需要人工时用 `console link` 转给用户，其余重新 `login`。**限流（退出码 4）** → 等待冷却后重试。
 - `--consumer-account` 的昵称、手机号或 slug 用于数据库账号查找；登录态按账号 ID 加密保存，使用时在内存中解密。
 - 数据库和同目录的主密钥均为敏感文件，勿提交，须一起备份与恢复。并发认证更新使用账号租约与 revision CAS（仅在修订号匹配时提交）。升级后需重新登录所有商家和消费者账号；旧版 JSON 数据保留原样，`doctor` 检测到时给出提示。
 - 本地运行差异优先用 `config set` 写入稀疏 `config/config.json`；秘密、安全和测试开关仍只通过环境变量注入。
 - 商品缺少 `goods_id` 时，库存 / 销量匹配会回退到商品名，`matched_by` 显示为「按商品名匹配（一侧缺少商品 ID）」，属正常兼容结果。
 - Mock 模式：设 `PDD_TEST_ADAPTER=fixture` + `PDD_TEST_FIXTURE_DIR=<dir>`，并用临时 `PDD_DB_PATH` 隔离数据库与密钥，可在无浏览器/无真实账号下跑通命令，适合演示与调试。
-- 敏感字段（cookie、authorization、anti_content、手机号、地址等）在日志中自动 SHA256 脱敏。
+- 敏感字段（cookie、authorization、anti_content、手机号、地址等）在日志中自动 SHA256 脱敏；密码、登录名和主密钥一律输出 `[REDACTED]`。

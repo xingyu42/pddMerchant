@@ -93,9 +93,18 @@ export function getCredential(accountId) {
 }
 
 export function putCredential(accountId, passwordSealed) {
-  return write(() => run(`INSERT INTO credentials(account_id, password_sealed, updated_at) VALUES (?, ?, ?)
-    ON CONFLICT(account_id) DO UPDATE SET password_sealed = excluded.password_sealed, updated_at = excluded.updated_at`,
-  accountId, passwordSealed, new Date().toISOString()));
+  return write(() => {
+    // 同一毫秒重设密码也产生新版本，供登录结果的过期检查使用。
+    const previous = Date.parse(getCredential(accountId)?.updated_at) || 0;
+    const updatedAt = new Date(Math.max(Date.now(), previous + 1)).toISOString();
+    return run(`INSERT INTO credentials(account_id, password_sealed, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(account_id) DO UPDATE SET password_sealed = excluded.password_sealed, updated_at = excluded.updated_at`,
+    accountId, passwordSealed, updatedAt);
+  });
+}
+
+export function deleteCredential(accountId) {
+  return write(() => run('DELETE FROM credentials WHERE account_id = ?', accountId).changes > 0);
 }
 
 export function getReloginState(accountId) {
@@ -122,4 +131,17 @@ export function insertPendingAction(accountId, { kind, reason }) {
 export function resolvePendingAction(actionId) {
   return write(() => run("UPDATE pending_actions SET status = 'resolved', resolved_at = ? WHERE id = ? AND status = 'open'",
     new Date().toISOString(), actionId));
+}
+
+export function ensureOpenPendingAction(accountId, { kind, reason }) {
+  return write(() => {
+    const existing = get("SELECT id FROM pending_actions WHERE account_id = ? AND kind = ? AND status = 'open'", accountId, kind);
+    return existing?.id ?? insertPendingAction(accountId, { kind, reason });
+  });
+}
+
+export function resolveOpenPendingActions(accountId, kind = null) {
+  return write(() => run(`UPDATE pending_actions SET status = 'resolved', resolved_at = ?
+    WHERE account_id = ? AND status = 'open' ${kind == null ? '' : 'AND kind = ?'}`,
+  new Date().toISOString(), accountId, ...(kind == null ? [] : [kind])).changes);
 }

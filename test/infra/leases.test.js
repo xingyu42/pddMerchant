@@ -129,4 +129,50 @@ describe('leases', () => {
       heartbeat_at: new Date(now + 5000).toISOString(),
     });
   });
+
+  it('extends an exhausted wait and acquires after the original deadline', async () => {
+    vi.useFakeTimers();
+    await acquireLease('account', 42);
+    const extended = Date.now() + 500;
+    const extendUntil = vi.fn(() => extended);
+    const waiting = acquireLease('account', 42, { timeoutMs: 25, retryMs: 1, extendUntil });
+    await vi.advanceTimersByTimeAsync(100);
+    assert.ok(extendUntil.mock.calls.length > 0);
+    run('DELETE FROM leases');
+    await vi.advanceTimersByTimeAsync(100);
+    assert.ok((await waiting).token);
+  });
+
+  it('stops extending when the supplied extension is exhausted', async () => {
+    vi.useFakeTimers();
+    await acquireLease('account', 42);
+    const extended = Date.now() + 100;
+    const waiting = assert.rejects(acquireLease('account', 42, {
+      timeoutMs: 25, retryMs: 1, extendUntil: () => extended,
+    }), { code: 'E_LOCK_TIMEOUT' });
+    await vi.advanceTimersByTimeAsync(150);
+    await waiting;
+  });
+
+  it('caps extension at the waiting command deadline', async () => {
+    vi.useFakeTimers();
+    await acquireLease('account', 42);
+    const waiting = assert.rejects(acquireLease('account', 42, {
+      timeoutMs: 25, retryMs: 1, extendUntil: () => Date.now() + 1000, deadlineAt: Date.now() + 75,
+    }), { code: 'E_LOCK_TIMEOUT' });
+    await vi.advanceTimersByTimeAsync(75);
+    await waiting;
+  });
+
+  it('still responds to cancellation during the extended wait', async () => {
+    vi.useFakeTimers();
+    await acquireLease('account', 42);
+    const controller = new AbortController();
+    const waiting = assert.rejects(acquireLease('account', 42, {
+      timeoutMs: 25, retryMs: 1, signal: controller.signal, extendUntil: () => Date.now() + 1000,
+    }), { code: 'E_TIMEOUT' });
+    await vi.advanceTimersByTimeAsync(50);
+    controller.abort();
+    await waiting;
+  });
 });

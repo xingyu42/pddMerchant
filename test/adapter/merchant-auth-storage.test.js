@@ -10,7 +10,8 @@ vi.mock('../../src/adapter/browser.js', () => ({
 import { verifyMerchantContext, assertMerchantVerified } from '../../src/adapter/merchant-auth.js';
 import { withMerchantAuthUpdate, commitMerchantCandidate, recordMerchantCheck, boundMerchantMallId, assertAuthTask } from '../../src/adapter/merchant-auth-storage.js';
 import { saveAuthStateSnapshot, loadAuthState } from '../../src/adapter/auth-state.js';
-import { insertAccount } from '../../src/infra/account-store.js';
+import { insertAccount, putReloginState } from '../../src/infra/account-store.js';
+import { acquireLease } from '../../src/infra/leases.js';
 import { get, run, isInTransaction } from '../../src/infra/db.js';
 import { seal, aad } from '../../src/infra/secret-box.js';
 import { redactRecursive, getLogger } from '../../src/infra/logger.js';
@@ -167,6 +168,40 @@ describe('leased verified merchant state', () => {
     assert.equal(loadAuthState(accountId).revision, 2);
   });
 
+  it('extends the default wait only for a recent relogin and loads its new revision', async () => {
+    const verified = await candidate();
+    vi.useFakeTimers();
+    let release;
+    let started;
+    const hold = new Promise((resolve) => { release = resolve; });
+    const ready = new Promise((resolve) => { started = resolve; });
+    const first = withMerchantAuthUpdate(accountId, async (tx) => {
+      putReloginState(accountId, { status: 'available', lastAttemptAt: new Date().toISOString() });
+      started();
+      await hold;
+      commitMerchantCandidate(verified, tx);
+    });
+    await ready;
+    const second = withMerchantAuthUpdate(accountId, (tx) => {
+      assert.equal(tx.revision, 1);
+      commitMerchantCandidate(verified, tx);
+    });
+    await vi.advanceTimersByTimeAsync(15001);
+    release();
+    await vi.advanceTimersByTimeAsync(300);
+    await Promise.all([first, second]);
+    assert.equal(loadAuthState(accountId).revision, 2);
+  });
+
+  it.each(['missing', 'old'])('keeps the normal 15s wait for a %s relogin attempt', async (attempt) => {
+    vi.useFakeTimers();
+    await acquireLease('account', accountId);
+    if (attempt === 'old') putReloginState(accountId, { status: 'available', lastAttemptAt: new Date(Date.now() - 90001).toISOString() });
+    const waiting = assert.rejects(withMerchantAuthUpdate(accountId, vi.fn()), { code: 'E_LOCK_TIMEOUT' });
+    await vi.advanceTimersByTimeAsync(15001);
+    await waiting;
+  });
+
   it('preserves cookies when recording rejection or uncertainty', async () => {
     saveAuthStateSnapshot(state, accountId);
     for (const verdict of ['rejected', 'indeterminate']) {
@@ -181,7 +216,10 @@ describe('leased verified merchant state', () => {
   it('redacts credential aliases and sealed material', () => {
     const keys = ['LoginToken', 'login_token', 'PASS_ID', 'cookie_headers', 'state_sealed', 'password_sealed', 'master_key'];
     const redacted = redactRecursive(Object.fromEntries(keys.map((key) => [key, 'synthetic-secret'])));
-    assert.ok(keys.every((key) => redacted[key].startsWith('fp:')));
+    for (const key of keys) {
+      if (['password_sealed', 'master_key'].includes(key)) assert.equal(redacted[key], '[REDACTED]');
+      else assert.match(redacted[key], /^fp:/);
+    }
     assert.ok(!JSON.stringify(redacted).includes('synthetic-secret'));
   });
 
@@ -189,6 +227,7 @@ describe('leased verified merchant state', () => {
     const accounts = Object.fromEntries(['tag', 'ct', 'iv'].map((slug) => [slug, { ok: true, data: { slug } }]));
     const redacted = redactRecursive({ accounts, state_sealed: 'synthetic-state', password_sealed: 'synthetic-password', master_key: 'synthetic-key' });
     assert.deepEqual(redacted.accounts, accounts);
-    for (const key of ['state_sealed', 'password_sealed', 'master_key']) assert.match(redacted[key], /^fp:/);
+    assert.match(redacted.state_sealed, /^fp:/);
+    for (const key of ['password_sealed', 'master_key']) assert.equal(redacted[key], '[REDACTED]');
   });
 });

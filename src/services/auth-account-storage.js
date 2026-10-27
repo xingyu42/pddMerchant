@@ -6,6 +6,7 @@ import { loadAuthState, getAuthStateRevision, saveAuthStateSnapshot, authStateCo
 import { withMerchantAuthUpdate, merchantCandidateState, assertAuthTask } from '../adapter/merchant-auth-storage.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { assertVerifiedMerchantCandidate } from '../adapter/merchant-auth.js';
+import { markManualLoginSucceeded } from './password-relogin.js';
 
 function provisioningError(kind, reason) {
   return new PddCliError({
@@ -45,6 +46,7 @@ function saveMerchantLogin(result, initial, task) {
     const loaded = initial ?? loadAuthState(account.id, { allowCorrupt: true });
     merchantCandidateState(candidate, { state: loaded.state, recoveryMallId: account.identity });
     saveAuthStateSnapshot(state, account.id, { expectedRevision: initial?.revision ?? loaded.revision });
+    if (initial) markManualLoginSucceeded(account.id);
     account = updateAccount(account.id, { displayName: identity.displayName, lastLoginAt: new Date().toISOString() });
     return { account, accountId: account.id, result };
   });

@@ -101,3 +101,22 @@ These invariants are covered by batch orchestration tests and should remain stab
 - Per-account execution MUST call `executeSingle()` with `emitResult: false`, `allAccounts: false`, no `mall` override, `account: undefined`, and the account-specific `accountId`.
 - Inter-account jitter MUST run only between accounts, never after the last account, and MUST receive the batch abort signal.
 - Ordinary non-empty batch completion MUST emit exactly once and return the emitted batch envelope.
+
+## 10. Password Relogin Step
+
+Full scenario (state machine, errors, lease rules) lives in [auth-mall-context.md](../adapter/auth-mall-context.md) section 9; this section covers only the runner wiring.
+
+```js
+// single-lifecycle.js
+armDeadline(opts, parentSignal, startedAt) -> { signal, deadlineAt /* getter */, pause(), resume(), dispose() }
+// fixture-runtime.js
+appendActionWarnings(spec, runtime); // needsAuth only; pushes getAccountActionWarnings(accountId, slug)
+```
+
+- Live: inside `withMerchantAuthUpdate`, after `assertAuthValid` returns `rejected`, `executeLiveOperation` calls `reloginInCommand(runtime, transaction, browser, authResult)`, closes the old context and continues with the returned `{ context, page }`; `runtime.verifiedMallId` comes from the committed `transaction.state`. `goto(PDD_HOME)`, `createPageSession` and `persistAuthStateAfterSuccess` all use the new context.
+- `pause()` clears the deadline timer and stores the remaining time (throws the timeout error if none is left); `resume()` re-arms with the remaining time and updates `deadlineAt`. Both are no-ops without `--timeout`. Relogin time therefore does not consume the command budget, and SIGINT still aborts.
+- Fixture: `executeFixture` treats the session as invalid when `PDD_TEST_AUTH_INVALID=1` and the account state has no `PDD_FIXTURE_RELOGIN=1` cookie; it then calls `reloginForFixture(accountId, runtime)` before building `ctx`. `PDD_TEST_AUTH_INDETERMINATE=1` still fails first with `E_AUTH_CHECK_INDETERMINATE`.
+- `appendActionWarnings` runs on both success and error paths in live and fixture mode, before the envelope is built.
+- `needsAuth:false` commands never call relogin and never append action warnings.
+- Batch mode needs no change: `runAccountLoop` awaits `executeSingle` per account, so relogins run one at a time.
+- Tests: `test/commands/runner-deadline.test.js` (pause/resume), `test/adapter/merchant-auth-lifecycle.test.js` (context swap after relogin), `test/e2e/password-relogin.e2e.test.js`.

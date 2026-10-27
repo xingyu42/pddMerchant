@@ -1,14 +1,16 @@
 import { openDatabase, closeDatabase, run, transaction, getDatabasePath } from '../../src/infra/db.js';
 import { saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
 import { getMasterKey } from '../../src/infra/master-key.js';
+import { savePasswordCredential } from '../../src/adapter/password-credential.js';
+import { putReloginState } from '../../src/infra/account-store.js';
 
 export const DEFAULT_ACCOUNT = Object.freeze({ slug: 'synthetic-shop', display_name: 'Synthetic Shop', identity: '900001', is_default: 1 });
 
-export function seedDb(dbPath, { accounts = [], authStates = [] } = {}) {
+export function seedDb(dbPath, { accounts = [], authStates = [], passwordCredentials = [], reloginStates = [] } = {}) {
   const previous = process.env.PDD_DB_PATH ? getDatabasePath() : null;
   openDatabase(dbPath);
   try {
-    if (authStates.length > 0) getMasterKey();
+    if (authStates.length > 0 || passwordCredentials.length > 0) getMasterKey();
     transaction(() => {
       const ids = new Map();
       for (const account of accounts) {
@@ -22,6 +24,12 @@ export function seedDb(dbPath, { accounts = [], authStates = [] } = {}) {
       }
       for (const entry of authStates) {
         saveAuthStateSnapshot(entry.state, entry.accountId ?? ids.get(entry.slug));
+      }
+      for (const entry of passwordCredentials) {
+        savePasswordCredential(entry.accountId ?? ids.get(entry.slug), entry);
+      }
+      for (const entry of reloginStates) {
+        putReloginState(entry.accountId ?? ids.get(entry.slug), entry);
       }
     });
   } finally {

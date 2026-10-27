@@ -3,6 +3,7 @@
 // 登录态字段名保持输出契约兼容。
 import { isoToLocalDateTime, labelOf } from '../../infra/units.js';
 import { text } from './_shared.js';
+import { toPasswordReloginView } from './account.js';
 import {
   AUTH_FILE_ERROR_LABEL, AUTH_REASON_LABEL, AUTH_VERDICT_LABEL, LOGIN_MODE_LABEL, MALL_IDENTITY_SOURCE_LABEL,
 } from './labels.js';
@@ -68,6 +69,7 @@ function toDoctorAccountView(account) {
     slug: account.slug,
     display_name: text(account.displayName),
     auth_file: toCheckView(account.auth_file, toAuthFileDetail),
+    ...toPasswordReloginView(account.relogin),
   };
 }
 
@@ -89,6 +91,7 @@ export function toDoctorView(data) {
     chromium: toCheckView(data.chromium),
     auth_file: toCheckView(data.auth_file, toAuthFileDetail),
     logged_in: toCheckView(data.logged_in, toMerchantLoginDetail),
+    password_relogin: data.password_relogin,
     consumer_auth_file: toCheckView(data.consumer_auth_file, toAuthFileDetail),
     consumer_logged_in: toCheckView(data.consumer_logged_in),
     ...(Array.isArray(data.accounts) ? { accounts: data.accounts.map(toDoctorAccountView) } : {}),

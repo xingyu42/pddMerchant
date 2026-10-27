@@ -15,7 +15,8 @@ import { isMockEnabled } from '../adapter/mock-dispatcher.js';
 import { resolveConsumerAccountContext } from '../infra/consumer-account-resolver.js';
 import { toDoctorView } from '../services/views/auth.js';
 import { hasLegacyStorage } from '../services/doctor-storage.js';
-import { AUTH_REASON_LABEL, AUTH_VERDICT_LABEL } from '../services/views/labels.js';
+import { getReloginSummary } from '../services/password-relogin.js';
+import { AUTH_REASON_LABEL, AUTH_VERDICT_LABEL, formatPasswordReloginStatus } from '../services/views/labels.js';
 
 const LEGACY_STORAGE_MESSAGE = '检测到旧版数据，已不再使用，可手动删除';
 
@@ -107,6 +108,7 @@ export function renderDoctor(envelope) {
     : data.logged_in?.detail?.reason === AUTH_REASON_LABEL.identity_mismatch ? '· 商家端店铺绑定不一致'
       : verdict === AUTH_VERDICT_LABEL.rejected ? '· 商家端登录态已失效'
       : verdict === AUTH_VERDICT_LABEL.not_configured ? '· 商家端未配置' : '· 商家端登录态无法判定');
+  lines.push(`密码重登：${data.password_relogin?.status ?? '未保存密码'}`);
 
   if (data.consumer_auth_file?.ok === true && data.consumer_logged_in?.ok === true) {
     lines.push('✓ 用户端登录态有效');
@@ -157,9 +159,15 @@ async function checkDoctorAccounts() {
       if (error?.code !== 'E_SECRET_DECRYPT_FAILED') throw error;
       authFile = { ok: false, detail: { error: 'auth_state_undecryptable' } };
     }
-    checks.push({ slug: account.slug, displayName: account.display_name, auth_file: authFile });
+    checks.push({ slug: account.slug, displayName: account.display_name, auth_file: authFile,
+      relogin: getReloginSummary(account.id) });
   }
   return checks;
+}
+
+function checkPasswordRelogin(accountId) {
+  const summary = accountId == null ? null : getReloginSummary(accountId);
+  return { has_password: Boolean(summary?.has_password), status: formatPasswordReloginStatus(summary) };
 }
 
 export const run = withCommand({
@@ -179,6 +187,7 @@ export const run = withCommand({
       chromium: { ok: false, detail: null },
       auth_file: { ok: false, detail: null },
       logged_in: { ok: false, detail: null },
+      password_relogin: checkPasswordRelogin(accountId),
       consumer_auth_file: { ok: false, detail: null },
       consumer_logged_in: { ok: false, detail: { configured: false } },
     };

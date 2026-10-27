@@ -30,6 +30,7 @@ const CONFIG_FIELD_DEFINITIONS = Object.freeze({
   rateLimitBurst: { schema: z.number().int().positive(), env: 'PDD_RATE_LIMIT_BURST', kind: 'number', required: true },
   cooldownThreshold: { schema: z.number().int().positive(), env: 'PDD_COOLDOWN_THRESHOLD', kind: 'number', required: true },
   cooldownMs: { schema: z.number().int().positive(), env: 'PDD_COOLDOWN_MS', kind: 'number', required: true },
+  passwordReloginMinIntervalMs: { schema: z.number().int().positive(), env: 'PDD_PASSWORD_RELOGIN_MIN_INTERVAL_MS', kind: 'number', required: true },
   writeRateTokensPerMinute: { schema: z.number().int().positive(), env: 'PDD_WRITE_RATE_TPM', kind: 'number', required: true },
   scrapeSoftBlockThreshold: { schema: z.number().int().positive(), env: 'PDD_SCRAPE_SOFTBLOCK_THRESHOLD', kind: 'number', required: true },
   scrapeSoftBlockCooldownMs: { schema: z.number().int().positive(), env: 'PDD_SCRAPE_SOFTBLOCK_COOLDOWN_MS', kind: 'number', required: true },

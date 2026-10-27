@@ -9,6 +9,7 @@ import {
 import { performHeadedLogin } from '../services/auth.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 import { provisionMerchantLogin } from '../services/auth-account-storage.js';
+import { getReloginSummary } from '../services/password-relogin.js';
 import {
   toAccountAddedView, toAccountDefaultView, toAccountListView, toAccountRemovedView,
 } from '../services/views/account.js';
@@ -71,7 +72,9 @@ export async function list(opts = {}) {
   const startedAt = Date.now();
   try {
     const accounts = await listAccountsFromStore({ includeDisabled: true });
-    const data = toAccountListView(accounts, accounts.find((account) => account.is_default)?.slug ?? null);
+    const data = toAccountListView(accounts.map((account) => ({
+      ...account, relogin: getReloginSummary(account.id),
+    })), accounts.find((account) => account.is_default)?.slug ?? null);
 
     const envelope = {
       ok: true,

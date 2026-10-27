@@ -67,6 +67,25 @@ export const AUTH_VERDICT_LABEL = Object.freeze({
   verified: '已验证', rejected: '已失效', failed: '验证失败', indeterminate: '无法判定', not_configured: '未配置',
 });
 
+export const PASSWORD_RELOGIN_STATUS_LABEL = Object.freeze({
+  available: '可用', awaiting_human: '等待人工', blocked: '已熔断',
+});
+
+export const PASSWORD_RELOGIN_REASON_LABEL = Object.freeze({
+  sms: '短信验证', slider: '滑块验证', click: '点选验证', risk_confirm: '风控确认',
+  unknown: '未识别的验证', wrong_password: '密码错误', account_locked: '账号被锁', takeover_timeout: '接管超时',
+});
+
+export function formatPasswordReloginStatus(summary) {
+  if (!summary?.has_password) return null;
+  const status = Object.hasOwn(PASSWORD_RELOGIN_STATUS_LABEL, summary.status)
+    ? PASSWORD_RELOGIN_STATUS_LABEL[summary.status] : null;
+  if (status == null || summary.status === 'available') return status;
+  const reason = Object.hasOwn(PASSWORD_RELOGIN_REASON_LABEL, summary.reason)
+    ? PASSWORD_RELOGIN_REASON_LABEL[summary.reason] : null;
+  return reason ? `${status}：${reason}` : status;
+}
+
 // 商家端登录态校验原因（adapter/merchant-auth*.js reason）
 export const AUTH_REASON_LABEL = Object.freeze({
   shop_read: '店铺信息读取成功',

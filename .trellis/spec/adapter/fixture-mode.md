@@ -15,6 +15,10 @@ src/adapter/fixtures/core.js             owns single fixture cache
 src/adapter/fixtures/mock-dispatcher.js  facade for mock payload routing
 test/fixtures/test-data.js               synthetic fixture builders (no checked-in endpoint JSON)
 test/helpers/isolated-cli.js             createCliSandbox / runCli：写入临时 fixture 目录
+PDD_TEST_PASSWORD_LOGIN=<outcome>        mockPasswordLogin 结果，默认 success；可取 challenge:<sms|slider|click|risk_confirm|unknown>、
+                                         wrong_password、account_locked、form_changed、network_error；其他值 E_USAGE
+PDD_TEST_PASSWORD_LOGIN_DELAY_MS=<ms>    每次尝试的人为延迟（并发测试），受重登预算与 signal 约束
+PDD_TEST_PASSWORD_LOGIN_TRACE=<file>     每次尝试追加一行结果（0600），用于断言登录次数；不写凭据
 ```
 
 Fixture 数据来源：仓库内**没有** `test/fixtures/endpoints/*.json` 文件。测试通过 `createCliSandbox(fixtures)` 把
@@ -40,6 +44,8 @@ return runRealEndpoint(ctx, spec, params);
 - New endpoint fixtures MUST be named/aligned with `spec.name`。
 - Tests MUST NOT rely on fixture cache mutation leaking across test cases。
 - Fixture runtime resolves the mock shop context through the adapter's `buildMallContext` (`normalizeMallRecord`), so fixture and live shop records share one shape (`{ id, name, is_current }`)。
+- Fixture auth validity for needsAuth commands: invalid when `PDD_TEST_AUTH_INVALID=1` AND the account state lacks the `PDD_FIXTURE_RELOGIN=1` cookie. The read-only check needs no lease; `reloginForFixture` re-checks inside the lease and reuses a marker written by another process (one attempt for concurrent processes).
+- Fixture relogin runs the same decision, attempt record, outcome record and warnings as live; only the browser part is `mockPasswordLogin()`. Success writes `{ cookies: [PDD_FIXTURE_RELOGIN=1], origins: [], merchant_auth: { verified … } }` under lease + CAS, so fixture relogin needs a temporary `PDD_DB_PATH` with a seeded credential.
 - Fixture payloads for orders / goods SHOULD use the real upstream field structure with synthetic values (money in fen, unix-second times) so service views are exercised exactly as in live mode。
 
 ## 4. Validation & Error Matrix
@@ -51,6 +57,8 @@ return runRealEndpoint(ctx, spec, params);
 | alternate `PDD_TEST_FIXTURE_DIR` set     | load fixtures from override directory                             |
 | fixture payload simulates business error | same `PddCliError` mapping as real adapter                        |
 | fixture cache stale across tests         | clear/reset via core owner, not ad-hoc module globals             |
+| `PDD_TEST_PASSWORD_LOGIN` unknown value  | `E_USAGE`（"PDD_TEST_PASSWORD_LOGIN 配置无效"）                     |
+| `PDD_TEST_AUTH_INVALID=1`, no credential | original `E_AUTH_EXPIRED`; no trace line                          |
 
 ## 5. Good/Base/Bad Cases
 

@@ -3,6 +3,7 @@
 import { FixtureEndpointClient, mockCurrentMall, mockListMalls, mockIsAuthValid, mockIsAuthIndeterminate } from '../../adapter/mock-dispatcher.js';
 import { buildMallContext } from '../../adapter/mall-reader.js';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
+import { fixtureSessionRecovered, reloginForFixture, getAccountActionWarnings } from '../../services/password-relogin.js';
 import { finalizeSuccess, finalizeError } from './envelope-finalizer.js';
 
 // ctx 字段集为 D-2 冻结契约（PROP-CTX-1）：fixture/live 两路径的单一来源，
@@ -45,30 +46,32 @@ async function resolveMockMall(needsMall) {
   }
 }
 
+export function appendActionWarnings(spec, runtime) {
+  if (spec.needsAuth && runtime.accountCtx?.accountId != null) {
+    runtime.warnings.push(...getAccountActionWarnings(runtime.accountCtx.accountId, runtime.accountCtx.slug));
+  }
+}
+
 export async function executeFixture(spec, runtime) {
-  if (spec.needsAuth && mockIsAuthIndeterminate()) {
-    return finalizeError(spec, runtime, new PddCliError({
-      code: 'E_AUTH_CHECK_INDETERMINATE', message: '无法确认登录状态', exitCode: ExitCodes.NETWORK,
-    }));
-  }
-  if (spec.needsAuth && !mockIsAuthValid()) {
-    return finalizeError(spec, runtime, new PddCliError({
-      code: 'E_AUTH_EXPIRED',
-      message: '登录态失效',
-      hint: '执行 pdd login 重新登录',
-      exitCode: ExitCodes.AUTH,
-    }));
-  }
-
-  const ctx = buildCommandCtx(runtime, {
-    client: new FixtureEndpointClient(),
-    page: null,
-    mallCtx: await resolveMockMall(spec.needsMall),
-  });
-
   try {
-    return finalizeSuccess(spec, runtime, await spec.run(ctx));
+    if (spec.needsAuth && mockIsAuthIndeterminate()) throw new PddCliError({
+      code: 'E_AUTH_CHECK_INDETERMINATE', message: '无法确认登录状态', exitCode: ExitCodes.NETWORK,
+    });
+    if (spec.needsAuth && !mockIsAuthValid() && !fixtureSessionRecovered(runtime.accountCtx.accountId)) {
+      await reloginForFixture(runtime.accountCtx.accountId, runtime);
+    }
+
+    const ctx = buildCommandCtx(runtime, {
+      client: new FixtureEndpointClient(),
+      page: null,
+      mallCtx: await resolveMockMall(spec.needsMall),
+    });
+
+    const result = await spec.run(ctx);
+    appendActionWarnings(spec, runtime);
+    return finalizeSuccess(spec, runtime, result);
   } catch (err) {
+    appendActionWarnings(spec, runtime);
     return finalizeError(spec, runtime, err);
   }
 }
