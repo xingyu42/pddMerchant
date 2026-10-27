@@ -1,6 +1,6 @@
 // 登录 / 授权与环境自检视图（输出契约 v2）：init、login、login.consumer、doctor。
 // 不输出登录态 / 凭据内容；枚举（登录方式、校验结论、原因等）输出中文标签。
-// 用词约定：「凭据」仅指已保存的登录凭据（account has_credential）；auth-state 文件称「登录态文件」。
+// 登录态字段名保持输出契约兼容。
 import { isoToLocalDateTime, labelOf } from '../../infra/units.js';
 import { text } from './_shared.js';
 import {
@@ -68,7 +68,6 @@ function toDoctorAccountView(account) {
     slug: account.slug,
     display_name: text(account.displayName),
     auth_file: toCheckView(account.auth_file, toAuthFileDetail),
-    has_credential: Boolean(account.hasCredential),
   };
 }
 

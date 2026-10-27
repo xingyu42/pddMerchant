@@ -42,7 +42,7 @@ Phase C — 商家后台发布 (mms.pinduoduo.com)
 - **消费者端 (mobile.yangkeduo.com) 需要独立登录态**，与商家后台 (mms.pinduoduo.com) 不同体系
 - 未登录时会被 302 重定向到 `login.html`
 - 导航 URL 需附加 `refer_page_name=search_result&refer_page_id=10033&refer_page_sn=10033` 参数避免重定向
-- 消费者端无注册表时回退到 `data/consumer/accounts/default/auth-state.json`；注册后按 `registry.json` 记录的安全 `<slug>/auth-state.json` 保存。昵称或手机号只用于账号查找，`goods publish` 使用解析后的消费者账号路径
+- 消费者账号与加密登录态统一存入 SQLite（默认 `data/pdd.db`，可用 `PDD_DB_PATH` 覆盖），`goods publish` 按解析后的消费者账号 ID 在内存中解密加载。主密钥位于数据库同目录（默认 `data/master.key`），两者均为敏感文件，勿提交，须一起备份。运行环境要求 Node.js >= 24，认证更新使用账号租约与 revision CAS（修订号匹配才提交）
 
 ### 2.0a 可选青果短效代理
 
@@ -56,7 +56,7 @@ PDD_QINGGUO_AUTH_KEY=<提取接口 AuthKey>
 - 代理仅作用于 Phase A 消费者端抓取，不作用于商家后台 Phase C。
 - 默认仍是直连；启用后失败关闭，不会偷偷回退直连。
 - 每次尝试即时提取一个代理并创建新的消费者 context，最多 3 次。
-- 每个 context 只读加载公共消费者登录态，不把代理会话写回文件。
+- 每个 context 只读加载消费者登录态，代理会话仅保留在内存中。
 - 验证码、滑块、登录失效、认证或额度错误立即停止，不自动绕过。
 - 首版不配置代理节点账号/密码鉴权。
 - 普通输出和日志不得包含代理节点或提取接口 AuthKey。

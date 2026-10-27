@@ -5,10 +5,11 @@ import { runCli } from '../helpers/isolated-cli.js';
 describe('merchant authentication CLI contract', () => {
   for (const args of [['login', '--qr'], ['init', '--qr'], ['account', 'add']]) {
     it(`keeps ${args.join(' ')} to one JSON line without exporting credentials`, () => {
-      const result = runCli(args);
+      const result = runCli(args, { accounts: [] });
       assert.equal(result.status, 0);
       assert.equal(result.envelope.ok, true);
       assert.equal(result.envelope.data.mall_id, '900001');
+      assert.ok(result.envelope.data.account_slug ?? result.envelope.data.slug);
       assert.ok(result.envelope.data.headline.length > 0);
       assert.ok(!result.stdout.includes('PASS_ID'));
       assert.ok(!result.stdout.includes('qr_pending'));

@@ -99,4 +99,7 @@ export const AUTH_REASON_LABEL = Object.freeze({
 export const MALL_IDENTITY_SOURCE_LABEL = Object.freeze({ verified_shop_endpoint: '店铺接口验证' });
 
 // 登录态文件检查错误（doctor）
-export const AUTH_FILE_ERROR_LABEL = Object.freeze({ auth_state_unreadable: '登录态文件无法读取' });
+export const AUTH_FILE_ERROR_LABEL = Object.freeze({
+  auth_state_unreadable: '登录态文件无法读取',
+  auth_state_undecryptable: '登录态文件无法解密',
+});

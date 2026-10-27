@@ -199,7 +199,7 @@ node bin/pdd.js shops current   # 当前店铺
 node bin/pdd.js account add                              # 添加账号（有头浏览器登录+自动注册）
 node bin/pdd.js account list                             # 列出所有账号
 node bin/pdd.js account default --slug <slug>            # 设默认账号
-node bin/pdd.js account remove --slug <slug> [--remove-files]
+node bin/pdd.js account remove --slug <slug>             # 级联删除账号及关联数据
 ```
 
 ### 按需认证检查
@@ -209,6 +209,8 @@ node bin/pdd.js account remove --slug <slug> [--remove-files]
 ## 典型工作流
 
 **首次上手：**
+运行环境要求 Node.js >= 24。
+
 ```bash
 npx patchright install chromium   # 装 Chromium（仅一次）
 node bin/pdd.js init              # 登录
@@ -235,12 +237,8 @@ node bin/pdd.js goods publish --url <链接> --cost-template <id> --confirm --js
 |------|------|
 | `PDD_TEST_ADAPTER=fixture` | Mock 模式（跳过真实浏览器，测试用） |
 | `PDD_TEST_FIXTURE_DIR=<path>` | fixture 数据目录 |
-| `PDD_AUTH_STATE_PATH=<path>` | 显式覆盖商家 auth-state；无注册表时使用 `data/merchant/stores/default/auth-state.json`，注册后使用 registry 中的 slug |
-| `PDD_CONSUMER_AUTH_STATE_PATH=<path>` | 显式覆盖消费者 auth-state；无注册表时使用 `data/consumer/accounts/default/auth-state.json`，注册后使用 registry 中的 slug |
-| `PDD_ACCOUNTS_DIR` / `PDD_ACCOUNT_REGISTRY_PATH` | 覆盖商家店铺目录与注册表 |
-| `PDD_CONSUMER_ACCOUNTS_DIR` / `PDD_CONSUMER_ACCOUNT_REGISTRY_PATH` | 覆盖消费者账号目录与注册表 |
+| `PDD_DB_PATH=<path>` | 商家/消费者账号及加密登录态的 SQLite 数据库，默认 `data/pdd.db`；主密钥 `master.key` 自动生成在数据库同目录（默认 `data/master.key`） |
 | （固定）`log/cli/` | CLI 日志按本地日轮转；引导阶段写 stderr；路径不可配置 |
-| `PDD_ALLOW_INSECURE_AUTH_STATE=1` | POSIX 权限设为 0600 失败时仍继续（不推荐） |
 | `PDD_CONSUMER_LOGIN_URL=<url>` | 覆盖消费者端登录页地址 |
 | `PDD_MALL_ID_STRICT_PARSE=0` | 放宽 mall ID 到 64 字符（默认 1-15 位数字） |
 | `PDD_SCRAPE_SIMULATE=0` | 关闭抓取时的人类行为模拟（默认开启） |
@@ -253,8 +251,9 @@ node bin/pdd.js goods publish --url <链接> --cost-template <id> --confirm --js
 - **写操作默认 dry-run**：`goods update *` 不加 `--confirm` 只预演，不改线上数据；确认参数后再加 `--confirm`。
 - **价格单位是元**：`--price-yuan 29.9` 表示 29.90 元（上游仍以分提交，CLI 精确换算）；输出中的金额字段（`*_yuan`）同为元。
 - **鉴权失效（退出码 3）** → 重新 `login`。**限流（退出码 4）** → 等待冷却后重试。
-- `--consumer-account` 的昵称或手机号仅用于注册表查找；登录态实际落盘目录名是 registry 中的安全 slug。
+- `--consumer-account` 的昵称、手机号或 slug 用于数据库账号查找；登录态按账号 ID 加密保存，使用时在内存中解密。
+- 数据库和同目录的主密钥均为敏感文件，勿提交，须一起备份与恢复。并发认证更新使用账号租约与 revision CAS（仅在修订号匹配时提交）。升级后需重新登录所有商家和消费者账号；旧版 JSON 数据保留原样，`doctor` 检测到时给出提示。
 - 本地运行差异优先用 `config set` 写入稀疏 `config/config.json`；秘密、安全和测试开关仍只通过环境变量注入。
 - 商品缺少 `goods_id` 时，库存 / 销量匹配会回退到商品名，`matched_by` 显示为「按商品名匹配（一侧缺少商品 ID）」，属正常兼容结果。
-- Mock 模式：设 `PDD_TEST_ADAPTER=fixture` + `PDD_TEST_FIXTURE_DIR=<dir>` 可在无浏览器/无真实账号下跑通命令，适合演示与调试。
+- Mock 模式：设 `PDD_TEST_ADAPTER=fixture` + `PDD_TEST_FIXTURE_DIR=<dir>`，并用临时 `PDD_DB_PATH` 隔离数据库与密钥，可在无浏览器/无真实账号下跑通命令，适合演示与调试。
 - 敏感字段（cookie、authorization、anti_content、手机号、地址等）在日志中自动 SHA256 脱敏。

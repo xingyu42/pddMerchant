@@ -1,21 +1,21 @@
-// 多账号管理视图（输出契约 v2）：registry 记录（camelCase）→ snake_case + 本地时间 + headline。
+// 多账号管理视图（输出契约 v2）：数据库记录 → 本地时间 + headline。
 import { isoToLocalDateTime } from '../../infra/units.js';
 import { text } from './_shared.js';
 
 export const ACCOUNT_VIEW_FIELDS = Object.freeze([
-  'slug', 'display_name', 'mall_id', 'is_default', 'disabled', 'last_login_at', 'last_refresh_at', 'has_credential',
+  'slug', 'display_name', 'mall_id', 'is_default', 'disabled', 'last_login_at',
 ]);
+
+export const ACCOUNT_REMOVED_VIEW_FIELDS = Object.freeze(['headline', 'slug', 'removed']);
 
 export function toAccountView(account, defaultSlug) {
   return {
     slug: account.slug,
-    display_name: text(account.displayName),
-    mall_id: text(account.mallId),
+    display_name: text(account.display_name),
+    mall_id: text(account.identity),
     is_default: defaultSlug != null && defaultSlug === account.slug,
     disabled: Boolean(account.disabled),
-    last_login_at: isoToLocalDateTime(account.lastLoginAt),
-    last_refresh_at: isoToLocalDateTime(account.lastRefreshAt),
-    has_credential: account.credential != null,
+    last_login_at: isoToLocalDateTime(account.last_login_at),
   };
 }
 
@@ -28,22 +28,20 @@ export function toAccountListView(accounts, defaultSlug) {
   return { headline, items, total: items.length, default_slug: defaultSlug ?? null };
 }
 
-export function toAccountAddedView({ slug, displayName, mallId }) {
+export function toAccountAddedView({ slug, display_name: displayName, identity: mallId }) {
   return {
     headline: [`已添加账号 ${displayName ?? slug}（${slug}），店铺 ${mallId ?? '未知'}`],
     slug,
     display_name: text(displayName),
     mall_id: text(mallId),
-    has_credential: false,
   };
 }
 
-export function toAccountRemovedView(slug, { removeFiles }) {
+export function toAccountRemovedView(slug) {
   return {
-    headline: [removeFiles ? `已移除账号 ${slug}，并删除账号目录` : `已移除账号 ${slug}`],
+    headline: [`已移除账号 ${slug} 及其认证数据`],
     slug,
     removed: true,
-    files_removed: Boolean(removeFiles),
   };
 }
 

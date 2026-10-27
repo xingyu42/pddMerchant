@@ -1,11 +1,11 @@
 {
   "name": "pdd-cli",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "description": "AI-friendly CLI for Pinduoduo merchant backend (V0 Patchright mode)",
   "type": "module",
   "private": true,
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=24"
   },
   "bin": {
     "pdd": "./bin/pdd.js"

@@ -26,7 +26,7 @@ PDD_TEST_FIXTURE_DIR=<path>     override fixture data
 - Framework is Vitest with `assert/strict`; tests auto-discover `test/**/*.test.js`。
 - Fixture adapter is the default seam for command/e2e tests; do not require real PDD account for automated tests。
 - E2E tests SHOULD spawn child processes when verifying CLI stdout/exit code/envelope purity。
-- Auth/doctor subprocess tests MUST set unique temporary `PDD_AUTH_STATE_PATH`, `PDD_CONSUMER_AUTH_STATE_PATH`, `PDD_ACCOUNT_REGISTRY_PATH`, and `PDD_ACCOUNTS_DIR`. `PDD_PROFILE_DIR` does not isolate account resolution. Use fixture mode so tests never navigate with a real local account.
+- Every test (in-process and subprocess) MUST use its own temporary `PDD_DB_PATH`; the master key lives beside it, so one variable isolates both. `test/setup.js` opens a fresh temp DB per test and closes it in `afterEach`. `PDD_PROFILE_DIR` does not isolate account resolution. Use fixture mode so tests never navigate with a real local account; fixture `login` still writes fake merchant/consumer accounts into the DB.
 - There is currently no property-based testing: the former `test/pbt/` harness was removed in `cc0cb1c` and the unused `fast-check` devDependency was dropped afterwards. Reintroducing PBT is a dependency decision (see `dependencies.md`)。
 - `npm run check` is the current honest project gate and runs `npm test`; `npm run lint` is currently no-op, so do not claim lint coverage as meaningful validation。
 - There is no build step; do not report build success unless one was actually added and run。
@@ -37,7 +37,7 @@ PDD_TEST_FIXTURE_DIR=<path>     override fixture data
   - `freeKeyPaths` lists free-form key maps whose own keys skip the key rules (e.g. `status_distribution` keyed by Chinese status, `config.show` `fields` keyed by config names, batch `accounts` keyed by slug); children are addressed as `<path>.*`, array elements as `[]`;
   - `entityFields` maps a path (`items[]`, `order`, `detail.stale_sample[]`, `''` for the root) to a view whitelist (`*_VIEW_FIELDS`); key sets must be equal, and a declared path that never occurs is itself a violation (no vacuous pass).
 - Adding a command: add a `V2_CASES` entry (or justified `UNIT_COVERED`) in the same change, otherwise the guard fails。
-- `runCli(args, { fixtures, authState, authInvalid, authIndeterminate, registry })` (`test/helpers/isolated-cli.js`) writes fixtures and an optional synthetic account registry (`createAccountRegistry()`) into a temp sandbox; args containing `--all-accounts` drop the sandbox `PDD_AUTH_STATE_PATH` (mutually exclusive). `assertEnvelopeShape` asserts `meta.v === 2`。
+- `runCli(args, { fixtures, authInvalid, authIndeterminate, authState, accounts = [DEFAULT_ACCOUNT], authStates })` (`test/helpers/isolated-cli.js`) creates a temp sandbox (`createCliSandbox()`), seeds its DB with `seedDb(dbPath, { accounts, authStates })` (`test/helpers/seed-db.js`, ciphertext sealed with the sandbox master key) and then spawns the CLI; `--all-accounts` needs no special handling. `assertEnvelopeShape` asserts `meta.v === 2`。
 - Layer boundaries are not test-guarded: the former `test/layering-guard.unit.test.js` was removed in `cc0cb1c`; review imports manually。
 
 ## 4. Validation & Error Matrix
@@ -50,7 +50,8 @@ PDD_TEST_FIXTURE_DIR=<path>     override fixture data
 | adapter endpoint/business error          | adapter unit + fixture endpoint e2e                       |
 | runner/envelope/errors/output            | runner/output/error tests + smoke; prefer `npm test`      |
 | infra env/path/logging                   | unit tests for default/override/invalid + redaction tests |
-| auth/doctor CLI subprocess               | fixture mode + isolated auth and account-registry paths  |
+| auth/doctor CLI subprocess               | fixture mode + temporary `PDD_DB_PATH` seeded via `seedDb` |
+| storage (db/leases/master-key/account-store) | `test/infra/*.test.js` + `test/e2e/sqlite-auth-storage.e2e.test.js` |
 | parser accepting broad external payloads | unit good/base/bad with representative edge-case tables    |
 
 ## 5. Good/Base/Bad Cases

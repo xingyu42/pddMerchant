@@ -14,7 +14,7 @@ export function buildCommandCtx(runtime, { client, page, mallCtx, ...extra }) {
     page,
     mallCtx,
     mallId: mallCtx?.activeId ?? null,
-    authPath: runtime.authPath,
+    accountId: runtime.accountCtx?.accountId ?? null,
     account: runtime.accountCtx?.account ?? null,
     accountSlug: runtime.accountCtx?.slug ?? null,
     config: runtime.opts,

@@ -5,14 +5,12 @@ import {
   renderQrToStream,
 } from '../services/auth.js';
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
-import { consumerPendingAuthStatePath } from '../infra/paths.js';
 import { emit } from '../infra/output.js';
 import { PddCliError, ExitCodes, errorToEnvelope } from '../infra/errors.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 import { provisionConsumerAuth } from '../services/auth-account-storage.js';
 import { redactValue } from '../infra/logger.js';
 import { resolveConsumerAccountContext } from '../infra/consumer-account-resolver.js';
-import { randomUUID } from 'node:crypto';
 import { toConsumerLoginView } from '../services/views/auth.js';
 
 export async function run(options = {}, { runtimeConfig } = {}) {
@@ -28,7 +26,6 @@ export default run;
 async function runConsumerLogin(opts, runtimeConfig) {
   const command = 'login.consumer';
   const startedAt = Date.now();
-  const consumerLoginUrl = runtimeConfig?.consumerLoginUrl;
 
   if (opts.password) {
     const envelope = errorToEnvelope(command, new PddCliError({
@@ -41,57 +38,13 @@ async function runConsumerLogin(opts, runtimeConfig) {
     return envelope;
   }
 
-  const explicitAuthPath = process.env.PDD_CONSUMER_AUTH_STATE_PATH || null;
-  const authStatePath = explicitAuthPath || consumerPendingAuthStatePath(randomUUID());
-  const headed = opts.headed ?? false;
-  const qr = opts.qr ?? false;
-  const timeoutMs = opts.timeoutMs ?? (qr ? TIMEOUTS.LOGIN_QR : TIMEOUTS.LOGIN_HEADED);
-
-  if (isMockEnabled()) {
-    const mode = qr ? 'consumer-qr' : 'consumer-headed';
-    const envelope = {
-      ok: true,
-      command,
-      data: toConsumerLoginView({ url: consumerLoginUrl, mode }, { fixture: true }),
-      meta: { latency_ms: Date.now() - startedAt, exit_code: ExitCodes.OK, warnings: [] },
-    };
-    emit(envelope, { json: opts.json, noColor: opts.noColor });
-    return envelope;
-  }
-
   try {
     const selectedAccount = opts.consumerAccount
       ? await resolveConsumerAccountContext({ account: opts.consumerAccount })
       : null;
-    let result;
-    if (qr) {
-      result = await performConsumerQrLogin({
-        authStatePath,
-        timeoutMs,
-        headed,
-        consumerLoginUrl,
-        scrapeCooldownConfig: {
-          threshold: runtimeConfig?.scrapeSoftBlockThreshold,
-          cooldownMs: runtimeConfig?.scrapeSoftBlockCooldownMs,
-        },
-        onQrCaptured: async ({ imagePath, qrContent }) => {
-          if (qrContent) await renderQrToStream(qrContent);
-        },
-      });
-    } else {
-      result = await performConsumerHeadedLogin({
-        authStatePath,
-        timeoutMs,
-        consumerLoginUrl,
-        scrapeCooldownConfig: {
-          threshold: runtimeConfig?.scrapeSoftBlockThreshold,
-          cooldownMs: runtimeConfig?.scrapeSoftBlockCooldownMs,
-        },
-      });
-    }
-
+    const result = await acquireConsumerLogin(opts, runtimeConfig);
     if (selectedAccount?.account
-      && String(selectedAccount.account.uid ?? '') !== String(result.identity?.uid ?? '')) {
+      && String(selectedAccount.account.identity ?? '') !== String(result.identity?.uid ?? '')) {
       throw new PddCliError({
         code: 'E_CONSUMER_ACCOUNT_IDENTITY_MISMATCH',
         message: '登录后的消费者账号与所选账号不一致',
@@ -99,12 +52,12 @@ async function runConsumerLogin(opts, runtimeConfig) {
         exitCode: ExitCodes.AUTH,
       });
     }
-    const provisioned = explicitAuthPath ? null : await provisionConsumerAuth(result.path, result.identity);
+    const provisioned = provisionConsumerAuth(result.state, result.identity);
     const envelope = {
       ok: true,
       command,
       data: toConsumerLoginView(result, {
-        accountFingerprint: provisioned ? redactValue(provisioned.account.uid) : null,
+        accountFingerprint: isMockEnabled() ? null : redactValue(provisioned.account.identity), fixture: isMockEnabled(),
       }),
       meta: { latency_ms: Date.now() - startedAt, exit_code: ExitCodes.OK, warnings: [] },
     };
@@ -115,4 +68,26 @@ async function runConsumerLogin(opts, runtimeConfig) {
     emit(envelope, { json: opts.json, noColor: opts.noColor });
     return envelope;
   }
+}
+
+async function acquireConsumerLogin(opts, runtimeConfig) {
+  const consumerLoginUrl = runtimeConfig?.consumerLoginUrl;
+  const qr = opts.qr ?? false;
+  if (isMockEnabled()) {
+    return { state: { cookies: [], origins: [] }, identity: { uid: 'fixture-consumer', nickname: 'fixture-consumer' },
+      url: consumerLoginUrl, mode: qr ? 'consumer-qr' : 'consumer-headed' };
+  }
+  const login = qr ? performConsumerQrLogin : performConsumerHeadedLogin;
+  return login({
+    timeoutMs: opts.timeoutMs ?? (qr ? TIMEOUTS.LOGIN_QR : TIMEOUTS.LOGIN_HEADED),
+    headed: opts.headed ?? false,
+    consumerLoginUrl,
+    scrapeCooldownConfig: {
+      threshold: runtimeConfig?.scrapeSoftBlockThreshold,
+      cooldownMs: runtimeConfig?.scrapeSoftBlockCooldownMs,
+    },
+    onQrCaptured: async ({ qrContent }) => {
+      if (qrContent) await renderQrToStream(qrContent);
+    },
+  });
 }

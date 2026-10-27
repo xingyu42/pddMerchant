@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, it, vi } from 'vitest';
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as configCmd from '../../src/commands/config.js';
+import { loadRuntimeConfig } from '../../src/infra/config.js';
 import { assertDataContractV2 } from '../helpers/data-contract.js';
 
 // config set / unset 通过 CLI 子进程会写入仓库的 config/config.json，
@@ -33,6 +34,19 @@ afterEach(() => {
 });
 
 describe('config set / unset v2 data', () => {
+  it('ignores retired authStatePath in local config and rejects config.set for it', async () => {
+    writeFileSync(configOptions.configPath, JSON.stringify({ authStatePath: 'synthetic-retired', refreshIntervalMs: 1 }));
+    const runtime = await loadRuntimeConfig(configOptions);
+    assert.equal(Object.hasOwn(runtime, 'authStatePath'), false);
+    const before = readFileSync(configOptions.configPath, 'utf8');
+    await assert.rejects(configCmd.set({ args: ['authStatePath', 'synthetic'], json: true }, { configOptions }), (error) => {
+      assert.equal(error.code, 'E_CONFIG_INVALID');
+      assert.equal(error.detail.reason, 'unknown_field');
+      return true;
+    });
+    assert.equal(readFileSync(configOptions.configPath, 'utf8'), before);
+  });
+
   it('config.set reports the edit in snake_case with a labeled source', async () => {
     const envelope = await configCmd.set({ args: ['rateLimitQps', '1'], json: true }, { configOptions });
     assert.equal(envelope.ok, true);

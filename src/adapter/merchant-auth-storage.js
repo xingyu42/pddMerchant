@@ -1,10 +1,12 @@
-import { mkdir, realpath } from 'node:fs/promises';
-import { dirname, resolve, join, basename } from 'node:path';
-import { acquireLock, releaseLock, assertLockOwner } from '../infra/auth-lock.js';
-import { loadAuthStateWithRevision, getAuthStateRevision, saveAuthStateSnapshot } from './auth-state.js';
+import { acquireLease, releaseLease, assertLeaseOwner } from '../infra/leases.js';
+import { transaction as databaseTransaction } from '../infra/db.js';
+import { getAccountById } from '../infra/account-store.js';
+import { getMasterKey } from '../infra/master-key.js';
+import { loadAuthState, authStateConflict, saveAuthStateSnapshot } from './auth-state.js';
 import { assertVerifiedMerchantCandidate, verifyMerchantContext } from './merchant-auth.js';
 import { budgetMs } from '../infra/abort.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
+import { getLogger } from '../infra/logger.js';
 
 export function assertAuthTask({ signal, deadlineAt } = {}) {
   const expired = (deadlineAt != null && Date.now() >= deadlineAt)
@@ -28,52 +30,53 @@ export async function verifyStoredMerchant(context, state, task = {}) {
   if (state?.merchant_auth?.last_check?.verdict === 'rejected') {
     return { verdict: 'rejected', reason: 'known_rejected', checked_at: new Date().toISOString() };
   }
-  return verifyMerchantContext(context, { ...task, expectedMallId: task.expectedMallId ?? boundMerchantMallId(state) });
+  const boundMallId = boundMerchantMallId(state);
+  if (boundMallId && task.expectedMallId != null && String(task.expectedMallId) !== boundMallId) {
+    return { verdict: 'failed', reason: 'identity_mismatch', checked_at: new Date().toISOString() };
+  }
+  return verifyMerchantContext(context, { ...task, expectedMallId: task.expectedMallId ?? boundMallId });
 }
 
-async function canonicalAuthPath(path) {
-  const absolute = resolve(path);
-  await mkdir(dirname(absolute), { recursive: true });
-  try { return await realpath(absolute); }
-  catch (error) {
-    if (error?.code !== 'ENOENT') throw error;
-    return join(await realpath(dirname(absolute)), basename(absolute));
+async function updateMerchantAuth(accountId, fn, options = {}) {
+  assertAuthTask(options);
+  const timeoutMs = budgetMs(options, 15000);
+  const ttlMs = Math.max(0, (options.deadlineAt ?? Date.now() + timeoutMs) - Date.now()) + 30000;
+  const lock = await acquireLease('account', accountId, { timeoutMs, ttlMs, signal: options.signal });
+  try {
+    assertAuthTask(options);
+    const account = getAccountById(accountId);
+    if (account?.kind !== 'merchant') throw authStateConflict();
+    if (options.recoveryMallId != null && String(options.recoveryMallId) !== account.identity) {
+      throw new PddCliError({ code: 'E_ACCOUNT_IDENTITY_MISMATCH', message: '恢复店铺与账号绑定不一致', exitCode: ExitCodes.AUTH });
+    }
+    const loaded = loadAuthState(accountId, { allowCorrupt: options.recoveryMallId != null });
+    assertAuthTask(options);
+    const transaction = { ...options, ...loaded, accountId, token: lock.token, recoveryMallId: account.identity };
+    return await fn(transaction);
+  } finally {
+    try { releaseLease('account', accountId, lock.token); }
+    catch {
+      try { getLogger().warn({ code: 'auth_lease_release_failed' }, '认证租约释放失败'); }
+      catch { /* 清理与日志失败均保留原结果。 */ }
+    }
   }
 }
 
-async function updateMerchantAuth(path, fn, options = {}) {
-  assertAuthTask(options);
-  const canonical = await canonicalAuthPath(path);
-  const lock = await acquireLock(canonical, { timeoutMs: budgetMs(options, 15000), signal: options.signal });
-  try {
-    assertAuthTask(options);
-    // 仅有可信登记店铺的重新授权可忽略损坏状态；保留修订号和可解析的绑定。
-    const { state, revision, corrupt = false } = await loadAuthStateWithRevision(canonical, { allowCorrupt: options.recoveryMallId != null });
-    assertAuthTask(options);
-    const transaction = { ...options, path: canonical, token: lock.token, revision, state, corrupt };
-    return await fn(transaction);
-  } finally { await releaseLock(canonical, lock.token); }
-}
-
-export async function withMerchantAuthUpdate(path, fn, options = {}) {
-  try { return await updateMerchantAuth(path, fn, options); }
+export async function withMerchantAuthUpdate(accountId, fn, options = {}) {
+  try { return await updateMerchantAuth(accountId, fn, options); }
   catch (error) {
     if (error instanceof PddCliError) throw error;
     const filesystem = ['EACCES', 'EPERM', 'ENOSPC', 'EIO', 'EMFILE'].includes(error?.code);
-    throw new PddCliError({ code: filesystem ? 'E_AUTH_STATE_IO' : 'E_AUTH_UPDATE_FAILED', message: filesystem ? '无法访问或更新登录态文件' : '认证任务未完成', exitCode: filesystem ? ExitCodes.AUTH : ExitCodes.GENERAL });
+    throw new PddCliError({ code: filesystem ? 'E_AUTH_STATE_IO' : 'E_AUTH_UPDATE_FAILED', message: filesystem ? '无法访问或更新登录态' : '认证任务未完成', exitCode: filesystem ? ExitCodes.AUTH : ExitCodes.GENERAL });
   }
 }
 
-async function assertCurrent(transaction) {
+function assertCurrent(transaction) {
   assertAuthTask(transaction);
-  await assertLockOwner(transaction.path, transaction.token);
-  if (await getAuthStateRevision(transaction.path) !== transaction.revision) {
-    throw new PddCliError({ code: 'E_AUTH_STATE_CONFLICT', message: '登录态已被其他任务更新，本次结果未保存', exitCode: ExitCodes.AUTH });
-  }
-  assertAuthTask(transaction);
+  assertLeaseOwner('account', transaction.accountId, transaction.token);
 }
 
-export async function commitMerchantCandidate(candidate, transaction, { expectedRevision = transaction.revision } = {}) {
+export function merchantCandidateState(candidate, transaction = {}) {
   assertVerifiedMerchantCandidate(candidate);
   if (transaction.recoveryMallId != null && String(transaction.recoveryMallId) !== candidate.identity.mallId) {
     throw new PddCliError({ code: 'E_ACCOUNT_IDENTITY_MISMATCH', message: '候选店铺与登记店铺不一致', exitCode: ExitCodes.AUTH });
@@ -82,10 +85,7 @@ export async function commitMerchantCandidate(candidate, transaction, { expected
   if (bound && bound !== candidate.identity.mallId) {
     throw new PddCliError({ code: 'E_ACCOUNT_IDENTITY_MISMATCH', message: '候选店铺与凭据文件绑定不一致', exitCode: ExitCodes.AUTH });
   }
-  if (transaction.revision !== expectedRevision) {
-    throw new PddCliError({ code: 'E_AUTH_STATE_CONFLICT', message: '任务开始后登录态已更新，本次结果未保存', exitCode: ExitCodes.AUTH });
-  }
-  const state = {
+  return {
     cookies: candidate.state.cookies, origins: candidate.state.origins,
     merchant_auth: {
       version: 1, mall_id: candidate.identity.mallId, checked_at: candidate.checked_at,
@@ -93,18 +93,34 @@ export async function commitMerchantCandidate(candidate, transaction, { expected
       last_check: { verdict: 'verified', reason: 'shop_read', checked_at: candidate.checked_at },
     },
   };
-  transaction.revision = await saveAuthStateSnapshot(state, transaction.path, { beforeCommit: () => assertCurrent(transaction) });
-  transaction.state = state;
-  return transaction.path;
 }
 
-export async function recordMerchantCheck(result, transaction) {
+function commitState(state, transaction) {
+  assertAuthTask(transaction);
+  getMasterKey();
+  const revision = databaseTransaction(() => {
+    assertCurrent(transaction);
+    return saveAuthStateSnapshot(state, transaction.accountId, { expectedRevision: transaction.revision });
+  });
+  transaction.revision = revision;
+  transaction.state = state;
+  transaction.metadata = state.merchant_auth ?? null;
+  transaction.corrupt = false;
+  return transaction.accountId;
+}
+
+export function commitMerchantCandidate(candidate, transaction, { expectedRevision = transaction.revision } = {}) {
+  const state = merchantCandidateState(candidate, transaction);
+  if (transaction.revision !== expectedRevision) throw authStateConflict();
+  return commitState(state, transaction);
+}
+
+export function recordMerchantCheck(result, transaction) {
   if (!transaction.state || !['rejected', 'indeterminate'].includes(result.verdict)) return;
   const metadata = transaction.state.merchant_auth ?? { version: 1, mall_id: null };
   const state = { ...transaction.state, merchant_auth: {
     ...metadata, usable: false,
     last_check: { verdict: result.verdict, reason: result.reason, checked_at: result.checked_at },
   } };
-  transaction.revision = await saveAuthStateSnapshot(state, transaction.path, { beforeCommit: () => assertCurrent(transaction) });
-  transaction.state = state;
+  return commitState(state, transaction);
 }

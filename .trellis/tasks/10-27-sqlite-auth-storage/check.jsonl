@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/standards/testing.md", "reason": "test coverage expectations and contract guard"}
+{"file": ".trellis/spec/standards/coding-style.md", "reason": "style gate"}
+{"file": ".trellis/spec/infra/logging-redaction.md", "reason": "no secrets in logs/envelopes"}
+{"file": ".trellis/spec/infra/envelope-errors-output.md", "reason": "envelope and error contract"}
+{"file": ".trellis/spec/adapter/auth-mall-context.md", "reason": "auth invariants preserved"}
+{"file": ".trellis/spec/architecture/dependency-flow.md", "reason": "layering review"}

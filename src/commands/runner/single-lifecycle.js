@@ -12,7 +12,6 @@ import { getSharedClient } from '../../adapter/rate-limiter-singleton.js';
 import { createPageSession } from '../../adapter/page-session.js';
 import { getLogger } from '../../infra/logger.js';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
-import { AUTH_STATE_PATH } from '../../infra/paths.js';
 import { resolveAccountContext } from '../../infra/account-resolver.js';
 import { budgetMs, remainingMs, throwIfAborted, timeoutError } from '../../infra/abort.js';
 import { executeFixture, buildCommandCtx } from './fixture-runtime.js';
@@ -41,7 +40,7 @@ function anySignal(signals) {
 async function resolveAccount(opts, needsAuth, warnings) {
   return resolveAccountContext({
     account: opts.account,
-    authStatePath: opts.authStatePath,
+    accountId: opts.accountId,
     needsAuth,
     warnings,
   });
@@ -70,7 +69,7 @@ async function assertAuthValid(context, runtime, transaction) {
     throw timeoutError();
   }
   const result = await verifyStoredMerchant(context, transaction.state, {
-    signal, deadlineAt: deadlineAt ?? undefined, expectedMallId: runtime.accountCtx?.account?.mallId,
+    signal, deadlineAt: deadlineAt ?? undefined, expectedMallId: runtime.accountCtx?.account?.identity,
   });
   if (result.verdict !== 'verified') await recordMerchantCheck(result, transaction);
   assertMerchantVerified(result);
@@ -114,7 +113,7 @@ async function executeLiveOperation(spec, runtime) {
   const { opts } = runtime;
   const operation = async (transaction) => withBrowser({
     headed: opts.headed,
-    storageStatePath: transaction?.path ?? runtime.authPath,
+    storageState: transaction?.state,
   }, async ({ context, page }) => {
     if (spec.needsAuth) {
       await assertAuthValid(context, runtime, transaction);
@@ -143,7 +142,7 @@ async function executeLiveOperation(spec, runtime) {
     return finalizeSuccess(spec, runtime, result);
   });
   return spec.needsAuth
-    ? withMerchantAuthUpdate(runtime.authPath, operation, { signal: runtime.signal, deadlineAt: runtime.deadlineAt })
+    ? withMerchantAuthUpdate(runtime.accountCtx.accountId, operation, { signal: runtime.signal, deadlineAt: runtime.deadlineAt })
     : operation(null);
 }
 
@@ -176,7 +175,6 @@ export async function executeSingle(spec, opts = {}, {
     correlationId,
     warnings,
     log,
-    authPath: accountCtx?.authPath ?? opts.authStatePath ?? AUTH_STATE_PATH,
     accountCtx,
     signal,
     deadlineAt,

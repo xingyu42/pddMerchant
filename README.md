@@ -2,11 +2,13 @@
 
 拼多多商家后台命令行工具，面向 AI Agent 与人类运营。Patchright 驱动 Chromium、拦截 XHR 响应，输出统一 envelope JSON。
 
-**风险声明**：仅限本人店铺运营，滥用可能导致封禁。`data/merchant/`、`data/consumer/` 下的登录数据勿上传公共仓库。
+**风险声明**：仅限本人店铺运营，滥用可能导致封禁。`data/pdd.db` 与同目录的 `data/master.key` 均为敏感文件，勿上传公共仓库，备份与恢复时须一起保留。
 
 ---
 
 ## 快速开始
+
+运行环境要求 Node.js >= 24。
 
 ```bash
 npm install && npx patchright install chromium
@@ -62,7 +64,7 @@ src/infra/           envelope/errors/logger/timeouts
 
 `--json` / `--no-color` / `--timeout <ms>` / `--mall <id>` / `--headed` / `--verbose` / `--account <slug>` / `--consumer-account <ref>` / `--all-accounts`
 
-`--consumer-account` 接受消费者账号的昵称、手机号或存储 slug；解析到注册表后，实际登录态仍按 slug 归档。
+`--consumer-account` 接受消费者账号的昵称、手机号或 slug；解析到数据库中的账号后，按账号 ID 加载登录态。
 
 详细参数见 `pdd <command> --help` 或 [SKILL.md](skills/pdd-cli/SKILL.md)。
 
@@ -163,17 +165,17 @@ pdd config unset rateLimitQps           # 删除本地覆盖，回退到环境�
 pdd config validate --json              # 分层校验；配置损坏时仍可执行
 ```
 
-配置命令只管理项目内公开字段，不写 `.env`；修改后由下一次命令加载，无需重启后台。旧本地配置中的 `refreshIntervalMs` / `refreshJitterMs` 会被忽略，对应环境变量不再生效。代理 AuthKey、主密码、测试和安全开关继续只允许通过环境变量安全注入。
+配置命令只管理项目内公开字段，不写 `.env`；修改后由下一次命令加载，无需重启后台。旧本地配置中的 `refreshIntervalMs` / `refreshJitterMs` / `authStatePath` 会被忽略，设置这些字段会返回未知字段错误。代理 AuthKey、测试和安全开关继续只允许通过环境变量安全注入。
 
 ## 环境变量
 
-没有注册账号时，商家和消费者登录态分别使用 `data/merchant/stores/default/auth-state.json` 与 `data/consumer/accounts/default/auth-state.json`。登录成功并注册身份后，文件归档到各自 `registry.json` 记录的 `<slug>/auth-state.json`；slug 由显示名生成并处理冲突，不等同于原始店铺名、昵称或手机号。`PDD_AUTH_STATE_PATH` 与 `PDD_CONSUMER_AUTH_STATE_PATH` 可显式覆盖单个登录态文件，账号目录和注册表也有独立覆盖变量。
+商家和消费者账号及登录态统一存入 SQLite，默认数据库为 `data/pdd.db`，可通过 `PDD_DB_PATH` 覆盖。主密钥自动生成在数据库同目录的 `master.key`（默认 `data/master.key`）；数据库和密钥均为敏感文件，勿提交，须一起备份与恢复。账号 slug 保持稳定，供 `--account` 等选项选择账号；首次使用需登录创建账号。旧版 JSON 数据保留原样，升级后请重新登录所有商家和消费者账号；`doctor` 检测到旧数据时会给出固定提示。
 
 CLI 日志固定写入 `log/cli/YYYY-MM-DD.log`；引导阶段写 stderr。日志路径不可通过 `PDD_LOG_DESTINATION` 配置。完整变量、默认值与安全开关见 [.env.example](.env.example)。
 
-商家登录先独立检查登录，再从固定只读接口核对店铺身份和店铺读取权限，全部通过后才保存同次冻结材料。首次自动登记，不需要手填店铺 ID；已有账号或已绑定自定义文件不允许静默换店。已注册 slug 不随店铺显示名变化。普通网络故障返回 `E_AUTH_CHECK_INDETERMINATE`（退出码 5），明确未登录返回 `E_AUTH_EXPIRED`（退出码 3）；店铺读取被拒绝返回业务错误（退出码 6）。订单、商品、营销权限仍在各自命令中检查。
+商家登录先独立检查登录，再从固定只读接口核对店铺身份和店铺读取权限，全部通过后才保存同次冻结材料。首次自动登记，不需要手填店铺 ID；已有账号的店铺绑定保持一致。已注册 slug 不随店铺显示名变化。普通网络故障返回 `E_AUTH_CHECK_INDETERMINATE`（退出码 5），明确未登录返回 `E_AUTH_EXPIRED`（退出码 3）；店铺读取被拒绝返回业务错误（退出码 6）。订单、商品、营销权限仍在各自命令中检查。
 
-凭据继续使用普通 JSON `cookies/origins`，附加 `merchant_auth` 元数据；不是加密存储。Token/ck 不导出、不额外保存。`--json` 登录只向 stdout 输出最终一行，二维码等待信息在 stderr，授权结束后删除临时二维码。协议及批准的兼容性例外见 [核验记录](docs/merchant-auth-protocol-verification.md)。
+登录态中的 `cookies/origins` 在数据库中加密保存，使用时仅在内存中解密交给浏览器；商家校验元数据单独保存。并发更新使用账号租约与 revision CAS（仅当修订号匹配时提交），删除账号会级联删除关联数据。Token/ck 不导出、不额外保存。`--json` 登录只向 stdout 输出最终一行，二维码等待信息在 stderr，授权结束后删除临时二维码。协议及批准的兼容性例外见 [核验记录](docs/merchant-auth-protocol-verification.md)。
 
 `goods publish --url` 可选择仅为消费者端源商品抓取启用青果短效 HTTP 代理：
 

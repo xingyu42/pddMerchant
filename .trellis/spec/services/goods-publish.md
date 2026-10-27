@@ -105,7 +105,7 @@ PDD_QINGGUO_AREA=<optional-six-digit-area-codes>
 ```js
 const lease = await acquireQingguoProxyLease(config, { signal: ctx.signal });
 await createConsumerContext(browser, {
-  storageStatePath,
+  storageState: loadAuthState(consumerAccountId).state,
   proxy: { server: lease.server },
 });
 ```

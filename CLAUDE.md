@@ -48,7 +48,7 @@ Layering (`commands → services → adapter → infra`) is enforced by review o
 - `PDD_TEST_ADAPTER=fixture` short-circuits adapter entry points (modules guard on `isMockEnabled()`) via `mock-dispatcher.js` (no DI); `PDD_TEST_FIXTURE_DIR=<path>` points to alternate fixtures
 - E2E tests spawn child processes with the fixture adapter
 - `PDD_DEBUG_RAW=1` emits pre-strip raw payloads to stderr as redacted JSONL; stdout envelope unaffected
-- Other runtime env vars (auth-state paths, account registries, scrape/publish tuning): see the `pdd-local-development` skill, or grep `process.env.PDD_` under `src/`
+- Other runtime env vars (SQLite path, scrape/publish tuning): see the `pdd-local-development` skill, or grep `process.env.PDD_` under `src/`
 
 ## Gotchas
 

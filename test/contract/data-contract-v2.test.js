@@ -5,9 +5,9 @@ import { Command } from 'commander';
 import { assertDataContractV2 } from '../helpers/data-contract.js';
 import { runCli } from '../helpers/isolated-cli.js';
 import {
-  createAccountRegistry, createFactFixtures, createPublishFixtures, createUpstreamGoods,
+  createAccounts, createFactFixtures, createPublishFixtures, createUpstreamGoods,
 } from '../fixtures/test-data.js';
-import { ACCOUNT_VIEW_FIELDS } from '../../src/services/views/account.js';
+import { ACCOUNT_VIEW_FIELDS, ACCOUNT_REMOVED_VIEW_FIELDS } from '../../src/services/views/account.js';
 import { CONFIG_FIELD_VIEW_FIELDS } from '../../src/services/views/config.js';
 import { SHOP_VIEW_FIELDS } from '../../src/services/views/shops.js';
 import { ORDER_DETAIL_VIEW_FIELDS, ORDER_VIEW_FIELDS } from '../../src/services/views/order.js';
@@ -76,11 +76,12 @@ const V2_CASES = [
   {
     command: 'account.list',
     args: ['account', 'list'],
-    registry: createAccountRegistry(),
+    accounts: createAccounts(),
     entityFields: { 'items[]': ACCOUNT_VIEW_FIELDS },
   },
-  { command: 'account.remove', args: ['account', 'remove', '--slug', 'shop-b'], registry: createAccountRegistry() },
-  { command: 'account.default', args: ['account', 'default', '--slug', 'shop-b'], registry: createAccountRegistry() },
+  { command: 'account.remove', args: ['account', 'remove', '--slug', 'shop-b'], accounts: createAccounts(),
+    entityFields: { '': ACCOUNT_REMOVED_VIEW_FIELDS } },
+  { command: 'account.default', args: ['account', 'default', '--slug', 'shop-b'], accounts: createAccounts() },
   {
     command: 'config.show',
     args: ['config', 'show'],
@@ -97,7 +98,7 @@ const V2_CASES = [
     command: 'orders.stats',
     args: ['orders', 'stats', '--all-accounts'],
     fixtures: createFactFixtures(),
-    registry: createAccountRegistry(),
+    accounts: createAccounts(),
     freeKeyPaths: ['accounts', 'accounts.*.data.local.status_distribution'],
   },
   {
@@ -264,7 +265,7 @@ describe.skipIf(V2_CASES.length === 0)('output contract v2: command data', () =>
   for (const testCase of V2_CASES) {
     it(`${testCase.command} ${testCase.args.join(' ')}`, () => {
       const { envelope } = runCli(testCase.args, {
-        fixtures: testCase.fixtures, registry: testCase.registry, authState: testCase.authState,
+        fixtures: testCase.fixtures, accounts: testCase.accounts, authState: testCase.authState,
       });
       assert.equal(envelope.ok, true, JSON.stringify(envelope.error));
       // 用例必须真正运行其声明的命令，否则覆盖清单可被其他命令的参数冒充

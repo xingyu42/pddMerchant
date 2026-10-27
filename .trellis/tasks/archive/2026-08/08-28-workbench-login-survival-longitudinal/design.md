@@ -105,4 +105,4 @@ size_bytes
 
 ## 9. 与旧任务的边界
 
-`07-31-daemon-auth-expiry-hardening` 的 `checkLogin + 状态快照 + 失效提醒` 是当前 pdd-cli 安全基线，但不是对官方平台全部恢复能力的断言。本任务不把 Workbench 原生恢复材料移植到 pdd-cli，也不修改 Cookie 期限或伪造活跃行为。
+`07-31-daemon-auth-expiry-hardening`（已于 2026-10-27 从仓库删除）的 `checkLogin + 状态快照 + 失效提醒` 是当时 pdd-cli 的安全基线，但不是对官方平台全部恢复能力的断言。本任务不把 Workbench 原生恢复材料移植到 pdd-cli，也不修改 Cookie 期限或伪造活跃行为。

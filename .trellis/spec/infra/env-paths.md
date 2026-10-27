@@ -11,12 +11,7 @@
 ```text
 PDD_TEST_ADAPTER=fixture
 PDD_TEST_FIXTURE_DIR=<path>
-PDD_AUTH_STATE_PATH=<path>
-PDD_CONSUMER_AUTH_STATE_PATH=<path>
-PDD_ACCOUNTS_DIR=<path>
-PDD_ACCOUNT_REGISTRY_PATH=<path>
-PDD_CONSUMER_ACCOUNTS_DIR=<path>
-PDD_CONSUMER_ACCOUNT_REGISTRY_PATH=<path>
+PDD_DB_PATH=<path>
 PDD_DEBUG_RAW=1
 PDD_MALL_ID_STRICT_PARSE=0
 PDD_RATE_LIMIT_QPS=<n>
@@ -42,17 +37,17 @@ config/config.example.json (required)
 → explicit CLI overrides
 ```
 
-普通 CLI MUST 使用 `src/infra/config.js` 的严格 loader。纳入 Schema 的公开环境变量只允许在该模块集中映射；service/adapter MUST 通过冻结的 `runtimeConfig` 或显式参数消费，禁止再次直接读取对应 `process.env` 或复制默认值。商家认证后台已移除；旧本地 refreshIntervalMs/refreshJitterMs 仅兼容忽略，不映射对应环境变量、不暴露为公开字段，其他未知键仍拒绝。
+普通 CLI MUST 使用 `src/infra/config.js` 的严格 loader。纳入 Schema 的公开环境变量只允许在该模块集中映射；service/adapter MUST 通过冻结的 `runtimeConfig` 或显式参数消费，禁止再次直接读取对应 `process.env` 或复制默认值。商家认证后台已移除；旧本地 refreshIntervalMs/refreshJitterMs/authStatePath 仅兼容忽略，不映射对应环境变量、不暴露为公开字段（`config set` 这些字段返回未知字段），其他未知键仍拒绝。
+
+`PDD_DB_PATH` 不属于公开运行配置 Schema：它在 `src/infra/paths.js` 解析为 `DB_PATH`（`resolve()` 后的绝对路径），主密钥固定为 `dirname(DB_PATH)/master.key`。0.5.0 已删除 `PDD_AUTH_STATE_PATH`、`PDD_CONSUMER_AUTH_STATE_PATH`、`PDD_ACCOUNTS_DIR`、`PDD_CONSUMER_ACCOUNTS_DIR`、`PDD_ACCOUNT_REGISTRY_PATH`、`PDD_CONSUMER_ACCOUNT_REGISTRY_PATH`、`PDD_ALLOW_INSECURE_AUTH_STATE`、`PDD_MASTER_PASSWORD`，不得重新加入读取点。
 
 `consumerLoginUrl` 的默认值 MUST 只由 `config/config.example.json` 持有，`PDD_CONSUMER_LOGIN_URL` 只作为更高优先级覆盖。登录 command/service MUST 沿调用链显式传入 URL，消费者登录 adapter 不得保留模块级默认地址。
 
 Default sensitive paths：
 
 ```text
-data/merchant/stores/registry.json
-data/merchant/stores/<store-slug>/auth-state.json
-data/consumer/accounts/registry.json
-data/consumer/accounts/<account-slug>/auth-state.json
+data/pdd.db                 # accounts + encrypted auth state (PDD_DB_PATH)
+data/master.key             # beside the DB; POSIX 0600; back up together with the DB
 data/scrape-cooldown.json
 ```
 
@@ -74,11 +69,12 @@ tmp/goods-publish-source-cache/<numeric-goods-id>.json
 - Baseline missing/damaged/invalid and existing local config damaged/invalid MUST fail with `E_CONFIG_INVALID`; local config absence is allowed。
 - `config/config.json` MUST remain project-local and gitignored. Maintenance writes MUST reject path/symlink/junction escape and use same-directory atomic replacement。
 - Env parsing MUST validate type/range and fail with usage/config error rather than silent coercion when unsafe。
-- Auth/account state under `data/` and log files under `log/` MUST NOT be committed or printed。
+- The database, master key and log files under `log/` MUST NOT be committed or printed。Storage contracts: [sqlite-storage.md](./sqlite-storage.md)。
 - Merchant login MUST derive a readable store slug from the real mall name and use `mallId` as stable identity.
 - Consumer login MUST derive a readable account slug from `/proxy/api/api/apollo/v3/user/me.nickname` and use `uid` as stable identity.
-- Auth paths may contain a phone nickname on disk, but envelope、error 和 log MUST NOT print the raw auth path.
-- `PDD_TEST_ADAPTER=fixture` MUST route tests away from real browser/network/auth paths。
+- Envelope、error 和 log MUST NOT print the database or master-key path (including when the DB directory is inaccessible).
+- `doctor` reports pre-0.5 data next to the DB (`merchant/stores/registry.json`, `consumer/accounts/registry.json`, or `<one level>/auth-state.json` under `merchant/stores/` / `consumer/accounts/`) as `meta.warnings` `{ code: 'legacy_storage_detected' }` plus headline `检测到旧版数据，已不再使用，可手动删除`; it never reads, migrates or deletes those files and never prints their paths.
+- `PDD_TEST_ADAPTER=fixture` MUST route tests away from real browser/network calls; it does not isolate storage, so every fixture run also needs a temporary `PDD_DB_PATH`。
 - Time/cooldown envs MUST be testable without real multi-minute sleeps.
 - The source proxy extraction AuthKey MUST remain environment-only. When a cache miss requires a live Qingguo source fetch, `PDD_QINGGUO_AUTH_KEY` is required before cost-template, proxy, or PDD live requests; a valid temporary source cache bypasses this source-only configuration. Fixture mode ignores the live-only configuration. Proxy node username/password authentication is not configured in the first version.
 - `PDD_QINGGUO_AREA` is optional. When set, it MUST contain one or more six-digit area codes separated by commas; surrounding whitespace is normalized before the value is sent as Qingguo's `area` query parameter. When unset, Qingguo selects a random area.
@@ -90,7 +86,8 @@ tmp/goods-publish-source-cache/<numeric-goods-id>.json
 | 条件                                            | 行为                                                             |
 | ----------------------------------------------- | ---------------------------------------------------------------- |
 | path env points to missing optional fixture dir | deterministic fixture/config error                               |
-| auth path missing in real mode                  | auth error with login/init hint                                  |
+| no merchant account and the command needs auth | `E_AUTH_EXPIRED` with `pdd login` hint                           |
+| retired storage env var is set                  | ignored (no reader exists)                                       |
 | numeric env invalid or negative                 | usage/config error, no platform request                          |
 | full-count discount outside range or not representable as an integer percent | `E_CONFIG_INVALID`, no platform request |
 | Qingguo provider enabled with missing credential on cache miss | `E_USAGE` before cost-template, proxy, or PDD live requests |
@@ -110,7 +107,8 @@ tmp/goods-publish-source-cache/<numeric-goods-id>.json
 - Unit tests for env parser defaults, overrides and invalid values。
 - Full-count discount config tests cover decimal/percentage forms, boundaries, precision, and strict invalid-value rejection.
 - Fixture e2e proving test env bypasses real browser/auth。
-- Path tests using temporary directories, not real `data/` secrets。
+- Path tests using a temporary `PDD_DB_PATH` (DB and key isolated together), not real `data/` secrets。
+- doctor legacy-data tests (`test/e2e/doctor-legacy-storage.e2e.test.js`): detected, absent, and no path/content in JSON or human output。
 - Cooldown/rate-limit tests with fake timers or injectable clock.
 - Source proxy env tests for disabled/default, complete, incomplete, unsupported-provider, optional area normalization/validation, and fixture-bypass behavior; assertions must not print credential values.
 

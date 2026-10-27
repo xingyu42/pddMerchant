@@ -125,9 +125,9 @@ export function toOrderView(raw) {
 | config `source` / `effective_source` / issues `layer` | `baseline` 基线配置, `local` 本地覆盖, `env` 环境变量, `cli` 命令行参数 |
 | login `mode` | `qr` / `consumer-qr` 扫码登录, `headed` / `consumer-headed` 有头浏览器登录 |
 | login `check_verdict`, doctor `verdict` | `verified` 已验证, `rejected` 已失效, `failed` 验证失败, `indeterminate` 无法判定, `not_configured` 未配置 |
-| doctor `reason` / `mall_source` / auth file `error` | `AUTH_REASON_LABEL` / `verified_shop_endpoint` 店铺接口验证 / `auth_state_unreadable` 登录态文件无法读取 |
+| doctor `reason` / `mall_source` / auth file `error` | `AUTH_REASON_LABEL` / `verified_shop_endpoint` 店铺接口验证 / `auth_state_unreadable` 登录态文件无法读取、`auth_state_undecryptable` 登录态文件无法解密 |
 
-- Wording: in headlines「凭据」means only a saved login credential (`account.list` `has_credential`); auth-state files are「登录态文件」. Headlines never invent placeholder names (e.g. missing shop name → `当前店铺 ID <id>（未获取到店铺名）`)。
+- Wording: in headlines「凭据」means only a saved login credential (the account view no longer exposes `has_credential` / `last_refresh_at`; ③ adds `has_password`); stored auth state is still called「登录态文件」. `account remove` headline: `已移除账号 <slug> 及其认证数据`. Headlines never invent placeholder names (e.g. missing shop name → `当前店铺 ID <id>（未获取到店铺名）`)。
 
 ## 4. Validation & Error Matrix
 

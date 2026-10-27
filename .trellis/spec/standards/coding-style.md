@@ -9,7 +9,7 @@
 项目运行形态：
 
 ```text
-Node.js >= 18
+Node.js >= 24 (node:sqlite; bin/pdd.js rejects older majors with one E_USAGE envelope, exit 2)
 package.json "type": "module"
 No TypeScript
 No build step

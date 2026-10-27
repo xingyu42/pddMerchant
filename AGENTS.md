@@ -1,13 +1,13 @@
 ﻿# pdd-cli Agent Context
 
-`pdd-cli` is a JavaScript ESM CLI for Pinduoduo merchant operations. It uses Commander and Patchright/Chromium to reuse the merchant frontend runtime and capture XHR/fetch business responses. There is no TypeScript or build step; check `package.json` for runtime requirements and scripts.
+`pdd-cli` is a JavaScript ESM CLI for Pinduoduo merchant operations, requiring Node.js >= 24. It uses Commander and Patchright/Chromium to reuse the merchant frontend runtime and capture XHR/fetch business responses. There is no TypeScript or build step; check `package.json` for scripts.
 
 ## Use Project Skills First
 
 Project-specific skills live under `.agents/skills/`. Use the smallest matching skill before editing:
 
 - `$pdd-architecture-navigation`: trace layers, runtime flow, envelope/errors, and high-risk modules.
-- `$pdd-local-development`: local setup, env vars, auth-state paths, logs, scripts, and no-build ESM execution.
+- `$pdd-local-development`: local setup, env vars, SQLite storage paths, logs, scripts, and no-build ESM execution.
 - `$pdd-testing-troubleshooting`: Vitest, smoke/unit/e2e/PBT, fixture adapter, JSON purity, and validation selection.
 - `$pdd-command-feature-development`: commands, services, endpoint specs, domain behavior, dry-run/write flow.
 - `$pdd-adapter-auth-integration`: Playwright, auth, mall context, account storage, endpoint transport, rate limit, redaction, external integration.
@@ -26,7 +26,8 @@ Project-specific skills live under `.agents/skills/`. Use the smallest matching 
 - Keep `--json` stdout to one JSON line; human diagnostics can go to stderr.
 - Use `src/infra/logger.js` or `ctx.log` for logs; do not add runtime `console.log`.
 - Sensitive values are fingerprint-redacted by logger/output. Do not print raw cookies, Anti-Content, authorization, QR content, credentials, mobile/phone, address/receiver, goods images, or encrypted credential data.
-- Do not commit or expose auth state, account registries, credentials, or sensitive runtime data, including files under `data/`, `log/`, and environment-overridden paths.
+- Accounts and encrypted auth state use SQLite (`data/pdd.db`, overridden by `PDD_DB_PATH`); the generated `master.key` lives beside the DB (default `data/master.key`). Both are sensitive: never commit or expose them, and back them up together. Auth updates use account leases + revision CAS (compare-and-swap); account removal cascades to related data.
+- Do not commit or expose credentials or sensitive runtime data, including files under `data/`, `log/`, and environment-overridden paths.
 - Goods write commands require `--confirm`; without it they return dry-run data.
 - Diagnostic reports contain factual metrics and data availability, not operating advice or scores.
 - Endpoint specs should keep fixture names aligned with `spec.name` under `test/fixtures/endpoints/`.
