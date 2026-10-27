@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { userInfo } from 'node:os';
 import { get, run, transaction, openDatabase, getDatabasePath, getDatabaseGeneration, isInTransaction } from './db.js';
-import { masterKeyMissing, masterKeyMismatch, masterKeyInsecure } from './errors.js';
+import { masterKeyMissing, masterKeyMismatch, masterKeyInsecure, PddCliError, ExitCodes } from './errors.js';
 import { getLogger } from './logger.js';
 
 let verifiedKey = null;
@@ -14,20 +14,33 @@ function masterKeyPath(databasePath) {
 }
 
 function readKeyFile(path) {
-  if (process.platform !== 'win32' && (statSync(path).mode & 0o7777) !== 0o600) {
-    throw masterKeyInsecure();
+  let content;
+  try {
+    if (process.platform !== 'win32' && (statSync(path).mode & 0o7777) !== 0o600) {
+      throw masterKeyInsecure();
+    }
+    content = readFileSync(path, 'utf8');
+  } catch (error) {
+    if (error instanceof PddCliError || error?.code === 'ENOENT') throw error;
+    throw keyAccessFailed();
   }
   try {
-    const stored = JSON.parse(readFileSync(path, 'utf8'));
+    const stored = JSON.parse(content);
     const key = Buffer.from(stored.key, 'base64');
     if (stored.version !== 1 || key.length !== 32 || key.toString('base64') !== stored.key) {
       throw masterKeyMismatch();
     }
     return key;
-  } catch (error) {
-    if (error?.code === 'ENOENT') throw error;
+  } catch {
     throw masterKeyMismatch();
   }
+}
+
+function keyAccessFailed() {
+  return new PddCliError({
+    code: 'E_AUTH_STATE_IO', message: '无法访问认证主密钥',
+    hint: '请检查主密钥文件的访问权限和存储空间后重试', exitCode: ExitCodes.AUTH,
+  });
 }
 
 function createOrReadKey(path, initialized) {
@@ -43,7 +56,8 @@ function createOrReadKey(path, initialized) {
     if (process.platform === 'win32') restrictWindowsAccess(path);
     return { key, created: true };
   } catch (error) {
-    if (error?.code !== 'EEXIST') throw error;
+    if (error instanceof PddCliError) throw error;
+    if (error?.code !== 'EEXIST') throw keyAccessFailed();
     return { key: readKeyFile(path), created: false };
   }
 }
@@ -60,7 +74,8 @@ function initializeKey(path) {
 function restrictWindowsAccess(path) {
   const warn = () => getLogger().warn({ code: 'master_key_acl_failed' }, '主密钥文件 ACL 设置失败，请检查文件权限');
   try {
-    execFileSync('icacls', [path, '/inheritance:r', '/grant:r', `${userInfo().username}:F`],
+    const executable = join(process.env.SystemRoot ?? process.env.windir ?? 'C:\\Windows', 'System32', 'icacls.exe');
+    execFileSync(executable, [path, '/inheritance:r', '/grant:r', `${userInfo().username}:F`],
       { windowsHide: true, timeout: 5000, stdio: 'ignore' });
   } catch {
     warn();

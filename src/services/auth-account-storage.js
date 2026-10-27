@@ -34,6 +34,7 @@ function saveMerchantLogin(result, initial, task) {
     }
     if (!identity.mallId || !identity.displayName) throw provisioningError('merchant', 'identity_missing');
     let account = findAccountByIdentity('merchant', identity.mallId);
+    if (account && !initial) throw authStateConflict();
     if (initial && (account?.id !== initial.accountId || getAuthStateRevision(account.id) !== initial.revision)) {
       throw authStateConflict();
     }
@@ -62,7 +63,13 @@ export async function provisionMerchantLogin(login, { accountId, ...task } = {})
       }, { ...task, recoveryMallId: account.identity });
     }
     const result = await login({ ...task, state: null, revision: 0 });
-    return saveMerchantLogin(result, null, task);
+    assertVerifiedMerchantCandidate(result?.candidate);
+    const account = findAccountByIdentity('merchant', result.candidate.identity.mallId);
+    if (!account) return saveMerchantLogin(result, null, task);
+    return await withMerchantAuthUpdate(account.id, (initial) => saveMerchantLogin(result, initial, task), {
+      ...task, recoveryMallId: account.identity,
+      deadlineAt: Math.min(task.deadlineAt ?? Infinity, Date.now() + 1500),
+    });
   } catch (error) {
     if (error instanceof PddCliError) throw error;
     throw new PddCliError({ code: 'E_AUTH_ACCOUNT_SAVE_FAILED', message: '商家账号登记未完成', exitCode: ExitCodes.AUTH });

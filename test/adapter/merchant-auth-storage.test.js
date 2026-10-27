@@ -13,7 +13,7 @@ import { saveAuthStateSnapshot, loadAuthState } from '../../src/adapter/auth-sta
 import { insertAccount } from '../../src/infra/account-store.js';
 import { get, run, isInTransaction } from '../../src/infra/db.js';
 import { seal, aad } from '../../src/infra/secret-box.js';
-import { redactRecursive } from '../../src/infra/logger.js';
+import { redactRecursive, getLogger } from '../../src/infra/logger.js';
 import { PddCliError, ExitCodes } from '../../src/infra/errors.js';
 
 const state = { cookies: [{ name: 'PASS_ID', value: 'synthetic', domain: '.pinduoduo.com', path: '/', secure: true }], origins: [] };
@@ -33,6 +33,29 @@ beforeEach(() => {
 });
 
 describe('leased verified merchant state', () => {
+  it.each([
+    { outcome: 'success', logFails: false }, { outcome: 'error', logFails: false },
+    { outcome: 'success', logFails: true }, { outcome: 'error', logFails: true },
+  ])('preserves the original $outcome when releasing the lease fails (logging failure: $logFails)', async ({ outcome, logFails }) => {
+    const warn = vi.spyOn(getLogger(), 'warn').mockImplementation(() => {
+      if (logFails) throw new Error('synthetic private log path');
+    });
+    const failure = new PddCliError({ code: 'E_AUTH_CANCELLED', message: 'synthetic original error', exitCode: 5 });
+    run(`CREATE TRIGGER fail_lease_release BEFORE DELETE ON leases
+      BEGIN SELECT RAISE(ABORT, 'synthetic secret and private path'); END`);
+    const operation = withMerchantAuthUpdate(accountId, async (tx) => {
+      if (outcome === 'error') throw failure;
+      commitMerchantCandidate(await candidate(), tx);
+      return 'saved';
+    });
+    if (outcome === 'error') await assert.rejects(operation, (error) => error === failure);
+    else {
+      assert.equal(await operation, 'saved');
+      assert.equal(loadAuthState(accountId).revision, 1);
+    }
+    assert.deepEqual(warn.mock.calls, [[{ code: 'auth_lease_release_failed' }, '认证租约释放失败']]);
+  });
+
   it('rejects a different stable shop before returning a candidate', async () => {
     const result = await verifyMerchantContext({ storageState: async () => state, browser: () => ({}) }, { expectedMallId: '900002' });
     assert.equal(result.reason, 'identity_mismatch');
@@ -156,9 +179,16 @@ describe('leased verified merchant state', () => {
   });
 
   it('redacts credential aliases and sealed material', () => {
-    const keys = ['LoginToken', 'login_token', 'PASS_ID', 'cookie_headers', 'state_sealed', 'password_sealed', 'ct', 'master_key'];
+    const keys = ['LoginToken', 'login_token', 'PASS_ID', 'cookie_headers', 'state_sealed', 'password_sealed', 'master_key'];
     const redacted = redactRecursive(Object.fromEntries(keys.map((key) => [key, 'synthetic-secret'])));
     assert.ok(keys.every((key) => redacted[key].startsWith('fp:')));
     assert.ok(!JSON.stringify(redacted).includes('synthetic-secret'));
+  });
+
+  it('keeps tag, ct and iv account keys intact while redacting sealed fields', () => {
+    const accounts = Object.fromEntries(['tag', 'ct', 'iv'].map((slug) => [slug, { ok: true, data: { slug } }]));
+    const redacted = redactRecursive({ accounts, state_sealed: 'synthetic-state', password_sealed: 'synthetic-password', master_key: 'synthetic-key' });
+    assert.deepEqual(redacted.accounts, accounts);
+    for (const key of ['state_sealed', 'password_sealed', 'master_key']) assert.match(redacted[key], /^fp:/);
   });
 });

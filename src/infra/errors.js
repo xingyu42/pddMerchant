@@ -50,7 +50,7 @@ export function responseShapeError(endpoint, expected) {
 export function accountNotFound(slug) {
   return new PddCliError({
     code: 'E_ACCOUNT_NOT_FOUND',
-    message: `Account "${slug}" not found in registry`,
+    message: `Account "${slug}" not found`,
     hint: 'Run "pdd account list" to see registered accounts',
     exitCode: ExitCodes.USAGE,
   });
@@ -101,11 +101,12 @@ export function masterKeyInsecure() {
   });
 }
 
-export function secretDecryptFailed() {
+export function secretDecryptFailed(detail) {
   return new PddCliError({
     code: 'E_SECRET_DECRYPT_FAILED',
     message: '认证数据解密失败',
-    hint: '请恢复原主密钥文件，或重新登录并录入密码',
+    hint: '请恢复原主密钥文件；若只有个别账号无法解密，先执行 pdd account remove --slug <slug> 再重新登录',
+    detail,
     exitCode: ExitCodes.AUTH,
   });
 }

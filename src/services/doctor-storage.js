@@ -1,6 +1,6 @@
 import { lstat, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { DB_PATH } from '../infra/paths.js';
+import { getDatabasePath } from '../infra/db.js';
 
 async function statEntry(path) {
   try { return await lstat(path); }
@@ -21,7 +21,7 @@ async function hasLegacyAccountData(path) {
 }
 
 export async function hasLegacyStorage() {
-  const base = dirname(DB_PATH);
+  const base = dirname(getDatabasePath());
   if (!(await statEntry(base))?.isDirectory()) return false;
   for (const [kind, directory] of [['merchant', 'stores'], ['consumer', 'accounts']]) {
     const parent = join(base, kind);

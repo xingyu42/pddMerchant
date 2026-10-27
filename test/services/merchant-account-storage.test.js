@@ -25,6 +25,7 @@ import { runInteractiveLogin } from '../../src/commands/init.js';
 import { launchBrowser } from '../../src/adapter/browser.js';
 import * as authService from '../../src/services/auth.js';
 import { TIMEOUTS } from '../../src/infra/timeouts.js';
+import { acquireLease, releaseLease } from '../../src/infra/leases.js';
 
 const state = { cookies: [{ name: 'PASS_ID', value: 'synthetic' }], origins: [] };
 beforeEach(() => {
@@ -77,6 +78,32 @@ describe('atomic merchant login registration', () => {
     assert.equal(registered.account.slug, 'original');
     assert.equal(registered.account.display_name, 'Renamed Shop');
     assert.equal(loadAuthState(existing.id).state.merchant_auth.mall_id, '900001');
+  });
+
+  it('saves an existing identity without --account while holding its account lease', async () => {
+    const existing = insertAccount({ identity: '900001', displayName: 'Original' });
+    saveAuthStateSnapshot(state, existing.id);
+    openDatabase().exec(`CREATE TRIGGER require_login_lease BEFORE UPDATE ON auth_states
+      WHEN NOT EXISTS (SELECT 1 FROM leases WHERE scope = 'account' AND key = CAST(NEW.account_id AS TEXT))
+      BEGIN SELECT RAISE(ABORT, 'missing account lease'); END`);
+    const result = await provisionMerchantLogin(verifiedResult);
+    assert.equal(result.accountId, existing.id);
+    assert.equal(result.account.slug, existing.slug);
+    assert.equal(loadAuthState(existing.id).revision, 2);
+    assert.equal(get('SELECT count(*) AS total FROM leases').total, 0);
+  });
+
+  it('times out without --account when another live owner holds the existing account lease', async () => {
+    const existing = insertAccount({ identity: '900001', displayName: 'Original' });
+    saveAuthStateSnapshot(state, existing.id);
+    const before = get('SELECT * FROM auth_states WHERE account_id = ?', existing.id);
+    const lock = await acquireLease('account', existing.id);
+    try {
+      await assert.rejects(provisionMerchantLogin(verifiedResult, { deadlineAt: Date.now() + 200 }), { code: 'E_LOCK_TIMEOUT' });
+      assert.deepEqual(get('SELECT * FROM auth_states WHERE account_id = ?', existing.id), before);
+      assert.deepEqual(getAccountById(existing.id), existing);
+      assert.equal(get("SELECT owner_token FROM leases WHERE scope = 'account' AND key = ?", String(existing.id)).owner_token, lock.token);
+    } finally { releaseLease('account', existing.id, lock.token); }
   });
 
   it('rejects a newer target revision without overwriting it', async () => {

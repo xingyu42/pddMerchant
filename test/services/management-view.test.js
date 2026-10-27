@@ -4,11 +4,13 @@ import { toCurrentShopView, toShopListView } from '../../src/services/views/shop
 import { toDoctorView, toMerchantLoginView } from '../../src/services/views/auth.js';
 import { insertAccount, listAccounts, updateAccount } from '../../src/infra/account-store.js';
 import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
-import { toAccountListView, toAccountRemovedView, ACCOUNT_VIEW_FIELDS } from '../../src/services/views/account.js';
+import { toAccountListView, toAccountRemovedView, ACCOUNT_VIEW_FIELDS, ACCOUNT_REMOVED_VIEW_FIELDS } from '../../src/services/views/account.js';
 
 describe('management headlines state only known facts', () => {
   it('separates the removed account slug from the following Chinese text', () => {
-    assert.deepEqual(toAccountRemovedView('synthetic-shop').headline, ['已移除账号 synthetic-shop 及其认证数据']);
+    const view = toAccountRemovedView('synthetic-shop');
+    assert.deepEqual(view, { headline: ['已移除账号 synthetic-shop 及其认证数据'], slug: 'synthetic-shop', removed: true });
+    assert.deepEqual(Object.keys(view).sort(), [...ACCOUNT_REMOVED_VIEW_FIELDS].sort());
   });
 
   it('does not invent a shop name when it is missing', () => {

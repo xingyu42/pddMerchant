@@ -17,8 +17,10 @@ ctx.log.info({ command, mallId }, 'operation started');
 ```text
 anti_content, authorization, cookies, goods_image, phone, addr,
 receiver_name, receiver_phone, receiver_address, password, credential,
-mobile, masterPassword, ciphertext
+mobile, masterPassword, ciphertext, state_sealed, password_sealed, master_key
 ```
+
+`iv` / `tag` / `ct` 不在列表中：secret-box 的密封结果以 JSON 字符串存在 `state_sealed` / `password_sealed` 下，这三个名字不会作为对象键出现；而 `tag`、`ct` 可能是合法的账号 slug（批量 envelope 的 `data.accounts` 以 slug 为键），加入会误伤业务数据。
 
 ## 3. Contracts
 

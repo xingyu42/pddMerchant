@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { closeDatabase, openDatabase } from '../../src/infra/db.js';
 import { aad, open, seal } from '../../src/infra/secret-box.js';
+import { secretDecryptFailed } from '../../src/infra/errors.js';
 
 let root;
 const PLAINTEXT = {
@@ -34,6 +35,17 @@ function tamper(sealed, field) {
 }
 
 describe('secret box', () => {
+  it('explains account removal before re-login and accepts safe account detail', () => {
+    const detail = { slug: 'synthetic-shop', kind: 'merchant' };
+    const error = secretDecryptFailed(detail);
+    assert.equal(error.code, 'E_SECRET_DECRYPT_FAILED');
+    assert.equal(error.exitCode, 3);
+    assert.match(error.hint, /恢复原主密钥文件/);
+    assert.match(error.hint, /先执行 pdd account remove --slug <slug> 再重新登录/);
+    assert.deepEqual(error.detail, detail);
+    assert.equal(secretDecryptFailed().detail, null);
+  });
+
   it('round-trips structured JSON through a versioned AES-GCM envelope', () => {
     const additionalData = aad('auth_states', 42);
     const sealed = seal(PLAINTEXT, additionalData);

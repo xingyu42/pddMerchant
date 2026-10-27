@@ -103,6 +103,12 @@ function executeTransaction(connection, callback) {
 function migrate(connection) {
   executeTransaction(connection, () => {
     const version = connection.prepare('PRAGMA user_version').get().user_version;
+    if (version > 1) {
+      throw new PddCliError({
+        code: 'E_DATABASE_VERSION_UNSUPPORTED', message: '数据库由更新版本的 pdd-cli 创建，请升级 pdd-cli',
+        hint: '请升级 pdd-cli 后重试', exitCode: ExitCodes.AUTH,
+      });
+    }
     if (version < 1) {
       connection.exec(SCHEMA_V1);
       connection.exec('PRAGMA user_version = 1');
@@ -129,17 +135,22 @@ export function openDatabase(path = databasePath ?? DB_PATH) {
   const targetPath = resolve(path);
   if (database && targetPath === databasePath) return database;
   closeDatabase();
-  mkdirSync(dirname(targetPath), { recursive: true });
-  const connection = new DatabaseSync(targetPath, { timeout: 5000 });
+  let connection;
   try {
+    mkdirSync(dirname(targetPath), { recursive: true });
+    connection = new DatabaseSync(targetPath, { timeout: 5000 });
     enableWal(connection);
     connection.exec('PRAGMA synchronous = NORMAL');
     connection.exec('PRAGMA foreign_keys = ON');
     connection.exec('PRAGMA busy_timeout = 5000');
     migrate(connection);
   } catch (error) {
-    connection.close();
-    throw error;
+    connection?.close();
+    if (error instanceof PddCliError) throw error;
+    throw new PddCliError({
+      code: 'E_AUTH_STATE_IO', message: '无法打开认证数据库',
+      hint: '请检查数据库的访问权限和存储空间后重试', exitCode: ExitCodes.AUTH,
+    });
   }
   database = connection;
   databasePath = targetPath;

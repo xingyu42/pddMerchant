@@ -8,6 +8,8 @@ import { createCliSandbox } from '../helpers/isolated-cli.js';
 import { seedDb, DEFAULT_ACCOUNT } from '../helpers/seed-db.js';
 import { assertEnvelopeShape } from '../helpers/envelope-assertions.js';
 import { assertDataContractV2 } from '../helpers/data-contract.js';
+import { closeDatabase, getDatabasePath, openDatabase } from '../../src/infra/db.js';
+import { hasLegacyStorage } from '../../src/services/doctor-storage.js';
 
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
 const preloadUrl = new URL('../helpers/offline-preload.js', import.meta.url).href;
@@ -52,6 +54,26 @@ function runDoctor(sandbox, { json = true, ok = true, exitCode = 0 } = {}) {
 function legacyWarnings(envelope) {
   return envelope.meta.warnings.filter((warning) => warning?.code === 'legacy_storage_detected');
 }
+
+it('legacy detection follows the currently opened database path', async () => {
+  const previous = getDatabasePath();
+  const first = createCliSandbox();
+  const second = createCliSandbox();
+  try {
+    writeSynthetic(first.root, legacyPaths[0]);
+    openDatabase(first.env.PDD_DB_PATH);
+    assert.equal(await hasLegacyStorage(), true);
+    openDatabase(second.env.PDD_DB_PATH);
+    assert.equal(await hasLegacyStorage(), false);
+    openDatabase(first.env.PDD_DB_PATH);
+    assert.equal(await hasLegacyStorage(), true);
+  } finally {
+    closeDatabase();
+    first.dispose();
+    second.dispose();
+    openDatabase(previous);
+  }
+});
 
 it.each(legacyPaths)('doctor detects synthetic legacy data at %s without changing it', (relativePath) => {
   withDoctorSandbox((sandbox) => {

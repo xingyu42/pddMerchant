@@ -6,6 +6,7 @@ import { loadAuthState, authStateConflict, saveAuthStateSnapshot } from './auth-
 import { assertVerifiedMerchantCandidate, verifyMerchantContext } from './merchant-auth.js';
 import { budgetMs } from '../infra/abort.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
+import { getLogger } from '../infra/logger.js';
 
 export function assertAuthTask({ signal, deadlineAt } = {}) {
   const expired = (deadlineAt != null && Date.now() >= deadlineAt)
@@ -52,7 +53,13 @@ async function updateMerchantAuth(accountId, fn, options = {}) {
     assertAuthTask(options);
     const transaction = { ...options, ...loaded, accountId, token: lock.token, recoveryMallId: account.identity };
     return await fn(transaction);
-  } finally { releaseLease('account', accountId, lock.token); }
+  } finally {
+    try { releaseLease('account', accountId, lock.token); }
+    catch {
+      try { getLogger().warn({ code: 'auth_lease_release_failed' }, '认证租约释放失败'); }
+      catch { /* 清理与日志失败均保留原结果。 */ }
+    }
+  }
 }
 
 export async function withMerchantAuthUpdate(accountId, fn, options = {}) {

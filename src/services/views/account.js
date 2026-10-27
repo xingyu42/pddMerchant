@@ -6,6 +6,8 @@ export const ACCOUNT_VIEW_FIELDS = Object.freeze([
   'slug', 'display_name', 'mall_id', 'is_default', 'disabled', 'last_login_at',
 ]);
 
+export const ACCOUNT_REMOVED_VIEW_FIELDS = Object.freeze(['headline', 'slug', 'removed']);
+
 export function toAccountView(account, defaultSlug) {
   return {
     slug: account.slug,
@@ -40,7 +42,6 @@ export function toAccountRemovedView(slug) {
     headline: [`已移除账号 ${slug} 及其认证数据`],
     slug,
     removed: true,
-    files_removed: false,
   };
 }
 

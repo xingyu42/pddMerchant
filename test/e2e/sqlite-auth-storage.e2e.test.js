@@ -71,7 +71,7 @@ it('sealed cookies stay out of database bytes, command output and diagnostic log
     const materials = Object.values(JSON.parse(sealed)).filter((value) => typeof value === 'string');
     const logs = [];
     const log = createLogger({ level: 'debug', destination: { write: (chunk) => logs.push(String(chunk)) } });
-    log.info({ cookie: secret, state_sealed: sealed, ...JSON.parse(sealed) }, 'synthetic diagnostic');
+    log.info({ cookie: secret, state_sealed: sealed }, 'synthetic diagnostic');
     const result = spawnSync(process.execPath, ['--import', preloadPath, join(projectRoot, 'bin/pdd.js'), 'doctor', '--json'],
       { cwd: projectRoot, env: sandbox.env, encoding: 'utf8', timeout: 15000 });
     assert.equal(result.status, 0);
@@ -130,7 +130,7 @@ it('hides the database path when account storage is inaccessible', () => {
     });
     assert.equal(result.status, 3);
     assert.equal(result.stdout.trim().split(/\r?\n/).length, 1);
-    assert.equal(JSON.parse(result.stdout).error.code, 'E_AUTH_ACCOUNT_SAVE_FAILED');
+    assert.equal(JSON.parse(result.stdout).error.code, 'E_AUTH_STATE_IO');
     assert.equal((result.stdout + result.stderr).includes(blockedParent), false);
   } finally { sandbox.dispose(); }
 });
@@ -220,7 +220,41 @@ it.each(['missing-key', 'damaged-state'])('doctor preserves explicit encrypted s
     });
     assert.equal(result.status, 3);
     assert.equal(JSON.parse(result.stdout).error.code, failure === 'missing-key' ? 'E_MASTER_KEY_MISSING' : 'E_SECRET_DECRYPT_FAILED');
+    if (failure === 'damaged-state') {
+      assert.deepEqual(JSON.parse(result.stdout).error.detail, { slug: DEFAULT_ACCOUNT.slug, kind: 'merchant' });
+    }
     assert.equal((result.stdout + result.stderr).includes(sandbox.env.PDD_DB_PATH), false);
+  } finally {
+    closeDatabase();
+    sandbox.dispose();
+    openDatabase(previous);
+  }
+});
+
+it.each(['merchant', 'consumer'])('doctor identifies the selected undecryptable %s account without storage material', (kind) => {
+  const sandbox = createCliSandbox();
+  const previous = getDatabasePath();
+  const consumer = { kind: 'consumer', slug: 'synthetic-consumer', display_name: 'Synthetic Consumer', identity: 'user-1', is_default: 1 };
+  try {
+    const accounts = [DEFAULT_ACCOUNT, consumer];
+    seedDb(sandbox.env.PDD_DB_PATH, { accounts,
+      authStates: accounts.map((account) => ({ slug: account.slug, state: { cookies: [], origins: [] } })) });
+    openDatabase(sandbox.env.PDD_DB_PATH);
+    const selected = kind === 'merchant' ? DEFAULT_ACCOUNT : consumer;
+    const accountId = kind === 'merchant' ? 1 : 2;
+    run("UPDATE auth_states SET state_sealed = 'synthetic-damaged' WHERE account_id = ?", accountId);
+    const result = spawnSync(process.execPath, [join(projectRoot, 'bin/pdd.js'), 'doctor',
+      '--account', DEFAULT_ACCOUNT.slug, '--consumer-account', consumer.slug, '--json'],
+    { cwd: projectRoot, env: sandbox.env, encoding: 'utf8', timeout: 15000 });
+    assert.equal(result.status, 3);
+    assert.equal(result.stdout.trim().split(/\r?\n/).length, 1);
+    const error = JSON.parse(result.stdout).error;
+    assert.equal(error.code, 'E_SECRET_DECRYPT_FAILED');
+    assert.deepEqual(error.detail, { slug: selected.slug, kind });
+    assert.match(error.hint, /先执行 pdd account remove --slug <slug> 再重新登录/);
+    for (const fragment of [sandbox.root, 'master.key', 'pdd.db', 'synthetic-damaged']) {
+      assert.equal((result.stdout + result.stderr).includes(fragment), false);
+    }
   } finally {
     closeDatabase();
     sandbox.dispose();

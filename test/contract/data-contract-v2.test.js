@@ -7,7 +7,7 @@ import { runCli } from '../helpers/isolated-cli.js';
 import {
   createAccounts, createFactFixtures, createPublishFixtures, createUpstreamGoods,
 } from '../fixtures/test-data.js';
-import { ACCOUNT_VIEW_FIELDS } from '../../src/services/views/account.js';
+import { ACCOUNT_VIEW_FIELDS, ACCOUNT_REMOVED_VIEW_FIELDS } from '../../src/services/views/account.js';
 import { CONFIG_FIELD_VIEW_FIELDS } from '../../src/services/views/config.js';
 import { SHOP_VIEW_FIELDS } from '../../src/services/views/shops.js';
 import { ORDER_DETAIL_VIEW_FIELDS, ORDER_VIEW_FIELDS } from '../../src/services/views/order.js';
@@ -79,7 +79,8 @@ const V2_CASES = [
     accounts: createAccounts(),
     entityFields: { 'items[]': ACCOUNT_VIEW_FIELDS },
   },
-  { command: 'account.remove', args: ['account', 'remove', '--slug', 'shop-b'], accounts: createAccounts() },
+  { command: 'account.remove', args: ['account', 'remove', '--slug', 'shop-b'], accounts: createAccounts(),
+    entityFields: { '': ACCOUNT_REMOVED_VIEW_FIELDS } },
   { command: 'account.default', args: ['account', 'default', '--slug', 'shop-b'], accounts: createAccounts() },
   {
     command: 'config.show',

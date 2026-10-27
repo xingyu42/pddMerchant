@@ -9,7 +9,9 @@
 - **账号和登录态统一存入 SQLite**：默认数据库为 `data/pdd.db`，可用 `PDD_DB_PATH` 覆盖。自动生成的主密钥默认位于 `data/master.key`，始终与数据库同目录；两者均为敏感文件，勿提交，并须一起备份、恢复。
 - **旧数据保留原样**：旧 JSON 注册表和 auth-state 文件均不迁移、不删除；`doctor` 检测到时提示“检测到旧版数据，已不再使用，可手动删除”，输出不含旧文件路径或内容。
 - **以下 8 个环境变量已删除**：`PDD_AUTH_STATE_PATH`、`PDD_CONSUMER_AUTH_STATE_PATH`、`PDD_ACCOUNTS_DIR`、`PDD_CONSUMER_ACCOUNTS_DIR`、`PDD_ACCOUNT_REGISTRY_PATH`、`PDD_CONSUMER_ACCOUNT_REGISTRY_PATH`、`PDD_ALLOW_INSECURE_AUTH_STATE`、`PDD_MASTER_PASSWORD`。存储位置统一由 `PDD_DB_PATH` 指定。
-- **`account remove --remove-files` 已移除**：携带此选项现为 unknown option；删除账号始终级联删除该账号的登录态及关联数据。
+- **`account remove --remove-files` 已移除**：携带此选项现为 unknown option；删除账号始终级联删除该账号的登录态及关联数据。`account remove` 的 data 不再包含 `files_removed` 字段。
+- **登录期间可以删除或切换默认账号**：`account remove` / `account default` 不再等待进行中的登录；账号在登录过程中被删除时，登录最终提交返回 `E_AUTH_STATE_CONFLICT`，账号不会被重新创建，重新执行登录即可。
+- **消费者账号 slug 按 uid 保持稳定**：昵称变化只更新显示名，slug 不再随之改变。
 - **`authStatePath` 配置字段退役**：旧本地配置中的该字段会被忽略，`config set authStatePath` 返回未知字段错误。
 - **账号视图字段调整**：删除 `has_credential` / `last_refresh_at`，消费这些字段的脚本需同步调整。
 - **要求 Node.js >= 24**：低版本启动时 stdout 输出一行 `E_USAGE` envelope，退出码为 `2`，并提示升级。

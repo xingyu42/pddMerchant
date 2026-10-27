@@ -1,12 +1,19 @@
-import { afterEach, beforeEach, describe, it } from 'vitest';
+import { afterEach, beforeEach, describe, it, vi } from 'vitest';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { closeDatabase, get, openDatabase } from '../../src/infra/db.js';
 import { getMasterKey } from '../../src/infra/master-key.js';
+import { PddCliError } from '../../src/infra/errors.js';
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, statSync: vi.fn(actual.statSync), readFileSync: vi.fn(actual.readFileSync), writeFileSync: vi.fn(actual.writeFileSync) };
+});
+vi.mock('node:child_process', async (importOriginal) => ({ ...await importOriginal(), execFileSync: vi.fn() }));
 
 let root;
 let dbPath;
@@ -33,6 +40,13 @@ function fingerprint(key) {
 
 function storedFingerprint() {
   return get('SELECT value FROM meta WHERE key = ?', 'master_key_fingerprint').value;
+}
+
+function withPlatform(platform, callback) {
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', { value: platform });
+  try { return callback(); }
+  finally { Object.defineProperty(process, 'platform', descriptor); }
 }
 
 function startKeyCreator() {
@@ -70,6 +84,34 @@ function startKeyCreator() {
 }
 
 describe('master key', () => {
+  it.each([
+    ['SystemRoot', 'C:\\SyntheticWindows'], ['windir', 'C:\\SyntheticWindir'], [null, 'C:\\Windows'],
+  ])('uses an absolute system icacls executable with %s', (variable, directory) => {
+    vi.stubEnv('SystemRoot', undefined);
+    vi.stubEnv('windir', undefined);
+    if (variable) vi.stubEnv(variable, directory);
+    withPlatform('win32', () => getMasterKey());
+    assert.equal(execFileSync.mock.lastCall[0], join(directory, 'System32', 'icacls.exe'));
+    assert.deepEqual(execFileSync.mock.lastCall[1].slice(0, 3), [keyPath, '/inheritance:r', '/grant:r']);
+    assert.equal(execFileSync.mock.lastCall[2].windowsHide, true);
+  });
+
+  it.each(['stat', 'read', 'write'])('hides paths when master key %s fails', (operation) => {
+    const failure = Object.assign(new Error(`EACCES: ${keyPath}`), { code: 'EACCES' });
+    const platform = operation === 'stat' ? 'linux' : 'win32';
+    if (operation === 'stat') vi.mocked(statSync).mockImplementationOnce(() => { throw failure; });
+    if (operation === 'read') vi.mocked(readFileSync).mockImplementationOnce(() => { throw failure; });
+    if (operation === 'write') vi.mocked(writeFileSync).mockImplementationOnce(() => { throw failure; });
+    withPlatform(platform, () => assert.throws(() => getMasterKey(), (error) => {
+      assert.ok(error instanceof PddCliError);
+      assert.equal(error.code, 'E_AUTH_STATE_IO');
+      assert.equal(error.exitCode, 3);
+      const output = JSON.stringify([error.message, error.hint, error.detail]);
+      for (const fragment of [root, root.replaceAll('\\', '/'), 'master.key']) assert.equal(output.includes(fragment), false);
+      return true;
+    }));
+  });
+
   it('generates a 32-byte key file and stores its fingerprint on first use', () => {
     assert.equal(existsSync(keyPath), false);
     assert.equal(get('SELECT value FROM meta WHERE key = ?', 'master_key_fingerprint'), undefined);

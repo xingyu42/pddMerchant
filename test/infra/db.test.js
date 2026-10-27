@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, it } from 'vitest';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import { all, closeDatabase, get, isInTransaction, openDatabase, run, transaction } from '../../src/infra/db.js';
+import { PddCliError } from '../../src/infra/errors.js';
 
 const NOW = '2026-01-01T00:00:00.000Z';
 let root;
@@ -36,6 +37,36 @@ function insertPending(accountId, kind, status = 'open') {
 }
 
 describe('database', () => {
+  it.each(['mkdir', 'open'])('hides paths when database %s fails', (operation) => {
+    const blocked = join(root, 'private-blocked-parent');
+    writeFileSync(blocked, 'synthetic');
+    const target = operation === 'mkdir' ? join(blocked, 'pdd.db') : root;
+    assert.throws(() => openDatabase(target), (error) => {
+      assert.ok(error instanceof PddCliError);
+      assert.equal(error.code, 'E_AUTH_STATE_IO');
+      assert.equal(error.exitCode, 3);
+      const output = JSON.stringify({ message: error.message, hint: error.hint, detail: error.detail });
+      for (const fragment of [root, root.replaceAll('\\', '/'), 'private-blocked-parent', 'pdd.db']) {
+        assert.equal(output.includes(fragment), false);
+      }
+      return true;
+    });
+  });
+
+  it('refuses a newer schema version with a path-free upgrade error', () => {
+    openDatabase().exec('PRAGMA user_version = 2');
+    closeDatabase();
+    assert.throws(() => openDatabase(dbPath), (error) => {
+      assert.ok(error instanceof PddCliError);
+      assert.equal(error.code, 'E_DATABASE_VERSION_UNSUPPORTED');
+      assert.equal(error.exitCode, 3);
+      assert.equal(error.message, '数据库由更新版本的 pdd-cli 创建，请升级 pdd-cli');
+      const output = JSON.stringify([error.message, error.hint, error.detail]);
+      for (const fragment of [root, root.replaceAll('\\', '/'), 'pdd.db']) assert.equal(output.includes(fragment), false);
+      return true;
+    });
+  });
+
   it('migrates to v1 idempotently across reopen and preserves existing rows', () => {
     const expectedTables = ['accounts', 'auth_states', 'credentials', 'leases', 'meta', 'pending_actions', 'relogin_states'];
     assert.equal(get('PRAGMA user_version').user_version, 1);

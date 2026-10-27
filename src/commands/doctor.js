@@ -8,7 +8,7 @@ import {
 import { loadAuthState, isConsumerAuthValid } from '../adapter/auth-state.js';
 import { assertMerchantVerified } from '../adapter/merchant-auth.js';
 import { verifyStoredMerchant } from '../adapter/merchant-auth-storage.js';
-import { PddCliError, ExitCodes } from '../infra/errors.js';
+import { PddCliError, ExitCodes, secretDecryptFailed } from '../infra/errors.js';
 import { existsSync } from 'node:fs';
 import { listAccounts } from '../infra/account-store.js';
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
@@ -29,7 +29,7 @@ export async function checkChromium() {
   }
 }
 
-async function checkAuthFile(accountId) {
+async function checkAuthFile(accountId, accountDetail) {
   try {
     const loaded = loadAuthState(accountId);
     if (!loaded.exists) {
@@ -39,7 +39,8 @@ async function checkAuthFile(accountId) {
     const origins = Array.isArray(loaded.state?.origins) ? loaded.state.origins.length : 0;
     return { ok: true, detail: { exists: true, cookies, origins } };
   } catch (err) {
-    if (err?.code?.startsWith('E_MASTER_KEY_') || err?.code === 'E_SECRET_DECRYPT_FAILED') throw err;
+    if (err?.code === 'E_SECRET_DECRYPT_FAILED') throw secretDecryptFailed(accountDetail);
+    if (err?.code?.startsWith('E_MASTER_KEY_')) throw err;
     return { ok: false, detail: { error: 'auth_state_unreadable' } };
   }
 }
@@ -193,8 +194,8 @@ export const run = withCommand({
       });
     }
 
-    data.auth_file = await checkAuthFile(accountId);
-    data.consumer_auth_file = await checkAuthFile(consumerAccountId);
+    data.auth_file = await checkAuthFile(accountId, { slug: ctx.accountSlug, kind: 'merchant' });
+    data.consumer_auth_file = await checkAuthFile(consumerAccountId, { slug: consumerAccount.slug, kind: 'consumer' });
     assertDoctorStorage(data);
 
     const loginStates = await checkLoginStates(

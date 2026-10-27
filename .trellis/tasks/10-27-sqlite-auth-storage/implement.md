@@ -71,9 +71,9 @@
 
 ## 最终审查与合并
 
-- [ ] 逐条核对 PRD 的全部验收标准。
-- [ ] 跑一次完整的 `trellis-check`，并对 `src/infra/{db,master-key,secret-box,leases}.js` 做安全审查。
-- [ ] `git diff main...feat/sqlite-auth-storage` 范围检查：只包含本任务的改动。
+- [x] 逐条核对 PRD 的全部验收标准。
+- [x] 跑一次完整的 `trellis-check`，并对 `src/infra/{db,master-key,secret-box,leases}.js` 做安全审查。发现项 R1–R10 已由 Codex 修复；H1（Windows 首次采用已有密钥）、L1（库文件权限）记录为超出威胁模型；M2（密码指纹可猜）移交 ③，L2（pid 复用阻塞租约）移交 ④。
+- [x] `git diff main...feat/sqlite-auth-storage` 范围检查：只包含本任务的改动，外加用户确认保留的 `c38d805`（删除已归档任务 07-31-daemon-auth-expiry-hardening）。
 - [ ] 征得用户同意后合并到 `main`，合并后删除 ① 留下的 stash。
 
 ## 回滚

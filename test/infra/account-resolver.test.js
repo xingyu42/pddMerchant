@@ -22,7 +22,9 @@ it('resolves merchant flag, default and auto-single from the database only', asy
 it('allows credential-free bootstrap and asks for login when authentication is required', async () => {
   assert.equal((await resolveAccountContext({ needsAuth: false })).accountId, null);
   await assert.rejects(resolveAccountContext(), { code: 'E_AUTH_EXPIRED' });
-  await assert.rejects(resolveAccountContext({ account: 'missing' }), { code: 'E_ACCOUNT_NOT_FOUND' });
+  await assert.rejects(resolveAccountContext({ account: 'missing' }), {
+    code: 'E_ACCOUNT_NOT_FOUND', message: 'Account "missing" not found', exitCode: 2,
+  });
 });
 
 it('resolves consumer accounts independently and keeps the same three sources', async () => {

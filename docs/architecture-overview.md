@@ -85,7 +85,7 @@ account.js   → account add / remove / list / default
 
 #### 3.3.1 浏览器生命周期 (`browser.js`)
 ```javascript
-launchBrowser({ headed, storageStatePath })
+launchBrowser({ headed, storageState })   // storageState 由调用方从库中解密后传入
   → patchright.chromium.launch()
   → 返回 { browser, context, page }
 

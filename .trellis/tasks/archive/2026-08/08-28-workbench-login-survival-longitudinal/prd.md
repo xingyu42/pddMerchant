@@ -36,5 +36,5 @@
 
 ## Notes
 
-- 旧任务 `07-31-daemon-auth-expiry-hardening` 继续负责 pdd-cli 的自然验活、状态快照和失效分类；本任务只研究官方 Workbench 的长期恢复机制。
+- 旧任务 `07-31-daemon-auth-expiry-hardening`（已于 2026-10-27 从仓库删除）当时负责 pdd-cli 的自然验活、状态快照和失效分类；本任务只研究官方 Workbench 的长期恢复机制。
 - “30 天内自动登录”是产品文案，不自动等于绝对 30 天、闲置 30 天或每次使用后续 30 天。
