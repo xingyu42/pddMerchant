@@ -82,6 +82,13 @@ function batchJitterMs(random = Math.random) {
   return BATCH_JITTER_MIN + Math.floor(random() * (BATCH_JITTER_MAX - BATCH_JITTER_MIN));
 }
 
+function appendBatchWarnings(target, warnings) {
+  for (const warning of warnings) {
+    if (warning?.code === 'daemon_not_running' && target.some((entry) => entry?.code === warning.code)) continue;
+    target.push(warning);
+  }
+}
+
 async function runOneAccount(spec, opts, account, batch, runtimeConfig) {
   const perOpts = buildPerAccountOptions(opts, account, batch);
   const perAccountCorrelation = perOpts._correlationId;
@@ -121,7 +128,7 @@ async function runAccountLoop(spec, opts, accounts, batch, runtimeConfig) {
     accountResults[slug] = result;
 
     if (result.meta?.warnings) {
-      for (const w of result.meta.warnings) batch.warnings.push(w);
+      appendBatchWarnings(batch.warnings, result.meta.warnings);
     }
 
     if (i < accounts.length - 1 && !batch.signal.aborted) {
@@ -205,11 +212,12 @@ export function withCommand({
   name,
   needsAuth = true,
   needsMall = 'current',
+  needsBrowser = true,
   allowAllAccounts = true,
   run,
   render,
 }) {
-  const spec = { name, needsAuth, needsMall, run, render };
+  const spec = { name, needsAuth, needsMall, needsBrowser, run, render };
   return function executeCommand(opts = {}, { runtimeConfig } = {}) {
     if (opts.allAccounts && !allowAllAccounts) {
       throw new PddCliError({

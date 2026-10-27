@@ -19,6 +19,8 @@ import { GOODS_SEGMENT_ITEM_FIELDS } from '../../src/services/goods-segmentation
 import { GOODS_LIST } from '../../src/adapter/endpoints/goods.js';
 import { PROMO_ROI_ITEM_FIELDS, PROMO_TOTALS_FIELDS } from '../../src/services/views/promo.js';
 import { STALE_SAMPLE_FIELDS } from '../../src/services/views/diagnose.js';
+import { DAEMON_STATUS_VIEW_FIELDS } from '../../src/services/views/daemon.js';
+import { runDaemonContract } from '../helpers/daemon-cli.js';
 
 // 两件商品：101 有销量，102 有库存但无销量（零销量样本非空，供 stale_sample 白名单校验）
 function staleGoodsFixtures() {
@@ -70,6 +72,11 @@ async function discoverRegisteredCommands() {
 const VALID_AUTH_STATE = { cookies: [{ name: 'PASS_ID', value: 'synthetic' }], origins: [] };
 
 const V2_CASES = [
+  { command: 'daemon.start', args: ['daemon', 'start'], execute: () => runDaemonContract('start') },
+  { command: 'daemon.stop', args: ['daemon', 'stop'], execute: () => runDaemonContract('stop') },
+  { command: 'daemon.status', args: ['daemon', 'status'], execute: () => runDaemonContract('status'),
+    entityFields: { '': DAEMON_STATUS_VIEW_FIELDS } },
+  { command: 'daemon.run', args: ['daemon', 'run'], execute: () => runDaemonContract('run') },
   { command: 'shops.list', args: ['shops', 'list'], entityFields: { 'items[]': SHOP_VIEW_FIELDS } },
   { command: 'shops.current', args: ['shops', 'current'] },
   { command: 'account.add', args: ['account', 'add'] },
@@ -282,8 +289,8 @@ describe('output contract v2: registered command coverage', () => {
 
 describe.skipIf(V2_CASES.length === 0)('output contract v2: command data', () => {
   for (const testCase of V2_CASES) {
-    it(`${testCase.command} ${testCase.args.join(' ')}`, () => {
-      const { envelope } = runCli(testCase.args, {
+    it(`${testCase.command} ${testCase.args.join(' ')}`, async () => {
+      const { envelope } = testCase.execute ? await testCase.execute() : runCli(testCase.args, {
         fixtures: testCase.fixtures, accounts: testCase.accounts, authState: testCase.authState,
       });
       assert.equal(envelope.ok, true, JSON.stringify(envelope.error));

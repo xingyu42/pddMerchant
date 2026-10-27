@@ -1,5 +1,6 @@
 import { get, run, transaction, isInTransaction } from './db.js';
-import { acquireLease, isLeaseStale, renewLease, releaseLease } from './leases.js';
+import { acquireLease, isLeaseStale, renewLease } from './leases.js';
+import { hostname } from 'node:os';
 import { PddCliError, ExitCodes } from './errors.js';
 
 export const DAEMON_LEASE = Object.freeze({ scope: 'daemon', key: 'main', ttlMs: 90_000, heartbeatMs: 30_000 });
@@ -18,10 +19,10 @@ function write(callback) {
   return storageOperation(() => isInTransaction() ? callback() : transaction(callback));
 }
 
-export async function acquireDaemonLease() {
+export async function acquireDaemonLease({ ttlMs = DAEMON_LEASE.ttlMs } = {}) {
   try {
     return await acquireLease(DAEMON_LEASE.scope, DAEMON_LEASE.key, {
-      staleBy: 'heartbeat', ttlMs: DAEMON_LEASE.ttlMs, timeoutMs: 0,
+      staleBy: 'heartbeat', ttlMs, timeoutMs: 0,
     });
   } catch (error) {
     if (error instanceof PddCliError && error.code === 'E_LOCK_TIMEOUT') return null;
@@ -29,12 +30,39 @@ export async function acquireDaemonLease() {
   }
 }
 
-export function heartbeatDaemon(token) {
-  return storageOperation(() => renewLease(DAEMON_LEASE.scope, DAEMON_LEASE.key, token, { ttlMs: DAEMON_LEASE.ttlMs }));
+export function heartbeatDaemon(token, { ttlMs = DAEMON_LEASE.ttlMs } = {}) {
+  return storageOperation(() => renewLease(DAEMON_LEASE.scope, DAEMON_LEASE.key, token, { ttlMs }));
 }
 
-export function releaseDaemonLease(token) {
-  return storageOperation(() => releaseLease(DAEMON_LEASE.scope, DAEMON_LEASE.key, token));
+export function releaseDaemonLease(token, { clearStop = false } = {}) {
+  return write(() => {
+    const released = run('DELETE FROM leases WHERE scope = ? AND key = ? AND owner_token = ? AND pid = ? AND hostname = ?',
+      DAEMON_LEASE.scope, DAEMON_LEASE.key, token, process.pid, hostname()).changes > 0;
+    if (released && clearStop) clearDaemonStopRequest();
+    return released;
+  });
+}
+
+// Internal identity stays out of status views and envelopes.
+export function readDaemonOwnerToken() {
+  return storageOperation(() => get('SELECT owner_token FROM leases WHERE scope = ? AND key = ?',
+    DAEMON_LEASE.scope, DAEMON_LEASE.key)?.owner_token ?? null);
+}
+
+export function withDaemonLeaseOwner(token, callback) {
+  return write(() => {
+    if (readDaemonOwnerToken() !== token) return false;
+    return callback();
+  });
+}
+
+export function deleteDaemonLease(token) {
+  return write(() => {
+    const removed = run('DELETE FROM leases WHERE scope = ? AND key = ? AND owner_token = ?',
+      DAEMON_LEASE.scope, DAEMON_LEASE.key, token).changes > 0;
+    if (removed) clearDaemonStopRequest();
+    return removed;
+  });
 }
 
 export function readDaemonLease() {

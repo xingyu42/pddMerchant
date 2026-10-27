@@ -28,14 +28,16 @@ P1 衔接说明：
 
 ## P2 daemon 生命周期
 
-- [ ] `src/daemon/run.js` 主循环（抢租约、心跳、停止请求、信号、硬超时退出）。
-- [ ] `browser.js`：`launchBrowser({ ownerTag })` 启动参数标记；`cleanupOrphanBrowsers()`（Linux `/proc`、Windows `Get-CimInstance`）。
-- [ ] `src/commands/daemon.js` + `registry/daemon.js`：`start / stop / status / run`，契约 v2 视图。
-- [ ] runner：`daemon_not_running` 警告（仅当前账号有 open 待办时）。
-- [ ] 更新断言"没有 daemon"的测试（`merchant-auth.e2e.test.js`、`retired-auth-schedule.test.js`）。
-- [ ] e2e：重复 start 单实例、status、stop、强杀后短 TTL 过期再 start。
+- [x] `src/daemon/run.js` 主循环（抢租约、心跳、停止请求、信号、硬超时退出）。
+- [x] `browser.js`：`launchBrowser({ ownerTag })` 启动参数标记；`cleanupOrphanBrowsers()`（Linux `/proc`、Windows `Get-CimInstance`、macOS `ps`）。
+- [x] `src/commands/daemon.js` + `registry/daemon.js`：`start / stop / status / run`，契约 v2 视图。
+- [x] runner：`daemon_not_running` 警告（仅当前账号有 open 待办时，single/batch 每 envelope 一条）。
+- [x] 更新断言"没有 daemon"的测试（`merchant-auth.e2e.test.js`、`retired-auth-schedule.test.js`）。
+- [x] e2e：重复 start 单实例、status、stop、强杀后短 TTL 过期再 start。
 
 验证：daemon 相关 e2e + `npm test`。
+
+P2 执行结果（2026-10-27）：`npm test` 全量 53 个文件通过，871 项通过、1 项平台跳过。fixture e2e 使用临时库与 `PDD_TEST_DAEMON_LEASE_TTL_MS=3000` / `PDD_TEST_DAEMON_HEARTBEAT_MS=100`；两个覆盖仅在 `isMockEnabled()` 为真时生效。组件接口已预留 `async start()/stop()`，HTTP 服务保留到 P3，`daemon_console_url` 未设置。实现和完整文件清单见 `p2-report.md`；未提交，未修改 `CLAUDE.md`。
 
 ## P3 控制台服务与鉴权
 

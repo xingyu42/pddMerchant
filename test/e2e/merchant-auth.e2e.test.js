@@ -14,7 +14,7 @@ describe('merchant authentication CLI contract', () => {
       assert.ok(!result.stdout.includes('PASS_ID'));
       assert.ok(!result.stdout.includes('qr_pending'));
       assert.ok(!result.stdout.includes('auth-state.json'));
-      assert.ok(!result.stdout.includes('daemon'));
+      assert.ok(!Object.hasOwn(result.envelope.data, 'daemon'));
     });
   }
 
@@ -50,11 +50,11 @@ describe('merchant authentication CLI contract', () => {
     assert.equal(uncertain.envelope.error.detail.logged_in.detail.verdict, 'indeterminate');
   });
 
-  it('rejects the removed daemon command without starting a process', () => {
-    const result = runCli(['daemon', 'start']);
-    assert.equal(result.status, 2);
-    assert.equal(result.envelope.error.code, 'E_USAGE');
-    assert.equal(result.envelope.error.detail.commander_code, 'commander.unknownCommand');
+  it('exposes daemon status without implicitly starting a process', () => {
+    const result = runCli(['daemon', 'status']);
+    assert.equal(result.status, 0);
+    assert.equal(result.envelope.data.running, false);
+    assert.equal(result.envelope.data.pid, null);
   });
 
   it('does not expose background scheduling configuration', () => {

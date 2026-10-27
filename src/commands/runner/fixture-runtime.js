@@ -5,6 +5,7 @@ import { buildMallContext } from '../../adapter/mall-reader.js';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { fixtureSessionRecovered, reloginForFixture, getAccountActionWarnings } from '../../services/password-relogin.js';
 import { finalizeSuccess, finalizeError } from './envelope-finalizer.js';
+import { daemonIsRunning } from '../../services/daemon.js';
 
 // ctx 字段集为 D-2 冻结契约（PROP-CTX-1）：fixture/live 两路径的单一来源，
 // live 路径经 extra 追加 context/pageSession。住在本模块是因 import DAG 中
@@ -48,7 +49,11 @@ async function resolveMockMall(needsMall) {
 
 export function appendActionWarnings(spec, runtime) {
   if (spec.needsAuth && runtime.accountCtx?.accountId != null) {
-    runtime.warnings.push(...getAccountActionWarnings(runtime.accountCtx.accountId, runtime.accountCtx.slug));
+    const actions = getAccountActionWarnings(runtime.accountCtx.accountId, runtime.accountCtx.slug);
+    runtime.warnings.push(...actions);
+    if (actions.length && !daemonIsRunning() && !runtime.warnings.some((warning) => warning?.code === 'daemon_not_running')) {
+      runtime.warnings.push({ code: 'daemon_not_running' });
+    }
   }
 }
 

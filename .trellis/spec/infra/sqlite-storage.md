@@ -151,14 +151,18 @@ await withMerchantAuthUpdate(accountId, async (tx) => {
 
 ### 1. Scope / Trigger
 
-用于修改 `src/infra/daemon-state.js`、daemon 单实例租约、停止请求、控制台过期行清理。生命周期命令由后续阶段接入。
+用于修改 `src/infra/daemon-state.js`、daemon 单实例租约、停止请求、控制台过期行清理。P2 生命周期见 `architecture/runtime-lifecycle.md` 第 8 节。
 
 ### 2. Signatures
 
 ```js
 DAEMON_LEASE = { scope: 'daemon', key: 'main', ttlMs: 90000, heartbeatMs: 30000 };
-acquireDaemonLease() -> Promise<{ token } | null>;
-heartbeatDaemon(token); releaseDaemonLease(token);
+acquireDaemonLease({ ttlMs = DAEMON_LEASE.ttlMs } = {}) -> Promise<{ token } | null>;
+heartbeatDaemon(token, { ttlMs = DAEMON_LEASE.ttlMs } = {});
+releaseDaemonLease(token, { clearStop = false } = {}) -> boolean;
+readDaemonOwnerToken() -> string | null; // internal only, never include in views
+withDaemonLeaseOwner(token, synchronousCallback) -> callback result | false;
+deleteDaemonLease(token) -> boolean; // owner-token CAS; clears stop request only on deletion
 readDaemonLease() -> { running, pid, hostname, acquired_at, heartbeat_at, expires_at } | null;
 requestDaemonStop() -> requestedAt; // ISO string
 readDaemonStopRequest() -> string | null; clearDaemonStopRequest() -> boolean;
@@ -171,6 +175,7 @@ purgeExpiredConsoleRows(now = Date.now()) -> { tokens, sessions }; // deleted ro
 - daemon 抢占使用心跳规则；竞争失败返回 `null`，其余异常抛出。状态读取使用相同失效函数，返回白名单字段，省略 owner token。
 - metadata 仅允许 `daemon_last_patrol_at`、`daemon_console_url`；停止请求存于 `daemon_stop_requested_at`，通过专用函数访问。
 - 时间存 ISO 字符串；过期清理包含恰好到期的行，两张表同事务删除。辅助写入兼容已有同步事务。
+- `releaseDaemonLease(token, { clearStop:true })` 在同一个短同步事务中检查 token/pid/hostname、删除租约及停止请求，保护后续接替者。强制停止通过 `withDaemonLeaseOwner` 同事务复查 owner、主机与心跳后 kill，再以 token CAS 删除；callback 保持同步。fixture timing override 由 service 的 `isMockEnabled()` guard 决定，infra 只接收显式 ttlMs。
 
 ### 4. Validation & Error Matrix
 

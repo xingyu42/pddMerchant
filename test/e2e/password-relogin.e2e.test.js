@@ -118,6 +118,7 @@ it.each(['sms', 'slider', 'click', 'risk_confirm', 'unknown'])('stops on %s, per
   assert.equal(state().status, 'awaiting_human');
   assert.deepEqual(openActions().map((action) => [action.kind, action.reason]), [['human_takeover', challenge]]);
   assert.deepEqual(actionWarnings(result), [{ code: 'account_action_required', account: DEFAULT_ACCOUNT.slug, reason: challenge }]);
+  assert.deepEqual(result.envelope.meta.warnings.filter((warning) => warning.code === 'daemon_not_running'), [{ code: 'daemon_not_running' }]);
   assert.equal(cli().envelope.error.code, 'E_AUTH_HUMAN_REQUIRED');
   assert.deepEqual(attempts(), [`challenge:${challenge}`]);
   assert.equal(openActions().length, 1);
@@ -228,9 +229,11 @@ it('warnings cover only the merchant account actually used, including successful
   const own = cli(undefined, { PDD_TEST_AUTH_INVALID: '0' });
   assert.equal(own.status, 0);
   assert.deepEqual(actionWarnings(own), []);
+  assert.equal(own.envelope.meta.warnings.some((warning) => warning.code === 'daemon_not_running'), false);
   const other = cli(['shops', 'current', '--account', secondAccount.slug], { PDD_TEST_AUTH_INVALID: '0' });
   assert.equal(other.status, 0);
   assert.deepEqual(actionWarnings(other), [{ code: 'account_action_required', account: secondAccount.slug, reason: 'slider' }]);
+  assert.deepEqual(other.envelope.meta.warnings.filter((warning) => warning.code === 'daemon_not_running'), [{ code: 'daemon_not_running' }]);
   for (const args of [['doctor'], ['account', 'list']]) assert.deepEqual(actionWarnings(cli(args)), []);
   assert.deepEqual(attempts(), []);
 });
@@ -295,6 +298,7 @@ it('all-accounts recovers in order and aggregates each used account action warni
   const warned = cli(['shops', 'current', '--all-accounts']);
   assert.equal(warned.status, 0);
   assert.deepEqual(actionWarnings(warned), accounts.map((account) => ({ code: 'account_action_required', account: account.slug, reason: 'sms' })));
+  assert.deepEqual(warned.envelope.meta.warnings.filter((warning) => warning.code === 'daemon_not_running'), [{ code: 'daemon_not_running' }]);
 });
 
 it('debug output, appended runtime logs and database bytes contain neither password nor login name', () => {

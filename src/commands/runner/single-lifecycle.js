@@ -180,6 +180,13 @@ async function executeLive(spec, runtime) {
   }
 }
 
+async function executeWithoutBrowser(spec, runtime) {
+  try {
+    const ctx = buildCommandCtx(runtime, { client: null, page: null, mallCtx: null });
+    return finalizeSuccess(spec, runtime, await spec.run(ctx));
+  } catch (error) { return finalizeError(spec, runtime, error); }
+}
+
 export async function executeSingle(spec, opts = {}, {
   emitResult = true,
   parentSignal,
@@ -195,7 +202,7 @@ export async function executeSingle(spec, opts = {}, {
     ? getLogger().withOp({ command: name, correlation_id: correlationId })
     : getLogger();
 
-  const accountCtx = await resolveAccount(opts, needsAuth, warnings);
+  const accountCtx = spec.needsBrowser === false && !needsAuth ? null : await resolveAccount(opts, needsAuth, warnings);
   const deadline = armDeadline(opts, parentSignal ?? opts.signal, startedAt);
 
   const runtime = {
@@ -219,6 +226,7 @@ export async function executeSingle(spec, opts = {}, {
     }
 
     // Both branches must settle before the deadline timer is disposed.
+    if (spec.needsBrowser === false && !needsAuth) return await executeWithoutBrowser(normSpec, runtime);
     if (isMockEnabled()) return await executeFixture(normSpec, runtime);
     return await executeLive(normSpec, runtime);
   } finally {

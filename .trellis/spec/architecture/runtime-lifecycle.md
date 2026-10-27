@@ -110,3 +110,66 @@ export const run = withCommand({
   },
 });
 ```
+
+## 8. Scenario: Explicit Console Daemon Lifecycle (P2)
+
+### 1. Scope / Trigger
+
+Applies to `src/daemon/run.js`, daemon commands/services, process adapters and daemon lease shutdown. The daemon is started explicitly; ordinary commands and doctor retain their current-process authentication flow.
+
+### 2. Signatures
+
+```js
+runDaemon({ signal, components = [], exit, foreground = true, runtimeConfig })
+// -> { stopped_reason } | { status: 'already_running' }
+// component.start({ signal, ownerTag, log, runtimeConfig }); component.stop();
+withCommand({ needsAuth: false, needsMall: 'none', needsBrowser: false, ... })
+```
+
+`pdd daemon start|stop|status|run` uses the ordinary runner finalizer. `needsBrowser:false` with `needsAuth:false` skips browser and account resolution in both live and fixture mode. Existing commands keep the default `needsBrowser:true`.
+
+### 3. Contracts
+
+- `src/daemon/` is a commands-level entry point; its runtime dependencies come through services. Components start in order and stop in reverse order, including a component whose startup failed. P2 passes an empty list; P3 can add the HTTP component. P2 leaves `daemon_console_url` unset.
+- Acquire the heartbeat lease, immediately clear stale stop requests, then clean marked orphan browsers. Contention returns `already_running` with exit 0. Heartbeat every 30 seconds renews a 90-second lease, checks stop requests and purges expired console rows.
+- SIGINT/SIGTERM and platform-specific SIGBREAK (Windows) or SIGHUP initiate shutdown. Daemon run owns these signals instead of the ordinary CLI signal handler. Stop components, close browsers, then atomically release the owned lease and clear its stop request; a replacement owner's request stays intact. A five-second hard deadline calls the injected `exit(1)` (production: `process.exit`).
+- `start` detaches a hidden process with ignored stdio, inherits env, calls `unref()` and polls at 200ms for ten seconds. `stop` requests cooperative shutdown and polls at 500ms for fifteen seconds, then rechecks owner token, host and unexpired heartbeat in a short synchronous transaction before killing the pid and deleting only the matching row.
+- Status fields: `headline`, `running`, `pid`, `started_at`, `heartbeat_at`, `last_patrol_at`, `console_url`, `patrol_enabled`. `_at` values use Asia/Shanghai local strings; missing values are null. Start adds `started`; stop returns `stopped`, `running` and optional `forced`; run returns `stopped_reason`.
+- Fixture-only timing seams: `PDD_TEST_DAEMON_LEASE_TTL_MS` and `PDD_TEST_DAEMON_HEARTBEAT_MS` accept positive safe integers in milliseconds. `daemonTimings()` guards both with `isMockEnabled()`; invalid values fall back to 90000/30000, and live mode ignores both variables. Timing overrides flow explicitly to infra lease helpers.
+- Daemon logs use `channel:'daemon'`; foreground mode tees the existing rotating file destination to stderr through the logger's writable `destination` option. Stdout stays one envelope when the command exits.
+
+### 4. Validation & Error Matrix
+
+| Condition | Result |
+| --- | --- |
+| Valid lease exists at run/start | Exit 0; no second owned runtime |
+| No lease appears within ten seconds | `E_DAEMON_START_TIMEOUT` |
+| Heartbeat loses ownership | `stopped_reason:'lease_lost'`; stop without another heartbeat |
+| Stop timeout with foreign host | `E_DAEMON_STOP_TIMEOUT`, `reason:'foreign_host'`; no kill |
+| Owner changes before forced stop | `E_DAEMON_STOP_TIMEOUT`, `reason:'lease_active'`; preserve replacement |
+| Kill fails other than ESRCH | `E_DAEMON_STOP_TIMEOUT`, `reason:'kill_failed'`; retain row |
+| Cleanup hangs | Hard exit after five seconds; lease expires by heartbeat TTL |
+
+### 5. Good/Base/Bad Cases
+
+- Good: two starts return the same pid; killing the process leaves a valid heartbeat lease until TTL expiry, after which start acquires a new lease.
+- Base: P2 status returns `console_url:null`; patrol configuration is visible while patrol execution remains P6.
+- Bad: ordinary commands silently spawn a daemon, or old shutdown code clears a replacement owner's stop request.
+
+### 6. Tests Required
+
+- `test/daemon/run.test.js`: stop request, stale request clearing, heartbeat/purge, lease loss, all host signals, abort during startup, partial startup cleanup, hard exit, logger redaction and timing guard.
+- `test/services/daemon.test.js`: polling deadlines, same-host force stop, foreign host, replacement owner, expired heartbeat and kill failure.
+- `test/adapter/daemon-process.test.js`, `test/adapter/daemon-browser.test.js`: detached options/env and marked-process-only cleanup.
+- `test/e2e/daemon.e2e.test.js`: isolated fixture DB, repeat start, status, stop, foreground envelope and process.kill followed by short-TTL takeover. `data-contract-v2.test.js` covers all four commands.
+- Runner tests cover pending-action warnings in live/fixture success and error paths, no warning for needsAuth:false, and one `daemon_not_running` per single or batch envelope.
+
+### 7. Wrong vs Correct
+
+```js
+// Wrong: pid liveness does not establish daemon ownership.
+process.kill(lease.pid);
+deleteLeaseUnconditionally();
+// Correct: recheck ownership/host/heartbeat while holding a short sync transaction.
+withDaemonLeaseOwner(ownerToken, () => forceStopOwnedLease());
+```

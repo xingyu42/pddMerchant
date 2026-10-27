@@ -18,7 +18,12 @@ beforeEach(async () => {
 });
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
-describe('retired merchant background configuration', () => {
+describe('retired auth refresh schedule alongside the explicit console daemon', () => {
+  it('defaults the new daemon patrol to disabled', async () => {
+    const config = await loadRuntimeConfig(options);
+    assert.equal(config.patrolEnabled, false);
+    assert.equal(config.patrolIntervalMs, 1800000);
+  });
   it('ignores only the two legacy schedule fields without rewriting the local file', async () => {
     const original = JSON.stringify({ refreshIntervalMs: 600000, refreshJitterMs: 120000, logLevel: 'info' });
     await writeFile(options.configPath, original);

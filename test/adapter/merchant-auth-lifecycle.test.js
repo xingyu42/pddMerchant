@@ -7,6 +7,11 @@ import { mockMerchantProbeTransport } from '../helpers/merchant-probe-transport.
 import { savePasswordCredential } from '../../src/adapter/password-credential.js';
 import { getReloginState, listPendingActions } from '../../src/infra/account-store.js';
 import { TIMEOUTS } from '../../src/infra/timeouts.js';
+import { acquireDaemonLease } from '../../src/infra/daemon-state.js';
+import { insertPendingAction } from '../../src/infra/account-store.js';
+import { spawnDaemonProcess } from '../../src/adapter/daemon-process.js';
+
+vi.mock('../../src/adapter/daemon-process.js', () => ({ spawnDaemonProcess: vi.fn(), killDaemonProcess: vi.fn() }));
 
 const control = vi.hoisted(() => ({ state: null, mallId: 900001, selectedMallId: 900001, login: true, malformed: false,
   page: null, browserCalls: 0, outcome: null, snapshots: [], originalContext: null, failPage: false, candidateState: null }));
@@ -68,6 +73,29 @@ async function runOperation(run, opts = {}) {
 }
 
 describe('live merchant command authentication lifecycle', () => {
+  it.each([true, false])('appends one daemon warning to live pending-action envelopes (success: %s)', async (success) => {
+    insertPendingAction(accountId, { kind: 'human_takeover', reason: 'sms' });
+    insertPendingAction(accountId, { kind: 'relogin_blocked', reason: 'wrong_password' });
+    const result = await runOperation(async () => { if (!success) throw new Error('business failure'); return {}; });
+    assert.equal(result.ok, success);
+    assert.deepEqual(result.meta.warnings.filter((warning) => warning.code === 'daemon_not_running'), [{ code: 'daemon_not_running' }]);
+  });
+
+  it('keeps live action warnings but omits daemon warning while its lease is running', async () => {
+    insertPendingAction(accountId, { kind: 'human_takeover', reason: 'sms' });
+    await acquireDaemonLease();
+    const result = await runOperation(async () => ({}));
+    assert.equal(result.meta.warnings.some((warning) => warning.code === 'daemon_not_running'), false);
+    assert.equal(result.meta.warnings.some((warning) => warning.code === 'account_action_required'), true);
+  });
+
+  it('never spawns a background daemon for live ordinary commands', async () => {
+    const result = await runOperation(async () => ({}));
+    assert.equal(result.ok, true);
+    assert.equal(spawnDaemonProcess.mock.calls.length, 0);
+    const { readDaemonLease } = await import('../../src/infra/daemon-state.js');
+    assert.equal(readDaemonLease(), null);
+  });
   it('verifies before business execution and saves the final verified snapshot', async () => {
     const envelope = await runOperation(async () => ({ receipt: 'complete' }));
     assert.equal(envelope.ok, true);
@@ -212,7 +240,8 @@ describe('live merchant command authentication lifecycle', () => {
     assert.equal(result.error.code, 'E_AUTH_HUMAN_REQUIRED');
     assert.equal(run.mock.calls.length, 0);
     assert.equal(control.snapshots.at(-1).context.close.mock.calls.length, 1);
-    assert.deepEqual(result.meta.warnings, [{ code: 'account_action_required', account: 'shop', reason: 'slider' }]);
+    assert.deepEqual(result.meta.warnings, [{ code: 'account_action_required', account: 'shop', reason: 'slider' },
+      { code: 'daemon_not_running' }]);
     assert.equal(listPendingActions(accountId)[0].status, 'open');
     assert.equal(loadAuthState(accountId).state.merchant_auth.last_check.verdict, 'rejected');
   });
@@ -244,7 +273,8 @@ describe('live merchant command authentication lifecycle', () => {
       assert.equal(state.reason, 'unknown');
       const actions = listPendingActions(accountId).filter((action) => action.status === 'open');
       assert.deepEqual(actions.map((action) => [action.kind, action.reason]), [['human_takeover', 'unknown']]);
-      assert.deepEqual(result.meta.warnings, [{ code: 'account_action_required', account: 'shop', reason: 'unknown' }]);
+      assert.deepEqual(result.meta.warnings, [{ code: 'account_action_required', account: 'shop', reason: 'unknown' },
+        { code: 'daemon_not_running' }]);
       assert.equal(run.mock.calls.length, 0);
       assert.equal(control.snapshots.at(-1).context.close.mock.calls.length, 1);
     } finally {
