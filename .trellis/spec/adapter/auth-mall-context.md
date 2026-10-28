@@ -144,6 +144,7 @@ data/pdd.db  auth_states (account_id, revision, state_sealed, bound_mall_id, usa
 ```js
 verifyMerchantContext(context, { expectedMallId, deadlineAt, signal });
 collectCheckCookies(frozenContext); // -> frozen Cookies selected for the checkLogin URL
+selectCheckCookiesFromState(state, { now }); // -> frozen Cookies for the checkLogin URL from saved storageState (patrol only)
 verifyStoredMerchant(context, savedState, task);
 probeMerchantShop(frozenContext, checkCookies, { deadlineAt, signal });
 withMerchantAuthUpdate(accountId, callback, { recoveryMallId, deadlineAt, signal });
@@ -162,6 +163,7 @@ provisionConsumerAuth(state, { uid, nickname }) -> { account, accountId };
 - Writers MUST acquire the account lease (`scope='account'`, `key=accountId`) before loading browser state or saving credentials. `withMerchantAuthUpdate` acquires it, checks the account is a merchant whose identity equals `recoveryMallId` (if given), loads the state once, runs `await callback(tx)` outside any SQLite transaction, and releases the lease in `finally`.
 - Merchant auth MUST independently GET `/janus/api/checkLogin` with one browser-selected frozen Cookie header, TLS enabled, no redirects/CookieJar, 15s per request and 1 MiB response cap; only temporary transport failures MAY retry once after 500ms within the total deadline.
 - checkLogin Cookies MUST come from the browser-selected frozen snapshot for the checkLogin URL and pass buildCheckHeader rules. Missing/empty exact-name PASS_ID is rejected/auth_missing with 0 requests.
+- Patrol-only exception: the daemon patrol liveness probe MAY select checkLogin Cookies without a browser via `selectCheckCookiesFromState`, which replays RFC 6265 matching for the fixed `MERCHANT_CHECK_URL` (leading-dot/suffix domain match, missing domain never matches, path-match with `/` boundary, drop `expires > 0` past now, keep session cookies, same name keeps the longer path) and returns a frozen detached list. It throws no business error; `buildCheckHeader` still rejects missing PASS_ID or invalid values with E_AUTH_CANDIDATE_INVALID. A request-library `verified` is a heartbeat only and never authorizes a commit; login, ordinary commands and doctor keep browser selection.
 - Before any shop request, identity and shop-read targets MUST select their own Cookies from the SAME frozen snapshot, pass buildCheckHeader rules and carry the same raw PASS_ID value as the checkLogin Cookies; a mismatch returns E_AUTH_CANDIDATE_INVALID / cross_target_pass_id_mismatch without sending any shop request. Each endpoint receives only its own selected materials.
 - Login, authenticated commands and doctor verify on demand, at most once per invocation. Only explicit login/init may open authorization; normal operations prompt pdd login.
 - Only HTTP 200 + JSON object + boolean success=true + boolean result.login is conclusive: true is verified, false is rejected. All other login responses are indeterminate, including success=false. Page navigation and legacy POST observers MUST NOT prove login or authorize persistence.
@@ -207,7 +209,7 @@ provisionConsumerAuth(state, { uid, nickname }) -> { account, accountId };
 
 - Assert one-line JSON stdout, no background launch from ordinary commands/doctor, and unchanged credentials on failed validation.
 - Auth-check tests MUST mock HTTPS transport and assert exact fixed GET targets, explicit scoped Cookie/TLS, strict success/login booleans, identity/read-only verification, size/deadline/cancel/redirect handling and fail-closed candidate commits. See `test/adapter/auth-probe.test.js`, `auth-snapshot-context.test.js`, `merchant-auth-storage.test.js` and merchant auth e2e.
-- auth-probe tests cover scoped selection, invalid/mismatched materials and secret-free errors. merchant-auth-storage tests assert zero shop transport on mismatched candidates and branded-only atomic commits.
+- auth-probe tests cover scoped selection (including `selectCheckCookiesFromState` domain/path/expiry/dedupe/non-array cases), invalid/mismatched materials and secret-free errors. merchant-auth-storage tests assert zero shop transport on mismatched candidates and branded-only atomic commits.
 - Lease/CAS changes: run `test/infra/leases.test.js`, merchant-auth-storage and merchant-account-storage tests, plus the two-process conflict case in `test/e2e/sqlite-auth-storage.e2e.test.js`.
 - Keep login recovery coverage in `test/services/merchant-account-storage.test.js` and `test/adapter/merchant-auth-storage.test.js`: assert empty-context authorization before shape recovery, no resurrection of a concurrently removed account, preserved bindings/revisions on failure, strict ordinary reads, and multiple commits in one callback. Extend these existing contracts instead of adding a new regression file for each fix.
 

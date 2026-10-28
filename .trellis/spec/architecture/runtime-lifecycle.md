@@ -178,7 +178,7 @@ withDaemonLeaseOwner(ownerToken, () => forceStopOwnedLease());
 
 ### 1. Scope / Trigger
 
-Applies to `services/patrol.js`, daemon component wiring, shared deadlines and fixture patrol timing. Patrol is explicitly enabled and uses the ordinary command's browser auth path.
+Applies to `services/patrol.js`, daemon component wiring, shared deadlines and fixture patrol timing. Patrol is explicitly enabled; each account first runs a browser-free checkLogin probe and only falls back to the ordinary command's browser auth path when relogin may be needed.
 
 ### 2. Signatures
 
@@ -194,7 +194,8 @@ reloginForFixture(accountId, runtime, { tx }) // optional existing account trans
 
 - Start only when `runtimeConfig.patrolEnabled === true`. Wait a jittered interval before the first round and after each completed round; no overlapping rounds. Delay is `round(patrolIntervalMs * (0.8 + random() * 0.4))`.
 - Enumerate enabled merchant accounts in ID order and check sequentially. Acquire each account lease once with `timeoutMs:0`; contention logs info `{ account: slug, code:'patrol_account_busy' }` and skips. Re-check disabled status after acquiring the lease. Account failures log only slug and a fixed error code, then continue.
-- Live flow: `withBrowser({ storageState:tx.state, ownerTag })` -> `verifyStoredMerchant` with the bound account identity -> `recordMerchantCheck` for non-verified results -> `reloginInCommand` for rejected results; other results use `assertMerchantVerified`. No homepage navigation or business endpoints.
+- Live flow, stage 1 (no browser): unless `tx.state.merchant_auth.last_check.verdict === 'rejected'`, `selectCheckCookiesFromState(tx.state)` -> `probeCheckLogin(cookies, { signal, deadlineAt })`. `verified` ends the account with no browser and no write; `indeterminate` -> `recordMerchantCheck` + `assertMerchantVerified` (fixed-code `E_AUTH_CHECK_INDETERMINATE` warning, no browser, no relogin); `rejected` -> `recordMerchantCheck` then stage 2. `E_AUTH_CANDIDATE_INVALID` from cookie selection/header building (e.g. missing PASS_ID) and a known-rejected state also go to stage 2.
+- Live flow, stage 2 (browser): `withBrowser({ storageState:tx.state, ownerTag })` -> `verifyStoredMerchant` with the bound account identity (a just-recorded rejection short-circuits as `known_rejected`, so rejected materials are not re-sent) -> `recordMerchantCheck` for non-verified results -> `reloginInCommand` for rejected results; other results use `assertMerchantVerified`. No homepage navigation or business endpoints.
 - A verified check alone retains the saved snapshot: ordinary commands only perform their final snapshot commit after a successful business result. Password relogin keeps its existing verified candidate commit. Rejected/indeterminate checks retain the existing check-recording rules.
 - Each account has a 120s deadline. Relogin pauses/resumes it and retains its independent 90s budget. Daemon cancellation remains active throughout; abort closes and awaits the current account browser, releases the lease and skips remaining accounts. An interrupted round leaves the previous completion timestamp intact.
 - Complete rounds (including no accounts or all skipped/failed accounts) write ISO `daemon_last_patrol_at`. Status and `/healthz` expose its existing local-time projection.
@@ -207,7 +208,9 @@ reloginForFixture(accountId, runtime, { tx }) // optional existing account trans
 | Disabled/default config | No timer, round, browser or timestamp write |
 | Busy account lease | Immediate skip; info with slug and fixed code |
 | Rejected auth | Existing breaker, throttle and awaiting-human decisions |
-| Indeterminate auth | Record check in live mode; no password attempt |
+| Healthy session (probe verified) | No browser launch, no state write |
+| Indeterminate auth | Record check in live mode; fixed-code warning; no browser, no password attempt |
+| Known rejected / PASS_ID missing | Skip or abandon the request probe; browser verify + relogin |
 | Account failure / account timeout | Fixed-code warning; next account still runs |
 | Daemon stop during account | Abort, await browser cleanup, release lease; no completed-round timestamp |
 | Round-level storage failure | `E_PATROL_ROUND_FAILED` warning; retry after the next interval |
@@ -217,10 +220,11 @@ reloginForFixture(accountId, runtime, { tx }) // optional existing account trans
 - Good: challenge creates one human action; the next round does not submit another password attempt.
 - Base: an occupied account is skipped while a later enabled merchant is checked.
 - Bad: patrol commits a merely checked snapshot as if a business command had succeeded, or acquires a second fixture lease inside the first.
+- Bad: treat a request-probe `indeterminate` as rejected and launch a browser relogin on network jitter.
 
 ### 6. Tests Required
 
-- `test/services/patrol.test.js`: jitter limits, timing seam guards, strict opt-in, delayed first round, occupied/disabled/consumer skips, sequential live verification under leases, unchanged verified revision, check recording, fixed-code failures, cancellation/awaited cleanup, account timeout, throttle and breaker.
+- `test/services/patrol.test.js`: jitter limits, timing seam guards, strict opt-in, delayed first round, occupied/disabled/consumer skips, sequential request-only probes under leases (no browser on verified/indeterminate), browser relogin for probe-rejected / known-rejected / PASS_ID-missing, unchanged verified revision, check recording, fixed-code failures, cancellation/awaited cleanup, account timeout, throttle and breaker.
 - `test/e2e/patrol.e2e.test.js`: offline fixture daemon, one successful password attempt across rounds, challenge -> awaiting-human/open action with no second attempt, timestamps in status/healthz, default-off with a short timing seam.
 - Shared deadline/runner/auth storage tests and `npm test -- --maxWorkers=2` after changing this cross-layer flow.
 

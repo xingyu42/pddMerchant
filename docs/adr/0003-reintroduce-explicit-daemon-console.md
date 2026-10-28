@@ -21,6 +21,7 @@ So a human-only channel is required. It must stay up longer than one command, ho
 - Console access uses a one-time 10-minute link from `pdd console link`. The page redeems the token with a scripted POST (so chat link previews cannot consume it) and receives an 8-hour HttpOnly SameSite=Strict session cookie. Tokens and sessions are stored only as hashes. The server checks the Host header, requires JSON plus `X-PDD-Console: 1` on state changes, serves a strict CSP and returns only whitelisted views.
 - The console listens on `127.0.0.1:47821` by default. A LAN address is allowed with a plaintext warning. TLS stays outside the CLI (nginx/Caddy, `consolePublicUrl`).
 - Patrol, when enabled, reuses the ordinary command check path (browser-selected cookies). It adds no Node-only probe rhythm, pending the session-lifetime research (task ⑤).
+  - Amended 2026-10-28 (task ⑤): patrol now probes `checkLogin` without a browser using cookies selected from the saved state; it launches Chromium only for probe-rejected, known-rejected or PASS_ID-missing accounts. Indeterminate probes are recorded with no browser or relogin. Ordinary commands, login and doctor are unchanged. See `runtime-lifecycle.md` §9.
 - Logs go to `log/daemon/YYYY-MM-DD.log` with the existing redaction.
 
 ## Consequences

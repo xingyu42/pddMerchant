@@ -2,13 +2,13 @@
 
 ## 执行顺序
 
-- [ ] P1 adapter：在 `src/adapter/merchant-auth-probe.js` 新增 `selectCheckCookiesFromState(state)`，按 design §3 实现固定 URL 的 RFC 6265 匹配，导出。
-- [ ] P2 service：重写 `src/services/patrol.js` 的 `checkLive`，按 design §2 数据流分流（请求库探测优先，浏览器仅在 rejected/已知 rejected/PASS_ID 缺失时启动）；抽出 `browserRelogin` 内部函数复用现有逻辑。
-- [ ] P3 测试：
+- [x] P1 adapter：在 `src/adapter/merchant-auth-probe.js` 新增 `selectCheckCookiesFromState(state)`，按 design §3 实现固定 URL 的 RFC 6265 匹配，导出。
+- [x] P2 service：重写 `src/services/patrol.js` 的 `checkLive`，按 design §2 数据流分流（请求库探测优先，浏览器仅在 rejected/已知 rejected/PASS_ID 缺失时启动）；抽出 `browserRelogin` 内部函数复用现有逻辑。
+- [x] P3 测试：
   - `test/adapter/merchant-auth-probe*.test.js` 补 `selectCheckCookiesFromState` 用例（design §6 第一组）。
   - 巡航测试补分支用例（design §6 第二、三组）；用注入探针区分是否启动 `withBrowser`。
-- [ ] P4 spec：更新 `.trellis/spec/adapter/*`（probe 的无浏览器 cookie 选择契约）与 `.trellis/spec/services/*`（巡航两段式检查）；如有 daemon/patrol 文档一并更新。
-- [ ] P5 校验与审查：`npx vitest run` 定向 + `npm test` 全量；`git diff` 范围核对；Claude 审查 Codex 改动。
+- [x] P4 spec：更新 `.trellis/spec/adapter/*`（probe 的无浏览器 cookie 选择契约）与 `.trellis/spec/services/*`（巡航两段式检查）；如有 daemon/patrol 文档一并更新。
+- [x] P5 校验与审查：`npx vitest run` 定向 + `npm test` 全量；`git diff` 范围核对；Claude 审查 Codex 改动。
 
 ## 验证命令
 
