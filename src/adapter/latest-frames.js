@@ -2,16 +2,21 @@
 export function createLatestFrames() {
   const subscribers = new Set();
   let latest = null;
+  let pending = false;
   let closed = false;
   const timer = setInterval(() => {
-    if (latest) for (const subscriber of subscribers) subscriber(latest);
+    if (!pending) return;
+    const frame = latest;
+    pending = false;
+    for (const subscriber of subscribers) subscriber(frame);
   }, 200);
   timer.unref?.();
   return {
-    publish(frame) { if (!closed) latest = frame; },
+    publish(frame) { if (!closed) { latest = frame; pending = true; } },
     subscribe(callback) {
       if (closed) { callback(null); return () => {}; }
       subscribers.add(callback);
+      if (latest && !pending) callback(latest);
       return () => subscribers.delete(callback);
     },
     close() {

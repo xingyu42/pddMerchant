@@ -68,7 +68,7 @@ Headless 固定配置：
 - `closeAllBrowsers()` 保持重入安全；`withBrowser()` MUST 保留业务错误身份。
 - `ghost-cursor-playwright.createCursor()` MUST await，并传入 `locator.boundingBox()` 的具体矩形。
 - Fixture mode MUST 绕过真实 browser launch，且不得读取真实 auth state。
-- `cleanupOrphanBrowsers()` 在 fixture 下直接返回 0；live 枚举 Linux `/proc/*/cmdline`、Windows hidden PowerShell `Get-CimInstance Win32_Process` 或 macOS `ps -axo pid=,command=`。仅终止命令行含 `--pdd-cli-daemon=` 的正整数 pid，跳过自身 pid；吞掉枚举及逐进程错误，返回成功发出终止信号的数量。测试通过 `listProcesses()` 返回 `{ pid, commandLine }[]` 和 `kill(pid)` 注入，避免触及真实进程。
+- `cleanupOrphanBrowsers()` 在 fixture 下返回 0，live 枚举 Linux `/proc/*/cmdline`、Windows hidden PowerShell CIM 的 Name/CommandLine 或 macOS ps 的 comm/command，仅终止 imageName/argv0 为 chrome(.exe)、chromium、chromium-browser、headless_shell(.exe)、Google Chrome 或 Chromium 且携带 `--pdd-cli-daemon=<db8>-<owner>` 的正整数 pid（db8 为 resolved DB path 的 SHA256 前 8 位，owner 为租约 token 前 23 位，完整 tag 匹配 `/^[a-z0-9-]{1,32}$/`），跳过自身及其他 DB，吞掉枚举/终止错误并返回成功终止数，测试以 `{ pid, imageName?, commandLine }[]` 和 kill 注入。
 
 ## 6. Validation Matrix
 
@@ -155,7 +155,7 @@ openTakeover(page) -> { frames, dispatchPointer(events), insertText(text), press
 ### 3. Contracts
 
 - Open CDP through `page.context().newCDPSession(page)`; start screencast with JPEG, quality 60, maxWidth 1280, everyNthFrame 1. Acknowledge every received frame immediately, even discarded frames.
-- Frames publish at 200ms intervals; each subscriber/iterator holds only the latest. Null signals closure. close is idempotent, aborts pending input waits, stops screencast, removes listeners and detaches CDP, including failed startup.
+- Frames publish at 200ms intervals only when a new frame has arrived since the previous publish (about 5 fps maximum), retaining the latest snapshot for new subscribers and backpressured SSE clients; each subscriber/iterator holds only the latest. Null signals closure. close is idempotent, aborts pending input waits, stops screencast, removes listeners and detaches CDP, including failed startup.
 - Pointer batches contain up to 200 `{ t, type, x, y }` events: finite nonnegative t monotonic within the batch, type down/move/up, finite normalized x/y in 0..1. Snapshot caller input before queueing. Serialize input batches and preserve positive t gaps across batches, accounting for elapsed time; a lower timestamp in a new batch starts a new timeline (frontend remount resets its clock origin). Long waits stay abortable and avoid timer overflow.
 - Coordinates use frame metadata deviceWidth/deviceHeight. Down/up use left mousePressed/mouseReleased with clickCount 1; moves use mouseMoved, buttons 1 only while pressed. Text uses Input.insertText with at most 64 Unicode characters. Keys are Enter/Backspace/Tab only, sent as keyDown/keyUp with key/code/windowsVirtualKeyCode 13/8/9.
 - Share validators with the offline fixture channel. Frames, text, QR and credentials never enter logs.

@@ -6,7 +6,7 @@ import { createConsoleServer } from '../../src/daemon/server.js';
 import { runDaemon } from '../../src/daemon/run.js';
 import { consoleBaseUrl, publishConsoleUrl } from '../../src/services/console-runtime.js';
 import { createConsoleLink, redeemConsoleToken } from '../../src/services/console-auth.js';
-import { acquireDaemonLease, readDaemonLease, getDaemonMeta, readDaemonOwnerToken } from '../../src/infra/daemon-state.js';
+import { acquireDaemonLease, readDaemonLease, getDaemonMeta, readDaemonOwnerToken, daemonBrowserOwnerTag } from '../../src/infra/daemon-state.js';
 import { insertAccount, putReloginState, insertPendingAction } from '../../src/infra/account-store.js';
 import { run } from '../../src/infra/db.js';
 import { consoleRequest } from '../helpers/console-http.js';
@@ -21,7 +21,7 @@ async function setup(config = {}) {
   servers.push(server);
   const log = { info: vi.fn(), warn: vi.fn() };
   const runtimeConfig = { consoleHost: '127.0.0.1', consolePort: 0, consolePublicUrl: '', ...config };
-  await server.start({ runtimeConfig, log });
+  await server.start({ runtimeConfig, log, ownerTag: daemonBrowserOwnerTag(readDaemonOwnerToken()) });
   const { url } = createConsoleLink();
   const consoleToken = new URL(url).pathname.split('/').at(-1);
   const { sessionValue: consoleSession } = redeemConsoleToken(consoleToken);
@@ -138,6 +138,43 @@ it('rejects invalid JSON and bodies over 64 KiB including chunked transfers', as
   }
 });
 
+function uploadUntilClosed(port, chunked) {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, '127.0.0.1');
+    let output = '';
+    let sent = 0;
+    let uploading;
+    const total = 1024 * 1024;
+    const timeout = setTimeout(() => { socket.destroy(); reject(new Error('Oversized upload stayed open')); }, 2000);
+    socket.on('data', (chunk) => { output += chunk; });
+    socket.on('error', reject);
+    socket.on('close', () => {
+      clearInterval(uploading);
+      clearTimeout(timeout);
+      resolve({ output, sent, total });
+    });
+    socket.on('connect', () => {
+      const framing = chunked ? 'Transfer-Encoding: chunked' : `Content-Length: ${total}`;
+      socket.write(`POST /api/redeem HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nContent-Type: application/json\r\nX-PDD-Console: 1\r\n${framing}\r\nConnection: keep-alive\r\n\r\n`);
+      uploading = setInterval(() => {
+        if (sent >= total) return;
+        const chunk = ' '.repeat(16384);
+        socket.write(chunked ? `4000\r\n${chunk}\r\n` : chunk);
+        sent += chunk.length;
+      }, 5);
+    });
+  });
+}
+
+it.each([false, true])('closes oversized public redemption uploads before consuming 1 MiB (chunked=%s)', async (chunked) => {
+  const { port } = await setup();
+  const { output, sent, total } = await uploadUntilClosed(port, chunked);
+  assert.match(output, /^HTTP\/1.1 413/);
+  assert.match(output, /Connection: close\r\n/i);
+  assert.match(output, /E_CONSOLE_BODY_TOO_LARGE/);
+  assert.ok(sent < total, `Connection consumed the full ${sent}-byte upload`);
+});
+
 it.each(['/../package.json', '/%2e%2e/package.json', '/vendor/%2e%2e/%2e%2e/infra/db.js',
   '/%252e%252e/package.json', '/vendor/..%2fpublic/index.html', '/vendor/%5c..%5cdb.js',
   '//etc/passwd', '/C:/Windows/win.ini', 'http://evil.example/healthz', '/%00index.html'])('rejects traversal or absolute path %s', async (path) => {
@@ -246,7 +283,7 @@ it('publishes and clears addresses, brackets IPv6 and preserves replacement owne
   assert.equal(getDaemonMeta('daemon_console_url'), null);
   assert.equal(consoleBaseUrl({ consoleHost: '::1', consolePort: 47821 }), 'http://[::1]:47821');
   assert.equal(consoleBaseUrl({ consoleHost: '::1', consolePort: 47821, consolePublicUrl: 'https://console.example/' }), 'https://console.example');
-  const ownerTag = readDaemonOwnerToken().slice(0, 32);
+  const ownerTag = daemonBrowserOwnerTag(readDaemonOwnerToken());
   run("UPDATE leases SET owner_token = 'replacement' WHERE scope = 'daemon'");
   publishConsoleUrl('https://replacement.example');
   publishConsoleUrl(null, ownerTag);

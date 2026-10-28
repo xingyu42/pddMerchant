@@ -72,7 +72,7 @@ async function runOwned(runtime, lease, { signal, components, exit, runtimeConfi
   const unwatch = watchStop(signal, stop);
   const timer = setInterval(() => heartbeat(runtime, lease.token, stop), runtime.timings.heartbeatMs);
   const stopPoll = watchStopRequest(runtime, lease.token, stop);
-  const context = { signal: controller.signal, ownerTag: lease.token.slice(0, 32), log: runtime.log, runtimeConfig };
+  const context = { signal: controller.signal, ownerTag: runtime.ownerTag(lease.token), log: runtime.log, runtimeConfig };
   try {
     await Promise.race([startComponents(components, started, context, runtime), stopped]);
     runtime.log.info('daemon 已启动');

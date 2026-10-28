@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
 import { beforeEach, it, vi } from 'vitest';
 import { cleanupOrphanBrowsers, closeAllBrowsers } from '../../src/adapter/browser.js';
 import { runDaemon } from '../../src/daemon/run.js';
 import { daemonTimings } from '../../src/services/daemon-runtime.js';
 import {
-  acquireDaemonLease, readDaemonLease, readDaemonStopRequest, requestDaemonStop, DAEMON_LEASE,
+  acquireDaemonLease, readDaemonLease, readDaemonStopRequest, requestDaemonStop, readDaemonOwnerToken, DAEMON_LEASE,
 } from '../../src/infra/daemon-state.js';
-import { run, get } from '../../src/infra/db.js';
+import { run, get, getDatabasePath } from '../../src/infra/db.js';
 
 vi.mock('../../src/adapter/browser.js', () => ({ cleanupOrphanBrowsers: vi.fn(() => 0), closeAllBrowsers: vi.fn(async () => {}) }));
 beforeEach(() => { cleanupOrphanBrowsers.mockClear(); closeAllBrowsers.mockReset().mockResolvedValue(undefined); });
@@ -32,6 +34,8 @@ it('clears stale stop requests, heartbeats, purges rows and cleans components in
   const order = [];
   const first = component({ start: vi.fn(async (ctx) => {
     assert.match(ctx.ownerTag, /^[a-z0-9-]{1,32}$/);
+    const db8 = createHash('sha256').update(resolve(getDatabasePath())).digest('hex').slice(0, 8);
+    assert.equal(ctx.ownerTag, `${db8}-${readDaemonOwnerToken().slice(0, 23)}`);
     assert.equal(readDaemonStopRequest(), null);
     assert.equal(cleanupOrphanBrowsers.mock.calls.length, 1);
   }), stop: vi.fn(async () => { order.push('first'); }) });

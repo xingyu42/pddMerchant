@@ -1,4 +1,6 @@
-import { get, run, transaction, isInTransaction } from './db.js';
+import { get, run, transaction, isInTransaction, getDatabasePath } from './db.js';
+import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
 import { acquireLease, isLeaseStale, renewLease } from './leases.js';
 import { hostname } from 'node:os';
 import { PddCliError, ExitCodes } from './errors.js';
@@ -6,6 +8,14 @@ import { PddCliError, ExitCodes } from './errors.js';
 export const DAEMON_LEASE = Object.freeze({ scope: 'daemon', key: 'main', ttlMs: 90_000, heartbeatMs: 30_000 });
 const META_KEYS = new Set(['daemon_last_patrol_at', 'daemon_console_url']);
 const STOP_KEY = 'daemon_stop_requested_at';
+
+export function daemonBrowserDbPrefix() {
+  return createHash('sha256').update(resolve(getDatabasePath())).digest('hex').slice(0, 8);
+}
+
+export function daemonBrowserOwnerTag(owner) {
+  return `${daemonBrowserDbPrefix()}-${owner.slice(0, 23)}`;
+}
 
 function storageOperation(callback) {
   try { return callback(); }

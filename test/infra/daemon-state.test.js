@@ -1,14 +1,28 @@
 import assert from 'node:assert/strict';
 import { hostname } from 'node:os';
+import { createHash } from 'node:crypto';
+import { dirname, join, resolve } from 'node:path';
 import { it, vi } from 'vitest';
-import { get, run, transaction } from '../../src/infra/db.js';
+import { get, run, transaction, getDatabasePath, openDatabase } from '../../src/infra/db.js';
 import {
   DAEMON_LEASE, acquireDaemonLease, heartbeatDaemon, releaseDaemonLease, readDaemonLease,
   requestDaemonStop, readDaemonStopRequest, clearDaemonStopRequest,
-  setDaemonMeta, getDaemonMeta, purgeExpiredConsoleRows,
+  setDaemonMeta, getDaemonMeta, purgeExpiredConsoleRows, daemonBrowserDbPrefix, daemonBrowserOwnerTag,
 } from '../../src/infra/daemon-state.js';
 
 const NOW = Date.parse('2026-10-27T00:00:00.000Z');
+
+it('scopes bounded browser owner tags to the resolved active database path', () => {
+  const path = getDatabasePath();
+  const db8 = createHash('sha256').update(resolve(path)).digest('hex').slice(0, 8);
+  const owner = 'abcdef0123456789abcdef0123456789ab';
+  assert.equal(daemonBrowserDbPrefix(), db8);
+  assert.equal(daemonBrowserOwnerTag(owner), `${db8}-${owner.slice(0, 23)}`);
+  assert.match(daemonBrowserOwnerTag(owner), /^[a-z0-9-]{1,32}$/);
+  openDatabase(join(dirname(path), 'other.db'));
+  assert.notEqual(daemonBrowserDbPrefix(), db8);
+  assert.notEqual(daemonBrowserOwnerTag(owner), `${db8}-${owner.slice(0, 23)}`);
+});
 
 it('acquires one daemon instance and projects lease status without its owner token', async () => {
   vi.spyOn(Date, 'now').mockReturnValue(NOW);

@@ -38,6 +38,8 @@ it('starts CDP screencast, acks every frame and retains latest at five fps for s
   assert.equal(received.length, 0);
   await vi.advanceTimersByTimeAsync(1);
   assert.deepEqual((await pending).value, { jpeg: 'new', width: 300, height: 400 });
+  await vi.advanceTimersByTimeAsync(1000);
+  assert.equal(received.length, 1);
   frame('discarded');
   await vi.advanceTimersByTimeAsync(200);
   frame('latest');

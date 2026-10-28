@@ -1,5 +1,5 @@
 import { getDaemonMeta, setDaemonMeta, clearDaemonMeta, readDaemonLease,
-  readDaemonOwnerToken, withDaemonLeaseOwner } from '../infra/daemon-state.js';
+  readDaemonOwnerToken, withDaemonLeaseOwner, daemonBrowserOwnerTag } from '../infra/daemon-state.js';
 import { isoToLocalDateTime } from '../infra/units.js';
 import { PddCliError, ExitCodes, consolePortInUse, daemonNotRunning } from '../infra/errors.js';
 
@@ -15,7 +15,7 @@ export function consoleBaseUrl(runtimeConfig, port = runtimeConfig.consolePort) 
 
 export function publishConsoleUrl(url, ownerTag) {
   const owner = readDaemonOwnerToken();
-  if (ownerTag && !owner?.startsWith(ownerTag)) return;
+  if (ownerTag && (!owner || daemonBrowserOwnerTag(owner) !== ownerTag)) return;
   return withDaemonLeaseOwner(owner, () => {
     if (url == null) clearDaemonMeta('daemon_console_url');
     else setDaemonMeta('daemon_console_url', url);

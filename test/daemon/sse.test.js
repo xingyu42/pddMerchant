@@ -30,13 +30,40 @@ it('drops intermediate frames under SSE backpressure and resumes with only the l
   await vi.advanceTimersByTimeAsync(1000);
   assert.equal(output.write.mock.calls.length, 1);
   frames.publish({ jpeg: 'latest', width: 10, height: 20 });
-  output.emit('drain');
   await vi.advanceTimersByTimeAsync(200);
+  output.emit('drain');
   assert.equal(output.write.mock.calls.length, 2);
   assert.match(output.write.mock.calls[1][0], /event: frame\ndata: .*latest/);
+  await vi.advanceTimersByTimeAsync(1000);
+  assert.equal(output.write.mock.calls.length, 2);
   frames.close();
   assert.equal(output.end.mock.calls.length, 1);
   assert.equal(output.listenerCount('drain'), 0);
+});
+
+it('publishes only newly arrived frames at five fps and replays the snapshot to late subscribers', async () => {
+  vi.useFakeTimers();
+  const frames = createLatestFrames();
+  const received = [];
+  frames.subscribe((frame) => received.push(frame));
+  await vi.advanceTimersByTimeAsync(400);
+  assert.deepEqual(received, []);
+  const frame = { jpeg: 'one', width: 1, height: 1 };
+  frames.publish(frame);
+  await vi.advanceTimersByTimeAsync(199);
+  assert.deepEqual(received, []);
+  await vi.advanceTimersByTimeAsync(1);
+  assert.deepEqual(received, [frame]);
+  await vi.advanceTimersByTimeAsync(1000);
+  assert.deepEqual(received, [frame]);
+  const late = vi.fn();
+  frames.subscribe(late);
+  assert.deepEqual(late.mock.calls, [[frame]]);
+  frames.publish(frame);
+  await vi.advanceTimersByTimeAsync(200);
+  assert.deepEqual(received, [frame, frame]);
+  assert.deepEqual(late.mock.calls, [[frame], [frame]]);
+  frames.close();
 });
 
 it('unsubscribes on client disconnect without ending the shared frame producer', async () => {

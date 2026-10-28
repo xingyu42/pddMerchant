@@ -1,6 +1,6 @@
 import {
   DAEMON_LEASE, acquireDaemonLease, heartbeatDaemon, releaseDaemonLease,
-  clearDaemonStopRequest, readDaemonStopRequest, purgeExpiredConsoleRows, clearDaemonMeta,
+  clearDaemonStopRequest, readDaemonStopRequest, purgeExpiredConsoleRows, clearDaemonMeta, daemonBrowserOwnerTag,
 } from '../infra/daemon-state.js';
 import { transaction } from '../infra/db.js';
 import { createLogger, DailyRotatingFileDestination, resolveDefaultLogDirectory } from '../infra/logger.js';
@@ -30,6 +30,7 @@ export function createDaemonRuntime({ foreground = true, runtimeConfig } = {}) {
   return {
     ...daemonLogger(foreground, runtimeConfig), timings,
     acquire: () => acquireDaemonLease(timings),
+    ownerTag: daemonBrowserOwnerTag,
     heartbeat: (token) => heartbeatDaemon(token, timings),
     release: (token) => releaseDaemonLease(token, { clearStop: true }),
     clearStop: () => transaction(() => { clearDaemonStopRequest(); clearDaemonMeta('daemon_console_url'); }),

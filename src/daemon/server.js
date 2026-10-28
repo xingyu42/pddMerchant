@@ -26,8 +26,15 @@ async function handleRequest(request, response, context, port) {
     await dispatchRoute(request, response, requestPath(request), context.runtimeConfig, access, context);
   } catch (error) {
     const { status, body } = consoleApiError(error);
+    if (status === 413) {
+      request.pause();
+      response.setHeader('Connection', 'close');
+      const socket = request.socket;
+      // Flush the write side before destroying an upload with unread bytes (Windows can otherwise reset the response).
+      response.once('finish', () => { socket.end(); setImmediate(() => socket.destroy()); });
+    }
     if (!response.writableEnded && !response.destroyed && !response.headersSent) send(response, status, body);
-  } finally { request.resume(); }
+  } finally { if (response.statusCode !== 413) request.resume(); }
 }
 
 function listen(server, runtimeConfig) {

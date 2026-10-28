@@ -4,6 +4,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { isMockEnabled, mockLaunchBrowser, mockCloseBrowser } from './mock-dispatcher.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
+import { daemonBrowserDbPrefix } from '../infra/daemon-state.js';
 
 const DEFAULT_VIEWPORT = Object.freeze({ width: 1902, height: 984 });
 const DEFAULT_SCREEN = Object.freeze({ width: 1920, height: 1080 });
@@ -313,7 +314,8 @@ function listLinuxProcesses() {
   for (const entry of readdirSync('/proc')) {
     if (!/^\d+$/.test(entry)) continue;
     try {
-      processes.push({ pid: Number(entry), commandLine: readFileSync(`/proc/${entry}/cmdline`, 'utf8').replaceAll('\0', ' ') });
+      const argv = readFileSync(`/proc/${entry}/cmdline`, 'utf8').split('\0');
+      processes.push({ pid: Number(entry), imageName: argv[0], commandLine: argv.join(' ') });
     } catch { /* Process exited or belongs to another user. */ }
   }
   return processes;
@@ -322,17 +324,28 @@ function listLinuxProcesses() {
 export function listBrowserProcesses(platform = process.platform) {
   if (platform === 'linux') return listLinuxProcesses();
   if (platform === 'win32') {
-    const script = 'Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress';
+    const script = 'Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress';
     const output = execFileSync('powershell', ['-NoProfile', '-Command', script], { ...PROCESS_LIST_OPTIONS, windowsHide: true });
     const rows = JSON.parse(output.trim() || '[]');
-    return (Array.isArray(rows) ? rows : [rows]).map((row) => ({ pid: row.ProcessId, commandLine: row.CommandLine }));
+    return (Array.isArray(rows) ? rows : [rows]).map((row) => ({ pid: row.ProcessId, imageName: row.Name, commandLine: row.CommandLine }));
   }
   if (platform !== 'darwin') return [];
   const output = execFileSync('ps', ['-axo', 'pid=,command='], PROCESS_LIST_OPTIONS);
+  const names = new Map(execFileSync('ps', ['-axo', 'pid=,comm='], PROCESS_LIST_OPTIONS).split('\n').flatMap((line) => {
+    const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+    return match ? [[Number(match[1]), match[2]]] : [];
+  }));
   return output.split('\n').flatMap((line) => {
     const match = /^\s*(\d+)\s+(.*)$/.exec(line);
-    return match ? [{ pid: Number(match[1]), commandLine: match[2] }] : [];
+    return match ? [{ pid: Number(match[1]), imageName: names.get(Number(match[1])), commandLine: match[2] }] : [];
   });
+}
+
+function isBrowserProcess({ imageName, commandLine }) {
+  const argv0 = /^"([^"]+)"|^'([^']+)'|^(\S+)/.exec(commandLine ?? '');
+  const executable = imageName ?? argv0?.slice(1).find(Boolean) ?? '';
+  const name = executable.split(/[\\/]/).at(-1);
+  return /^(?:chrome(?:\.exe)?|chromium|chromium-browser|headless_shell(?:\.exe)?|Google Chrome|Chromium)$/.test(name);
 }
 
 export function cleanupOrphanBrowsers({ listProcesses = listBrowserProcesses, kill = process.kill } = {}) {
@@ -341,9 +354,11 @@ export function cleanupOrphanBrowsers({ listProcesses = listBrowserProcesses, ki
   try { processes = listProcesses(); }
   catch { return 0; }
   let count = 0;
-  for (const { pid, commandLine } of processes) {
+  const marker = new RegExp(`(?:^|[\\s"'])--pdd-cli-daemon=${daemonBrowserDbPrefix()}-[a-z0-9-]{1,23}(?=$|[\\s"'])`);
+  for (const item of processes) {
+    const { pid, commandLine } = item;
     if (!Number.isSafeInteger(pid) || pid <= 0 || pid === process.pid) continue;
-    if (typeof commandLine !== 'string' || !commandLine.includes('--pdd-cli-daemon=')) continue;
+    if (!isBrowserProcess(item) || typeof commandLine !== 'string' || !marker.test(commandLine)) continue;
     try { kill(pid); count++; }
     catch { /* Best effort; a process may already have exited. */ }
   }
