@@ -80,7 +80,7 @@
 | ① | `10-27-remove-login-token-consumption` | 清理前置 | 无 | 已完成并归档 |
 | ② | `10-27-sqlite-auth-storage` | R2、R6.3 部分 | ① | 已完成并归档（2026-10-27 合并到 main，`e09c783`） |
 | ③ | `10-27-password-relogin-core` | R1、R5.2、R5.3 | ② | 已完成并归档（2026-10-27 合并到 main，`4b28bce`）。真实账号实验 2 次，结论见 `archive/2026-10/10-27-password-relogin-core/research/real-login-experiment.md` |
-| ④ | `10-27-daemon-console` | R3、R4、R5.1、R6.1、R6.2 | ③ | 已合并到 main（2026-10-28，`de5035e`），任务保持进行中：N27 已通过（Windows）；N27a 首次短信接管、N25 触屏过滑块已授权待用户在场；N26 Linux/Hermes 未授权待验证 |
+| ④ | `10-27-daemon-console` | R3、R4、R5.1、R6.1、R6.2 | ③ | 已完成（2026-10-28 合并 `de5035e`，已归档）：N27（Windows）、N27a 首次短信接管已通过，接管视图改为双指缩放并自动弹键盘（`4e45301`）；N25 滑块、免短信观察与选择器校准待遇到时补，N26 Linux/Hermes 未授权 |
 | ⑤ | `10-27-session-lifetime-research` | 根因调研 | 无（可并行） | 规划中 |
 
 ③④ 的 `design.md` / `implement.md` 依赖 ② 落定的表结构，在 ② 完成后再细化。

@@ -21,6 +21,24 @@
 
 未授权，待验证。
 
-## N27a 首次短信接管、N25 触屏过滑块
+## N27a 首次短信接管（2026-10-28，Windows 主机 + Android 手机，局域网明文 http）
 
-已授权，需用户本人在场操作，待安排。
+| 步骤 | 结果 |
+| --- | --- |
+| `consoleHost` 设为局域网地址，`daemon start`，手机打开 `console link` 链接 | 兑换、账号列表正常；`daemon start` 返回 `console_plaintext_http` 警告 |
+| 首次升级 | 真实库升级到 v2 前已备份到 `data/backup-pre-v2/`（不入库） |
+| 主账号"开始重登" | 自动填写账密后，页面上的验证未被识别（`password_relogin_status` 为"等待人工：未识别的验证"），转入接管 |
+| 第一次接管 | 整页 1902px 宽的画面缩到手机宽度，登录框文字无法辨认，10 分钟接管窗口到期，计 1 次接管超时 |
+| 第二次接管（加缩放后，`c0c64a3`） | 用户在接管画面中完成验证，登录成功并保存；`password_relogin_status` 回到"可用"，`pending_actions` 清空，接管超时计数随成功清零 |
+
+由此做的改动：
+- `c0c64a3`：screencast `maxWidth` 1280 → 1920；前端加缩放。
+- `4e45301`：改用 vendored `@panzoom/panzoom` 做双指缩放平移，单指转发到远端；pointer 响应带 `editable` / `numeric`，点中远端输入框时弹出手机输入法。这一版只在模拟手机（patchright 移动视口 + CDP 触摸事件）上验证过，真机上的手势与自动弹键盘待下次接管时确认（含微信等内置浏览器能否程序化弹键盘、验证码框是否在跨域 iframe）。
+
+未完成、遇到再验证：
+- 之后的账密重登是否免短信（设备信任）：账号刚登录，暂时无法触发。
+- 校准 `PASSWORD_LOGIN_SELECTORS` / `PASSWORD_LOGIN_TEXTS`：这次未记录接管时的页面结构，下次出现"未识别的验证"时再采集。
+
+## N25 触屏过滑块
+
+本次接管未出现滑块，未验证；遇到时再记录手势轨迹是否通过与 SSE 画面延迟。

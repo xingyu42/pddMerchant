@@ -85,17 +85,17 @@
 
 ## Acceptance Criteria
 
-- [ ] `start / stop / status / run` 在 Windows 与 Linux 上行为一致；重复 `start` 不会产生第二个实例。
-- [ ] 强杀 daemon 后，租约在 90 秒内过期，再次 `start` 能正常接管。
-- [ ] 巡航默认不运行；开启后走浏览器校验路径，失效后的重登遵守熔断、限频与租约规则。
-- [ ] 一次性 token：重放、过期、未绑定的会话均被拒绝；Host 不符与缺少 CSRF 头的请求被拒绝。
-- [ ] API、页面与日志中都读不到已保存的密码或登录名（自动化测试断言响应体与日志文件）。
-- [ ] fixture 模式下：挑战 → 接管 → 登录成功 → `pending_actions` 清除 → 普通命令成功，整条流程可测；接管超时两次 → 熔断。
-- [ ] 有 open 待办且 daemon 未运行时，普通命令带 `daemon_not_running`。
-- [ ] 日志按天轮转，且不含机密。
-- [ ] N25～N27a 的真机验证结果已记录。
-- [ ] ADR 0003、AGENTS.md、README、skill、相关 spec 均已更新。
-- [ ] `npm test` 全量通过，契约测试覆盖 `daemon start/stop/status` 与 `console link`。
+- [ ] `start / stop / status / run` 在 Windows 与 Linux 上行为一致；重复 `start` 不会产生第二个实例。（Windows 真机与自动化测试已覆盖；Linux 未在真机运行，随 N26 一起验证）
+- [x] 强杀 daemon 后，租约在 90 秒内过期，再次 `start` 能正常接管。
+- [x] 巡航默认不运行；开启后走浏览器校验路径，失效后的重登遵守熔断、限频与租约规则。
+- [x] 一次性 token：重放、过期、未绑定的会话均被拒绝；Host 不符与缺少 CSRF 头的请求被拒绝。
+- [x] API、页面与日志中都读不到已保存的密码或登录名（自动化测试断言响应体与日志文件）。
+- [x] fixture 模式下：挑战 → 接管 → 登录成功 → `pending_actions` 清除 → 普通命令成功，整条流程可测；接管超时两次 → 熔断。
+- [x] 有 open 待办且 daemon 未运行时，普通命令带 `daemon_not_running`。
+- [x] 日志按天轮转，且不含机密。
+- [x] N25～N27a 的真机验证结果已记录（N27、N27a 通过；N25、N26 与免短信观察待遇到时补，见 `research/real-device-verification.md`）。
+- [x] ADR 0003、AGENTS.md、README、skill、相关 spec 均已更新。
+- [x] `npm test` 全量通过，契约测试覆盖 `daemon start/stop/status` 与 `console link`。
 
 ## Out of Scope
 
