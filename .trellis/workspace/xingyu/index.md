@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 38
+- **Total Sessions**: 39
 - **Last Active**: 2026-10-29
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1203 | Active |
+| `journal-1.md` | ~1226 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 39 | 2026-10-29 | Merge task ⑤, accept and archive password-relogin-console, release 0.6.0 | `833f43a`, `f35c10b` | `main` |
 | 38 | 2026-10-29 | Task ⑤: patrol probes checkLogin via request library | `2051084`, `a8e422f` | `feat/patrol-request-probe` |
 | 37 | 2026-10-28 | 账密重登核心与 daemon 人工接管控制台 | `29c6c61`, `5e6084c`, `8e50a01`, `11a0a8d`, `5430330`, `fff5357`, `6d30d4b`, `680cef6`, `4f0e4e1`, `894bf94`, `5e27341`, `72b3269`, `e58e4ec`, `b497347`, `7b3a384`, `4e471c3`, `9c05e52`, `498eb41`, `cb79d68`, `ea7f872`, `ba0cd81`, `222de61`, `1ebbe6e`, `3956833`, `a108717`, `c0c64a3`, `4e45301`, `43a1690`, `c81a8c4` | `main` |
 | 36 | 2026-10-08 | 订单列表状态覆盖与退款口径修复 | `35d5b21` | `main` |

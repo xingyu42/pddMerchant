@@ -1201,3 +1201,26 @@ Codex implemented selectCheckCookiesFromState (RFC 6265 cookie selection from sa
 ### Status
 
 [OK] **Completed**
+
+
+## Session 39: Merge task ⑤, accept and archive password-relogin-console, release 0.6.0
+<!-- trellis-session: v=2 fp=eaf23bba81085d48 -->
+
+**Date**: 2026-10-29
+**Task**: Merge task ⑤, accept and archive password-relogin-console, release 0.6.0
+**Branch**: `main`
+
+### Summary
+
+Fast-forwarded feat/patrol-request-probe into main. Integration acceptance of parent task: fixture e2e (implicit relogin, challenge->console takeover, breaker trigger/unblock), npm test 1032 pass, contract v2 covers all commands, docs complete. Real-account gaps recorded as known (slider N25, SSE latency, Linux/Hermes N26, Chromium residue after kill, patrol request probe on real accounts). Bumped version to 0.6.0; CHANGELOG Unreleased -> V0.6 Migration Notes with schema v2 under Breaking and updated patrol description.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `833f43a` | 🔧 chore(release): 0.6.0 |
+| `f35c10b` | 📝 docs(trellis): record integration acceptance for password-relogin-console |
+
+### Status
+
+[OK] **Completed**
