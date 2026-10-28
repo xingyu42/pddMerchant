@@ -81,7 +81,7 @@
 | ② | `10-27-sqlite-auth-storage` | R2、R6.3 部分 | ① | 已完成并归档（2026-10-27 合并到 main，`e09c783`） |
 | ③ | `10-27-password-relogin-core` | R1、R5.2、R5.3 | ② | 已完成并归档（2026-10-27 合并到 main，`4b28bce`）。真实账号实验 2 次，结论见 `archive/2026-10/10-27-password-relogin-core/research/real-login-experiment.md` |
 | ④ | `10-27-daemon-console` | R3、R4、R5.1、R6.1、R6.2 | ③ | 已完成（2026-10-28 合并 `de5035e`，已归档）：N27（Windows）、N27a 首次短信接管已通过，接管视图改为双指缩放并自动弹键盘（`4e45301`）；N25 滑块、免短信观察与选择器校准待遇到时补，N26 Linux/Hermes 未授权 |
-| ⑤ | `10-27-session-lifetime-research` | 根因调研 | 无（可并行） | 规划中 |
+| ⑤ | `10-27-session-lifetime-research` | 根因调研 → 收窄为 R3.6 巡航改走请求库 | 无（可并行） | 已完成并归档（2026-10-29 合并到 main，`2051084`）。根因调研离线不可闭合，记录在其 `research/cross-ref-pinduoduo-findings.md` |
 
 ③④ 的 `design.md` / `implement.md` 依赖 ② 落定的表结构，在 ② 完成后再细化。
 
@@ -93,12 +93,18 @@
 
 ## 跨子任务验收
 
-- [ ] 端到端（fixture 模式）：普通命令遇到会话失效 → 隐式密码重登成功 → 命令成功，全程 stdout 一行 JSON、无密码与 Cookie 泄露。
-- [ ] 端到端（fixture 模式）：遇到挑战 → `E_AUTH_HUMAN_REQUIRED` + `pending_actions` → 控制台接管完成 → 后续命令恢复。
-- [ ] 熔断触发与解除路径全部可测。
-- [ ] `npm test` 全量通过；`test/contract/data-contract-v2.test.js` 覆盖所有新增/变更命令。
-- [ ] 真实账号验证（需逐项授权）：③ 的挑战观察实验（≤3 次登录，遇滑块即停）；④ 的触屏轨迹过滑块、SSE 延迟、Linux 下 Hermes systemd cgroup 影响、强杀后 Chromium 残留。
-- [ ] 文档：ADR 0003、CHANGELOG BREAKING、AGENTS.md 规则删除、`skills/pdd-cli/SKILL.md` 更新均已完成。
+- [x] 端到端（fixture 模式）：普通命令遇到会话失效 → 隐式密码重登成功 → 命令成功，全程 stdout 一行 JSON、无密码与 Cookie 泄露。
+- [x] 端到端（fixture 模式）：遇到挑战 → `E_AUTH_HUMAN_REQUIRED` + `pending_actions` → 控制台接管完成 → 后续命令恢复。
+- [x] 熔断触发与解除路径全部可测。
+- [x] `npm test` 全量通过；`test/contract/data-contract-v2.test.js` 覆盖所有新增/变更命令。
+- [~] 真实账号验证（需逐项授权）：③ 的挑战观察实验（≤3 次登录，遇滑块即停）；④ 的触屏轨迹过滑块、SSE 延迟、Linux 下 Hermes systemd cgroup 影响、强杀后 Chromium 残留。部分完成，用户 2026-10-29 决定按已知缺口归档，见下节。
+- [x] 文档：ADR 0003、CHANGELOG BREAKING、AGENTS.md 规则删除、`skills/pdd-cli/SKILL.md` 更新均已完成。R6.3 发布版本定为 `0.6.0`（CHANGELOG `V0.6 Migration Notes`）。
+
+## 集成验收结论（2026-10-29）
+
+- fixture 端到端：`test/e2e/password-relogin.e2e.test.js`（隐式重登、一行 JSON、密码/登录名不落日志与库）、`test/e2e/console-login.e2e.test.js`（等待人工 → SSE 接管 → 命令复用；两次接管超时熔断与解除）、`test/e2e/patrol.e2e.test.js`；`npm test` 1032 通过 / 1 跳过；契约 v2 从 registry 动态收集命令，`PENDING_COMMANDS` 为空。
+- 真机已完成：③ 两次挑战观察实验；④ N27（Windows）与 N27a 首次短信接管。
+- 已知未验证缺口（遇到时补，需逐项授权）：滑块接管（N25）、SSE 帧延迟、免短信观察与选择器校准、Linux 下 Hermes systemd cgroup 影响（N26）、强杀后 Chromium 残留、巡航请求库探测在真实账号上的表现。
 
 ## Out of Scope
 
@@ -107,4 +113,4 @@
 - CLI 内置 TLS、隧道管理。
 - 旧数据迁移。
 - 缓存类数据（发布源缓存、抓取冷却、限流状态）入库。
-- 主动“保活”刷新凭据（等待 ⑤ 的结论）。
+- 主动“保活”刷新凭据（⑤ 结论：无续期证据，不实现）。
