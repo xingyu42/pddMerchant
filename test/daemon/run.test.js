@@ -52,6 +52,18 @@ it('clears stale stop requests, heartbeats, purges rows and cleans components in
   assert.equal(closeAllBrowsers.mock.calls.length, 1);
 });
 
+it('notices a stop request well within the 15 s stop budget instead of waiting for the 30 s heartbeat', async () => {
+  vi.useFakeTimers();
+  const pending = runDaemon(options());
+  await vi.advanceTimersByTimeAsync(0);
+  requestDaemonStop();
+  await vi.advanceTimersByTimeAsync(1000);
+  assert.deepEqual(await pending, { stopped_reason: 'stop_request' });
+  assert.equal(readDaemonLease(), null);
+  assert.equal(readDaemonStopRequest(), null);
+  assert.equal(vi.getTimerCount(), 0);
+});
+
 it('stops immediately on lease loss and leaves the replacement stop request intact', async () => {
   vi.useFakeTimers();
   const part = component();

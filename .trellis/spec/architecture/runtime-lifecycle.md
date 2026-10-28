@@ -131,7 +131,7 @@ withCommand({ needsAuth: false, needsMall: 'none', needsBrowser: false, ... })
 ### 3. Contracts
 
 - `src/daemon/` is a commands-level entry point; its runtime dependencies come through services. Components start in order and stop in reverse order, including a component whose startup failed. P3 defaults to the HTTP component; tests may inject an explicit empty list. HTTP startup publishes `daemon_console_url`, and shutdown clears it only for the current owner.
-- Acquire the heartbeat lease, immediately clear stale stop requests, then clean marked orphan browsers. Contention returns `already_running` with exit 0. Heartbeat every 30 seconds renews a 90-second lease, checks stop requests and purges expired console rows.
+- Acquire the heartbeat lease, immediately clear stale stop requests, then clean marked orphan browsers. Contention returns `already_running` with exit 0. Heartbeat every 30 seconds renews a 90-second lease, checks stop requests and purges expired console rows. Stop requests are additionally polled every second (capped by the heartbeat interval) so a cooperative stop finishes inside the 15-second stop budget; a pending request runs a full heartbeat first, so a replaced owner still ends with `lease_lost`.
 - SIGINT/SIGTERM and platform-specific SIGBREAK (Windows) or SIGHUP initiate shutdown. Daemon run owns these signals instead of the ordinary CLI signal handler. Stop components, close browsers, then atomically release the owned lease and clear its stop request; a replacement owner's request stays intact. A five-second hard deadline calls the injected `exit(1)` (production: `process.exit`).
 - `start` clears a stopped instance's stale console address in a short transaction, detaches a hidden process with ignored stdio, inherits env, calls `unref()` and polls at 200ms for ten seconds. Readiness requires both a valid lease and a published console address. `stop` requests cooperative shutdown and polls at 500ms for fifteen seconds, then rechecks owner token, host and unexpired heartbeat in a short synchronous transaction before killing the pid and deleting only the matching row.
 - Status fields: `headline`, `running`, `pid`, `started_at`, `heartbeat_at`, `last_patrol_at`, `console_url`, `patrol_enabled`. `_at` values use Asia/Shanghai local strings; missing values are null. Start adds `started`; stop returns `stopped`, `running` and optional `forced`; run returns `stopped_reason`.
@@ -153,7 +153,7 @@ withCommand({ needsAuth: false, needsMall: 'none', needsBrowser: false, ... })
 ### 5. Good/Base/Bad Cases
 
 - Good: two starts return the same pid; killing the process leaves a valid heartbeat lease until TTL expiry, after which start acquires a new lease.
-- Base: P2 status returns `console_url:null`; patrol configuration is visible while patrol execution remains P6.
+- Base: status returns `console_url` only while the lease is valid (null otherwise); `patrol_enabled` reflects configuration even when no round has run.
 - Bad: ordinary commands silently spawn a daemon, or old shutdown code clears a replacement owner's stop request.
 
 ### 6. Tests Required

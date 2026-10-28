@@ -39,6 +39,9 @@ it('uses hidden powershell CIM enumeration on Windows and handles singleton outp
   assert.deepEqual(args.slice(0, 2), ['-NoProfile', '-Command']);
   assert.match(args[2], /Get-CimInstance Win32_Process/);
   assert.equal(options.windowsHide, true);
+  // A busy host's full process table can exceed execFileSync's 1 MiB default buffer.
+  assert.ok(options.maxBuffer > 1024 * 1024);
+  assert.ok(options.timeout > 0);
 });
 
 it('parses macOS ps rows without touching unrelated commands', () => {

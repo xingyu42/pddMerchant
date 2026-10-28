@@ -201,7 +201,7 @@ pdd daemon run              # 前台运行（调试）
 ```
 
 - 控制台用于录入/清除密码（只写，不回显）、解除熔断、开始重登并在浏览器画面中完成短信/滑块验证、改用扫码登录。密码与验证码只在控制台输入，不经过聊天。
-- 默认只监听 `127.0.0.1:47821`（`consoleHost` / `consolePort`）。改为局域网地址时为 http 明文，启动会警告；需要外网或 HTTPS 时用 nginx/Caddy 反代，并设置 `consolePublicUrl` 为外部地址（Host 头只接受监听地址或该地址）。
+- 默认只监听 `127.0.0.1:47821`（`consoleHost` / `consolePort`）。改为局域网地址时为 http 明文，启动会警告；需要外网或 HTTPS 时用 nginx/Caddy 反代，并设置 `consolePublicUrl` 为外部地址（Host 头只接受监听地址或该地址）。局域网访问时 `consoleHost` 填具体网卡地址（如 `192.168.1.10`）；填 `0.0.0.0` 时必须同时设置 `consolePublicUrl`，否则请求会被 421 拒绝。反代须挂在站点根路径（页面使用 `/api`、`/app` 等绝对路径）。
 - 反代须关闭对 `/api/sessions/*/frames` 的缓冲（SSE），例如 nginx `proxy_buffering off;`。
 - 一次性链接打开后由页面脚本兑换为 8 小时会话，聊天应用的链接预览不会消耗链接。
 - 巡航默认关闭（`patrolEnabled`）；开启后按 `patrolIntervalMs`（默认 30 分钟 ±20%）逐账号检查并在失效时自动重登。

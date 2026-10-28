@@ -44,7 +44,7 @@ export function consoleApiError(error) {
   if (error?.httpStatus) return { status: error.httpStatus, body: { error: { code: error.code, message: error.message } } };
   const errors = {
     E_CONSOLE_LINK_GONE: [410, '链接已失效，请重新获取'], E_CONSOLE_LINK_EXPIRED: [410, '链接已失效，请重新获取'],
-    E_ACCOUNT_NOT_FOUND: [404, '商家账号不存在'], E_USAGE: [400, '请求参数无效，请检查登录名与密码'],
+    E_ACCOUNT_NOT_FOUND: [404, '商家账号不存在'], E_USAGE: [400, '请求参数无效，请检查输入内容'],
     E_DAEMON_NOT_RUNNING: [503, 'daemon 未运行'], E_AUTH_STATE_IO: [500, '控制台存储暂不可用'],
     E_AUTH_ACCOUNT_SAVE_FAILED: [500, '账号存储暂不可用'],
   };

@@ -305,6 +305,9 @@ export async function createSnapshotContext(browser, storageState) {
 
 export { DEFAULT_VIEWPORT, DEFAULT_SCREEN, HEADLESS_OVERRIDE_KEYS };
 
+// Full process tables (long Chrome/Electron command lines) can exceed execFileSync's 1 MiB default.
+const PROCESS_LIST_OPTIONS = Object.freeze({ encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 15_000 });
+
 function listLinuxProcesses() {
   const processes = [];
   for (const entry of readdirSync('/proc')) {
@@ -320,12 +323,12 @@ export function listBrowserProcesses(platform = process.platform) {
   if (platform === 'linux') return listLinuxProcesses();
   if (platform === 'win32') {
     const script = 'Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress';
-    const output = execFileSync('powershell', ['-NoProfile', '-Command', script], { windowsHide: true, encoding: 'utf8' });
+    const output = execFileSync('powershell', ['-NoProfile', '-Command', script], { ...PROCESS_LIST_OPTIONS, windowsHide: true });
     const rows = JSON.parse(output.trim() || '[]');
     return (Array.isArray(rows) ? rows : [rows]).map((row) => ({ pid: row.ProcessId, commandLine: row.CommandLine }));
   }
   if (platform !== 'darwin') return [];
-  const output = execFileSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf8' });
+  const output = execFileSync('ps', ['-axo', 'pid=,command='], PROCESS_LIST_OPTIONS);
   return output.split('\n').flatMap((line) => {
     const match = /^\s*(\d+)\s+(.*)$/.exec(line);
     return match ? [{ pid: Number(match[1]), commandLine: match[2] }] : [];

@@ -43,6 +43,16 @@ function heartbeat(runtime, token, stop) {
   }
 }
 
+// `daemon stop` waits 15 s before force-killing, so stop requests are polled faster than the 30 s heartbeat.
+// A pending request runs a full heartbeat first, so a replacement owner's request still ends as lease_lost.
+function watchStopRequest(runtime, token, stop) {
+  return setInterval(() => {
+    let requested = false;
+    try { requested = Boolean(runtime.stopRequested()); } catch { /* The heartbeat reports storage failures. */ }
+    if (requested) heartbeat(runtime, token, stop);
+  }, Math.min(1000, runtime.timings.heartbeatMs));
+}
+
 async function runOwned(runtime, lease, { signal, components, exit, runtimeConfig }) {
   const controller = new AbortController();
   const started = [];
@@ -61,14 +71,20 @@ async function runOwned(runtime, lease, { signal, components, exit, runtimeConfi
   };
   const unwatch = watchStop(signal, stop);
   const timer = setInterval(() => heartbeat(runtime, lease.token, stop), runtime.timings.heartbeatMs);
+  const stopPoll = watchStopRequest(runtime, lease.token, stop);
   const context = { signal: controller.signal, ownerTag: lease.token.slice(0, 32), log: runtime.log, runtimeConfig };
   try {
     await Promise.race([startComponents(components, started, context, runtime), stopped]);
     runtime.log.info('daemon 已启动');
     await stopped;
+  } catch (error) {
+    // Detached starts discard stdout; keep only the fixed code so the cause is visible in log/daemon/.
+    runtime.log.error({ code: error?.code ?? 'E_GENERAL' }, 'daemon 启动失败');
+    throw error;
   } finally {
     stop(reason ?? 'startup_error');
     clearInterval(timer);
+    clearInterval(stopPoll);
     unwatch();
     try { await Promise.race([cleanup(started, runtime, lease.token), hardStop]); }
     finally { clearTimeout(hardTimer); }

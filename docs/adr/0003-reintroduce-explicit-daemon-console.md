@@ -28,7 +28,7 @@ So a human-only channel is required. It must stay up longer than one command, ho
 - The AGENTS.md rule "Do not introduce an auth daemon or automatic background launch" is replaced by "ordinary commands never launch or depend on a background process; the daemon is started explicitly".
 - After a reboot or a host restart the daemon must be started again. Agents learn this from `daemon_not_running` and `E_DAEMON_NOT_RUNNING`.
 - Schema v2 (`console_tokens`, `console_sessions`) cannot be opened by older binaries.
-- An interactive session holds the account lease for up to 12 minutes; other commands on that account fail fast with `E_LOCK_TIMEOUT` meanwhile.
+- An interactive session holds the account lease for up to 12 minutes; other commands on that account wait their normal lease budget (15 s, extended up to about 105 s right after a password attempt) and then fail with `E_LOCK_TIMEOUT`; patrol skips the account.
 - The console is a single-user tool for the OS user that owns the data directory. A session can manage every account. It defends against accidental exposure, not against local processes of the same user.
 - Still unverified and recorded in the task: whether PDD accepts touch traces replayed as mouse events on sliders, SSE latency, whether a systemd-managed host kills the detached daemon, and whether Chromium survives a killed node process.
 
