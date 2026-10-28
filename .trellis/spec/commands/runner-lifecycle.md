@@ -118,5 +118,6 @@ appendActionWarnings(spec, runtime); // needsAuth only; pushes getAccountActionW
 - Fixture: `executeFixture` treats the session as invalid when `PDD_TEST_AUTH_INVALID=1` and the account state has no `PDD_FIXTURE_RELOGIN=1` cookie; it then calls `reloginForFixture(accountId, runtime)` before building `ctx`. `PDD_TEST_AUTH_INDETERMINATE=1` still fails first with `E_AUTH_CHECK_INDETERMINATE`.
 - `appendActionWarnings` runs on both success and error paths in live and fixture mode, before the envelope is built.
 - `needsAuth:false` commands never call relogin and never append action warnings.
+- 当前账号有 open 待办且 daemon 租约无效时，`appendActionWarnings` 同时附 `{ code:'daemon_not_running' }`；单次 envelope 与 batch 汇总均按该 code 去重。daemon 状态由 `services/daemon.js` 读取，普通命令保持显式后台启动策略。详见 `architecture/runtime-lifecycle.md` 第 8 节。
 - Batch mode needs no change: `runAccountLoop` awaits `executeSingle` per account, so relogins run one at a time.
 - Tests: `test/commands/runner-deadline.test.js` (pause/resume), `test/adapter/merchant-auth-lifecycle.test.js` (context swap after relogin), `test/e2e/password-relogin.e2e.test.js`.

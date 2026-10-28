@@ -16,7 +16,7 @@ function provisioningError(kind, reason) {
   });
 }
 
-function saveMerchantLogin(result, initial, task) {
+export function saveMerchantLogin(result, initial, task) {
   assertAuthTask(task);
   assertVerifiedMerchantCandidate(result?.candidate);
   // 主密钥指纹先独立确认，账号提交回滚时仍保留加密库的密钥标识。

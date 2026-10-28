@@ -9,12 +9,13 @@
 唯一运行时边界：
 
 ```js
-launchBrowser({ headed?, storageState? }) -> Promise<{ browser, context, page }>
+launchBrowser({ headed?, storageState?, ownerTag? }) -> Promise<{ browser, context, page }>
 withBrowser(options, fn) -> Promise<unknown>
 createConsumerContext(browser, { storageState?, proxy? }) -> Promise<{ context, page, close }>
 createSnapshotContext(browser, storageState) -> Promise<BrowserContext>
 getBrowserExecutablePath() -> string
 evaluateInMainWorld(pageOrFrame, pageFunction, arg?) -> Promise<unknown>
+cleanupOrphanBrowsers({ listProcesses?, kill? }) -> number
 ```
 
 不允许重新加入 caller-defined viewport 或 `extraContextOptions`。依赖与安装：
@@ -29,7 +30,8 @@ npx patchright install chromium
 - `src/adapter/browser.js` MUST 是唯一生产环境 `patchright` import 所有者。
 - Headless 和 headed MUST 先使用 `channel:'chrome'`；只有错误明确为 Chrome executable/distribution missing 时，才以脱敏 warning 回退同模式的 `channel:'chromium'`。
 - 权限、崩溃、代理和其他启动错误 MUST 保持原错误对象并直接上抛。
-- Headless launch contract MUST 精确包含 `headless:true`、实际 `channel` 与 `args:['--enable-gpu']`；headed contract MUST 只包含 `headless:false` 与实际 `channel`。`--enable-gpu` 只允许 Chrome 做正常硬件探测，不代表硬件验收通过。
+- 未指定 ownerTag 时，Headless launch contract MUST 精确包含 `headless:true`、实际 `channel` 与 `args:['--enable-gpu']`；headed contract MUST 只包含 `headless:false` 与实际 `channel`。`--enable-gpu` 只允许 Chrome 做正常硬件探测，不代表硬件验收通过。
+- daemon 的 `ownerTag` 必须匹配 `/^[a-z0-9-]{1,32}$/`，无效值返回 `E_BROWSER_RUNTIME` / `invalid_owner_tag`；有效值为 headless/headed 及 Chrome/Chromium 回退路径追加 `--pdd-cli-daemon=<ownerTag>`，普通命令保持原参数。
 - MUST NOT 无条件加入 `--use-angle=vulkan`、`--enable-features=Vulkan`、`--ignore-gpu-blocklist` 或其他后端/身份覆盖 flags；缺少兼容 Vulkan userspace 时，Chrome GPU 进程可能持续高 CPU 且阻塞清理。
 - 每个 Browser MUST 绑定 WeakMap RuntimeProfile：模式、实际 channel、`browser.version()`、Context 配置；关闭时 MUST 删除。
 - 浏览器版本无法解析时 MUST 返回 `E_BROWSER_RUNTIME`。Headless 平台只支持 `linux`、`win32`、`darwin` 的明确 UA 映射，未知平台 MUST 返回同一错误。
@@ -66,6 +68,7 @@ Headless 固定配置：
 - `closeAllBrowsers()` 保持重入安全；`withBrowser()` MUST 保留业务错误身份。
 - `ghost-cursor-playwright.createCursor()` MUST await，并传入 `locator.boundingBox()` 的具体矩形。
 - Fixture mode MUST 绕过真实 browser launch，且不得读取真实 auth state。
+- `cleanupOrphanBrowsers()` 在 fixture 下返回 0，live 枚举 Linux `/proc/*/cmdline`、Windows hidden PowerShell CIM 的 Name/CommandLine 或 macOS ps 的 comm/command，仅终止 imageName/argv0 为 chrome(.exe)、chromium、chromium-browser、headless_shell(.exe)、Google Chrome 或 Chromium 且携带 `--pdd-cli-daemon=<db8>-<owner>` 的正整数 pid（db8 为 resolved DB path 的 SHA256 前 8 位，owner 为租约 token 前 23 位，完整 tag 匹配 `/^[a-z0-9-]{1,32}$/`），跳过自身及其他 DB，吞掉枚举/终止错误并返回成功终止数，测试以 `{ pid, imageName?, commandLine }[]` 和 kill 注入。
 
 ## 6. Validation Matrix
 
@@ -135,3 +138,53 @@ await chromium.launch({
 ```
 
 运行时不伪造 WebGL。Bundled Chromium 或未归因路径仍是软件渲染时，必须更换具备兼容驱动的环境并重跑；系统 Chrome 只有满足 CDP/EGL 双重证据、其余必过项正常且 bundled Chromium 已证明真实硬件 WebGL 时，才能记录上述窄范围兼容性风险。若未来引入 GPU capability gate，必须先更新 ADR、错误矩阵与 Linux 集成测试。
+
+## 10. Scenario: Human Takeover CDP Channel
+
+### 1. Scope / Trigger
+
+Applies to `adapter/takeover.js` and `adapter/latest-frames.js` for console human input and bounded screen delivery.
+
+### 2. Signatures
+
+```js
+openTakeover(page) -> { frames, dispatchPointer(events), insertText(text), pressKey(key), close() };
+// frames: latest-frame async iterable plus subscribe(frameOrNullCallback) -> unsubscribe
+```
+
+### 3. Contracts
+
+- Open CDP through `page.context().newCDPSession(page)`; start screencast with JPEG, quality 60, maxWidth 1280, everyNthFrame 1. Acknowledge every received frame immediately, even discarded frames.
+- Frames publish at 200ms intervals only when a new frame has arrived since the previous publish (about 5 fps maximum), retaining the latest snapshot for new subscribers and backpressured SSE clients; each subscriber/iterator holds only the latest. Null signals closure. close is idempotent, aborts pending input waits, stops screencast, removes listeners and detaches CDP, including failed startup.
+- Pointer batches contain up to 200 `{ t, type, x, y }` events: finite nonnegative t monotonic within the batch, type down/move/up, finite normalized x/y in 0..1. Snapshot caller input before queueing. Serialize input batches and preserve positive t gaps across batches, accounting for elapsed time; a lower timestamp in a new batch starts a new timeline (frontend remount resets its clock origin). Long waits stay abortable and avoid timer overflow.
+- Coordinates use frame metadata deviceWidth/deviceHeight. Down/up use left mousePressed/mouseReleased with clickCount 1; moves use mouseMoved, buttons 1 only while pressed. Text uses Input.insertText with at most 64 Unicode characters. Keys are Enter/Backspace/Tab only, sent as keyDown/keyUp with key/code/windowsVirtualKeyCode 13/8/9.
+- Share validators with the offline fixture channel. Frames, text, QR and credentials never enter logs.
+
+### 4. Validation & Error Matrix
+
+| Condition | Result |
+| --- | --- |
+| invalid batch, t/coordinate/type, text or key | `E_USAGE` with fixed message |
+| pointer before any valid frame metadata | `E_USAGE`; no CDP input |
+| closed channel | queued work rejects; no further input |
+| malformed dimensions | ack frame and discard it |
+| screencast startup failure | stop/detach/remove listeners, preserve failure |
+
+### 5. Good/Base/Bad Cases
+
+- Good: map normalized coordinates against device metadata and drop intermediate frames for slow consumers.
+- Base: mouse replay provides human-controlled input; phone touch/slider acceptance needs real-device verification.
+- Bad: ack only displayed frames, queue all JPEGs, interpolate a new automated gesture, or log user input.
+
+### 6. Tests Required
+
+`test/adapter/takeover.test.js` uses fake CDP/timers for start/acks/latest frames, dimensions, serial cross-batch timing, button states, text/key dispatch, validation and cleanup. `test/daemon/sse.test.js` checks backpressure/disconnect/terminal closure and decodes the fixture images.
+
+### 7. Wrong vs Correct
+
+```js
+// Wrong: screen JPEG pixels can differ from device CSS coordinates.
+const x = event.x * encodedJpegWidth;
+// Correct: the same device dimensions drive remote input and the frame aspect ratio.
+const x = event.x * metadata.deviceWidth;
+```

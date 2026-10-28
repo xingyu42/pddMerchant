@@ -22,10 +22,14 @@ const { register: registerGoods } = await import('../src/commands/registry/goods
 const { register: registerPromo } = await import('../src/commands/registry/promo.js');
 const { register: registerDiagnose } = await import('../src/commands/registry/diagnose.js');
 const { register: registerAccount } = await import('../src/commands/registry/account.js');
+const { register: registerDaemon } = await import('../src/commands/registry/daemon.js');
+const { register: registerConsole } = await import('../src/commands/registry/console.js');
 
 let shuttingDown = false;
+let daemonForeground = false;
 const shutdownController = new AbortController();
 function onSignal(signal) {
+  if (daemonForeground) return;
   if (shuttingDown) return;
   shuttingDown = true;
   shutdownController.abort();
@@ -126,6 +130,7 @@ function wireAction(cmd, commandName, runFn, { runtimeConfigPolicy = 'required' 
     const commanderCmd = actionArgs.at(-1) ?? this;
     const opts = mergeOptions(commanderCmd);
     const positionalArgs = actionArgs.slice(0, -2);
+    daemonForeground = commandName === 'daemon.run';
     if (positionalArgs.length > 0) opts.args = positionalArgs;
     try {
       const runtimeConfig = runtimeConfigPolicy === 'required'
@@ -163,6 +168,8 @@ registerGoods(program, wireAction);
 registerPromo(program, wireAction);
 registerDiagnose(program, wireAction);
 registerAccount(program, wireAction);
+registerDaemon(program, wireAction);
+registerConsole(program, wireAction);
 async function main() {
   try {
     await program.parseAsync(process.argv);

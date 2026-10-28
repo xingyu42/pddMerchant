@@ -34,6 +34,33 @@ afterEach(() => {
 });
 
 describe('config set / unset v2 data', () => {
+  it.each([
+    ['consoleHost', '0.0.0.0', '0.0.0.0'],
+    ['consolePort', '65535', 65535],
+    ['consolePublicUrl', 'https://console.example.test', 'https://console.example.test'],
+    ['consolePublicUrl', '', ''],
+    ['patrolEnabled', 'true', true],
+    ['patrolIntervalMs', '300000', 300000],
+  ])('config.set persists a typed daemon setting %#', async (key, raw, expected) => {
+    const envelope = await configCmd.set({ args: [key, raw], json: true }, { configOptions });
+    assert.equal(envelope.ok, true);
+    assertDataContractV2(envelope.data);
+    assert.equal(envelope.data.local_value, expected);
+    assert.deepEqual(JSON.parse(readFileSync(configOptions.configPath, 'utf8')), { [key]: expected });
+    assert.equal((await loadRuntimeConfig(configOptions))[key], expected);
+  });
+
+  it.each([
+    ['consoleHost', ''], ['consoleHost', ' \t\r\n '],
+    ['consolePort', '65536'], ['consolePublicUrl', 'file:///private'],
+    ['patrolEnabled', 'yes'], ['patrolIntervalMs', '299999'],
+  ])('config.set preserves existing configuration on invalid daemon input %#', async (key, raw) => {
+    writeFileSync(configOptions.configPath, '{"consolePort":47822}');
+    const before = readFileSync(configOptions.configPath, 'utf8');
+    await assert.rejects(configCmd.set({ args: [key, raw], json: true }, { configOptions }), { code: 'E_CONFIG_INVALID' });
+    assert.equal(readFileSync(configOptions.configPath, 'utf8'), before);
+  });
+
   it('ignores retired authStatePath in local config and rejects config.set for it', async () => {
     writeFileSync(configOptions.configPath, JSON.stringify({ authStatePath: 'synthetic-retired', refreshIntervalMs: 1 }));
     const runtime = await loadRuntimeConfig(configOptions);

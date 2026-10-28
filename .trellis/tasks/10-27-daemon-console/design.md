@@ -112,7 +112,7 @@ CREATE TABLE console_sessions (
 - `pdd console link [--account <slug>]`（复用全局 `--account`）：
   - daemon 未运行 → `E_DAEMON_NOT_RUNNING`（exit 1），hint `执行 pdd daemon start`；
   - 否则生成 32 字节随机 token（base64url），写 `console_tokens`（10 分钟），输出 `data.url = <base>/c/<token>`、`expires_at`。
-- `GET /c/<token>`：同一事务内校验未过期、未消费 → 标记 `consumed_at`、签发会话（32 字节随机值，8 小时），`Set-Cookie: pdd_console=<v>; HttpOnly; SameSite=Strict; Path=/`（`consolePublicUrl` 为 https 时加 `Secure`），302 到 `/`（带 `--account` 时到该账号页）。重放、过期 → 410 页面，提示重新获取链接。
+- `GET /c/<token>`：返回小型 HTML，加载公开的 `/app/redeem.js`，保持 token 未消费，供聊天应用预览。脚本从 location.pathname 读取 token，以 JSON + `X-PDD-Console: 1` 请求公开 `POST /api/redeem { token }`；该 POST 在同一事务中消费 token、签发 8 小时会话，设置 HttpOnly/SameSite Cookie（公开 URL 为 HTTPS 时加 Secure），返回 `{ location }`。脚本导航到 `/` 或绑定账号页；重放、过期返回 410 JSON 和固定中文提示。HTML 无内联脚本，CSP 保持 script-src self。
 - 其余所有接口要求有效会话，否则 401。会话不续期。
 - `--account` 只决定落地页；会话可以操作所有账号（同一 OS 用户的单人工具，威胁模型只防意外暴露）。
 
@@ -127,7 +127,8 @@ CREATE TABLE console_sessions (
 | POST | `/api/accounts/:slug/unblock` | `clearReloginBlock` |
 | POST | `/api/accounts/:slug/relogin` | 开始交互式重登，返回 `{ session_id }`（第 6 节） |
 | POST | `/api/accounts/:slug/qr` | 开始扫码登录，返回 `{ session_id }` |
-| GET | `/api/sessions/:id` | 会话状态：`filling` / `takeover` / `qr` / `verifying` / `succeeded` / `failed` / `timed_out`，`qr_image`（data URL，仅扫码态），`expires_at` |
+| GET | `/api/sessions/:id` | `{ state, message, remaining_seconds, expires_at, qr_image }`。state：`filling` / `takeover` / `qr` / `verifying` / `succeeded` / `failed` / `timed_out` / `cancelled`；`message` 为中文说明或 null；`qr_image` 为 data URL，仅扫码态 |
+| POST | `/api/sessions/:id/qr/refresh` | 扫码态下重新截取二维码 |
 | GET | `/api/sessions/:id/frames` | SSE：`event: frame`，`data: { jpeg: <base64>, width, height }` |
 | POST | `/api/sessions/:id/pointer` | `{ events: [{ t, type: 'down'|'move'|'up', x, y }] }`，x/y 为 0–1 归一化坐标 |
 | POST | `/api/sessions/:id/text` | `{ text }` 或 `{ key: 'Enter'|'Backspace'|'Tab' }` |
@@ -182,6 +183,8 @@ CREATE TABLE console_sessions (
 - `patrolEnabled`（默认 `false`）、`patrolIntervalMs`（默认 `1_800_000`），间隔 ±20% 抖动。
 - 每轮依次处理未停用的商家账号：复用普通命令同一条校验路径——`withMerchantAuthUpdate` → `withBrowser({ storageState: tx.state, ownerTag })` → `verifyStoredMerchant`；`rejected` 时 `reloginInCommand`（遵守熔断、限频、租约）；校验结论按现有规则 `recordMerchantCheck`。拿不到账号租约就跳过该账号（`timeoutMs: 0`），不阻塞用户命令。
 - 不访问业务接口，不打开首页。每轮结束写 `daemon_last_patrol_at`。
+- P6 落地：首轮先等抖动间隔，后续每轮完成后重新计时，轮次串行。普通校验成功保留原快照；普通命令的最终回写依赖业务成功，巡航沿用此约束。密码重登成功仍由既有核心提交已核验候选；rejected/indeterminate 沿用 `recordMerchantCheck`。中断轮次保留上次完成时间。
+- 每账号普通校验预算 120 秒，复用下沉到 `infra/abort.js` 的 `armDeadline`；重登仍按既有规则暂停该预算并使用独立 90 秒。fixture 在巡航已有租约内调用 `reloginForFixture(..., { tx })`，通过仅 fixture 生效的 `PDD_TEST_PATROL_INTERVAL_MS` 正安全整数毫秒覆盖间隔。
 - 选择浏览器路径的理由：与普通命令的请求形态完全同构，不新增"只有 Node 直连"的节奏（⑤ 的 H1），也无需修改"Cookie 由浏览器挑选"的 spec。
 - ⑤ 有结论后再评估默认值与请求方式。
 
@@ -212,14 +215,14 @@ CREATE TABLE console_sessions (
 
 - `channel: 'daemon'` → `log/daemon/YYYY-MM-DD.log`，复用 `DailyRotatingFileDestination` 与全部脱敏规则；`daemon run`（前台）同时写 stderr。
 - 与 PRD N5 的差异：沿用仓库现有的按天轮转与 `log/` 目录（`data/` 只放库和密钥），不实现按大小轮转。
-- 新增脱敏键：`token`、`session`、`pdd_console`、`qr_image`、`jpeg`（固定 `[REDACTED]` 的放入 `SECRET_KEYS`：`token`、`pdd_console`）。
+- 新增脱敏键（实现时改为 camelCase，避免与批量输出中以 slug 为键的账号重名）：`SECRET_KEYS` 增加 `consoleToken`、`consoleSession`；`REDACT_KEYS` 增加 `qrImage`、`frameJpeg`。
 
 ## 12. 前端（Claude 编写）
 
-- `src/console/vendor/`：`preact.module.js`、`hooks.module.js`、`htm.module.js`（固定版本，附 LICENSE 与来源 URL、sha256），`index.html` 用 import map 指向本地文件。
+- `src/console/vendor/`：`preact.mjs`、`hooks.mjs`、`htm.mjs`（preact 11.1.0、htm 3.1.1，附 LICENSE、来源与 sha256）。CSP 只允许同源脚本文件，内联 import map 会被拦截，因此 `hooks.mjs` 的导入改为相对路径 `./preact.mjs`，页面不用 import map。
 - 页面：账号列表 → 账号详情（录入/清除密码、解除熔断、开始重登、改用扫码）→ 会话视图（画面 `<img>` 由 SSE 帧刷新；`pointer` 事件按 50ms 打包；文字框 + 回车/退格按钮；倒计时；扫码态显示二维码，可长按保存）。
-- 移动端优先；密码输入框 `autocomplete="off"`，提交后清空，从不回填。
-- `knip.json` 忽略 `src/console/vendor/**`；`.trellis/spec/frontend/index.md` 由"N/A"改为指向控制台约定。
+- 移动端优先；密码输入框 `autocomplete="new-password"`，提交后无论成败都清空，从不回填。熔断状态下隐藏"开始重登"与"改用扫码"，只给出解除熔断与重设密码。
+- `knip.json` 忽略 `src/console/**`；`.gitattributes` 让 vendor 文件不做换行转换；`.trellis/spec/frontend/index.md` 由"N/A"改为指向控制台约定。
 
 ## 13. 测试
 

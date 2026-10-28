@@ -26,6 +26,12 @@ PDD_SOURCE_PROXY_PROVIDER=qingguo
 PDD_QINGGUO_AUTH_KEY=<extraction-auth-key>
 PDD_QINGGUO_AREA=<six-digit-area-codes>
 PDD_PASSWORD_RELOGIN_MIN_INTERVAL_MS=<ms>   # passwordReloginMinIntervalMs，正整数，默认 1800000
+PDD_CONSOLE_HOST=<host>                     # consoleHost，默认 127.0.0.1；空或纯空白为配置错误
+PDD_CONSOLE_PORT=<1-65535>                  # consolePort，默认 47821
+PDD_CONSOLE_PUBLIC_URL=<http(s) URL|''>     # consolePublicUrl，反代后的外部地址；空表示按监听地址生成
+PDD_PATROL_ENABLED=true|false               # patrolEnabled，默认 false
+PDD_PATROL_INTERVAL_MS=<ms>                 # patrolIntervalMs，默认 1800000，最小 300000
+PDD_TEST_DAEMON_LEASE_TTL_MS / PDD_TEST_DAEMON_HEARTBEAT_MS / PDD_TEST_PATROL_INTERVAL_MS  # fixture only，缩短 daemon 计时
 PDD_TEST_PASSWORD_LOGIN=<outcome>           # fixture only，见 adapter/fixture-mode.md
 PDD_TEST_PASSWORD_LOGIN_DELAY_MS=<ms>       # fixture only
 PDD_TEST_PASSWORD_LOGIN_TRACE=<file>        # fixture only
@@ -61,6 +67,7 @@ Default log paths（gitignored `log/`；路径固定、不可配置）：
 
 ```text
 log/cli/YYYY-MM-DD.log      # CLI runtime
+log/daemon/YYYY-MM-DD.log   # pdd daemon（前台 run 另写 stderr）
 ```
 
 Default temporary paths：
@@ -96,6 +103,10 @@ tmp/goods-publish-source-cache/<numeric-goods-id>.json
 | retired storage env var is set                  | ignored (no reader exists)                                       |
 | numeric env invalid or negative                 | usage/config error, no platform request                          |
 | `PDD_PASSWORD_RELOGIN_MIN_INTERVAL_MS` not a positive integer | config error; nothing runs                           |
+| `PDD_CONSOLE_HOST` empty or whitespace (env or config) | config error（防止监听全部网卡）                          |
+| `consolePublicUrl` not '' and not absolute http(s) | config error                                                 |
+| `patrolIntervalMs` < 300000                     | config error                                                     |
+| `PDD_TEST_DAEMON_*` / `PDD_TEST_PATROL_INTERVAL_MS` outside fixture mode | ignored                                   |
 | full-count discount outside range or not representable as an integer percent | `E_CONFIG_INVALID`, no platform request |
 | Qingguo provider enabled with missing credential on cache miss | `E_USAGE` before cost-template, proxy, or PDD live requests |
 | unsupported source proxy provider on cache miss | `E_USAGE`, no direct fallback                                    |

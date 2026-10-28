@@ -52,7 +52,7 @@
 ### 访问鉴权
 
 - N13 `pdd console link [--account <slug>]` 每次生成一次性高熵 token（10 分钟有效），输出完整访问链接；daemon 未运行时返回 `E_DAEMON_NOT_RUNNING` 并提示 `pdd daemon start`。
-- N14 首次打开后绑定会话 Cookie（HttpOnly、SameSite=Strict），链接随即失效；会话 8 小时过期。token 与会话只存哈希。
+- N14 浏览器打开后通过脚本 POST 兑换并绑定会话 Cookie（HttpOnly、SameSite=Strict），兑换后链接失效；GET 预览保持 token 未消费，避免 Telegram 等聊天应用预取损耗链接。会话 8 小时过期，token 与会话只存哈希。
 - N15 所有机密只写：页面能录入或清除密码，但永远不回显已保存的值；API 响应与日志中不含任何密码、登录名、Cookie 或 token。
 - N15a 校验 `Host` 头（防 DNS rebinding）；状态变更接口要求 JSON + 自定义请求头（防 CSRF）。
 

@@ -111,6 +111,44 @@ export function secretDecryptFailed(detail) {
   });
 }
 
+export function daemonNotRunning() {
+  return new PddCliError({
+    code: 'E_DAEMON_NOT_RUNNING', message: 'daemon 未运行',
+    hint: '执行 pdd daemon start', exitCode: ExitCodes.GENERAL,
+  });
+}
+
+export function daemonStartTimeout() {
+  return new PddCliError({
+    code: 'E_DAEMON_START_TIMEOUT', message: '等待 daemon 启动超时',
+    hint: '执行 pdd daemon status 检查状态后重试', exitCode: ExitCodes.GENERAL,
+  });
+}
+
+// Keep native errors, paths and arbitrary text out of daemon error details.
+function daemonDetail(detail) {
+  if (!detail) return null;
+  const safe = {};
+  if (Number.isSafeInteger(detail.pid) && detail.pid > 0) safe.pid = detail.pid;
+  if (Number.isInteger(detail.port) && detail.port >= 1 && detail.port <= 65535) safe.port = detail.port;
+  if (['foreign_host', 'lease_active', 'kill_failed', 'address_in_use'].includes(detail.reason)) safe.reason = detail.reason;
+  return safe;
+}
+
+export function daemonStopTimeout(detail) {
+  return new PddCliError({
+    code: 'E_DAEMON_STOP_TIMEOUT', message: '等待 daemon 停止超时', detail: daemonDetail(detail),
+    hint: '检查 daemon 所在主机的进程状态后重试', exitCode: ExitCodes.GENERAL,
+  });
+}
+
+export function consolePortInUse(detail) {
+  return new PddCliError({
+    code: 'E_CONSOLE_PORT_IN_USE', message: '控制台端口已被占用', detail: daemonDetail(detail),
+    hint: '修改 consolePort 配置或释放端口后执行 pdd daemon start', exitCode: ExitCodes.GENERAL,
+  });
+}
+
 const RELOGIN_REASONS = new Set(['success', 'sms', 'slider', 'click', 'risk_confirm', 'unknown',
   'wrong_password', 'account_locked', 'form_changed', 'network_error', 'verify_failed',
   'takeover_timeout', 'manual_login', 'password_reset', 'password_cleared', 'manual_unblock']);

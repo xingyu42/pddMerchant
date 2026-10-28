@@ -78,6 +78,7 @@ src/services/<domain>.js           业务逻辑（被 handler 调用）
 
 ## 3. Contracts
 
+- `withCommand` 选项 `needsBrowser`（默认 `true`）：本地管理命令（`daemon start/stop/status/run`、`console link`）设为 `false`，同时 `needsAuth: false`，runner 既不启动浏览器也不解析账号；输出仍走统一 finalizer 与 data 契约 v2。需要浏览器或账号上下文的命令不得设置它。
 - Global flags include `--json`、`--no-color`、`--timeout <ms>`、`--mall <id>`、`--headed`、`--verbose`。
 - Command handlers MUST call `withCommand()` indirectly via `wireAction` / runner facade。
 - `pdd config show/set/unset/validate` is the maintenance exception: it MUST use `wireAction(..., { runtimeConfigPolicy: 'maintenance' })` so damaged config can still be diagnosed or safely repaired, and MUST NOT enter auth/browser/mall runner lifecycle。

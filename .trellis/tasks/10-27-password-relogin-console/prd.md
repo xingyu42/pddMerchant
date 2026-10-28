@@ -15,7 +15,7 @@
 - LoginToken 消费路径（任务 `10-11-login-token-consumption`）实测无效：未过期会话也恢复不了。
 - 用户研究仓库 `D:/Dev/pinduoduo`：官方工作台逆向只确认了 `checkLogin` 有效性检查与本地 Cookie 回写，未找到主凭据续期证据。
 - 账号为主账号；部署环境需同时支持本机 Windows 与远程 Linux。
-- 商家版 App 支持从相册识别登录二维码；短信验证码需在登录页点击后才发送。
+- 商家版 App 支持从相册识别登录二维码。③ 的实验（2026-10-27）证实提交账密本身就会触发短信发送，与早先"点击后才发送"的判断相反；设备信任需人工在同一设备状态下先完成一次短信验证。
 
 ## 威胁模型
 
@@ -29,7 +29,7 @@
 - R1.1 CLI 不提供任何明文密码入参（argv / stdin / 环境变量）；LLM 只传账号 slug。
 - R1.2 密码只能在 Web 控制台录入，只写、从不回显。
 - R1.3 恢复链：工作 Cookie 失效 → 自动填账密重登 → 遇到挑战转人工接管；真正失败才熔断。
-- R1.4 普通命令（`withCommand()`）内隐式重登。遇到任何挑战（短信、滑块、点选、风控确认页）时，不点击、不发送，返回 `E_AUTH_HUMAN_REQUIRED`（exit 3），写入 `pending_actions`（状态“等待人工”），该账号自动重登暂停直至接管完成。
+- R1.4 普通命令（`withCommand()`）内隐式重登。遇到任何挑战（短信、滑块、点选、风控确认页）时，不再做任何点击或拖动（提交本身可能已触发短信），返回 `E_AUTH_HUMAN_REQUIRED`（exit 3），写入 `pending_actions`（状态“等待人工”），该账号自动重登暂停直至接管完成。
 - R1.5 熔断只针对真正失败：密码错误、账号被锁、接管超时连续 2 次。每条命令最多尝试一次；同一账号两次自动重登间隔至少 30 分钟。解除：重登成功、控制台手动解除或重设密码。
 - R1.6 `doctor` 只报告会话状态、是否有密码、熔断状态，不触发重登。
 - R1.7 重登在账号租约内进行，其他命令等待并复用结果；重登有独立超时预算；`--all-accounts` 按账号依次重登。
@@ -71,7 +71,7 @@
 
 - R6.1 删除 AGENTS.md 中 “Do not introduce an auth daemon or automatic background launch” 规则。
 - R6.2 新增 `docs/adr/0003`：记录 daemon 先删后加的理由（旧守护只做定时刷新且无效；新 daemon 承载控制台、巡航与重登）。
-- R6.3 版本升至 `0.2.0`，`CHANGELOG.md` 写 BREAKING 一节（存储改 SQLite 不迁移、删除的环境变量、新增 daemon/控制台/密码重登、`engines >=24`）。
+- R6.3 版本号在父任务整体发布时确定（当前为 `0.5.0`，原写的 `0.2.0` 已过时），`CHANGELOG.md` 写 BREAKING 一节（存储改 SQLite 不迁移、删除的环境变量、新增 daemon/控制台/密码重登、`engines >=24`）。
 
 ## 子任务映射
 
@@ -80,7 +80,7 @@
 | ① | `10-27-remove-login-token-consumption` | 清理前置 | 无 | 已完成并归档 |
 | ② | `10-27-sqlite-auth-storage` | R2、R6.3 部分 | ① | 已完成并归档（2026-10-27 合并到 main，`e09c783`） |
 | ③ | `10-27-password-relogin-core` | R1、R5.2、R5.3 | ② | 已完成并归档（2026-10-27 合并到 main，`4b28bce`）。真实账号实验 2 次，结论见 `archive/2026-10/10-27-password-relogin-core/research/real-login-experiment.md` |
-| ④ | `10-27-daemon-console` | R3、R4、R5.1、R6.1、R6.2 | ③ | 规划中（移交项：租约 pid 复用时的阻塞，随心跳续期一并处理；来自 ③：提供 `pdd console link`，接入 ③ 预留的 `setAccountPassword` / `clearAccountPassword` / `clearReloginBlock` / `recordTakeoverTimeout` / `getReloginSummary`；交互式重登从设备延续的上下文开始（已保存状态去掉 `PASS_ID`），由人工完成首次短信以建立设备信任，成功后提交新状态；在接管视图中观察第 2 次实验停住的页面，校准 `PASSWORD_LOGIN_SELECTORS` / `PASSWORD_LOGIN_TEXTS`） |
+| ④ | `10-27-daemon-console` | R3、R4、R5.1、R6.1、R6.2 | ③ | 实现中：P1–P7 已完成（分支 `feat/daemon-console`），待真机验证（N25–N27a，需逐项授权）与最终审查；移交项均已承接（③ 预留函数、设备延续的交互式重登、选择器校准留待接管时观察） |
 | ⑤ | `10-27-session-lifetime-research` | 根因调研 | 无（可并行） | 规划中 |
 
 ③④ 的 `design.md` / `implement.md` 依赖 ② 落定的表结构，在 ② 完成后再细化。

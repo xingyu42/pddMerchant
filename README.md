@@ -26,7 +26,8 @@ Linux 部署方需自行准备 Debian/Ubuntu 所需的 Chromium 运行库。系�
 - **多店铺/多账号**：`--mall <id>` / `--account <slug>` / `--consumer-account <ref>` / `--all-accounts`
 - **店铺数据统计**：`diagnose shop` 汇总订单、库存、推广和漏斗数据，支持数值环比
 - **从链接上货**：`goods publish --url <链接>` 一键抓取发布
-- **按需认证检查**：登录、普通命令和 `doctor` 独立检查认证；成功命令只回写重新验证通过的材料，不运行后台进程
+- **按需认证检查**：登录、普通命令和 `doctor` 独立检查认证；成功命令只回写重新验证通过的材料，从不自动拉起后台进程
+- **密码自动重登 + 人工控制台**：会话失效时用已保存的密码自动重登；遇到验证由 `pdd daemon` 托管的网页控制台交给人工完成
 - **无头扫码**：`init --qr` 终端二维码 + PNG
 - **自动脱敏**：敏感字段 SHA256 替代
 
@@ -165,7 +166,7 @@ pdd config unset rateLimitQps           # 删除本地覆盖，回退到环境�
 pdd config validate --json              # 分层校验；配置损坏时仍可执行
 ```
 
-配置命令只管理项目内公开字段，不写 `.env`；修改后由下一次命令加载，无需重启后台。旧本地配置中的 `refreshIntervalMs` / `refreshJitterMs` / `authStatePath` 会被忽略，设置这些字段会返回未知字段错误。代理 AuthKey、测试和安全开关继续只允许通过环境变量安全注入。
+配置命令只管理项目内公开字段，不写 `.env`；修改后由下一次命令加载；已运行的 `pdd daemon` 需重启后生效。旧本地配置中的 `refreshIntervalMs` / `refreshJitterMs` / `authStatePath` 会被忽略，设置这些字段会返回未知字段错误。代理 AuthKey、测试和安全开关继续只允许通过环境变量安全注入。
 
 ## 环境变量
 
@@ -189,9 +190,28 @@ PDD_QINGGUO_AREA=<可选，6 位地区代码；多个用英文逗号分隔>
 
 ---
 
+## daemon 与人工控制台
+
+```bash
+pdd daemon start            # 后台启动（已运行则返回状态）
+pdd daemon status           # 心跳、控制台地址、最近巡航时间
+pdd console link [--account <slug>]   # 生成 10 分钟有效的一次性控制台链接
+pdd daemon stop             # 请求停止，15 秒未退出则强杀本机进程
+pdd daemon run              # 前台运行（调试）
+```
+
+- 控制台用于录入/清除密码（只写，不回显）、解除熔断、开始重登并在浏览器画面中完成短信/滑块验证、改用扫码登录。密码与验证码只在控制台输入，不经过聊天。
+- 默认只监听 `127.0.0.1:47821`（`consoleHost` / `consolePort`）。改为局域网地址时为 http 明文，启动会警告；需要外网或 HTTPS 时用 nginx/Caddy 反代，并设置 `consolePublicUrl` 为外部地址（Host 头只接受监听地址或该地址）。局域网访问时 `consoleHost` 填具体网卡地址（如 `192.168.1.10`）；填 `0.0.0.0` 时必须同时设置 `consolePublicUrl`，否则请求会被 421 拒绝。反代须挂在站点根路径（页面使用 `/api`、`/app` 等绝对路径）。
+- 反代须关闭对 `/api/sessions/*/frames` 的缓冲（SSE），例如 nginx `proxy_buffering off;`。
+- 一次性链接打开后由页面脚本兑换为 8 小时会话，聊天应用的链接预览不会消耗链接。
+- 巡航默认关闭（`patrolEnabled`）；开启后按 `patrolIntervalMs`（默认 30 分钟 ±20%）逐账号检查并在失效时自动重登。
+- 不做开机自启：重启机器后需重新 `pdd daemon start`。日志写 `log/daemon/YYYY-MM-DD.log`。
+
 ## 故障排查
 
 - `E_AUTH_EXPIRED` → `pdd login`
+- `E_AUTH_HUMAN_REQUIRED` / `E_AUTH_RELOGIN_BLOCKED` → `pdd console link`，在控制台完成验证、重设密码或解除熔断；也可 `pdd login --qr`
+- `E_DAEMON_NOT_RUNNING` 或 warning `daemon_not_running` → `pdd daemon start`
 - `E_CHROMIUM_MISSING` → `npx patchright install chromium`
 - 命令挂起 → 风控拦截，`pdd doctor` 自检后重新登录
 

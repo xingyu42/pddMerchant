@@ -31,7 +31,7 @@ Project-specific skills live under `.agents/skills/`. Use the smallest matching 
 - Goods write commands require `--confirm`; without it they return dry-run data.
 - Diagnostic reports contain factual metrics and data availability, not operating advice or scores.
 - Endpoint specs should keep fixture names aligned with `spec.name` under `test/fixtures/endpoints/`.
-- Merchant authentication is checked on demand at login, ordinary commands, and doctor; successful commands re-verify before persistence. Do not introduce an auth daemon or automatic background launch.
+- Merchant authentication is checked on demand at login, ordinary commands, and doctor; successful commands re-verify before persistence. Ordinary commands, login and doctor never launch or depend on a background process; `pdd daemon` (console, takeover, optional patrol; see `docs/adr/0003-reintroduce-explicit-daemon-console.md`) is started explicitly.
 
 ## Verification Checklist
 

@@ -17,10 +17,24 @@ async function setupBrowser() {
   vi.doMock('patchright', () => ({ chromium: { launch: vi.fn(async () => browser) } }));
   const runtime = await import('../../src/adapter/browser.js');
   await runtime.launchBrowser();
-  return { browser, runtime, contexts };
+  return { browser, runtime, contexts, launch: (await import('patchright')).chromium.launch };
 }
 
 describe('frozen authentication context', () => {
+  it('marks only daemon-owned launches in headless, headed and fallback modes', async () => {
+    const { browser, runtime, launch } = await setupBrowser();
+    try {
+      assert.deepEqual(launch.mock.calls[0][0].args, ['--enable-gpu']);
+      await runtime.launchBrowser({ ownerTag: 'lease-123' });
+      assert.deepEqual(launch.mock.calls.at(-1)[0].args, ['--enable-gpu', '--pdd-cli-daemon=lease-123']);
+      await runtime.launchBrowser({ headed: true, ownerTag: 'lease-123' });
+      assert.deepEqual(launch.mock.calls.at(-1)[0].args, ['--pdd-cli-daemon=lease-123']);
+      launch.mockRejectedValueOnce(new Error("Chromium distribution 'chrome' is not found"));
+      await runtime.launchBrowser({ ownerTag: 'fallback' });
+      assert.equal(launch.mock.calls.at(-1)[0].channel, 'chromium');
+      assert.deepEqual(launch.mock.calls.at(-1)[0].args, ['--enable-gpu', '--pdd-cli-daemon=fallback']);
+    } finally { await runtime.closeBrowser(browser); vi.doUnmock('patchright'); }
+  });
   it('accepts internal storageState input without leaking source metadata or rereading a file', async () => {
     const { browser, runtime } = await setupBrowser();
     try {

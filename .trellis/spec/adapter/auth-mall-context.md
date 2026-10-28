@@ -125,7 +125,7 @@ export function isMockEnabled() {
 
 ### 1. Scope / Trigger
 
-适用于修改商家认证检查、登录、doctor、命令回写和账号租约。认证后台、daemon 命令、定时 refresher 和自动启动已移除；不得重引入后台依赖。
+适用于修改商家认证检查、登录、doctor、命令回写和账号租约。旧的定时刷新后台（`aecc0ae` 删除）不再恢复：登录、普通命令与 doctor 始终在当前进程内按需检查，不依赖、不自动拉起任何后台进程。显式启动的 `pdd daemon`（控制台、接管、可选巡航，见 [runtime-lifecycle.md](../architecture/runtime-lifecycle.md) 与 ADR 0003）只复用本节的租约与提交规则。
 
 LoginToken 消费路径（任务 10-11）已于 2026-10-27 放弃：实测未过期会话也恢复不了，服务端过期后无法续期。不保留独立 Token 来源，也不从保存材料重建工作 Cookie；后续由账密重登承接，见第 9 节。
 
@@ -158,7 +158,7 @@ provisionConsumerAuth(state, { uid, nickname }) -> { account, accountId };
 
 ### 3. Contracts
 
-- Login, ordinary single/batch commands and doctor MUST NOT launch a background process or report background status. `daemon` is no longer a supported CLI group.
+- Login, ordinary single/batch commands and doctor MUST NOT launch a background process or report background status. The explicit `pdd daemon` group (ADR 0003) is started only by the user/agent; ordinary commands at most append `daemon_not_running` when the account has open pending actions.
 - Writers MUST acquire the account lease (`scope='account'`, `key=accountId`) before loading browser state or saving credentials. `withMerchantAuthUpdate` acquires it, checks the account is a merchant whose identity equals `recoveryMallId` (if given), loads the state once, runs `await callback(tx)` outside any SQLite transaction, and releases the lease in `finally`.
 - Merchant auth MUST independently GET `/janus/api/checkLogin` with one browser-selected frozen Cookie header, TLS enabled, no redirects/CookieJar, 15s per request and 1 MiB response cap; only temporary transport failures MAY retry once after 500ms within the total deadline.
 - checkLogin Cookies MUST come from the browser-selected frozen snapshot for the checkLogin URL and pass buildCheckHeader rules. Missing/empty exact-name PASS_ID is rejected/auth_missing with 0 requests.
@@ -179,7 +179,7 @@ provisionConsumerAuth(state, { uid, nickname }) -> { account, accountId };
 
 | Condition | Expected behavior |
 | --- | --- |
-| removed daemon command | usage error; no background process |
+| ordinary command or doctor while daemon is stopped | runs in-process; never spawns the daemon |
 | cannot acquire account lease | `E_LOCK_TIMEOUT`; do not mutate auth state |
 | lease taken over before commit | `E_AUTH_LOCK_LOST`; transaction rolls back |
 | already-aborted signal | cancel before browser work or credential commit |
@@ -199,13 +199,13 @@ provisionConsumerAuth(state, { uid, nickname }) -> { account, accountId };
 
 - Good: auth lifecycle tests use a temporary `PDD_DB_PATH` and simulated HTTPS/browser seams.
 - Good: validate shop-target PASS_ID consistency before any shop request, and send each endpoint only its own selected materials.
-- Base: CLI tests reject the removed daemon group and prove doctor omits background status.
+- Base: CLI tests prove ordinary commands and doctor never spawn the daemon and doctor omits background status.
 - Bad: normal login or command execution silently starts a persistent background process.
 - Bad: send shop requests with materials whose PASS_ID differs from checkLogin; describe a local Cookie write as server renewal.
 
 ### 6. Tests Required
 
-- Assert one-line JSON stdout, removed daemon CLI and unchanged credentials on failed validation.
+- Assert one-line JSON stdout, no background launch from ordinary commands/doctor, and unchanged credentials on failed validation.
 - Auth-check tests MUST mock HTTPS transport and assert exact fixed GET targets, explicit scoped Cookie/TLS, strict success/login booleans, identity/read-only verification, size/deadline/cancel/redirect handling and fail-closed candidate commits. See `test/adapter/auth-probe.test.js`, `auth-snapshot-context.test.js`, `merchant-auth-storage.test.js` and merchant auth e2e.
 - auth-probe tests cover scoped selection, invalid/mismatched materials and secret-free errors. merchant-auth-storage tests assert zero shop transport on mismatched candidates and branded-only atomic commits.
 - Lease/CAS changes: run `test/infra/leases.test.js`, merchant-auth-storage and merchant-account-storage tests, plus the two-process conflict case in `test/e2e/sqlite-auth-storage.e2e.test.js`.
@@ -287,6 +287,8 @@ recordReloginOutcome(tx, outcome, { credentialUpdatedAt }) -> PddCliError | null
 reloginInCommand(runtime, tx, browser, authResult) -> { context, page }; // live; lease already held
 reloginForFixture(accountId, runtime);                     // fixture; takes its own lease
 markManualLoginSucceeded(accountId);                       // saveMerchantLogin, existing account only
+deviceState(tx);                                         // cloned cookies/origins, every PASS_ID removed
+commitFixtureRelogin(tx, task);                           // fixture marker, lease + revision CAS
 // reserved for task ④ (implemented and tested in ③)
 setAccountPassword(accountId, { loginName, password });
 clearAccountPassword(accountId);
@@ -315,7 +317,7 @@ getAccountActionWarnings(accountId, slug) -> [{ code: 'account_action_required',
 | challenge | awaiting_human | challenge type | open `human_takeover` action |
 | wrong_password / account_locked | blocked | same | open `relogin_blocked` action |
 | form_changed / network_error / verify_failed | available | same | no breaker |
-| manual login (N9a) | awaiting_human → available | `manual_login` | resolves `human_takeover`; `blocked` stays |
+| manual login (N9a) | awaiting_human → available | `manual_login` | resolves `human_takeover`; resets takeover-timeout counter for every status; `blocked` stays |
 | `setAccountPassword` | available | `password_reset` | `last_attempt_at = null`, counter reset, resolves all open actions |
 | `clearAccountPassword` | available | `password_cleared` | deletes credential, resolves all open actions |
 | `clearReloginBlock` | blocked → available | `manual_unblock` | `last_attempt_at = null`, counter reset, resolves `relogin_blocked` |

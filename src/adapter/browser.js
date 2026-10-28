@@ -1,7 +1,10 @@
 import { chromium } from 'patchright';
+import { execFileSync } from 'node:child_process';
+import { readdirSync, readFileSync } from 'node:fs';
 import { isMockEnabled, mockLaunchBrowser, mockCloseBrowser } from './mock-dispatcher.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
+import { daemonBrowserDbPrefix } from '../infra/daemon-state.js';
 
 const DEFAULT_VIEWPORT = Object.freeze({ width: 1902, height: 984 });
 const DEFAULT_SCREEN = Object.freeze({ width: 1920, height: 1080 });
@@ -103,11 +106,12 @@ export function evaluateInMainWorld(page, pageFunction, arg) {
   return page.evaluate(pageFunction, arg, false);
 }
 
-async function launchPreferredBrowser(headless) {
+async function launchPreferredBrowser(headless, ownerTag) {
+  const args = [...(headless ? HEADLESS_LAUNCH_ARGS : []), ...(ownerTag ? [`--pdd-cli-daemon=${ownerTag}`] : [])];
   const launchOptions = (channel) => ({
     headless,
     channel,
-    ...(headless ? { args: [...HEADLESS_LAUNCH_ARGS] } : {}),
+    ...(args.length ? { args } : {}),
   });
 
   try {
@@ -196,7 +200,10 @@ export async function closeAllBrowsers({ timeoutMs = 5000 } = {}) {
   finally { closeAllPromise = null; }
 }
 
-export async function launchBrowser({ headed = false, storageState } = {}) {
+export async function launchBrowser({ headed = false, storageState, ownerTag } = {}) {
+  if (ownerTag !== undefined && (typeof ownerTag !== 'string' || !/^[a-z0-9-]{1,32}$/.test(ownerTag))) {
+    throw browserRuntimeError('invalid_owner_tag');
+  }
   if (isMockEnabled()) return mockLaunchBrowser();
   if (storageState && (!Array.isArray(storageState.cookies) || !Array.isArray(storageState.origins))) {
     throw browserRuntimeError('snapshot_shape_invalid');
@@ -206,7 +213,7 @@ export async function launchBrowser({ headed = false, storageState } = {}) {
   let context = null;
   let page = null;
   try {
-    const launched = await launchPreferredBrowser(!headed);
+    const launched = await launchPreferredBrowser(!headed, ownerTag);
     browser = registerBrowser(launched.browser);
     const profile = await createRuntimeProfile(browser, { headed, channel: launched.channel });
     browserProfiles.set(browser, profile);
@@ -298,3 +305,62 @@ export async function createSnapshotContext(browser, storageState) {
 }
 
 export { DEFAULT_VIEWPORT, DEFAULT_SCREEN, HEADLESS_OVERRIDE_KEYS };
+
+// Full process tables (long Chrome/Electron command lines) can exceed execFileSync's 1 MiB default.
+const PROCESS_LIST_OPTIONS = Object.freeze({ encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 15_000 });
+
+function listLinuxProcesses() {
+  const processes = [];
+  for (const entry of readdirSync('/proc')) {
+    if (!/^\d+$/.test(entry)) continue;
+    try {
+      const argv = readFileSync(`/proc/${entry}/cmdline`, 'utf8').split('\0');
+      processes.push({ pid: Number(entry), imageName: argv[0], commandLine: argv.join(' ') });
+    } catch { /* Process exited or belongs to another user. */ }
+  }
+  return processes;
+}
+
+export function listBrowserProcesses(platform = process.platform) {
+  if (platform === 'linux') return listLinuxProcesses();
+  if (platform === 'win32') {
+    const script = 'Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress';
+    const output = execFileSync('powershell', ['-NoProfile', '-Command', script], { ...PROCESS_LIST_OPTIONS, windowsHide: true });
+    const rows = JSON.parse(output.trim() || '[]');
+    return (Array.isArray(rows) ? rows : [rows]).map((row) => ({ pid: row.ProcessId, imageName: row.Name, commandLine: row.CommandLine }));
+  }
+  if (platform !== 'darwin') return [];
+  const output = execFileSync('ps', ['-axo', 'pid=,command='], PROCESS_LIST_OPTIONS);
+  const names = new Map(execFileSync('ps', ['-axo', 'pid=,comm='], PROCESS_LIST_OPTIONS).split('\n').flatMap((line) => {
+    const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+    return match ? [[Number(match[1]), match[2]]] : [];
+  }));
+  return output.split('\n').flatMap((line) => {
+    const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+    return match ? [{ pid: Number(match[1]), imageName: names.get(Number(match[1])), commandLine: match[2] }] : [];
+  });
+}
+
+function isBrowserProcess({ imageName, commandLine }) {
+  const argv0 = /^"([^"]+)"|^'([^']+)'|^(\S+)/.exec(commandLine ?? '');
+  const executable = imageName ?? argv0?.slice(1).find(Boolean) ?? '';
+  const name = executable.split(/[\\/]/).at(-1);
+  return /^(?:chrome(?:\.exe)?|chromium|chromium-browser|headless_shell(?:\.exe)?|Google Chrome|Chromium)$/.test(name);
+}
+
+export function cleanupOrphanBrowsers({ listProcesses = listBrowserProcesses, kill = process.kill } = {}) {
+  if (isMockEnabled()) return 0;
+  let processes;
+  try { processes = listProcesses(); }
+  catch { return 0; }
+  let count = 0;
+  const marker = new RegExp(`(?:^|[\\s"'])--pdd-cli-daemon=${daemonBrowserDbPrefix()}-[a-z0-9-]{1,23}(?=$|[\\s"'])`);
+  for (const item of processes) {
+    const { pid, commandLine } = item;
+    if (!Number.isSafeInteger(pid) || pid <= 0 || pid === process.pid) continue;
+    if (!isBrowserProcess(item) || typeof commandLine !== 'string' || !marker.test(commandLine)) continue;
+    try { kill(pid); count++; }
+    catch { /* Best effort; a process may already have exited. */ }
+  }
+  return count;
+}

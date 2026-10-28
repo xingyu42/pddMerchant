@@ -20,9 +20,11 @@ receiver_name, receiver_phone, receiver_address, password, credential,
 mobile, masterPassword, ciphertext, state_sealed, password_sealed, master_key
 ```
 
-其中 `SECRET_KEYS`（`password`、`password_sealed`、`masterPassword`、`master_key`、`credential`、`credentials`、`login_name`、`loginName`）命中时固定输出 `'[REDACTED]'`，不输出指纹：8 位 sha256 指纹可被枚举，短密码和 11 位手机号都能反推。其余 `REDACT_KEYS` 保持 `fp:` 指纹，便于关联比对。`SECRET_KEYS` 是 `REDACT_KEYS` 的子集，新增密码类字段时加到 `SECRET_KEYS`。
+其中 `SECRET_KEYS`（`password`、`password_sealed`、`masterPassword`、`master_key`、`credential`、`credentials`、`login_name`、`loginName`、`consoleToken`、`consoleSession`）命中时固定输出 `'[REDACTED]'`，不输出指纹：8 位 sha256 指纹可被枚举，短密码和 11 位手机号都能反推。其余 `REDACT_KEYS` 保持 `fp:` 指纹，便于关联比对。`SECRET_KEYS` 是 `REDACT_KEYS` 的子集，新增密码类字段时加到 `SECRET_KEYS`。
 
 `iv` / `tag` / `ct` 不在列表中：secret-box 的密封结果以 JSON 字符串存在 `state_sealed` / `password_sealed` 下，这三个名字不会作为对象键出现；而 `tag`、`ct` 可能是合法的账号 slug（批量 envelope 的 `data.accounts` 以 slug 为键），加入会误伤业务数据。
+
+New sensitive keys must be camelCase (or otherwise impossible as an account slug) because batch output is keyed by slug; daemon/console code must log tokens, sessions, QR images, and frame JPEGs only under `consoleToken`, `consoleSession`, `qrImage`, and `frameJpeg`, respectively.
 
 ## 3. Contracts
 
@@ -31,7 +33,7 @@ mobile, masterPassword, ciphertext, state_sealed, password_sealed, master_key
 - `PDD_DEBUG_RAW` goes through the same `redactRecursive`, so `SECRET_KEYS` rules apply to raw payload output too.
 - Password login code MUST NOT log `err.message` from Playwright (it may echo filled values); map to fixed reasons instead.
 - Log path is NOT configurable (`PDD_LOG_DESTINATION` / `logDestination` removed).
-- Runtime log files MUST live under `log/cli/YYYY-MM-DD.log` (local calendar day). The merchant auth daemon and its log channel are removed; existing historical files are not deleted.
+- Runtime log files MUST live under `log/cli/YYYY-MM-DD.log` (local calendar day); the explicit `pdd daemon` writes `log/daemon/YYYY-MM-DD.log` (`channel: 'daemon'`, foreground `run` also tees to stderr). Historical files are not deleted.
 - Daily rotation MUST auto-switch across midnight without restart; historical day files are retained.
 - Parent log directories MUST be created before write.
 - Bootstrap / silent logger (no runtimeConfig) MUST NOT force a project log file; stderr remains acceptable.

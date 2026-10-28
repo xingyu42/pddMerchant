@@ -2,10 +2,10 @@ import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import pino from 'pino';
-import { CLI_LOG_DIR } from './paths.js';
+import { CLI_LOG_DIR, DAEMON_LOG_DIR } from './paths.js';
 
 const SECRET_KEYS = ['password', 'password_sealed', 'masterPassword', 'master_key',
-  'credential', 'credentials', 'login_name', 'loginName'];
+  'credential', 'credentials', 'login_name', 'loginName', 'consoleToken', 'consoleSession'];
 const SECRET_KEY_SET = new Set(SECRET_KEYS);
 
 const REDACT_KEYS = [
@@ -25,6 +25,8 @@ const REDACT_KEYS = [
   'cookieHeaders',
   'session_id',
   'sessionId',
+  'qrImage',
+  'frameJpeg',
   'localStorage',
   'Anti-Content',
   'anti-content',
@@ -233,6 +235,7 @@ function buildFileDestination(logDirectory, { now, basename = null } = {}) {
 
 export function resolveDefaultLogDirectory({ config, channel } = {}) {
   if (channel === 'foreground') return null;
+  if (channel === 'daemon') return DAEMON_LOG_DIR;
   if (config) return CLI_LOG_DIR;
   return null;
 }
@@ -242,6 +245,7 @@ export function resolveDefaultLogDirectory({ config, channel } = {}) {
  * - writable stream/object (tests): use as-is
  * - string path treated as log *directory* (internal/test only)
  * - channel 'foreground': stderr
+ * - channel 'daemon': log/daemon/
  * - config present (CLI): log/cli/
  * - no config: stderr (bootstrap/silent)
  * logDestination / PDD_LOG_DESTINATION is intentionally unsupported.

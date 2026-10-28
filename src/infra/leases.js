@@ -15,19 +15,20 @@ function isPidAlive(pid) {
   }
 }
 
-function isStale(lease, now) {
+export function isLeaseStale(lease, { now = Date.now(), staleBy } = {}) {
+  if (staleBy === 'heartbeat') return Date.parse(lease.expires_at) <= now;
   if (lease.hostname === hostname() && Number.isSafeInteger(lease.pid) && lease.pid > 0) {
     return !isPidAlive(lease.pid);
   }
   return Date.parse(lease.expires_at) <= now;
 }
 
-function tryAcquire(scope, key, token, ttlMs, signal) {
+function tryAcquire(scope, key, token, ttlMs, signal, staleBy) {
   return transaction(() => {
     throwIfAborted(signal);
     const now = Date.now();
     const existing = get('SELECT * FROM leases WHERE scope = ? AND key = ?', scope, key);
-    if (existing && !isStale(existing, now)) return false;
+    if (existing && !isLeaseStale(existing, { now, staleBy })) return false;
     const acquiredAt = new Date(now).toISOString();
     run(`INSERT INTO leases (scope, key, owner_token, pid, hostname, acquired_at, expires_at, heartbeat_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -39,20 +40,25 @@ function tryAcquire(scope, key, token, ttlMs, signal) {
   });
 }
 
+// timeoutMs: 0 tries exactly once and rejects with E_LOCK_TIMEOUT when occupied.
 export async function acquireLease(scope, key, {
-  timeoutMs = DEFAULT_TIMEOUT_MS, retryMs = 200, ttlMs = timeoutMs + 30_000, signal, extendUntil, deadlineAt,
+  timeoutMs = DEFAULT_TIMEOUT_MS, retryMs = 200, ttlMs = timeoutMs + 30_000, signal, extendUntil, deadlineAt, staleBy,
 } = {}) {
   const token = randomUUID();
   let deadline = Math.min(Date.now() + timeoutMs, deadlineAt ?? Infinity);
   throwIfAborted(signal);
   while (true) {
     throwIfAborted(signal);
+    if (timeoutMs === 0) {
+      if (tryAcquire(scope, String(key), token, ttlMs, signal, staleBy)) return { token };
+      break;
+    }
     if (Date.now() >= deadline) {
       const extended = Math.min(extendUntil?.() ?? deadline, deadlineAt ?? Infinity);
       if (!Number.isFinite(extended) || extended <= Date.now() || extended <= deadline) break;
       deadline = extended;
     }
-    if (tryAcquire(scope, String(key), token, ttlMs, signal)) return { token };
+    if (tryAcquire(scope, String(key), token, ttlMs, signal, staleBy)) return { token };
     const jitter = Math.floor(Math.random() * 100);
     await abortableSleep(Math.min(retryMs + jitter, Math.max(1, deadline - Date.now())), signal);
   }

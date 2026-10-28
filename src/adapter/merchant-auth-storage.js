@@ -40,7 +40,7 @@ export async function verifyStoredMerchant(context, state, task = {}) {
 
 async function updateMerchantAuth(accountId, fn, options = {}) {
   assertAuthTask(options);
-  const timeoutMs = budgetMs(options, 15000);
+  const timeoutMs = options.timeoutMs === 0 ? 0 : budgetMs(options, 15000);
   const ttlMs = Math.max(0, (options.deadlineAt ?? Date.now() + timeoutMs) - Date.now()) + 30000;
   const extendUntil = () => {
     const startedAt = Date.parse(getReloginState(accountId)?.last_attempt_at);

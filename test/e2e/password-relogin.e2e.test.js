@@ -118,6 +118,7 @@ it.each(['sms', 'slider', 'click', 'risk_confirm', 'unknown'])('stops on %s, per
   assert.equal(state().status, 'awaiting_human');
   assert.deepEqual(openActions().map((action) => [action.kind, action.reason]), [['human_takeover', challenge]]);
   assert.deepEqual(actionWarnings(result), [{ code: 'account_action_required', account: DEFAULT_ACCOUNT.slug, reason: challenge }]);
+  assert.deepEqual(result.envelope.meta.warnings.filter((warning) => warning.code === 'daemon_not_running'), [{ code: 'daemon_not_running' }]);
   assert.equal(cli().envelope.error.code, 'E_AUTH_HUMAN_REQUIRED');
   assert.deepEqual(attempts(), [`challenge:${challenge}`]);
   assert.equal(openActions().length, 1);
@@ -157,7 +158,7 @@ it.each([false, true])('manual login clears awaiting-human state and its action 
   assert.deepEqual(attempts(), ['challenge:sms']);
 });
 
-it.each(['wrong_password', 'account_locked', 'takeover_timeout'])('manual login preserves the %s block and its pending action', (reason) => {
+it.each(['wrong_password', 'account_locked', 'takeover_timeout'])('manual login preserves the %s block/action and resets consecutive timeouts', (reason) => {
   seed();
   if (reason === 'takeover_timeout') {
     seedDb(sandbox.env.PDD_DB_PATH, { reloginStates: [{ accountId: 1, status: 'blocked', reason, consecutiveTakeoverTimeouts: 2 }] });
@@ -166,7 +167,11 @@ it.each(['wrong_password', 'account_locked', 'takeover_timeout'])('manual login 
   } else cli(undefined, { PDD_TEST_PASSWORD_LOGIN: reason });
   const before = state();
   assert.equal(cli(['login', '--qr'], { PDD_TEST_AUTH_INVALID: '0' }).status, 0);
-  assert.deepEqual(state(), before);
+  const after = state();
+  assert.equal(after.status, before.status);
+  assert.equal(after.reason, before.reason);
+  assert.equal(after.last_attempt_at, before.last_attempt_at);
+  assert.equal(after.consecutive_takeover_timeouts, 0);
   assert.equal(openActions()[0].kind, 'relogin_blocked');
 });
 
@@ -228,9 +233,11 @@ it('warnings cover only the merchant account actually used, including successful
   const own = cli(undefined, { PDD_TEST_AUTH_INVALID: '0' });
   assert.equal(own.status, 0);
   assert.deepEqual(actionWarnings(own), []);
+  assert.equal(own.envelope.meta.warnings.some((warning) => warning.code === 'daemon_not_running'), false);
   const other = cli(['shops', 'current', '--account', secondAccount.slug], { PDD_TEST_AUTH_INVALID: '0' });
   assert.equal(other.status, 0);
   assert.deepEqual(actionWarnings(other), [{ code: 'account_action_required', account: secondAccount.slug, reason: 'slider' }]);
+  assert.deepEqual(other.envelope.meta.warnings.filter((warning) => warning.code === 'daemon_not_running'), [{ code: 'daemon_not_running' }]);
   for (const args of [['doctor'], ['account', 'list']]) assert.deepEqual(actionWarnings(cli(args)), []);
   assert.deepEqual(attempts(), []);
 });
@@ -295,6 +302,7 @@ it('all-accounts recovers in order and aggregates each used account action warni
   const warned = cli(['shops', 'current', '--all-accounts']);
   assert.equal(warned.status, 0);
   assert.deepEqual(actionWarnings(warned), accounts.map((account) => ({ code: 'account_action_required', account: account.slug, reason: 'sms' })));
+  assert.deepEqual(warned.envelope.meta.warnings.filter((warning) => warning.code === 'daemon_not_running'), [{ code: 'daemon_not_running' }]);
 });
 
 it('debug output, appended runtime logs and database bytes contain neither password nor login name', () => {

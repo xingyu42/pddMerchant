@@ -54,7 +54,7 @@ describe('database', () => {
   });
 
   it('refuses a newer schema version with a path-free upgrade error', () => {
-    openDatabase().exec('PRAGMA user_version = 2');
+    openDatabase().exec('PRAGMA user_version = 3');
     closeDatabase();
     assert.throws(() => openDatabase(dbPath), (error) => {
       assert.ok(error instanceof PddCliError);
@@ -67,9 +67,9 @@ describe('database', () => {
     });
   });
 
-  it('migrates to v1 idempotently across reopen and preserves existing rows', () => {
-    const expectedTables = ['accounts', 'auth_states', 'credentials', 'leases', 'meta', 'pending_actions', 'relogin_states'];
-    assert.equal(get('PRAGMA user_version').user_version, 1);
+  it('migrates to v2 idempotently across reopen and preserves existing rows', () => {
+    const expectedTables = ['accounts', 'auth_states', 'console_sessions', 'console_tokens', 'credentials', 'leases', 'meta', 'pending_actions', 'relogin_states'];
+    assert.equal(get('PRAGMA user_version').user_version, 2);
     assert.deepEqual(all("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").map((row) => row.name), expectedTables);
     run('INSERT INTO meta (key, value) VALUES (?, ?)', 'migration-sentinel', 'preserved');
     const schema = all('SELECT type, name, sql FROM sqlite_master ORDER BY type, name');
@@ -77,9 +77,31 @@ describe('database', () => {
     closeDatabase();
     openDatabase(dbPath);
 
-    assert.equal(get('PRAGMA user_version').user_version, 1);
+    assert.equal(get('PRAGMA user_version').user_version, 2);
     assert.deepEqual(all('SELECT type, name, sql FROM sqlite_master ORDER BY type, name'), schema);
     assert.equal(get('SELECT value FROM meta WHERE key = ?', 'migration-sentinel').value, 'preserved');
+  });
+
+  it('upgrades a v1 database with an additive migration preserving every existing table', () => {
+    openDatabase().exec('DROP TABLE console_tokens; DROP TABLE console_sessions; PRAGMA user_version = 1');
+    const accountId = insertAccount('existing', { isDefault: 1 });
+    run('INSERT INTO meta(key, value) VALUES (?, ?)', 'migration-sentinel', 'preserved');
+    run('INSERT INTO auth_states(account_id, revision, state_sealed, updated_at) VALUES (?, 7, ?, ?)', accountId, 'sealed-state', NOW);
+    run('INSERT INTO credentials(account_id, password_sealed, updated_at) VALUES (?, ?, ?)', accountId, 'sealed-password', NOW);
+    run('INSERT INTO relogin_states(account_id, status, updated_at) VALUES (?, ?, ?)', accountId, 'blocked', NOW);
+    insertPending(accountId, 'human_takeover');
+    run(`INSERT INTO leases VALUES ('account', ?, 'owner', 1, 'host', ?, ?, ?)`, String(accountId), NOW, NOW, NOW);
+    const tables = all("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").map((row) => row.name);
+    const before = tables.map((table) => all(`SELECT * FROM ${table}`));
+    const schema = all('SELECT type, name, sql FROM sqlite_master ORDER BY type, name');
+    closeDatabase();
+    openDatabase(dbPath);
+    assert.equal(get('PRAGMA user_version').user_version, 2);
+    assert.deepEqual(tables.map((table) => all(`SELECT * FROM ${table}`)), before);
+    const upgraded = all('SELECT type, name, sql FROM sqlite_master ORDER BY type, name');
+    for (const row of schema) assert.ok(upgraded.some((candidate) => JSON.stringify(candidate) === JSON.stringify(row)));
+    assert.ok(get("SELECT name FROM sqlite_master WHERE name = 'console_tokens'"));
+    assert.ok(get("SELECT name FROM sqlite_master WHERE name = 'console_sessions'"));
   });
 
   it('rolls back all writes when a transaction callback throws', () => {
@@ -118,7 +140,7 @@ describe('database', () => {
     }
   });
 
-  it('cascades account deletion to all four dependent tables without deleting another account', () => {
+  it('cascades account deletion to all six dependent tables without deleting another account', () => {
     const removed = insertAccount('removed');
     const retained = insertAccount('retained');
     for (const accountId of [removed, retained]) {
@@ -126,12 +148,14 @@ describe('database', () => {
       run('INSERT INTO credentials (account_id, password_sealed, updated_at) VALUES (?, ?, ?)', accountId, 'synthetic sealed password', NOW);
       run('INSERT INTO relogin_states (account_id, status, updated_at) VALUES (?, ?, ?)', accountId, 'available', NOW);
       insertPending(accountId, 'human_verification');
+      run('INSERT INTO console_tokens(token_hash, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)', `token-${accountId}`, accountId, NOW, NOW);
+      run('INSERT INTO console_sessions(session_hash, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)', `session-${accountId}`, accountId, NOW, NOW);
     }
 
     assert.equal(run('DELETE FROM accounts WHERE id = ?', removed).changes, 1);
     assert.equal(get('SELECT id FROM accounts WHERE id = ?', removed), undefined);
     assert.equal(get('SELECT id FROM accounts WHERE id = ?', retained).id, retained);
-    for (const table of ['auth_states', 'credentials', 'relogin_states', 'pending_actions']) {
+    for (const table of ['auth_states', 'credentials', 'relogin_states', 'pending_actions', 'console_tokens', 'console_sessions']) {
       assert.equal(get(`SELECT count(*) AS count FROM ${table} WHERE account_id = ?`, removed).count, 0, table);
       assert.equal(get(`SELECT count(*) AS count FROM ${table} WHERE account_id = ?`, retained).count, 1, table);
     }
