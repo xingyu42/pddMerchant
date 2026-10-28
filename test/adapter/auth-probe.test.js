@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import https from 'node:https';
 import { describe, it, vi } from 'vitest';
-import { collectCheckCookies, buildCheckHeader, classifyCheckLogin, classifyMerchantIdentity, probeCheckLogin, probeMerchantShop } from '../../src/adapter/merchant-auth-probe.js';
+import { collectCheckCookies, selectCheckCookiesFromState, buildCheckHeader, classifyCheckLogin, classifyMerchantIdentity, probeCheckLogin, probeMerchantShop } from '../../src/adapter/merchant-auth-probe.js';
 
 // Independent protocol expectations from docs/merchant-auth-protocol-verification.md.
 const CHECK_URL = 'https://mms.pinduoduo.com/janus/api/checkLogin';
@@ -30,6 +30,71 @@ function mockTransport({ status = 200, body = { success: true, result: { login: 
   });
   return requests;
 }
+
+describe('checkLogin cookies from saved state', () => {
+  const cookie = { name: 'PASS_ID', value: 'synthetic-state-secret', domain: 'mms.pinduoduo.com', path: '/' };
+  const now = Date.parse('2026-10-28T01:00:00.000Z');
+
+  it.each([
+    ['.MMS.PINDUODUO.COM', true], ['pinduoduo.com', true], ['.pinduoduo.com', true],
+    ['other.pinduoduo.com', false], ['notpinduoduo.com', false], ['example.test', false],
+    [undefined, false], ['', false],
+  ])('matches the fixed host against domain %j (%j)', (domain, matches) => {
+    const selected = selectCheckCookiesFromState({ cookies: [{ ...cookie, domain }] });
+    assert.equal(selected.length, Number(matches));
+  });
+
+  it.each([
+    ['/', true], ['/janus', true], ['/janus/', true], ['/janus/api', true],
+    ['/janus/api/checkLogin', true], ['/janus/ap', false], ['/janus/api/checkLogin/extra', false],
+    ['/earth', false], [undefined, true],
+  ])('applies RFC 6265 path matching to %j (%j)', (path, matches) => {
+    const selected = selectCheckCookiesFromState({ cookies: [{ ...cookie, path }] });
+    assert.equal(selected.length, Number(matches));
+  });
+
+  it.each([
+    [now / 1000 - 1, false], [now / 1000, false], [now / 1000 + 1, true], [-1, true], [undefined, true],
+  ])('filters expiry %j at the supplied time (%j)', (expires, matches) => {
+    const selected = selectCheckCookiesFromState({ cookies: [{ ...cookie, expires }] }, { now });
+    assert.equal(selected.length, Number(matches));
+  });
+
+  it.each([true, false])('allows secure=%j on the HTTPS target and freezes detached cookies', (secure) => {
+    const original = { ...cookie, secure, httpOnly: true, sameSite: 'Lax' };
+    const selected = selectCheckCookiesFromState({ cookies: [original] });
+    assert.deepEqual(selected, [original]);
+    original.value = 'later-state';
+    assert.equal(selected[0].value, cookie.value);
+    assert.ok(Object.isFrozen(selected));
+    assert.ok(Object.isFrozen(selected[0]));
+    assert.equal(buildCheckHeader(selected), `PASS_ID=${cookie.value}`);
+  });
+
+  it.each([false, true])('keeps the longer path regardless of collection order (%j)', (reverse) => {
+    const input = [cookie, { ...cookie, path: '/janus/api', value: 'specific-state' }];
+    const selected = selectCheckCookiesFromState({ cookies: reverse ? input.reverse() : input });
+    assert.equal(selected.length, 1);
+    assert.equal(buildCheckHeader(selected), 'PASS_ID=specific-state');
+  });
+
+  it('leaves missing PASS_ID and invalid or partitioned values to the header validator', () => {
+    for (const entry of [{ ...cookie, name: 'auxiliary' }, { ...cookie, value: 'bad;value' },
+      { ...cookie, partitionKey: 'https://example.test' }]) {
+      const selected = selectCheckCookiesFromState({ cookies: [entry] });
+      if (entry.name === 'auxiliary') assert.ok(!selected.some((item) => item.name === 'PASS_ID'));
+      assert.throws(() => buildCheckHeader(selected), { code: 'E_AUTH_CANDIDATE_INVALID' });
+    }
+  });
+
+  it.each([undefined, null, {}, { cookies: null }, { cookies: {} }, { cookies: 'invalid' }])(
+    'returns a frozen empty list for missing or non-array cookies (%j)', (state) => {
+      const selected = selectCheckCookiesFromState(state);
+      assert.deepEqual(selected, []);
+      assert.ok(Object.isFrozen(selected));
+    },
+  );
+});
 
 describe('experimental merchant auth candidate', () => {
   it('uses the exact browser-scoped URL and freezes a detached snapshot', async () => {

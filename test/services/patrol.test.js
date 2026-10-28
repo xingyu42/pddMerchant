@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { it, vi } from 'vitest';
 import * as browser from '../../src/adapter/browser.js';
 import * as authStorage from '../../src/adapter/merchant-auth-storage.js';
+import * as authProbe from '../../src/adapter/merchant-auth-probe.js';
 import * as mocks from '../../src/adapter/mock-dispatcher.js';
 import * as relogin from '../../src/services/password-relogin.js';
 import { createPatrol, patrolDelayMs, patrolIntervalMs, runPatrolRound } from '../../src/services/patrol.js';
@@ -14,10 +15,11 @@ import { abortableSleep } from '../../src/infra/abort.js';
 
 const checkedAt = '2026-10-28T01:00:00.000Z';
 const credential = { loginName: 'synthetic-patrol-login', password: 'synthetic-patrol-password' };
+const savedCookies = [{ name: 'PASS_ID', value: 'synthetic-patrol-cookie-secret', domain: '.pinduoduo.com', path: '/' }];
 
-function account(identity = '900001', kind = 'merchant') {
+function account(identity = '900001', kind = 'merchant', cookies = []) {
   const row = insertAccount({ identity, displayName: `Shop ${identity}`, kind });
-  saveAuthStateSnapshot({ cookies: [], origins: [] }, row.id);
+  saveAuthStateSnapshot({ cookies, origins: [] }, row.id);
   return row;
 }
 
@@ -28,13 +30,24 @@ function context(overrides = {}) {
     ...overrides };
 }
 
-function live(verify) {
+function live(verify, probe = async (cookies) => {
+  authProbe.buildCheckHeader(cookies);
+  return { verdict: 'verified', reason: 'login_true', checked_at: checkedAt };
+}) {
   vi.stubEnv('PDD_TEST_ADAPTER', '');
   const session = { browser: {}, context: {}, page: { goto: vi.fn() } };
   const launch = vi.spyOn(browser, 'withBrowser').mockImplementation(async (_options, callback) => callback(session));
   const close = vi.spyOn(browser, 'closeBrowser').mockResolvedValue();
-  const check = vi.spyOn(authStorage, 'verifyStoredMerchant').mockImplementation(verify);
-  return { session, launch, close, check };
+  const check = vi.spyOn(authStorage, 'verifyStoredMerchant');
+  if (verify) check.mockImplementation(verify);
+  const request = vi.spyOn(authProbe, 'probeCheckLogin').mockImplementation(probe);
+  return { session, launch, close, check, request };
+}
+
+function assertSecretFree(ctx, row) {
+  const output = JSON.stringify({ logs: [ctx.log.info.mock.calls, ctx.log.warn.mock.calls],
+    check: loadAuthState(row.id).state.merchant_auth?.last_check });
+  for (const cookie of savedCookies) assert.ok(!output.includes(cookie.value));
 }
 
 it('keeps jitter within +/-20% with injectable random endpoints and midpoint', () => {
@@ -114,67 +127,126 @@ it('excludes disabled merchants and consumer accounts, and never opens a fixture
   assert.equal(launch.mock.calls.length, 0);
 });
 
-it('checks live accounts sequentially under their leases with owner tags, no navigation or verified-state write', async () => {
-  const first = account();
-  const second = account('900002');
+it('probes live accounts sequentially under their leases without a browser or verified-state write', async () => {
+  const first = account('900001', 'merchant', savedCookies);
+  const second = account('900002', 'merchant', savedCookies);
   const order = [];
-  const runtime = live(async (_context, _state, task) => {
+  const before = loadAuthState(first.id);
+  const runtime = live(undefined, async (cookies, task) => {
     assert.equal(isInTransaction(), false);
-    const row = task.expectedMallId === first.identity ? first : second;
+    const row = order.length === 0 ? first : second;
     assert.ok(get('SELECT owner_token FROM leases WHERE scope = ? AND key = ?', 'account', String(row.id)));
+    assert.ok(task.signal);
+    assert.ok(task.deadlineAt > Date.now() && task.deadlineAt <= Date.now() + 120_000);
+    assert.deepEqual(cookies, savedCookies);
+    assert.ok(Object.isFrozen(cookies) && Object.isFrozen(cookies[0]));
     order.push(row.id);
     await Promise.resolve();
-    return { verdict: 'verified', identity: { mallId: row.identity } };
+    return { verdict: 'verified', reason: 'login_true', checked_at: checkedAt };
   });
-  await runPatrolRound(context());
+  const record = vi.spyOn(authStorage, 'recordMerchantCheck');
+  const ctx = context();
+  await runPatrolRound(ctx);
   assert.deepEqual(order, [first.id, second.id]);
-  assert.equal(runtime.launch.mock.calls.length, 2);
-  assert.equal(runtime.launch.mock.calls[0][0].ownerTag, 'patrol-test');
-  assert.deepEqual(runtime.launch.mock.calls[0][0].storageState, { cookies: [], origins: [] });
+  assert.equal(runtime.launch.mock.calls.length, 0);
+  assert.equal(runtime.check.mock.calls.length, 0);
+  assert.equal(record.mock.calls.length, 0);
   assert.equal(runtime.session.page.goto.mock.calls.length, 0);
-  assert.equal(loadAuthState(first.id).revision, 1);
+  assert.deepEqual(loadAuthState(first.id), before);
   assert.equal(loadAuthState(second.id).revision, 1);
   assert.equal(get('SELECT COUNT(*) AS count FROM leases').count, 0);
+  assertSecretFree(ctx, first);
 });
 
 it('records rejected live checks before reusing relogin with a pausable deadline and the same lease', async () => {
-  const row = account();
+  const row = account('900001', 'merchant', savedCookies);
   const result = { verdict: 'rejected', reason: 'login_false', checked_at: checkedAt };
-  const runtime = live(async () => result);
+  const runtime = live(undefined, async () => result);
+  const record = vi.spyOn(authStorage, 'recordMerchantCheck');
   const attempt = vi.spyOn(relogin, 'reloginInCommand').mockImplementation(async (task, tx, instance, authResult) => {
     assertLeaseOwner('account', row.id, tx.token);
     assert.equal(instance, runtime.session.browser);
-    assert.equal(authResult, result);
+    assert.equal(authResult.verdict, 'rejected');
+    assert.equal(authResult.reason, 'known_rejected');
     assert.equal(task.runtimeConfig.passwordReloginMinIntervalMs, 1_800_000);
     assert.equal(typeof task.deadline.pause, 'function');
     assert.equal(typeof task.deadline.resume, 'function');
     assert.ok(task.signal);
     assert.ok(task.deadlineAt <= Date.now() + 120_000);
-    assert.deepEqual(loadAuthState(row.id).state.merchant_auth.last_check, result);
+    assert.deepEqual(loadAuthState(row.id).state.merchant_auth.last_check, authResult);
   });
-  await runPatrolRound(context());
+  const ctx = context();
+  await runPatrolRound(ctx);
+  assert.equal(runtime.launch.mock.calls.length, 1);
+  assert.equal(runtime.launch.mock.calls[0][0].ownerTag, 'patrol-test');
+  assert.deepEqual(runtime.launch.mock.calls[0][0].storageState.merchant_auth.last_check, result);
+  assert.equal(runtime.check.mock.calls[0][2].expectedMallId, row.identity);
+  assert.deepEqual(record.mock.calls[0][0], result);
+  assert.equal(record.mock.calls.length, 2);
   assert.equal(attempt.mock.calls.length, 1);
-  assert.equal(loadAuthState(row.id).revision, 2);
+  assert.equal(loadAuthState(row.id).revision, 3);
+  assertSecretFree(ctx, row);
 });
 
-it('records indeterminate live checks without relogin and continues after account failures', async () => {
-  const first = account();
-  const second = account('900002');
-  const third = account('900003');
-  live(async (_context, _state, task) => {
-    if (task.expectedMallId === first.identity) return { verdict: 'indeterminate', reason: 'network_error', checked_at: checkedAt };
-    if (task.expectedMallId === second.identity) throw new Error('synthetic private password');
-    return { verdict: 'verified', identity: { mallId: third.identity } };
+it('records indeterminate probes without a browser or relogin and continues after account failures', async () => {
+  const first = account('900001', 'merchant', savedCookies);
+  const second = account('900002', 'merchant', savedCookies);
+  account('900003', 'merchant', savedCookies);
+  const result = { verdict: 'indeterminate', reason: 'network_error', checked_at: checkedAt };
+  let calls = 0;
+  const runtime = live(undefined, async () => {
+    calls++;
+    if (calls === 1) return result;
+    if (calls === 2) throw new Error('synthetic private password');
+    return { verdict: 'verified', reason: 'login_true', checked_at: checkedAt };
   });
+  const record = vi.spyOn(authStorage, 'recordMerchantCheck');
   const attempt = vi.spyOn(relogin, 'reloginInCommand');
   const ctx = context();
   await runPatrolRound(ctx);
-  assert.equal(loadAuthState(first.id).state.merchant_auth.last_check.verdict, 'indeterminate');
+  assert.deepEqual(loadAuthState(first.id).state.merchant_auth.last_check, result);
+  assert.equal(record.mock.calls.length, 1);
+  assert.deepEqual(record.mock.calls[0][0], result);
+  assert.equal(runtime.launch.mock.calls.length, 0);
   assert.equal(attempt.mock.calls.length, 0);
   assert.deepEqual(ctx.log.warn.mock.calls.map((call) => call[0]), [
     { account: first.slug, code: 'E_AUTH_CHECK_INDETERMINATE' }, { account: second.slug, code: 'E_AUTH_UPDATE_FAILED' },
   ]);
   assert.ok(getDaemonMeta('daemon_last_patrol_at'));
+  assertSecretFree(ctx, first);
+  assert.ok(!JSON.stringify(ctx.log.warn.mock.calls).includes('synthetic private password'));
+});
+
+it('skips the request probe for a known-rejected state and relogs in through the browser', async () => {
+  const row = account('900001', 'merchant', savedCookies);
+  saveAuthStateSnapshot({ cookies: savedCookies, origins: [], merchant_auth: {
+    version: 1, mall_id: row.identity, last_check: { verdict: 'rejected', reason: 'login_false', checked_at: checkedAt },
+  } }, row.id);
+  const runtime = live();
+  const attempt = vi.spyOn(relogin, 'reloginInCommand').mockResolvedValue();
+  const ctx = context();
+  await runPatrolRound(ctx);
+  assert.equal(runtime.request.mock.calls.length, 0);
+  assert.equal(runtime.launch.mock.calls.length, 1);
+  assert.equal(attempt.mock.calls.length, 1);
+  assert.equal(attempt.mock.calls[0][3].reason, 'known_rejected');
+  assertSecretFree(ctx, row);
+});
+
+it('falls back to the browser and relogin when PASS_ID is missing', async () => {
+  const row = account();
+  const result = { verdict: 'rejected', reason: 'auth_missing', checked_at: checkedAt };
+  const runtime = live(async () => result);
+  const attempt = vi.spyOn(relogin, 'reloginInCommand').mockResolvedValue();
+  const ctx = context();
+  await runPatrolRound(ctx);
+  assert.equal(runtime.request.mock.calls.length, 1);
+  assert.deepEqual(runtime.request.mock.calls[0][0], []);
+  assert.equal(runtime.launch.mock.calls.length, 1);
+  assert.deepEqual(runtime.launch.mock.calls[0][0].storageState, { cookies: [], origins: [] });
+  assert.equal(attempt.mock.calls.length, 1);
+  assert.equal(attempt.mock.calls[0][3], result);
+  assertSecretFree(ctx, row);
 });
 
 it('stop aborts a live check mid-round, closes only its browser and leaves subsequent accounts untouched', async () => {
@@ -224,6 +296,51 @@ it('bounds each live account by its own 120s deadline and proceeds to the next a
   assert.deepEqual(ctx.log.warn.mock.calls[0][0], { account: first.slug, code: 'E_TIMEOUT' });
   assert.ok(getDaemonMeta('daemon_last_patrol_at'));
   assert.equal(vi.getTimerCount(), 0);
+});
+
+it('aborts a request-only probe without launching a browser or checking later accounts', async () => {
+  account('900001', 'merchant', savedCookies);
+  account('900002', 'merchant', savedCookies);
+  let entered;
+  const started = new Promise((resolve) => { entered = resolve; });
+  const runtime = live(undefined, async (_cookies, task) => {
+    entered();
+    await abortableSleep(120_000, task.signal);
+  });
+  const controller = new AbortController();
+  const round = runPatrolRound(context({ signal: controller.signal }));
+  await started;
+  controller.abort();
+  await round;
+  assert.equal(runtime.request.mock.calls.length, 1);
+  assert.equal(runtime.launch.mock.calls.length, 0);
+  assert.equal(get('SELECT COUNT(*) AS count FROM leases').count, 0);
+  assert.equal(getDaemonMeta('daemon_last_patrol_at'), null);
+});
+
+it('keeps the 120s account budget for request-only probes and continues after timeout', async () => {
+  const first = account('900001', 'merchant', savedCookies);
+  account('900002', 'merchant', savedCookies);
+  vi.useFakeTimers();
+  let entered;
+  const started = new Promise((resolve) => { entered = resolve; });
+  let calls = 0;
+  const runtime = live(undefined, async (_cookies, task) => {
+    if (++calls === 2) return { verdict: 'verified', reason: 'login_true', checked_at: checkedAt };
+    entered();
+    await abortableSleep(120_001, task.signal);
+  });
+  const ctx = context();
+  const round = runPatrolRound(ctx);
+  await started;
+  await vi.advanceTimersByTimeAsync(120_000);
+  await round;
+  assert.equal(runtime.request.mock.calls.length, 2);
+  assert.equal(runtime.launch.mock.calls.length, 0);
+  assert.deepEqual(ctx.log.warn.mock.calls[0][0], { account: first.slug, code: 'E_TIMEOUT' });
+  assert.equal(get('SELECT COUNT(*) AS count FROM leases').count, 0);
+  assert.equal(vi.getTimerCount(), 0);
+  assertSecretFree(ctx, first);
 });
 
 it('daemon abort interrupts fixture relogin, releases the lease and skips the rest of the round', async () => {

@@ -2,7 +2,7 @@ import https from 'node:https';
 import { abortableSleep } from '../infra/abort.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 
-// Fixed site protocol. Input Cookie lists must belong to a frozen browser snapshot.
+// Fixed site protocol. Input Cookie lists must belong to a frozen scoped snapshot.
 export const MERCHANT_CHECK_URL = 'https://mms.pinduoduo.com/janus/api/checkLogin';
 export const MERCHANT_IDENTITY_URL = 'https://mms.pinduoduo.com/earth/api/mallInfo/querySimpleCredential';
 export const MERCHANT_SHOP_READ_URL = 'https://mms.pinduoduo.com/earth/api/mallInfo/queryMallAuditInfo';
@@ -24,6 +24,29 @@ export function hasPassId(cookies) {
 // The browser owns URL/domain/path/expiry selection; never pass all-site cookies here.
 export async function collectCheckCookies(context) {
   const cookies = structuredClone(await context.cookies([MERCHANT_CHECK_URL]));
+  for (const cookie of cookies) Object.freeze(cookie);
+  return Object.freeze(cookies);
+}
+
+function matchesCheckCookie(cookie, target, now) {
+  if (typeof cookie?.domain !== 'string') return false;
+  const domain = cookie.domain.replace(/^\./, '').toLowerCase();
+  if (!domain || (target.hostname !== domain && !target.hostname.endsWith(`.${domain}`))) return false;
+  if (cookie.expires > 0 && cookie.expires * 1000 <= now) return false;
+  const path = cookie.path ?? '/';
+  return typeof path === 'string' && (path === target.pathname
+    || (target.pathname.startsWith(path) && (path.endsWith('/') || target.pathname[path.length] === '/')));
+}
+
+export function selectCheckCookiesFromState(state, { now = Date.now() } = {}) {
+  const target = new URL(MERCHANT_CHECK_URL);
+  const selected = new Map();
+  for (const cookie of Array.isArray(state?.cookies) ? state.cookies : []) {
+    if (!matchesCheckCookie(cookie, target, now)) continue;
+    const previous = selected.get(cookie.name);
+    if (!previous || (cookie.path ?? '/').length > (previous.path ?? '/').length) selected.set(cookie.name, cookie);
+  }
+  const cookies = structuredClone([...selected.values()]);
   for (const cookie of cookies) Object.freeze(cookie);
   return Object.freeze(cookies);
 }

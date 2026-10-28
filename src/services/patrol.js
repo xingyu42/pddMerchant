@@ -1,5 +1,6 @@
 import { withBrowser, closeBrowser } from '../adapter/browser.js';
 import { assertMerchantVerified } from '../adapter/merchant-auth.js';
+import { probeCheckLogin, selectCheckCookiesFromState } from '../adapter/merchant-auth-probe.js';
 import { withMerchantAuthUpdate, verifyStoredMerchant, recordMerchantCheck, assertAuthTask } from '../adapter/merchant-auth-storage.js';
 import { isMockEnabled, mockIsAuthValid, mockIsAuthIndeterminate } from '../adapter/mock-dispatcher.js';
 import { listAccounts, getAccountById } from '../infra/account-store.js';
@@ -30,6 +31,24 @@ async function checkFixture(account, runtime, tx) {
 }
 
 async function checkLive(runtime, tx, ownerTag) {
+  assertAuthTask(runtime);
+  if (tx.state?.merchant_auth?.last_check?.verdict === 'rejected') return browserRelogin(runtime, tx, ownerTag);
+  let result;
+  try {
+    const cookies = selectCheckCookiesFromState(tx.state);
+    result = await probeCheckLogin(cookies, { signal: runtime.signal, deadlineAt: runtime.deadlineAt });
+  } catch (error) {
+    if (error?.code === 'E_AUTH_CANDIDATE_INVALID') return browserRelogin(runtime, tx, ownerTag);
+    throw error;
+  }
+  assertAuthTask(runtime);
+  if (result.verdict === 'verified') return;
+  recordMerchantCheck(result, tx);
+  if (result.verdict === 'rejected') return browserRelogin(runtime, tx, ownerTag);
+  assertMerchantVerified(result);
+}
+
+async function browserRelogin(runtime, tx, ownerTag) {
   return withBrowser({ storageState: tx.state, ownerTag }, async ({ browser, context }) => {
     let closing;
     const onAbort = () => { closing = closeBrowser(browser).catch(() => {}); };
