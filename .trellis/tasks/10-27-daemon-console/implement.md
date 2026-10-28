@@ -88,16 +88,16 @@ P6 验证结果（2026-10-28）：最终定向 6 个文件、120 项通过；`np
 
 - [ ] N25 手机触屏轨迹过滑块、SSE 画面延迟。
 - [ ] N26 Linux 下 Hermes 以 systemd 运行时 daemon 是否随之被杀。
-- [ ] N27 强杀 node 后 Chromium 是否残留、启动清理是否生效；Windows `detached + windowsHide` 是否存活。
+- [x] N27 强杀 node 后 Chromium 是否残留、启动清理是否生效；Windows `detached + windowsHide` 是否存活。
 - [ ] 结合 ③ 的移交：在接管视图里完成首次短信验证，观察之后的账密重登是否免短信；校准登录页选择器。
 
 ## 最终审查与合并
 
-- [ ] 逐条核对 PRD 验收标准。
-- [ ] `trellis-check` 全量检查。
-- [ ] 安全审查：控制台鉴权、CSRF/Host、密码只写、日志脱敏、子进程与信号、遗留进程清理只匹配标记。
-- [ ] `git diff main...feat/daemon-console` 检查范围。
-- [ ] 本地 `--no-ff` 合并到 main，归档任务。
+- [x] 逐条核对 PRD 验收标准。
+- [x] `trellis-check` 全量检查。
+- [x] 安全审查：控制台鉴权、CSRF/Host、密码只写、日志脱敏、子进程与信号、遗留进程清理只匹配标记。
+- [x] `git diff main...feat/daemon-console` 检查范围。
+- [x] 本地 `--no-ff` 合并到 main，归档任务。
 
 ## 风险与回滚点
 
