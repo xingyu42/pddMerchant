@@ -11,7 +11,7 @@
 - [x] `db.js` v2 迁移（`console_tokens`、`console_sessions`），拒绝阈值改为 `> 2`；测试 v1 → v2 升级与高版本拒绝。
 - [x] `leases.js` 增加 `staleBy: 'heartbeat'`；`timeoutMs: 0` 尝试一次，失败立即抛 `E_LOCK_TIMEOUT`；测试。
 - [x] `src/infra/daemon-state.js`：租约读写、心跳、停止请求、`meta` 键读写。
-- [x] `logger.js` / `paths.js`：`channel: 'daemon'` → `log/daemon/`；`SECRET_KEYS` 增加 `token`、`pdd_console`；`REDACT_KEYS` 增加 `session`、`qr_image`、`jpeg`。
+- [x] `logger.js` / `paths.js`：`channel: 'daemon'` → `log/daemon/`；`SECRET_KEYS` 增加 `consoleToken`、`consoleSession`；`REDACT_KEYS` 增加 `qrImage`、`frameJpeg`（审查后由小写键改为 camelCase）。
 - [x] `config.js` + `config/config.example.json`：五个扁平键（design 第 9 节）。
 - [x] `errors.js`：四个新错误工厂。
 

@@ -175,7 +175,8 @@ function AccountActions({ account, onDone, onError }) {
       <h2>操作</h2>
       ${blocked && html`<button onClick=${() => run('unblock', '已解除熔断')}>解除熔断</button>`}
       ${account.has_password && !blocked && html`<button onClick=${() => run('relogin')}>开始重登</button>`}
-      <button class="secondary" onClick=${() => run('qr')}>改用扫码登录</button>
+      ${!blocked && html`<button class="secondary" onClick=${() => run('qr')}>改用扫码登录</button>`}
+      ${blocked && html`<p class="muted">已熔断：先解除熔断或重设密码，再开始重登或扫码。</p>`}
       ${account.has_password && html`
         <button class="danger" onClick=${() => window.confirm('确定清除已保存的密码？') && run('password/clear', '密码已清除')}>清除密码</button>`}
     </div>`;

@@ -215,14 +215,14 @@ CREATE TABLE console_sessions (
 
 - `channel: 'daemon'` → `log/daemon/YYYY-MM-DD.log`，复用 `DailyRotatingFileDestination` 与全部脱敏规则；`daemon run`（前台）同时写 stderr。
 - 与 PRD N5 的差异：沿用仓库现有的按天轮转与 `log/` 目录（`data/` 只放库和密钥），不实现按大小轮转。
-- 新增脱敏键：`token`、`session`、`pdd_console`、`qr_image`、`jpeg`（固定 `[REDACTED]` 的放入 `SECRET_KEYS`：`token`、`pdd_console`）。
+- 新增脱敏键（实现时改为 camelCase，避免与批量输出中以 slug 为键的账号重名）：`SECRET_KEYS` 增加 `consoleToken`、`consoleSession`；`REDACT_KEYS` 增加 `qrImage`、`frameJpeg`。
 
 ## 12. 前端（Claude 编写）
 
-- `src/console/vendor/`：`preact.module.js`、`hooks.module.js`、`htm.module.js`（固定版本，附 LICENSE 与来源 URL、sha256），`index.html` 用 import map 指向本地文件。
+- `src/console/vendor/`：`preact.mjs`、`hooks.mjs`、`htm.mjs`（preact 11.1.0、htm 3.1.1，附 LICENSE、来源与 sha256）。CSP 只允许同源脚本文件，内联 import map 会被拦截，因此 `hooks.mjs` 的导入改为相对路径 `./preact.mjs`，页面不用 import map。
 - 页面：账号列表 → 账号详情（录入/清除密码、解除熔断、开始重登、改用扫码）→ 会话视图（画面 `<img>` 由 SSE 帧刷新；`pointer` 事件按 50ms 打包；文字框 + 回车/退格按钮；倒计时；扫码态显示二维码，可长按保存）。
-- 移动端优先；密码输入框 `autocomplete="off"`，提交后清空，从不回填。
-- `knip.json` 忽略 `src/console/vendor/**`；`.trellis/spec/frontend/index.md` 由"N/A"改为指向控制台约定。
+- 移动端优先；密码输入框 `autocomplete="new-password"`，提交后无论成败都清空，从不回填。熔断状态下隐藏"开始重登"与"改用扫码"，只给出解除熔断与重设密码。
+- `knip.json` 忽略 `src/console/**`；`.gitattributes` 让 vendor 文件不做换行转换；`.trellis/spec/frontend/index.md` 由"N/A"改为指向控制台约定。
 
 ## 13. 测试
 
