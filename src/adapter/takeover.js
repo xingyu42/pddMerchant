@@ -3,6 +3,36 @@ import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { createLatestFrames } from './latest-frames.js';
 
 const KEYS = Object.freeze({ Enter: ['Enter', 13], Backspace: ['Backspace', 8], Tab: ['Tab', 9] });
+const FOCUS_EXPRESSION = `(() => {
+  let element = document.activeElement;
+  while (['IFRAME', 'FRAME'].includes(element?.tagName)) {
+    try {
+      const active = element.contentDocument?.activeElement;
+      if (!active) break;
+      element = active;
+    } catch { break; }
+  }
+  const tag = element?.tagName;
+  const type = (element?.getAttribute('type') || 'text').toLowerCase();
+  const inputMode = (element?.getAttribute('inputmode') || '').toLowerCase();
+  const editable = !!element && !element.disabled && !element.readOnly
+    && (tag === 'TEXTAREA' || element.contentEditable === 'true' || element.isContentEditable === true
+      || (tag === 'INPUT' && ['text', 'search', 'tel', 'url', 'email', 'password', 'number'].includes(type)));
+  const numeric = editable && ((tag === 'INPUT' && ['tel', 'number'].includes(type))
+    || ['numeric', 'tel', 'decimal'].includes(inputMode));
+  return { editable, numeric };
+})()`;
+
+async function readFocus(cdp) {
+  try {
+    const response = await cdp.send('Runtime.evaluate', { expression: FOCUS_EXPRESSION, returnByValue: true });
+    const value = response?.result?.value;
+    if (!response?.exceptionDetails && typeof value?.editable === 'boolean' && typeof value?.numeric === 'boolean') {
+      return { editable: value.editable, numeric: value.numeric };
+    }
+  } catch { /* Focus detection is best-effort; pointer replay errors still propagate. */ }
+  return { editable: null, numeric: null };
+}
 
 export function invalidTakeoverInput() {
   return new PddCliError({ code: 'E_USAGE', message: '接管输入参数无效', exitCode: ExitCodes.USAGE });
@@ -104,7 +134,12 @@ function takeoverControls({ cdp, frames, enqueue, state, controller, close }) {
     dispatchPointer(input) {
       const events = validatePointer(input);
       if (!state.width) throw invalidTakeoverInput();
-      return enqueue(() => replay(cdp, events, state, controller.signal));
+      return enqueue(async () => {
+        await replay(cdp, events, state, controller.signal);
+        if (!events.some((event) => event.type === 'up')) return { editable: null, numeric: null };
+        await abortableSleep(150, controller.signal);
+        return readFocus(cdp);
+      });
     },
     insertText(input) {
       const text = validateText(input);

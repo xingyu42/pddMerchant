@@ -14,6 +14,9 @@ const JPEG = [
 export function openFixtureTakeover() {
   const frames = createLatestFrames();
   frames.publish({ jpeg: JPEG, width: 1, height: 1 });
-  return { frames, dispatchPointer: validatePointer, insertText: validateText, pressKey: validateKey,
+  return { frames, dispatchPointer(input) {
+    const released = validatePointer(input).some((event) => event.type === 'up');
+    return released ? { editable: false, numeric: false } : { editable: null, numeric: null };
+  }, insertText: validateText, pressKey: validateKey,
     close: () => frames.close() };
 }

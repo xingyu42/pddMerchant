@@ -1,12 +1,17 @@
 // 控制台单页：账号列表 → 账号详情 → 登录会话（接管画面 / 二维码）。
 import { h, render } from '../vendor/preact.mjs';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from '../vendor/hooks.mjs';
+import { useCallback, useEffect, useRef, useState } from '../vendor/hooks.mjs';
 import htm from '../vendor/htm.mjs';
+import Panzoom from '../vendor/panzoom.mjs';
 
 const html = htm.bind(h);
 const POINTER_FLUSH_MS = 50;
 const SESSION_POLL_MS = 1000;
-const ZOOM_LEVELS = [1, 2, 3, 4, 5];
+const MAX_ZOOM = 6;
+const PINCH_STEP = 0.8;
+const TOUCH_HOLD_MS = 120;
+const TOUCH_SLOP_PX = 8;
+const IME_SENTINEL = '\u200b';
 const TERMINAL_STATES = new Set(['succeeded', 'failed', 'timed_out', 'cancelled']);
 const STATE_TEXT = {
   filling: '正在自动填写账号密码…',
@@ -246,135 +251,196 @@ function useFrames(id, enabled) {
   return frame;
 }
 
-function usePointerBatches(id) {
+function usePointerBatches(id, image, onFocus) {
   const queue = useRef([]);
   const origin = useRef(performance.now());
   useEffect(() => {
-    const timer = setInterval(() => {
+    const timer = setInterval(async () => {
       if (queue.current.length === 0) return;
       const events = queue.current.splice(0);
-      api(`/api/sessions/${encodeURIComponent(id)}/pointer`, { events }).catch(() => {});
+      try {
+        const result = await api(`/api/sessions/${encodeURIComponent(id)}/pointer`, { events });
+        if (typeof result.editable === 'boolean') onFocus.current?.(result);
+      } catch { /* 丢失的批次由用户重新操作。 */ }
     }, POINTER_FLUSH_MS);
     return () => clearInterval(timer);
   }, [id]);
-  return useCallback((type, event) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
+  // 坐标按缩放后的图片位置归一化，缩放平移不影响映射。
+  const sample = useCallback((type, event) => {
+    const rect = image.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0 || rect.height === 0) return null;
     const clamp = (value) => Math.min(1, Math.max(0, value));
-    queue.current.push({
+    return {
       t: Math.round(performance.now() - origin.current), type,
       x: clamp((event.clientX - rect.left) / rect.width), y: clamp((event.clientY - rect.top) / rect.height),
-    });
+    };
   }, []);
+  const send = useCallback((records) => { queue.current.push(...records.filter(Boolean)); }, []);
+  return { sample, send };
 }
 
-function usePointerHandlers(id) {
-  const push = usePointerBatches(id);
-  const pressed = useRef(false);
-  const down = (event) => {
-    event.preventDefault();
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    pressed.current = true;
-    push('down', event);
-  };
-  const move = (event) => { if (pressed.current) push('move', event); };
-  const up = (event) => {
-    if (!pressed.current) return;
-    pressed.current = false;
-    push('up', event);
-  };
-  return { onPointerDown: down, onPointerMove: move, onPointerUp: up, onPointerCancel: up };
+function usePanzoom(image, ready) {
+  const panzoom = useRef(null);
+  useEffect(() => {
+    if (!ready || !image.current) return undefined;
+    const instance = Panzoom(image.current, {
+      noBind: true, contain: 'outside', minScale: 1, maxScale: MAX_ZOOM, step: PINCH_STEP,
+      cursor: 'default',
+    });
+    panzoom.current = instance;
+    return () => { instance.destroy(); instance.resetStyle(); panzoom.current = null; };
+  }, [ready]);
+  return panzoom;
 }
 
-// 缩放时保持视口中心对应的画面位置不变。
-function useZoom() {
-  const [zoom, setZoomState] = useState(1);
-  const wrap = useRef(null);
-  const center = useRef(null);
-  const setZoom = (next) => {
-    const element = wrap.current;
-    if (element) {
-      center.current = {
-        x: (element.scrollLeft + element.clientWidth / 2) / element.scrollWidth,
-        y: (element.scrollTop + element.clientHeight / 2) / element.scrollHeight,
-      };
-    }
-    setZoomState(next);
-  };
-  useLayoutEffect(() => {
-    const element = wrap.current;
-    if (!element || !center.current) return;
-    element.scrollLeft = center.current.x * element.scrollWidth - element.clientWidth / 2;
-    element.scrollTop = center.current.y * element.scrollHeight - element.clientHeight / 2;
-    center.current = null;
-  }, [zoom]);
-  return { zoom, setZoom, wrap };
+// 单指：点击或拖动远端页面；双指：本地缩放平移。按下后短暂等待，第二指到达则整次手势归本地。
+function routeToRemote(router) {
+  clearTimeout(router.timer);
+  router.mode = 'remote';
+  router.send(router.held.splice(0));
 }
 
-function ScreenTools({ zoom, setZoom, panning, setPanning }) {
-  const index = ZOOM_LEVELS.indexOf(zoom);
-  const change = (step) => {
-    const next = ZOOM_LEVELS[index + step];
-    setZoom(next);
-    if (next === 1) setPanning(false);
+function routeToPanzoom(router) {
+  clearTimeout(router.timer);
+  if (router.mode === 'remote') router.send([router.sample('up', router.last)]);
+  router.held = [];
+  router.mode = 'panzoom';
+  router.middle = middleOf(router.pointers);
+  for (const event of router.pointers.values()) router.panzoom.current?.handleDown(event);
+}
+
+function middleOf(pointers) {
+  const [first, second = first] = pointers.values();
+  return { x: (first.clientX + second.clientX) / 2, y: (first.clientY + second.clientY) / 2 };
+}
+
+// Panzoom 自带的双指平移会覆盖捏合焦点，这里按双指中点的增量自行平移。
+function panzoomMove(router, event) {
+  const instance = router.panzoom.current;
+  if (!instance) return;
+  instance.handleMove(event);
+  if (router.pointers.size < 2) return;
+  const middle = middleOf(router.pointers);
+  const scale = instance.getScale();
+  instance.pan((middle.x - router.middle.x) / scale, (middle.y - router.middle.y) / scale, { relative: true, animate: false });
+  router.middle = middle;
+}
+
+function routerDown(router, event) {
+  event.preventDefault();
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+  router.pointers.set(event.pointerId, event);
+  if (router.pointers.size > 1) return routeToPanzoom(router);
+  router.last = event;
+  router.origin = event;
+  router.held = [router.sample('down', event)];
+  if (event.pointerType === 'mouse') return routeToRemote(router);
+  router.mode = 'pending';
+  router.timer = setTimeout(() => routeToRemote(router), TOUCH_HOLD_MS);
+}
+
+function routerMove(router, event) {
+  if (!router.pointers.has(event.pointerId)) return;
+  router.pointers.set(event.pointerId, event);
+  if (router.mode === 'panzoom') return panzoomMove(router, event);
+  router.last = event;
+  const record = router.sample('move', event);
+  if (router.mode === 'remote') return router.send([record]);
+  router.held.push(record);
+  const moved = Math.hypot(event.clientX - router.origin.clientX, event.clientY - router.origin.clientY);
+  if (moved > TOUCH_SLOP_PX) routeToRemote(router);
+}
+
+function routerUp(router, event) {
+  if (!router.pointers.delete(event.pointerId)) return;
+  if (router.mode === 'panzoom') {
+    router.panzoom.current?.handleUp(event);
+    const rest = [...router.pointers.values()];
+    if (rest.length === 0) router.mode = 'idle';
+    else router.panzoom.current?.handleDown(rest[0]);
+    if (rest.length > 1) router.middle = middleOf(router.pointers);
+    return;
+  }
+  if (router.mode === 'pending') routeToRemote(router);
+  router.send([router.sample('up', event)]);
+  router.mode = 'idle';
+}
+
+function useGestureRouter(sample, send, panzoom) {
+  const router = useRef(null);
+  if (!router.current) router.current = { mode: 'idle', pointers: new Map(), held: [], timer: null, origin: null, last: null };
+  Object.assign(router.current, { sample, send, panzoom });
+  useEffect(() => () => clearTimeout(router.current.timer), []);
+  const up = (event) => routerUp(router.current, event);
+  return {
+    onPointerDown: (event) => routerDown(router.current, event),
+    onPointerMove: (event) => routerMove(router.current, event),
+    onPointerUp: up, onPointerCancel: up,
+    onWheel: (event) => panzoom.current?.zoomWithWheel(event),
   };
-  return html`
-    <div class="screen-tools">
-      <button type="button" class="secondary" disabled=${index === 0} onClick=${() => change(-1)}>缩小</button>
-      <span class="zoom-level">${zoom}×</span>
-      <button type="button" class="secondary" disabled=${index === ZOOM_LEVELS.length - 1} onClick=${() => change(1)}>放大</button>
-      ${zoom > 1 && html`
-        <button type="button" class=${panning ? '' : 'secondary'} onClick=${() => setPanning(!panning)}>
-          ${panning ? '移动画面中' : '移动画面'}
-        </button>`}
-    </div>
-    ${zoom > 1 && html`<p class="muted">${panning ? '现在滑动只会平移画面；点“移动画面中”切回操作页面。' : '现在触摸会点击或拖动页面；要平移画面请点“移动画面”。'}</p>`}`;
+}
+
+// 隐藏输入框承接手机输入法：始终保留一个占位字符，占位被删即视为退格。
+function useRemoteKeyboard(id) {
+  const input = useRef(null);
+  const chain = useRef(Promise.resolve());
+  const composing = useRef(false);
+  const [numeric, setNumeric] = useState(false);
+  const post = (body) => {
+    chain.current = chain.current.then(() => api(`/api/sessions/${encodeURIComponent(id)}/text`, body)).catch(() => {});
+  };
+  const flush = () => {
+    const element = input.current;
+    if (!element || composing.current) return;
+    const text = element.value.replaceAll(IME_SENTINEL, '');
+    if (text) post({ text });
+    else if (!element.value.includes(IME_SENTINEL)) post({ key: 'Backspace' });
+    element.value = IME_SENTINEL;
+    element.setSelectionRange(1, 1);
+  };
+  const onFocus = useCallback((focus) => {
+    setNumeric(focus.numeric === true);
+    if (focus.editable) input.current?.focus({ preventScroll: true });
+    else input.current?.blur();
+  }, []);
+  const props = {
+    ref: input, value: IME_SENTINEL, onInput: flush,
+    onCompositionStart: () => { composing.current = true; },
+    onCompositionEnd: () => { composing.current = false; flush(); },
+    onKeyDown: (event) => { if (event.key === 'Enter') { event.preventDefault(); post({ key: 'Enter' }); } },
+  };
+  return { input, numeric, onFocus, props };
 }
 
 function TakeoverScreen({ id }) {
   const frame = useFrames(id, true);
-  const handlers = usePointerHandlers(id);
-  const { zoom, setZoom, wrap } = useZoom();
-  const [panning, setPanning] = useState(false);
+  const image = useRef(null);
+  const keyboard = useRemoteKeyboard(id);
+  const onFocus = useRef(keyboard.onFocus);
+  const { sample, send } = usePointerBatches(id, image, onFocus);
+  const panzoom = usePanzoom(image, frame !== null);
+  const handlers = useGestureRouter(sample, send, panzoom);
+  const toggleKeyboard = () => {
+    const element = keyboard.input.current;
+    if (document.activeElement === element) element.blur();
+    else element?.focus({ preventScroll: true });
+  };
   if (!frame) return html`<div class="screen-wrap screen-empty">等待画面…</div>`;
   return html`
-    <${ScreenTools} zoom=${zoom} setZoom=${setZoom} panning=${panning} setPanning=${setPanning} />
-    <div class="screen-wrap" ref=${wrap}>
-      <img class=${`screen zoom-${zoom}${panning ? ' screen-pan' : ''}`} alt="登录页画面" draggable="false"
-        src=${`data:image/jpeg;base64,${frame.jpeg}`} width=${frame.width} height=${frame.height}
-        ...${panning ? {} : handlers} onContextMenu=${(event) => event.preventDefault()} />
-    </div>`;
-}
-
-function TextInput({ id }) {
-  const [text, setText] = useState('');
-  const [error, setError] = useState(null);
-  const send = async (body) => {
-    try {
-      await api(`/api/sessions/${encodeURIComponent(id)}/text`, body);
-      setError(null);
-    } catch (failure) {
-      setError(failure);
-    }
-  };
-  const submit = (event) => {
-    event.preventDefault();
-    if (!text) return;
-    send({ text });
-    setText('');
-  };
-  return html`
-    <form class="panel text-input" onSubmit=${submit} autocomplete="off">
-      <label>输入文字（如短信验证码），先在画面中点中输入框
-        <input value=${text} onInput=${(e) => setText(e.currentTarget.value)} autocomplete="one-time-code" inputmode="numeric" />
-      </label>
-      <div class="row">
-        <button type="submit">发送</button>
-        <button type="button" class="secondary" onClick=${() => send({ key: 'Backspace' })}>退格</button>
-        <button type="button" class="secondary" onClick=${() => send({ key: 'Enter' })}>回车</button>
+    <p class="muted">单指点击或拖动页面；双指缩放、移动画面。点中页面输入框后会弹出键盘。</p>
+    <div class="screen-box">
+      <div class="screen-wrap" ...${handlers}>
+        <img ref=${image} class="screen" alt="登录页画面" draggable="false"
+          src=${`data:image/jpeg;base64,${frame.jpeg}`} width=${frame.width} height=${frame.height}
+          onContextMenu=${(event) => event.preventDefault()} />
       </div>
-      <${Notice} error=${error} />
-    </form>`;
+      <div class="screen-tools">
+        <button type="button" class="tool" onClick=${toggleKeyboard}>键盘</button>
+        <button type="button" class="tool" onClick=${() => panzoom.current?.reset({ animate: false })}>复位</button>
+      </div>
+      <input class="ime" ...${keyboard.props} aria-label="向页面输入文字" autocomplete=${keyboard.numeric ? 'one-time-code' : 'off'}
+        inputmode=${keyboard.numeric ? 'numeric' : 'text'} autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="enter" />
+    </div>`;
 }
 
 function Countdown({ seconds }) {
@@ -415,7 +481,7 @@ function SessionView({ id, slug }) {
       ${state && html`<p class=${`state state-${state}`}>${STATE_TEXT[state] ?? state}</p>`}
       ${session?.message && html`<p class="muted">${session.message}</p>`}
       ${!finished && session && html`<${Countdown} seconds=${session.remaining_seconds} />`}
-      ${state === 'takeover' && html`<${TakeoverScreen} id=${id} /><${TextInput} id=${id} />`}
+      ${state === 'takeover' && html`<${TakeoverScreen} id=${id} />`}
       ${state === 'qr' && html`<${QrPanel} id=${id} image=${session.qr_image} />`}
       ${!finished && session && html`<button class="danger" onClick=${cancel}>结束会话</button>`}
       ${finished && html`<a class="button" href=${back}>完成</a>`}

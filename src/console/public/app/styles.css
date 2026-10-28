@@ -119,10 +119,11 @@ button.danger { background: transparent; color: var(--error-fg); border: 1px sol
 .state-succeeded { color: #1a7f37; }
 .state-failed, .state-timed_out { color: var(--error-fg); }
 
+.screen-box { position: relative; margin-top: 8px; }
+
 .screen-wrap {
-  margin-top: 12px;
-  max-height: 75vh;
-  overflow: auto;
+  overflow: hidden;
+  touch-action: none;
   overscroll-behavior: contain;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -131,23 +132,38 @@ button.danger { background: transparent; color: var(--error-fg); border: 1px sol
 .screen {
   display: block;
   width: 100%;
-  max-width: none;
   height: auto;
-  touch-action: none;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
 
-.screen.zoom-2 { width: 200%; }
-.screen.zoom-3 { width: 300%; }
-.screen.zoom-4 { width: 400%; }
-.screen.zoom-5 { width: 500%; }
-.screen.screen-pan { touch-action: pan-x pan-y; }
+.screen-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; }
 
-.screen-tools { display: flex; flex-wrap: wrap; align-items: center; margin-top: 12px; }
-.screen-tools button { margin-top: 0; }
-.zoom-level { min-width: 3em; margin-right: 8px; text-align: center; font-variant-numeric: tabular-nums; }
+.screen-tools .tool {
+  min-height: 32px;
+  margin: 0;
+  padding: 4px 12px;
+  font-size: 0.85rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #ffffff;
+}
+
+/* 输入法承接框：可聚焦但不可见；16px 字号避免 iOS 聚焦时自动放大页面。 */
+.ime {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 16px;
+  opacity: 0;
+  pointer-events: none;
+}
 
 .screen-empty { padding: 48px 0; text-align: center; color: var(--muted); }
 

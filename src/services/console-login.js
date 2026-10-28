@@ -203,8 +203,8 @@ export function consoleSessionFrames(id) {
 
 export async function consoleSessionPointer(id, body) {
   const session = interactiveSession(id, 'takeover');
-  await session.takeover.dispatchPointer(body?.events);
-  return { ok: true };
+  const { editable, numeric } = await session.takeover.dispatchPointer(body?.events);
+  return { ok: true, editable, numeric };
 }
 
 export async function consoleSessionText(id, body) {

@@ -142,7 +142,12 @@ it('recovers awaiting-human through SSE takeover, clears actions, and ordinary c
 });
 
 async function exerciseInput(test, id) {
-  await api(test, `/api/sessions/${id}/pointer`, { events: [{ t: 0, type: 'down', x: 0.5, y: 0.5 }, { t: 50, type: 'up', x: 1, y: 1 }] });
+  const released = await api(test, `/api/sessions/${id}/pointer`, {
+    events: [{ t: 0, type: 'down', x: 0.5, y: 0.5 }, { t: 50, type: 'up', x: 1, y: 1 }],
+  });
+  assert.deepEqual(released, { ok: true, editable: false, numeric: false });
+  const moved = await api(test, `/api/sessions/${id}/pointer`, { events: [{ t: 51, type: 'move', x: 1, y: 1 }] });
+  assert.deepEqual(moved, { ok: true, editable: null, numeric: null });
   await api(test, `/api/sessions/${id}/text`, { text: '123456' });
   for (const key of ['Enter', 'Backspace', 'Tab']) await api(test, `/api/sessions/${id}/text`, { key });
   await api(test, `/api/sessions/${id}/pointer`, { events: [{ t: 1, type: 'down', x: 2, y: 0 }] }, 400);

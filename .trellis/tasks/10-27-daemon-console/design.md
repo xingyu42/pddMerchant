@@ -130,7 +130,7 @@ CREATE TABLE console_sessions (
 | GET | `/api/sessions/:id` | `{ state, message, remaining_seconds, expires_at, qr_image }`。state：`filling` / `takeover` / `qr` / `verifying` / `succeeded` / `failed` / `timed_out` / `cancelled`；`message` 为中文说明或 null；`qr_image` 为 data URL，仅扫码态 |
 | POST | `/api/sessions/:id/qr/refresh` | 扫码态下重新截取二维码 |
 | GET | `/api/sessions/:id/frames` | SSE：`event: frame`，`data: { jpeg: <base64>, width, height }` |
-| POST | `/api/sessions/:id/pointer` | `{ events: [{ t, type: 'down'|'move'|'up', x, y }] }`，x/y 为 0–1 归一化坐标 |
+| POST | `/api/sessions/:id/pointer` | `{ events: [{ t, type: 'down'|'move'|'up', x, y }] }`，x/y 为 0–1 归一化坐标；响应 `{ ok: true, editable, numeric }`，两字段为 `boolean\|null`：含 `up` 的批次重放后等待 150ms 检测可编辑焦点与数字键盘，仅布尔值离开浏览器，无元素值、名称或页面文本；无 `up` 或检测失败时两字段均为 `null` |
 | POST | `/api/sessions/:id/text` | `{ text }` 或 `{ key: 'Enter'|'Backspace'|'Tab' }` |
 | POST | `/api/sessions/:id/cancel` | 结束会话 |
 

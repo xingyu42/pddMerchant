@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { runInNewContext } from 'node:vm';
 import { afterEach, it, vi } from 'vitest';
 import { openTakeover } from '../../src/adapter/takeover.js';
 
@@ -67,8 +68,144 @@ it('maps normalized coordinates and preserves timestamp gaps across serialized b
   await first;
   assert.deepEqual(mouse()[1], { type: 'mouseMoved', x: 1902, y: 984, button: 'none', buttons: 1 });
   await vi.advanceTimersByTimeAsync(50);
-  await second;
   assert.deepEqual(mouse()[2], { type: 'mouseReleased', x: 0, y: 0, button: 'left', buttons: 0, clickCount: 1 });
+  await vi.advanceTimersByTimeAsync(150);
+  await second;
+});
+
+it('reads boolean focus once 150ms after an up batch, before later queued input', async () => {
+  vi.useFakeTimers();
+  const { cdp, channel, frame } = await setup();
+  frame();
+  cdp.send.mockClear();
+  cdp.send.mockImplementation(async () => ({ result: { value: { editable: true, numeric: true, extra: 'discard' } } }));
+  const pointer = channel.dispatchPointer(['down', 'up', 'up'].map((type) => ({ t: 0, type, x: 0, y: 0 })));
+  const text = channel.insertText('queued');
+  await vi.advanceTimersByTimeAsync(149);
+  assert.deepEqual(cdp.send.mock.calls.map(([method]) => method), Array(3).fill('Input.dispatchMouseEvent'));
+  await vi.advanceTimersByTimeAsync(1);
+  assert.deepEqual(await pointer, { editable: true, numeric: true });
+  await text;
+  const calls = cdp.send.mock.calls;
+  assert.deepEqual(calls.map(([method]) => method), [
+    ...Array(3).fill('Input.dispatchMouseEvent'), 'Runtime.evaluate', 'Input.insertText',
+  ]);
+  assert.equal(calls[3][1].returnByValue, true);
+  assert.equal(typeof calls[3][1].expression, 'string');
+});
+
+it('returns null focus without evaluating a move-only batch', async () => {
+  const { cdp, channel, frame } = await setup();
+  frame();
+  const result = await channel.dispatchPointer([{ t: 0, type: 'move', x: 0, y: 0 }]);
+  assert.deepEqual(result, { editable: null, numeric: null });
+  assert.equal(cdp.send.mock.calls.some(([method]) => method === 'Runtime.evaluate'), false);
+});
+
+it('resolves pointer dispatch with null focus when evaluation rejects', async () => {
+  vi.useFakeTimers();
+  const { cdp, channel, frame } = await setup();
+  frame();
+  cdp.send.mockImplementation(async (method) => {
+    if (method === 'Runtime.evaluate') throw new Error('evaluate failed');
+    return {};
+  });
+  const pointer = channel.dispatchPointer([{ t: 0, type: 'up', x: 0, y: 0 }]);
+  await vi.advanceTimersByTimeAsync(150);
+  assert.deepEqual(await pointer, { editable: null, numeric: null });
+});
+
+it.each([undefined, {}, { result: { value: null } }, { result: { value: { editable: true } } },
+  { result: { value: { editable: 'true', numeric: false } } },
+  { result: { value: { editable: false, numeric: 0 } } },
+  { exceptionDetails: {}, result: { value: { editable: true, numeric: true } } },
+])('returns null focus for an exceptional or malformed evaluation result: %j', async (response) => {
+  vi.useFakeTimers();
+  const { cdp, channel, frame } = await setup();
+  frame();
+  cdp.send.mockResolvedValue(response);
+  const pointer = channel.dispatchPointer([{ t: 0, type: 'up', x: 0, y: 0 }]);
+  await vi.advanceTimersByTimeAsync(150);
+  assert.deepEqual(await pointer, { editable: null, numeric: null });
+});
+
+function focusedElement(tagName, attributes = {}, properties = {}) {
+  return { tagName, getAttribute: (name) => attributes[name] ?? null, ...properties,
+    get value() { throw new Error('Unexpected value read'); },
+    get name() { throw new Error('Unexpected name read'); },
+    get textContent() { throw new Error('Unexpected text read'); } };
+}
+
+it('uses a fixed expression that detects editable and numeric focus using only boolean output', async () => {
+  vi.useFakeTimers();
+  const { cdp, channel, frame } = await setup();
+  frame();
+  const pointer = channel.dispatchPointer([{ t: 0, type: 'up', x: 0, y: 0 }]);
+  await vi.advanceTimersByTimeAsync(150);
+  await pointer;
+  const expression = cdp.send.mock.calls.find(([method]) => method === 'Runtime.evaluate')[1].expression;
+  const cases = [
+    [null, false, false], [focusedElement('BODY'), false, false],
+    [focusedElement('TEXTAREA'), true, false], [focusedElement('INPUT'), true, false],
+    [focusedElement('DIV', {}, { contentEditable: 'true' }), true, false],
+    [focusedElement('DIV', {}, { isContentEditable: true }), true, false],
+    [focusedElement('INPUT', { type: 'checkbox' }), false, false],
+    [focusedElement('TEXTAREA', {}, { disabled: true }), false, false],
+    [focusedElement('TEXTAREA', {}, { readOnly: true }), false, false],
+    [focusedElement('INPUT', { type: 'tel' }, { disabled: true }), false, false],
+    [focusedElement('INPUT', { type: 'number' }, { readOnly: true }), false, false],
+    [focusedElement('BODY', { inputmode: 'numeric' }), false, false],
+  ];
+  for (const type of ['text', 'search', 'url', 'email', 'password', 'tel', 'number']) {
+    cases.push([focusedElement('INPUT', { type }), true, ['tel', 'number'].includes(type)]);
+  }
+  for (const inputmode of ['numeric', 'tel', 'decimal']) {
+    cases.push([focusedElement('TEXTAREA', { inputmode }), true, true]);
+  }
+  for (const [activeElement, editable, numeric] of cases) {
+    const result = runInNewContext(expression, { document: { activeElement } });
+    assert.deepEqual(JSON.parse(JSON.stringify(result)), { editable, numeric });
+  }
+});
+
+it('descends through same-origin frames and tolerates inaccessible frame documents', async () => {
+  vi.useFakeTimers();
+  const { cdp, channel, frame } = await setup();
+  frame();
+  const pointer = channel.dispatchPointer([{ t: 0, type: 'up', x: 0, y: 0 }]);
+  await vi.advanceTimersByTimeAsync(150);
+  await pointer;
+  const expression = cdp.send.mock.calls.find(([method]) => method === 'Runtime.evaluate')[1].expression;
+  const input = focusedElement('INPUT', { type: 'number' });
+  const inner = focusedElement('FRAME', {}, { contentDocument: { activeElement: input } });
+  const outer = focusedElement('IFRAME', {}, { contentDocument: { activeElement: inner } });
+  const inaccessible = focusedElement('IFRAME');
+  Object.defineProperty(inaccessible, 'contentDocument', { get() { throw new Error('cross-origin'); } });
+  for (const [activeElement, expected] of [[outer, true], [inaccessible, false], [focusedElement('FRAME'), false]]) {
+    const result = runInNewContext(expression, { document: { activeElement } });
+    assert.deepEqual(JSON.parse(JSON.stringify(result)), { editable: expected, numeric: expected });
+  }
+});
+
+it('preserves pointer replay failures without attempting focus detection', async () => {
+  const { cdp, channel, frame } = await setup();
+  frame();
+  const error = new Error('replay failed');
+  cdp.send.mockRejectedValue(error);
+  await assert.rejects(channel.dispatchPointer([{ t: 0, type: 'up', x: 0, y: 0 }]), (result) => result === error);
+  assert.equal(cdp.send.mock.calls.some(([method]) => method === 'Runtime.evaluate'), false);
+});
+
+it('aborts the focus delay on close without evaluating the page', async () => {
+  vi.useFakeTimers();
+  const { cdp, channel, frame } = await setup();
+  frame();
+  const pending = channel.dispatchPointer([{ t: 0, type: 'up', x: 0, y: 0 }]);
+  const rejected = assert.rejects(pending);
+  await vi.advanceTimersByTimeAsync(100);
+  await channel.close();
+  await rejected;
+  assert.equal(cdp.send.mock.calls.some(([method]) => method === 'Runtime.evaluate'), false);
 });
 
 it('inserts text and sends whitelisted keyDown/keyUp events with native key codes', async () => {
@@ -87,12 +224,15 @@ it('accepts a reset frontend timestamp origin after returning to the session pag
   vi.useFakeTimers();
   const { channel, cdp, frame } = await setup();
   frame();
-  await channel.dispatchPointer([{ t: 5000, type: 'down', x: 0, y: 0 }, { t: 5000, type: 'up', x: 0, y: 0 }]);
+  const first = channel.dispatchPointer([{ t: 5000, type: 'down', x: 0, y: 0 }, { t: 5000, type: 'up', x: 0, y: 0 }]);
+  await vi.advanceTimersByTimeAsync(150);
+  await first;
   const replay = channel.dispatchPointer([{ t: 0, type: 'down', x: 1, y: 1 }, { t: 50, type: 'up', x: 1, y: 1 }]);
   await vi.advanceTimersByTimeAsync(0);
   const mouse = () => cdp.send.mock.calls.filter(([method]) => method === 'Input.dispatchMouseEvent');
   assert.equal(mouse().length, 3);
   await vi.advanceTimersByTimeAsync(50);
+  await vi.advanceTimersByTimeAsync(150);
   await replay;
   assert.equal(mouse().length, 4);
   assert.equal(mouse().at(-1)[1].type, 'mouseReleased');

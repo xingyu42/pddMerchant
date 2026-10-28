@@ -150,13 +150,16 @@ Applies to `adapter/takeover.js` and `adapter/latest-frames.js` for console huma
 ```js
 openTakeover(page) -> { frames, dispatchPointer(events), insertText(text), pressKey(key), close() };
 // frames: latest-frame async iterable plus subscribe(frameOrNullCallback) -> unsubscribe
+// dispatchPointer(events) -> Promise<{ editable: boolean|null, numeric: boolean|null }>
+// POST /api/sessions/:id/pointer -> { ok: true, editable, numeric }
 ```
 
 ### 3. Contracts
 
-- Open CDP through `page.context().newCDPSession(page)`; start screencast with JPEG, quality 60, maxWidth 1280, everyNthFrame 1. Acknowledge every received frame immediately, even discarded frames.
+- Open CDP through `page.context().newCDPSession(page)`; start screencast with JPEG, quality 60, maxWidth 1920, everyNthFrame 1. Acknowledge every received frame immediately, even discarded frames.
 - Frames publish at 200ms intervals only when a new frame has arrived since the previous publish (about 5 fps maximum), retaining the latest snapshot for new subscribers and backpressured SSE clients; each subscriber/iterator holds only the latest. Null signals closure. close is idempotent, aborts pending input waits, stops screencast, removes listeners and detaches CDP, including failed startup.
 - Pointer batches contain up to 200 `{ t, type, x, y }` events: finite nonnegative t monotonic within the batch, type down/move/up, finite normalized x/y in 0..1. Snapshot caller input before queueing. Serialize input batches and preserve positive t gaps across batches, accounting for elapsed time; a lower timestamp in a new batch starts a new timeline (frontend remount resets its clock origin). Long waits stay abortable and avoid timer overflow.
+- After replaying a batch containing `up`, wait 150ms with `abortableSleep` and the controller signal, then read focus in the same queued operation through `Runtime.evaluate` with a fixed expression and `returnByValue:true`. Descend through accessible same-origin IFRAME/FRAME active elements, catching document-access failures. Editable means enabled, writable TEXTAREA/contentEditable or INPUT with type text/search/tel/url/email/password/number (missing type means text); numeric means editable plus INPUT tel/number or inputmode numeric/tel/decimal. Only `{ editable, numeric }` booleans leave this focus expression; never element values, names or page text. Project only those two boolean fields from CDP. The service adds `ok:true`; fixture returns false/false for `up`, otherwise null/null.
 - Coordinates use frame metadata deviceWidth/deviceHeight. Down/up use left mousePressed/mouseReleased with clickCount 1; moves use mouseMoved, buttons 1 only while pressed. Text uses Input.insertText with at most 64 Unicode characters. Keys are Enter/Backspace/Tab only, sent as keyDown/keyUp with key/code/windowsVirtualKeyCode 13/8/9.
 - Share validators with the offline fixture channel. Frames, text, QR and credentials never enter logs.
 
@@ -167,18 +170,22 @@ openTakeover(page) -> { frames, dispatchPointer(events), insertText(text), press
 | invalid batch, t/coordinate/type, text or key | `E_USAGE` with fixed message |
 | pointer before any valid frame metadata | `E_USAGE`; no CDP input |
 | closed channel | queued work rejects; no further input |
+| pointer batch without `up` | no focus evaluation; editable/numeric both null |
+| focus evaluation rejects, reports exceptionDetails or returns non-boolean/missing fields | editable/numeric both null; preserve successful pointer dispatch |
+| pointer replay failure or aborted focus delay | reject as before; no focus evaluation |
 | malformed dimensions | ack frame and discard it |
 | screencast startup failure | stop/detach/remove listeners, preserve failure |
 
 ### 5. Good/Base/Bad Cases
 
 - Good: map normalized coordinates against device metadata and drop intermediate frames for slow consumers.
+- Good: read focus after mouse release and before later queued text; return only booleans for the phone keyboard.
 - Base: mouse replay provides human-controlled input; phone touch/slider acceptance needs real-device verification.
 - Bad: ack only displayed frames, queue all JPEGs, interpolate a new automated gesture, or log user input.
 
 ### 6. Tests Required
 
-`test/adapter/takeover.test.js` uses fake CDP/timers for start/acks/latest frames, dimensions, serial cross-batch timing, button states, text/key dispatch, validation and cleanup. `test/daemon/sse.test.js` checks backpressure/disconnect/terminal closure and decodes the fixture images.
+`test/adapter/takeover.test.js` uses fake CDP/timers for start/acks/latest frames, dimensions, serial cross-batch timing, button states, text/key dispatch, validation and cleanup. Focus coverage asserts the 150ms delay, one by-value evaluation after mouse events and before later input, move-only nulls, failure/malformed-result nulls, replay/abort rejection, editable/numeric cases and frame descent without reading sensitive properties. `test/e2e/console-login.e2e.test.js` asserts the fixture pointer API returns false/false on up and null/null on move. `test/daemon/sse.test.js` checks backpressure/disconnect/terminal closure and decodes the fixture images.
 
 ### 7. Wrong vs Correct
 
@@ -187,4 +194,8 @@ openTakeover(page) -> { frames, dispatchPointer(events), insertText(text), press
 const x = event.x * encodedJpegWidth;
 // Correct: the same device dimensions drive remote input and the frame aspect ratio.
 const x = event.x * metadata.deviceWidth;
+// Wrong: expose element data in the focus response.
+return { editable, numeric, value: element.value };
+// Correct: expose only the two focus booleans.
+return { editable, numeric };
 ```
