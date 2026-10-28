@@ -1178,3 +1178,26 @@ User confirmed archiving only merchant-auth-migration without creating a new tas
 ### Status
 
 [OK] **Completed**
+
+
+## Session 38: Task ⑤: patrol probes checkLogin via request library
+<!-- trellis-session: v=2 fp=0f297de8d20716ae -->
+
+**Date**: 2026-10-29
+**Task**: Task ⑤: patrol probes checkLogin via request library
+**Branch**: `feat/patrol-request-probe`
+
+### Summary
+
+Codex implemented selectCheckCookiesFromState (RFC 6265 cookie selection from saved storageState) and two-stage patrol checkLive: browser-free probeCheckLogin first; Chromium relogin only on probe-rejected / known-rejected / PASS_ID-missing. Review fixed a regression where indeterminate probes dropped the E_AUTH_CHECK_INDETERMINATE warning. Updated auth-mall-context and runtime-lifecycle specs plus ADR 0003 amendment. npm test: 1032 passed, 1 skipped. Mock/fixture only; not verified against real accounts. Work on branch feat/patrol-request-probe.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2051084` | ✨ feat(patrol): probe checkLogin via request library before launching browser |
+| `a8e422f` | 📝 docs(spec): document two-stage patrol check and saved-state cookie selection |
+
+### Status
+
+[OK] **Completed**
