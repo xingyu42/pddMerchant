@@ -1128,3 +1128,53 @@ User confirmed archiving only merchant-auth-migration without creating a new tas
 ### Status
 
 [OK] **Completed**
+
+
+## Session 37: 账密重登核心与 daemon 人工接管控制台
+<!-- trellis-session: v=2 fp=b8bbb89367ce903e -->
+
+**Date**: 2026-10-28
+**Task**: 账密重登核心与 daemon 人工接管控制台
+**Branch**: `main`
+
+### Summary
+
+③ password-relogin-core：账密加密存储、withCommand 内隐式账密重登、熔断与待办、account list/doctor 状态，合并 4b28bce 并归档。④ daemon-console：schema v2、心跳租约 daemon（start/stop/status/run、遗留 Chromium 清理）、node:http 控制台（一次性链接、CSRF/Host 校验、密码只写）、CDP 接管画面 + 扫码兜底、可选巡航（默认关），合并 de5035e。真机：N27 Windows 无残留；N27a 手机接管首次短信登录通过，同设备后续账密重登免短信已确认；据此加双指缩放（vendored @panzoom/panzoom）与点中远端输入框自动弹键盘。未识别验证源于登录名录错，wrong_password 待补账号类提示原文。待办：N25 滑块、N26 Linux/Hermes（未授权）、⑤ 会话短寿调研。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `29c6c61` | 📝 docs(trellis): plan password-relogin-core design and implementation |
+| `5e6084c` | ✨ feat(auth): password credential storage, relogin state machine and secret redaction |
+| `8e50a01` | ✨ feat(auth): password login adapter, fixture simulation and experiment probe |
+| `11a0a8d` | 📝 docs(trellis): record login experiments; relogin keeps saved device state |
+| `5430330` | ✨ feat(runner): implicit password relogin in withCommand with lease reuse and action warnings |
+| `fff5357` | ✨ feat(output): password relogin status in account list and doctor |
+| `6d30d4b` | 📝 docs(spec): password relogin contracts, agent skill and changelog |
+| `680cef6` | 🐛 fix(auth): reserve relogin budget so unclassified login at deadline goes to human |
+| `4f0e4e1` | 📝 docs(trellis): tick password-relogin-core final review |
+| `894bf94` | 🔧 chore(trellis): mark password-relogin-core done in parent map |
+| `5e27341` | 📝 docs(trellis): plan daemon-console design and implementation |
+| `72b3269` | ✨ feat(infra): schema v2, heartbeat daemon lease, daemon log channel and console config |
+| `e58e4ec` | ✨ feat(daemon): daemon start/stop/status/run with heartbeat lease, orphan cleanup and daemon_not_running |
+| `b497347` | ✨ feat(console): node:http console server, one-time link auth and account API |
+| `7b3a384` | ✨ feat(console): vendored preact/htm and console single-page app skeleton |
+| `4e471c3` | 🔧 chore(console): keep vendored modules byte-exact |
+| `9c05e52` | ✨ feat(console): interactive relogin, CDP takeover over SSE, QR fallback and preview-safe link redemption |
+| `498eb41` | ✨ feat(daemon): optional patrol (default off) reusing the ordinary command check path |
+| `cb79d68` | 💄 fix(console): show session message on its own line |
+| `ea7f872` | 📝 docs: ADR 0003, daemon/console usage, specs and changelog |
+| `ba0cd81` | 🐛 fix(daemon): poll stop requests, bounded process listing, start failure log; N27 record |
+| `222de61` | 📝 docs(console): hide QR action when blocked; refresh design notes and needsBrowser contract |
+| `1ebbe6e` | 🐛 fix(daemon): db-scoped browser-only orphan cleanup, close on 413, publish only new frames |
+| `3956833` | 📝 docs(trellis): tick daemon-console final review and N27 |
+| `a108717` | 🔧 chore(trellis): mark daemon-console merged, real-device checks pending |
+| `c0c64a3` | ✨ feat(console): zoom and pan the takeover screen on phones; stream frames up to 1920px |
+| `4e45301` | ✨ feat(console): pinch-zoom takeover via vendored panzoom, phone keyboard follows remote input focus |
+| `43a1690` | 📝 docs(trellis): record N27a takeover login result; defer N25, device-trust and N26 |
+| `c81a8c4` | 📝 docs(trellis): confirm device-trust skips SMS; trace unrecognized challenge to wrong login name |
+
+### Status
+
+[OK] **Completed**
