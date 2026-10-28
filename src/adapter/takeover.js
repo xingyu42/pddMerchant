@@ -93,7 +93,7 @@ export async function openTakeover(page) {
     try { await cdp.detach(); } catch { /* Keep cleanup idempotent. */ }
   };
   cdp.on('Page.screencastFrame', onFrame);
-  try { await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 60, maxWidth: 1280, everyNthFrame: 1 }); }
+  try { await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 60, maxWidth: 1920, everyNthFrame: 1 }); }
   catch (error) { await close(); throw error; }
   return takeoverControls({ cdp, frames, enqueue, state, controller, close });
 }

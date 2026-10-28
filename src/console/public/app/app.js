@@ -1,11 +1,12 @@
 // 控制台单页：账号列表 → 账号详情 → 登录会话（接管画面 / 二维码）。
 import { h, render } from '../vendor/preact.mjs';
-import { useCallback, useEffect, useRef, useState } from '../vendor/hooks.mjs';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from '../vendor/hooks.mjs';
 import htm from '../vendor/htm.mjs';
 
 const html = htm.bind(h);
 const POINTER_FLUSH_MS = 50;
 const SESSION_POLL_MS = 1000;
+const ZOOM_LEVELS = [1, 2, 3, 4, 5];
 const TERMINAL_STATES = new Set(['succeeded', 'failed', 'timed_out', 'cancelled']);
 const STATE_TEXT = {
   filling: '正在自动填写账号密码…',
@@ -267,8 +268,7 @@ function usePointerBatches(id) {
   }, []);
 }
 
-function TakeoverScreen({ id }) {
-  const frame = useFrames(id, true);
+function usePointerHandlers(id) {
   const push = usePointerBatches(id);
   const pressed = useRef(false);
   const down = (event) => {
@@ -283,12 +283,67 @@ function TakeoverScreen({ id }) {
     pressed.current = false;
     push('up', event);
   };
-  if (!frame) return html`<div class="screen screen-empty">等待画面…</div>`;
+  return { onPointerDown: down, onPointerMove: move, onPointerUp: up, onPointerCancel: up };
+}
+
+// 缩放时保持视口中心对应的画面位置不变。
+function useZoom() {
+  const [zoom, setZoomState] = useState(1);
+  const wrap = useRef(null);
+  const center = useRef(null);
+  const setZoom = (next) => {
+    const element = wrap.current;
+    if (element) {
+      center.current = {
+        x: (element.scrollLeft + element.clientWidth / 2) / element.scrollWidth,
+        y: (element.scrollTop + element.clientHeight / 2) / element.scrollHeight,
+      };
+    }
+    setZoomState(next);
+  };
+  useLayoutEffect(() => {
+    const element = wrap.current;
+    if (!element || !center.current) return;
+    element.scrollLeft = center.current.x * element.scrollWidth - element.clientWidth / 2;
+    element.scrollTop = center.current.y * element.scrollHeight - element.clientHeight / 2;
+    center.current = null;
+  }, [zoom]);
+  return { zoom, setZoom, wrap };
+}
+
+function ScreenTools({ zoom, setZoom, panning, setPanning }) {
+  const index = ZOOM_LEVELS.indexOf(zoom);
+  const change = (step) => {
+    const next = ZOOM_LEVELS[index + step];
+    setZoom(next);
+    if (next === 1) setPanning(false);
+  };
   return html`
-    <img class="screen" alt="登录页画面" draggable="false"
-      src=${`data:image/jpeg;base64,${frame.jpeg}`} width=${frame.width} height=${frame.height}
-      onPointerDown=${down} onPointerMove=${move} onPointerUp=${up} onPointerCancel=${up}
-      onContextMenu=${(event) => event.preventDefault()} />`;
+    <div class="screen-tools">
+      <button type="button" class="secondary" disabled=${index === 0} onClick=${() => change(-1)}>缩小</button>
+      <span class="zoom-level">${zoom}×</span>
+      <button type="button" class="secondary" disabled=${index === ZOOM_LEVELS.length - 1} onClick=${() => change(1)}>放大</button>
+      ${zoom > 1 && html`
+        <button type="button" class=${panning ? '' : 'secondary'} onClick=${() => setPanning(!panning)}>
+          ${panning ? '移动画面中' : '移动画面'}
+        </button>`}
+    </div>
+    ${zoom > 1 && html`<p class="muted">${panning ? '现在滑动只会平移画面；点“移动画面中”切回操作页面。' : '现在触摸会点击或拖动页面；要平移画面请点“移动画面”。'}</p>`}`;
+}
+
+function TakeoverScreen({ id }) {
+  const frame = useFrames(id, true);
+  const handlers = usePointerHandlers(id);
+  const { zoom, setZoom, wrap } = useZoom();
+  const [panning, setPanning] = useState(false);
+  if (!frame) return html`<div class="screen-wrap screen-empty">等待画面…</div>`;
+  return html`
+    <${ScreenTools} zoom=${zoom} setZoom=${setZoom} panning=${panning} setPanning=${setPanning} />
+    <div class="screen-wrap" ref=${wrap}>
+      <img class=${`screen zoom-${zoom}${panning ? ' screen-pan' : ''}`} alt="登录页画面" draggable="false"
+        src=${`data:image/jpeg;base64,${frame.jpeg}`} width=${frame.width} height=${frame.height}
+        ...${panning ? {} : handlers} onContextMenu=${(event) => event.preventDefault()} />
+    </div>`;
 }
 
 function TextInput({ id }) {

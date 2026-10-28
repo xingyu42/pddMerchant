@@ -25,7 +25,7 @@ it('starts CDP screencast, acks every frame and retains latest at five fps for s
   const { cdp, channel, frame, context, page } = await setup();
   assert.equal(context.newCDPSession.mock.calls[0][0], page);
   assert.deepEqual(cdp.send.mock.calls[0], ['Page.startScreencast', {
-    format: 'jpeg', quality: 60, maxWidth: 1280, everyNthFrame: 1,
+    format: 'jpeg', quality: 60, maxWidth: 1920, everyNthFrame: 1,
   }]);
   const received = [];
   channel.frames.subscribe((value) => received.push(value));
