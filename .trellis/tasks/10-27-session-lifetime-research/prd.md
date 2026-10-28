@@ -10,7 +10,8 @@
 
 - 用户研究 `D:/Dev/pinduoduo`：官方工作台逆向只确认了 `/janus/api/checkLogin` 有效性检查与未过期时的本地 Cookie 回写；“30 天自动登录”字段已定位但未接通；观察到“外部导出的 ck 隔天失效、官方工作台无需重新扫码”的现象，说明存在尚未找到的跨组件凭据更新链。
 - 会话寿命的公开资料（`PDDAccessToken` 约 30 天、`PASS_ID` 约 10 天）来源不可靠，置信度低。
-- pdd-cli 的探测（`merchant-auth-probe.js`）用 Node `node:https` 带 Cookie 直接请求，业务命令则从 Chromium 发出，两者 TLS 指纹、UA 与请求头不同。
+- pdd-cli 的探测（`merchant-auth-probe.js`）用 Node `node:https` 带 Cookie 直接请求，业务命令则从 Chromium 发出，两者 TLS 指纹、UA 与请求头不同。代码已确认（2026-10-28）：每次普通命令、doctor、login 校验都走 `verifyMerchantContext`（`src/adapter/merchant-auth.js:56` 用 node:https 调 `checkLogin`，`:58` 再从 Chromium 读店铺），即 H1 描述的交替在日常使用中每次都发生。
+- ③④ 落地后的现状（2026-10-28）：会话失效时普通命令会自动账密重登；同一设备状态下，首次接管完成短信验证后，后续账密重登免短信（用户已确认）。失效的代价从"人工扫码"降为"一次约一分钟的自动重登"。巡航默认关闭。
 
 ## 待验证假设（按优先级）
 
