@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## V0.6 Migration Notes
+
+> V0.5 → V0.6 的对外变更清单。升级到 `0.6.0` 后数据库自动升级到 schema v2，无需重新登录。
+
+### Breaking
+
+- **数据库升级到 schema v2**（新增控制台链接与会话表）：新版首次运行自动升级，旧版本程序会拒绝打开升级后的数据库；如需回退旧版本，请删除数据库后重新登录。
 
 ### Added
 
@@ -15,13 +21,12 @@
 - **`pdd daemon start / stop / status / run`**：显式启动的常驻进程（自行后台化，无开机自启），SQLite 心跳租约保证单实例（30 秒心跳、90 秒过期）；`stop` 先发停止请求，15 秒未退出再强杀本机进程。日志写 `log/daemon/YYYY-MM-DD.log`。
 - **网页控制台**：`pdd console link [--account <slug>]` 生成 10 分钟一次性链接，打开后兑换为 8 小时会话。可录入/清除密码（只写不回显）、解除熔断、开始重登并在浏览器画面中完成短信/滑块等验证（接管最长 10 分钟，连续 2 次超时熔断）、改用扫码登录。默认只监听 `127.0.0.1:47821`。
 - **配置**：`consoleHost`、`consolePort`、`consolePublicUrl`、`patrolEnabled`（默认 `false`）、`patrolIntervalMs`（默认 30 分钟），对应 `PDD_CONSOLE_*` / `PDD_PATROL_*` 环境变量。
-- **可选巡航**：开启后逐账号检查登录态，失效时按熔断与限频规则自动重登。
+- **可选巡航**：开启后逐账号直接请求 `checkLogin` 检查登录态，不启动浏览器；判定失效（或缺少登录凭据）时才启动浏览器，按熔断与限频规则自动重登；网络等原因无法判定时只记录检查结果，不重登。
 - **warning `daemon_not_running`**：账号有待处理事项而 daemon 未运行时附加；新错误码 `E_DAEMON_NOT_RUNNING`、`E_DAEMON_START_TIMEOUT`、`E_DAEMON_STOP_TIMEOUT`、`E_CONSOLE_PORT_IN_USE`。
 
 ### Changed
 
 - **脱敏**：`password`、`credential(s)`、`login_name` / `loginName`、`masterPassword`、`master_key`、`password_sealed` 在日志与调试输出中固定为 `[REDACTED]`，不再输出可被枚举的指纹。
-- **数据库升级到 schema v2**（新增控制台链接与会话表）：新版首次运行自动升级，旧版本程序会拒绝打开升级后的数据库；如需回退旧版本，请删除数据库后重新登录。
 - 人工登录成功会清零"接管超时"连续计数。
 
 ### Removed
