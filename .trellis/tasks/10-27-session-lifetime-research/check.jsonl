@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/adapter/auth-mall-context.md", "reason": "checkLogin/probeCheckLogin/collectCheckCookies 契约与无浏览器 cookie 选择的落点"}
+{"file": "src/adapter/merchant-auth-probe.js", "reason": "新增 selectCheckCookiesFromState；复用 buildCheckHeader/probeCheckLogin"}
+{"file": "src/services/patrol.js", "reason": "checkLive 改两段式：请求库探测优先，浏览器仅在 rejected/已知 rejected/PASS_ID 缺失时启动"}
+{"file": "src/adapter/merchant-auth-storage.js", "reason": "verifyStoredMerchant 对已知 rejected 的短路语义；recordMerchantCheck 行为参照"}
+{"file": "src/services/password-relogin.js", "reason": "reloginInCommand 入参与浏览器重登路径，巡航 rejected 分支复用"}
+{"file": "test/adapter/auth-probe.test.js", "reason": "selectCheckCookiesFromState 的域/路径/过期/去重/PASS_ID 缺失用例落点"}
+{"file": "test/services/patrol.test.js", "reason": "verified 不启浏览器 / rejected 启浏览器重登 / indeterminate 跳过 分支用例"}

@@ -1,41 +1,42 @@
-# 会话短寿根因调研
+# 巡航改走请求库（会话存活轻量探测）
+
+> 本任务原为"会话短寿根因调研"。根因调研的证据承接已完成，结论是**离线无法区分 H1/H3/H4、真机多天对照 ROI 低**，记录在 `research/cross-ref-pinduoduo-findings.md`，不在本任务继续。本任务收窄为该调研得出的、可落地的一项改动：把巡航的会话检查改走请求库。
 
 ## Goal
 
-商家会话通常几天就失效，且无法续期。查明失效根因，为“主动保活”提供依据；在根因明确前，密码重登只是缓解症状的兜底。
+巡航每轮对每个账号做一次**轻量存活探测**：只用请求库（`node:https` 直连 `checkLogin`）判断登录态是否还在，不每轮启动 Chromium。只有探测判定 `rejected`（或本地已知 rejected / 凭据缺失）时，才启动浏览器做店铺核验与重登。
 
-父任务：`10-27-password-relogin-console`。本任务是子任务 ⑤，与其他子任务并行，不阻塞它们。
+动机（见 research 笔记）：
+- 日常普通命令本来每次都在 node https 与 Chromium 之间交替；巡航每 30 分钟再拉起一整个浏览器，收益低、开销大。
+- 官方工作台按通道分发凭据，H1（同票跨指纹出口触发风控）为合理怀疑；巡航少发一路重型浏览器请求，与该怀疑方向一致。
 
-## 已知前提
+## 背景与现状
 
-- 用户研究 `D:/Dev/pinduoduo`：官方工作台逆向只确认了 `/janus/api/checkLogin` 有效性检查与未过期时的本地 Cookie 回写；“30 天自动登录”字段已定位但未接通；观察到“外部导出的 ck 隔天失效、官方工作台无需重新扫码”的现象，说明存在尚未找到的跨组件凭据更新链。
-- 会话寿命的公开资料（`PDDAccessToken` 约 30 天、`PASS_ID` 约 10 天）来源不可靠，置信度低。
-- pdd-cli 的探测（`merchant-auth-probe.js`）用 Node `node:https` 带 Cookie 直接请求，业务命令则从 Chromium 发出，两者 TLS 指纹、UA 与请求头不同。代码已确认（2026-10-28）：每次普通命令、doctor、login 校验都走 `verifyMerchantContext`（`src/adapter/merchant-auth.js:56` 用 node:https 调 `checkLogin`，`:58` 再从 Chromium 读店铺），即 H1 描述的交替在日常使用中每次都发生。
-- ③④ 落地后的现状（2026-10-28）：会话失效时普通命令会自动账密重登；同一设备状态下，首次接管完成短信验证后，后续账密重登免短信（用户已确认）。失效的代价从"人工扫码"降为"一次约一分钟的自动重登"。巡航默认关闭。
-
-## 待验证假设（按优先级）
-
-- H1 客户端指纹交替：同一份 Cookie 交替从 Chromium 与 Node https 发出，被服务端风控判定异常而踢下线。首要验证项；若成立，daemon 巡航（30 分钟一次）反而会加速失效。
-- H2 出口 IP 变化导致会话失效。
-- H3 服务端对 `PASS_ID` 等凭据设定了固定的绝对期限。
-- H4 同账号在其他端（官方工作台、商家版 App、其他浏览器）登录时互踢。
-- H5 闲置超时（滑动期限）：一段时间无业务请求即失效。
+- 现状 `src/services/patrol.js` 的 `checkLive`：每轮 `withBrowser` 启动 Chromium → `verifyStoredMerchant(context, tx.state, …)`，后者内部先 `collectCheckCookies(context)` 从浏览器 cookie jar 取 checkLogin 的 cookie，再 `probeCheckLogin`（node https）+ `probeMerchantShop`（Chromium）。`rejected` 时 `reloginInCommand(runtime, tx, browser, result)`。
+- 请求库侧已具备无浏览器能力：`probeCheckLogin(cookies, { signal, deadlineAt })`（`src/adapter/merchant-auth-probe.js`）接受 cookie **列表**、不依赖浏览器。唯一的浏览器依赖是 `collectCheckCookies(context)` 用浏览器 cookie jar 做 URL/域/路径/过期筛选。
+- `tx.state` 是 Playwright storageState：`{ cookies: [{name,value,domain,path,expires,secure,…}], origins, merchant_auth }`。原始 cookie 都在里面。
 
 ## Requirements
 
-- N1 为每个假设设计可区分的对照观察，记录会话从建立到失效的时间线及期间的事件（请求来源、IP、其他端登录、闲置时长）。
-- N2 观察工具只记录脱敏后的摘要，不落盘任何 Cookie、Token 原值。
-- N3 真实账号观察必须事先获得用户授权，并写明观察时长、请求频率与可能的风控影响；不做业务写操作。
-- N4 结论写入本任务 `research/` 目录，每条结论标注置信度与证据来源；未证实的不写成结论。
-- N5 若找到有效的保活机制，提出接入 daemon 巡航的建议（作为后续新任务，不在本任务内实现）。
+- N1 新增一个从 `tx.state` 原始 cookie 中按固定 URL（`MERCHANT_CHECK_URL`）筛选 checkLogin cookie 的纯函数，复刻浏览器的 RFC 6265 匹配（域匹配含前导点、路径前缀、未过期、https 下 secure 允许），输出交给现有 `buildCheckHeader` 校验。
+- N2 巡航 `checkLive` 改为：先无浏览器 `probeCheckLogin`；`verified` 直接结束（保留快照、不启浏览器）；`rejected` 才启动浏览器走现有店铺核验 + `reloginInCommand`；`indeterminate`（网络/TLS/超时/响应异常）本轮跳过并按现有逻辑 `recordMerchantCheck`，不重登。
+- N3 保留现有短路：`tx.state.merchant_auth.last_check.verdict === 'rejected'` 时跳过探测，直接进浏览器重登路径；cookie 选不出 PASS_ID（`buildCheckHeader` 抛 `E_AUTH_CANDIDATE_INVALID`）时同样进浏览器重登路径。
+- N4 行为边界与现状一致：被占用账号（`E_LOCK_TIMEOUT`）记 `patrol_account_busy` 并跳过；账号预算 `ACCOUNT_BUDGET_MS` 不变；巡航默认关闭不变；fixture 路径（`checkFixture`）不变。
+- N5 不记录凭据实值；探测只写时间、verdict、reason，与现有 `recordMerchantCheck` 一致。
 
 ## Acceptance Criteria
 
-- [ ] H1～H5 各自有“证实 / 证伪 / 证据不足”的结论及证据。
-- [ ] 根据结论给出 daemon 巡航默认参数（是否启用、间隔、请求方式）的调整建议。
-- [ ] 调研报告位于 `research/`，不含任何凭据原值。
+- [ ] `verified` 轮次不启动 Chromium（可用 fixture/单测断言未调用 `withBrowser`）。
+- [ ] `rejected` 轮次启动 Chromium 并走 `reloginInCommand`，重登成功后快照与现状一致。
+- [ ] `indeterminate` 轮次不启动浏览器、不重登、按现状记录检查。
+- [ ] 已知 rejected 或 PASS_ID 缺失时直接进浏览器重登路径。
+- [ ] cookie 选择器对固定 URL 的域/路径/过期匹配有单测覆盖（含前导点域、路径前缀、过期剔除、PASS_ID 缺失）。
+- [ ] 请求库探测不记录凭据实值。
+- [ ] `npm test` 全量通过；巡航相关测试覆盖上述分支。
 
 ## Out of Scope
 
-- 在本任务内修改 pdd-cli 业务代码。
-- 继续推进 SDK-free 协议扫码登录（anti-content / GUID / rctk-sign 生成器）。
+- H1–H5 的真机对照观察（研究已记录为离线不可闭合、需要时再上真机）。
+- H1 可控实验（统一校验与业务出口后观察失效间隔）——留作后续可选任务。
+- 修改普通命令、doctor、login 的校验路径；本任务只动巡航。
+- 任何保活/续期机制的实现。

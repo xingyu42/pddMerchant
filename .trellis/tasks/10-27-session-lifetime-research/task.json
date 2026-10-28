@@ -1,8 +1,8 @@
 {
   "id": "session-lifetime-research",
   "name": "session-lifetime-research",
-  "title": "会话短寿根因调研",
-  "description": "调研商家会话数天即失效的根因，首要验证客户端指纹交替导致会话被踢的假设，承接 D:/Dev/pinduoduo 研究。",
+  "title": "巡航改走请求库（会话存活轻量探测）",
+  "description": "巡航每轮只用请求库 node https 查 checkLogin 存活，被拒/已知失效/缺 PASS_ID 时才启动 Chromium 核验并重登；承接会话短寿调研的可落地项。",
   "status": "planning",
   "dev_type": null,
   "scope": null,
