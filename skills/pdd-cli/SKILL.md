@@ -19,7 +19,7 @@ metadata:
 - 查询/统计拼多多**订单**（列表、详情、P50/P95 时效）
 - 管理**商品**（列表、库存告警、销量与库存统计、上下架、改价改库存改标题、批量编辑、从链接上货）
 - 拉取**推广报表**与 ROI 统计
-- 查询**店铺数据统计**（订单 / 库存 / 推广 / 漏斗维度）
+- 查询**店铺数据统计**（订单 / 库存 / 推广 / 售后维度）
 - **多账号 / 多店铺**切换与批量执行
 - 查看、校验和修改项目内**运行配置**
 - 鉴权（首次登录 / 重新登录 / 环境自检 / 后台自动续期）
@@ -135,8 +135,8 @@ node bin/pdd.js orders stats --size 50      # 远程 + 本地聚合 P50/P95
 
 - `orders list` 默认 `--status all`：返回全部订单（待发货、已发货待收货、已收货、售后中、退款成功、已取消）。`pending_ship` 待发货、`shipped` 已发货待收货、`received` 已收货（这三项不含售后中的订单）、`after_sales` 售后处理中；其他取值以退出码 2 拒绝。时间窗默认近 7 天（按成团时间），更早的待发货订单不会出现在列表中，待发货总数以 `orders stats` 为准。`--size` 取 100 会被上游拒绝，50 可用。
 - 订单 `after_sales_status`：`退款成功` / `售后处理中` / `null`（无售后）/ `未知(<code>)`。
-- 退款统计只依据 `after_sales_status`：`orders stats` 本地样本给出 `refund_count`（退款成功）、`after_sales_count`（售后处理中）与 `refund_rate_pct`。若上游订单缺少售后状态字段，这三项及 `diagnose funnel` 的 `refund_count` / `refund_rate_pct` / `fulfillment_rate_pct` 均为 `null`，headline 写「退款数据不可用」——这不是 0。
-- `diagnose inventory` / `goods segment` 的销量统计计入待发货、已发货、已收货订单，不计退款、售后中与已取消订单；`diagnose orders/shop/funnel` 的退款统计使用全部订单。
+- 退款统计只依据 `after_sales_status`：`orders stats` 本地样本给出 `refund_count`（退款成功）、`after_sales_count`（售后处理中）与 `refund_rate_pct`。若上游订单缺少售后状态字段，计数和占比保留 `null`，headline 说明数据不可用。
+- `diagnose inventory` / `goods segment` 的销量统计计入待发货、已发货、已收货订单，不计退款、售后中与已取消订单；`diagnose orders/shop/after-sales` 的售后统计使用全部订单。
 
 ### 🛍️ 商品 goods
 
@@ -181,8 +181,10 @@ node bin/pdd.js diagnose shop [--compare] [--days 7]   # 四维数据汇总与�
 node bin/pdd.js diagnose orders                        # 订单维度（P95/退款/堆积）
 node bin/pdd.js diagnose inventory                     # 库存维度（缺货/低库存）
 node bin/pdd.js diagnose promo                         # 推广维度（ROI/CTR）
-node bin/pdd.js diagnose funnel [--days 30]            # 漏斗维度（退款率/履约率）
+node bin/pdd.js diagnose after-sales [--days 30]       # 售后维度（退款成功/售后处理中）
 ```
+
+售后维度键为 `after_sales`，`detail` 包含 `total_orders`、`refund_count`、`refund_rate_pct`、`after_sales_count`、`after_sales_rate_pct`、`status_distribution`、`window_days`。其中 `after_sales_count` 只计售后处理中订单，两类占比均以采集到的全部订单数为分母；空样本占比为 `null`。店铺汇总默认使用近 7 天首批 50 条订单，单独售后查询默认近 30 天分页采集，并保留截断及限流提示。旧 `diagnose funnel` 命令和 `fulfillment_rate_pct` 字段已移除。
 
 这些查询不生成经营建议、健康评分、商品等级或推广优劣分类。`action plan` 和 `--break-even` 已移除。诊断的 `status`（`数据完整` / `数据不完整`）只表示数据完整性，不代表经营好坏；缺失数值保留为 `null`，不能当成零。环比窗口为 `{ start_date, end_date, days }`；`_pct` 指标的 `delta` 是百分点、`delta_pct` 是相对变化率；当前库存和待发货快照不做历史对比（`note: "仅有当前快照，无上期数据"`）。
 

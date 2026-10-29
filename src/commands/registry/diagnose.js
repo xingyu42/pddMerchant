@@ -3,7 +3,7 @@ import * as shop from '../diagnose/shop.js';
 import * as orders from '../diagnose/orders.js';
 import * as inventory from '../diagnose/inventory.js';
 import * as promo from '../diagnose/promo.js';
-import * as funnel from '../diagnose/funnel.js';
+import * as afterSales from '../diagnose/after-sales.js';
 
 export function register(program, wireAction) {
   const diagnose = program.command('diagnose').description('店铺数据统计');
@@ -30,9 +30,9 @@ export function register(program, wireAction) {
     promo.run
   );
   wireAction(
-    diagnose.command('funnel').description('订单统计（退款率 / 履约率）')
+    diagnose.command('after-sales').description('售后统计（退款成功 / 售后处理中）')
       .option('--days <n>', '分析窗口天数', (v) => Number(v), 30),
-    'diagnose.funnel',
-    funnel.run
+    'diagnose.after-sales',
+    afterSales.run
   );
 }

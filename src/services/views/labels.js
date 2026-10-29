@@ -5,7 +5,7 @@
 export const DATA_STATUS_LABEL = Object.freeze({ full: '数据完整', partial: '数据不完整' });
 
 // diagnose 维度
-export const DIMENSION_LABEL = Object.freeze({ orders: '订单', inventory: '库存', promo: '推广', funnel: '履约' });
+export const DIMENSION_LABEL = Object.freeze({ orders: '订单', inventory: '库存', promo: '推广', after_sales: '售后' });
 
 // orders.list 订单范围（--status）；内部销量口径 valid 不对外展示
 export const ORDER_SCOPE_LABEL = Object.freeze({

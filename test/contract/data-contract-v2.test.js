@@ -204,8 +204,8 @@ const V2_CASES = [
   },
   { command: 'diagnose.promo', args: ['diagnose', 'promo'], fixtures: createFactFixtures() },
   {
-    command: 'diagnose.funnel',
-    args: ['diagnose', 'funnel'],
+    command: 'diagnose.after-sales',
+    args: ['diagnose', 'after-sales'],
     fixtures: createFactFixtures(),
     freeKeyPaths: ['detail.status_distribution'],
   },
@@ -213,14 +213,14 @@ const V2_CASES = [
     command: 'diagnose.shop',
     args: ['diagnose', 'shop'],
     fixtures: staleGoodsFixtures(),
-    freeKeyPaths: ['dimensions.funnel.detail.status_distribution'],
+    freeKeyPaths: ['dimensions.after_sales.detail.status_distribution'],
     entityFields: { 'dimensions.inventory.detail.stale_sample[]': STALE_SAMPLE_FIELDS },
   },
   {
     command: 'diagnose.shop',
     args: ['diagnose', 'shop', '--compare', '--days', '7'],
     fixtures: createFactFixtures(),
-    freeKeyPaths: ['dimensions.funnel.detail.status_distribution'],
+    freeKeyPaths: ['dimensions.after_sales.detail.status_distribution'],
   },
   {
     command: 'goods.update.batch',

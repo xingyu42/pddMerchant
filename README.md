@@ -24,7 +24,7 @@ Linux 部署方需自行准备 Debian/Ubuntu 所需的 Chromium 运行库。系�
 
 - **AI-friendly envelope**：`{ok, command, data, error, meta}` + 8 个退出码
 - **多店铺/多账号**：`--mall <id>` / `--account <slug>` / `--consumer-account <ref>` / `--all-accounts`
-- **店铺数据统计**：`diagnose shop` 汇总订单、库存、推广和漏斗数据，支持数值环比
+- **店铺数据统计**：`diagnose shop` 汇总订单、库存、推广和售后数据，支持数值环比
 - **从链接上货**：`goods publish --url <链接>` 一键抓取发布
 - **按需认证检查**：登录、普通命令和 `doctor` 独立检查认证；成功命令只回写重新验证通过的材料，从不自动拉起后台进程
 - **密码自动重登 + 人工控制台**：会话失效时用已保存的密码自动重登；遇到验证由 `pdd daemon` 托管的网页控制台交给人工完成
@@ -55,7 +55,7 @@ src/infra/           envelope/errors/logger/timeouts
 | **goods** | `list` / `stock` / `segment` / `publish` / `templates` |
 | **goods update** | `status` / `price` / `stock` / `title` / `batch`（需 `--confirm`） |
 | **promo** | `roi`（`search` / `scene` 已合并废弃） |
-| **diagnose** | `shop` / `orders` / `inventory` / `promo` / `funnel` |
+| **diagnose** | `shop` / `orders` / `inventory` / `promo` / `after-sales` |
 | **shops** | `list` / `current` |
 | **config** | `show` / `set <key> <value>` / `unset <key>` / `validate` |
 | **account** | `add` / `list` / `default` / `remove` |
@@ -70,6 +70,8 @@ src/infra/           envelope/errors/logger/timeouts
 详细参数见 `pdd <command> --help` 或 [SKILL.md](skills/pdd-cli/SKILL.md)。
 
 `goods segment`、`promo roi` 和 `diagnose` 只提供事实统计与数据完整性提示，不生成经营建议、健康评分、商品等级或推广优劣分类。`action plan` 和 `--break-even` 已移除；依赖旧输出字段的脚本需要调整。
+
+售后查询使用 `diagnose after-sales [--days 30]`（原 `diagnose funnel`）；店铺总览及环比的维度键改为 `after_sales`。售后维度提供退款成功数/率和售后处理中数/占比，已移除 `fulfillment_rate_pct`。两类占比均以采集到的全部订单数为分母；总览默认近 7 天首批 50 条，单独查询默认近 30 天分页采集。
 
 ---
 

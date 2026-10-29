@@ -18,7 +18,7 @@ vi.mock('../../src/adapter/run-endpoint.js', async (importOriginal) => ({
 
 const { collectOrdersForStaleAnalysis } = await import('../../src/services/diagnose/orders-collector.js');
 const { collectGoodsInput, collectOrdersInput } = await import('../../src/services/diagnose/collectors.js');
-const { getFunnelDiagnosis } = await import('../../src/services/diagnose/reports.js');
+const { getAfterSalesDiagnosis } = await import('../../src/services/diagnose/reports.js');
 const { getOrderListView, getOrderStatsView } = await import('../../src/services/orders.js');
 
 const CTX = { log: { debug() {} } };
@@ -46,11 +46,28 @@ describe('order list scope per caller', () => {
     assert.deepEqual(listScopes(), ['valid']);
   });
 
-  it('uses the all scope for order diagnosis, funnel diagnosis and local order stats', async () => {
+  it('uses the all scope for order diagnosis, after-sales diagnosis and local order stats', async () => {
     await collectOrdersInput({}, CTX);
-    await getFunnelDiagnosis({ ...CTX, page: {} });
+    await getAfterSalesDiagnosis({ ...CTX, page: {} });
     await getOrderStatsView({}, {}, CTX);
     assert.deepEqual(listScopes(), ['all', 'all', 'all']);
+  });
+
+  it('retains partial-data hints when the after-sales order scan reaches its cap', async () => {
+    vi.useFakeTimers();
+    responses.orders = Array.from({ length: 50 }, (_, index) => ({
+      order_sn: `SYN-${index}`, after_sales_status: 10,
+    }));
+    const pending = getAfterSalesDiagnosis({ ...CTX, page: {} }, { days: 7 });
+    await vi.runAllTimersAsync();
+    const { data } = await pending;
+    assert.equal(data.status, '数据不完整');
+    assert.equal(data.detail.total_orders, 500);
+    assert.equal(data.detail.after_sales_count, 500);
+    assert.equal(data.detail.after_sales_rate_pct, 100);
+    assert.ok(data.hints.some((hint) => hint.includes('采集上限（500 条）')));
+    assert.equal(listScopes().length, 10);
+    assert.ok(listScopes().every((scope) => scope === 'all'));
   });
 
   it('defaults orders list to all and forwards an explicit CLI scope', async () => {
@@ -70,14 +87,16 @@ describe('order list scope per caller', () => {
 });
 
 describe('refund facts when the after-sales field is absent', () => {
-  it('keeps funnel refund and fulfillment rates null and never claims zero refunds', async () => {
+  it('keeps after-sales counts and rates null when the source field is absent', async () => {
     responses.orders = [{ order_sn: 'SYN-1', order_status_str: '已收货' }];
-    const { data } = await getFunnelDiagnosis({ ...CTX, page: {} });
+    const { data } = await getAfterSalesDiagnosis({ ...CTX, page: {} });
     assert.equal(data.detail.total_orders, 1);
     assert.equal(data.detail.refund_count, null);
     assert.equal(data.detail.refund_rate_pct, null);
-    assert.equal(data.detail.fulfillment_rate_pct, null);
-    assert.ok(data.headline.some((line) => line.includes('退款数据不可用')));
+    assert.equal(data.detail.after_sales_count, null);
+    assert.equal(data.detail.after_sales_rate_pct, null);
+    assert.equal(Object.hasOwn(data.detail, 'fulfillment_rate_pct'), false);
+    assert.ok(data.headline.some((line) => line.includes('售后数据不可用')));
     assert.ok(data.headline.every((line) => !line.includes('退款 0 单')));
   });
 
@@ -101,5 +120,12 @@ describe('refund facts when the after-sales field is absent', () => {
     assert.equal(view.local.after_sales_count, 1);
     assert.equal(view.local.refund_rate_pct, 25);
     assert.match(view.headline[2], /退款成功 1 单，售后处理中 1 单/);
+    const { data } = await getAfterSalesDiagnosis({ ...CTX, page: {} });
+    assert.deepEqual(data.headline, [
+      '近 30 天订单 4 单，退款成功 1 单（退款率 25%）',
+      '售后处理中 1 单（占比 25%）',
+    ]);
+    assert.equal(data.detail.after_sales_count, 1);
+    assert.equal(data.detail.after_sales_rate_pct, 25);
   });
 });

@@ -6,6 +6,7 @@ import { PROMO_ENTITY_REPORT } from '../../src/adapter/endpoints/promo.js';
 export const SAMPLE_LIST_STATS = Object.freeze({
   total: 4,
   refund_count: 1,
+  after_sales_count: 1,
   refund_rate: 0.25,
   shipping_seconds: { p95: 36000 },
   status_distribution: { '已发货，待收货': 4 },

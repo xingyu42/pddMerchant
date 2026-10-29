@@ -4,12 +4,12 @@ import { computeOrderStats } from '../orders.js';
 import { mallIdOf } from '../views/_shared.js';
 import { toDimensionView, toShopView } from '../views/diagnose.js';
 import { collectGoodsInput, collectOrdersInput, collectPromoInput } from './collectors.js';
-import { diagnoseShop, summarizeFunnel, summarizeInventory, summarizeOrders, summarizePromo } from './index.js';
+import { diagnoseShop, summarizeAfterSales, summarizeInventory, summarizeOrders, summarizePromo } from './index.js';
 import { collectOrdersForStaleAnalysis, STALE_PAGE_SIZE } from './orders-collector.js';
 import { compareShopDiagnosis, resolveCompareWindows } from './trend-compare.js';
 
-const FUNNEL_DEFAULT_DAYS = 30;
-const FUNNEL_PAGES_PER_WEEK = 3;
+const AFTER_SALES_DEFAULT_DAYS = 30;
+const AFTER_SALES_PAGES_PER_WEEK = 3;
 
 function dimensionResult(name, result, ctx, warnings = []) {
   return { data: { ...toDimensionView(name, result), mall_id: mallIdOf(ctx) }, warnings };
@@ -30,20 +30,20 @@ export async function getPromoDiagnosis(ctx) {
   return dimensionResult('promo', summarizePromo(input), ctx, input?.warnings ?? []);
 }
 
-export async function getFunnelDiagnosis(ctx, { days } = {}) {
-  const windowDays = typeof days === 'number' && days > 0 ? days : FUNNEL_DEFAULT_DAYS;
-  const maxPages = Math.max(10, Math.ceil(windowDays / 7) * FUNNEL_PAGES_PER_WEEK);
+export async function getAfterSalesDiagnosis(ctx, { days } = {}) {
+  const windowDays = typeof days === 'number' && days > 0 ? days : AFTER_SALES_DEFAULT_DAYS;
+  const maxPages = Math.max(10, Math.ceil(windowDays / 7) * AFTER_SALES_PAGES_PER_WEEK);
   const { orders, truncated, ratelimited } = await collectOrdersForStaleAnalysis(
     ctx.page,
     { ...ctx, mallId: mallIdOf(ctx) },
-    // 履约漏斗需要看到退款 / 售后订单 → 全部范围
+    // 售后统计需要包含退款和售后处理中的订单。
     { scanDays: windowDays, maxPages, pageSize: STALE_PAGE_SIZE, scope: 'all' },
   );
-  const result = summarizeFunnel({ orderStats: computeOrderStats(orders), windowDays });
+  const result = summarizeAfterSales({ orderStats: computeOrderStats(orders), windowDays });
   if (truncated || ratelimited) result.status = 'partial';
   if (truncated) result.hints.push(`订单量超出采集上限（${maxPages * STALE_PAGE_SIZE} 条），统计基于部分数据`);
   if (ratelimited) result.hints.push('订单采集因限流中断，统计基于部分数据');
-  return dimensionResult('funnel', result, ctx);
+  return dimensionResult('after_sales', result, ctx);
 }
 
 async function settleDimension(label, promise, log) {
@@ -72,7 +72,7 @@ async function collectDiagnosis(ctx, { since, until, windowDays } = {}) {
       orders,
       goods,
       promo,
-      funnel: orders?.listStats ? { orderStats: orders.listStats, windowDays: orders.windowDays ?? windowDays ?? 7 } : undefined,
+      after_sales: orders?.listStats ? { orderStats: orders.listStats, windowDays: orders.windowDays ?? windowDays ?? 7 } : undefined,
     });
     return { result, warnings: promo?.warnings ?? [] };
   } finally {

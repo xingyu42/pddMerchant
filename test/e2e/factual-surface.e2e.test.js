@@ -82,7 +82,7 @@ describe('factual reports through the offline CLI', () => {
     assert.equal(envelope.command, 'diagnose.shop');
     assert.equal(envelope.data.status, '数据完整');
     assert.deepEqual(envelope.data.headline, ['4 个维度数据均完整']);
-    const { orders, inventory, promo, funnel } = envelope.data.dimensions;
+    const { orders, inventory, promo, after_sales: afterSales } = envelope.data.dimensions;
     assert.equal(orders.status, '数据完整');
     assert.equal(orders.detail.pending_ship_count, 1);
     assert.equal(orders.detail.shipping_p95_hours, 1);
@@ -92,8 +92,42 @@ describe('factual reports through the offline CLI', () => {
     assert.equal(promo.detail.spend_yuan, 100);
     assert.equal(promo.detail.roi, 1.25);
     assert.deepEqual(promo.headline, ['推广花费 100.00 元，成交 125.00 元，ROI 1.25', '曝光 100 次，点击 10 次，点击率 10%']);
-    assert.equal(funnel.detail.total_orders, 1);
-    assert.equal(funnel.detail.fulfillment_rate_pct, 100);
+    assert.equal(afterSales.detail.total_orders, 1);
+    assert.equal(afterSales.detail.after_sales_count, 0);
+    assert.equal(afterSales.detail.after_sales_rate_pct, 0);
+    assert.equal(Object.hasOwn(afterSales.detail, 'fulfillment_rate_pct'), false);
+    assert.equal(Object.hasOwn(envelope.data.dimensions, 'funnel'), false);
+  });
+
+  it('reports refunds and open after-sales cases through diagnose.after-sales', () => {
+    const fixtures = createFactFixtures();
+    const source = fixtures['endpoints/orders.list.json'].orders[0];
+    fixtures['endpoints/orders.list.json'] = { total: 4, orders: [
+      { ...source, order_sn: 'SYN-PENDING', order_status_str: '待发货', after_sales_status: null },
+      { ...source, order_sn: 'SYN-REFUND', after_sales_status: 5 },
+      { ...source, order_sn: 'SYN-OPEN', after_sales_status: 10 },
+      { ...source, order_sn: 'SYN-RECEIVED', order_status_str: '已收货', after_sales_status: null },
+    ] };
+    const { status, envelope } = runCli(['diagnose', 'after-sales', '--days', '7'], { fixtures });
+    assert.equal(status, 0);
+    assert.equal(envelope.command, 'diagnose.after-sales');
+    assert.deepEqual(envelope.data.detail, {
+      total_orders: 4, refund_count: 1, refund_rate_pct: 25,
+      after_sales_count: 1, after_sales_rate_pct: 25,
+      status_distribution: { '待发货': 1, '已发货，待收货': 2, '已收货': 1 },
+      window_days: 7,
+    });
+    assert.deepEqual(envelope.data.headline, [
+      '近 7 天订单 4 单，退款成功 1 单（退款率 25%）',
+      '售后处理中 1 单（占比 25%）',
+    ]);
+  });
+
+  it('rejects the removed diagnose funnel entry point', () => {
+    const { status, envelope } = runCli(['diagnose', 'funnel']);
+    assert.equal(status, 2);
+    assert.equal(envelope.ok, false);
+    assert.equal(envelope.error.code, 'E_USAGE');
   });
 
   it('retains other dimensions and attributes unavailable promotion data', () => {

@@ -1,9 +1,11 @@
 // Render factual measurements and availability; no operating assessments.
 import chalk from 'chalk';
 import Table from 'cli-table3';
+import { DIAGNOSE_DIMENSIONS } from '../../services/views/diagnose.js';
+import { DIMENSION_LABEL } from '../../services/views/labels.js';
 
 // v2：status 已是中文标签（数据完整 / 数据不完整），维度名按标签显示
-const TITLE_LABEL = { shop: '店铺', orders: '订单', inventory: '库存', promo: '推广', funnel: '履约' };
+const TITLE_LABEL = { shop: '店铺', ...DIMENSION_LABEL, 'after-sales': DIMENSION_LABEL.after_sales };
 
 function renderHeader(title, diag, useColor) {
   const text = `统计·${TITLE_LABEL[title] ?? title} [${diag?.status ?? '数据不完整'}]`;
@@ -74,8 +76,7 @@ export function renderSingleDashboard(envelope, { useColor }) {
 export function renderShopDashboard(envelope, { useColor }) {
   const diag = envelope.data;
   const lines = [renderHeader('shop', diag, useColor), ...renderHeadline(diag)];
-  const DIMS = ['orders', 'inventory', 'promo', 'funnel'];
-  for (const name of DIMS) {
+  for (const name of DIAGNOSE_DIMENSIONS) {
     const sub = diag?.dimensions?.[name];
     lines.push('', renderHeader(name, sub, useColor), ...renderHeadline(sub));
     const details = renderDetails(sub?.detail, useColor);

@@ -6,7 +6,7 @@ import {
   COMPARE_NOTE_LABEL, DATA_STATUS_LABEL, DIMENSION_LABEL, MATCHED_BY_LABEL,
 } from './labels.js';
 
-export const DIAGNOSE_DIMENSIONS = Object.freeze(['orders', 'inventory', 'promo', 'funnel']);
+export const DIAGNOSE_DIMENSIONS = Object.freeze(['orders', 'inventory', 'promo', 'after_sales']);
 
 export const STALE_SAMPLE_FIELDS = Object.freeze(['goods_id', 'goods_name', 'quantity']);
 export const AMBIGUOUS_GROUP_FIELDS = Object.freeze(['normalized_name', 'sku_count', 'sample_quantities']);
@@ -52,14 +52,22 @@ function promoHeadline({ detail }) {
   ];
 }
 
-function funnelHeadline({ detail }) {
-  if (detail.total_orders == null) return ['订单数据缺失'];
+function afterSalesHeadline({ detail }) {
+  if (detail.total_orders == null) return ['售后数据缺失'];
   const window = detail.window_days == null ? '' : `近 ${detail.window_days} 天`;
-  if (detail.refund_count == null) return [`${window}订单 ${detail.total_orders} 单，退款数据不可用`];
-  return [`${window}订单 ${detail.total_orders} 单，退款 ${detail.refund_count} 单（退款率 ${pct(detail.refund_rate_pct)}）`];
+  if (detail.refund_count == null && detail.after_sales_count == null) {
+    return [`${window}订单 ${detail.total_orders} 单，售后数据不可用`];
+  }
+  const refunds = detail.refund_count == null
+    ? '退款数据不可用'
+    : `退款成功 ${detail.refund_count} 单（退款率 ${pct(detail.refund_rate_pct)}）`;
+  const processing = detail.after_sales_count == null
+    ? '售后处理中数据不可用'
+    : `售后处理中 ${detail.after_sales_count} 单（占比 ${pct(detail.after_sales_rate_pct)}）`;
+  return [`${window}订单 ${detail.total_orders} 单，${refunds}`, processing];
 }
 
-const HEADLINES = { orders: ordersHeadline, inventory: inventoryHeadline, promo: promoHeadline, funnel: funnelHeadline };
+const HEADLINES = { orders: ordersHeadline, inventory: inventoryHeadline, promo: promoHeadline, after_sales: afterSalesHeadline };
 
 function toDetailView(name, detail = {}) {
   if (name !== 'inventory' || !('matched_by' in detail)) return detail;

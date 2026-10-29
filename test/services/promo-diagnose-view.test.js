@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { analyzePromoRoi } from '../../src/services/promo-roi.js';
 import { PROMO_ROI_ITEM_FIELDS, PROMO_TOTALS_FIELDS, toPromoRoiView } from '../../src/services/views/promo.js';
 import { toDimensionView, toShopView } from '../../src/services/views/diagnose.js';
-import { diagnoseShop, summarizeInventory, summarizePromo } from '../../src/services/diagnose/index.js';
+import { diagnoseShop, summarizeAfterSales, summarizeInventory, summarizePromo } from '../../src/services/diagnose/index.js';
+import { renderSingleDashboard, renderShopDashboard } from '../../src/commands/diagnose/_render.js';
 import { SAMPLE_PROMO_ENTITIES, SAMPLE_GOODS, SAMPLE_LIST_STATS } from '../fixtures/test-data.js';
 
 describe('promo ROI view', () => {
@@ -62,6 +63,24 @@ describe('promo ROI view', () => {
 });
 
 describe('diagnose views', () => {
+  it('renders after-sales labels and counts in standalone and shop dashboards', () => {
+    const input = { orderStats: structuredClone(SAMPLE_LIST_STATS), windowDays: 7 };
+    const view = toDimensionView('after_sales', summarizeAfterSales(input));
+    assert.deepEqual(view.headline, [
+      '近 7 天订单 4 单，退款成功 1 单（退款率 25%）',
+      '售后处理中 1 单（占比 25%）',
+    ]);
+    const singleText = renderSingleDashboard({ command: 'diagnose.after-sales', data: view }, { useColor: false });
+    assert.match(singleText, /统计·售后/);
+    assert.match(singleText, /after_sales_rate_pct/);
+    const shop = toShopView(diagnoseShop({ after_sales: input }));
+    assert.deepEqual(Object.keys(shop.dimensions), ['orders', 'inventory', 'promo', 'after_sales']);
+    assert.ok(shop.headline[0].includes('不完整：订单、库存、推广'));
+    const shopText = renderShopDashboard({ command: 'diagnose.shop', data: shop }, { useColor: false });
+    assert.match(shopText, /统计·售后/);
+    assert.doesNotMatch(`${singleText}\n${shopText}`, /履约|funnel|fulfillment_rate_pct/);
+  });
+
   it('translates status, keeps detail keys and writes factual headlines', () => {
     const view = toDimensionView('promo', summarizePromo({ totals: { impression: 3, click: 1, gmv: 125, spend: 100 } }));
     assert.equal(view.status, '数据完整');
@@ -86,7 +105,7 @@ describe('diagnose views', () => {
     const shop = diagnoseShop({
       orders: { stats: { unship: 0, delay: 0 }, listStats: structuredClone(SAMPLE_LIST_STATS) },
       goods: { goods: structuredClone(SAMPLE_GOODS), orders30d: [] },
-      funnel: { orderStats: structuredClone(SAMPLE_LIST_STATS) },
+      after_sales: { orderStats: structuredClone(SAMPLE_LIST_STATS) },
     });
     const view = toShopView(shop, { mallId: '900001' });
     assert.equal(view.status, '数据不完整');

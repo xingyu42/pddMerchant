@@ -1,14 +1,14 @@
 import { summarizeOrders } from './orders-health.js';
 import { summarizeInventory } from './inventory-health.js';
 import { summarizePromo } from './promo-health.js';
-import { summarizeFunnel } from './funnel-health.js';
+import { summarizeAfterSales } from './after-sales-health.js';
 
-export function diagnoseShop({ orders, goods, promo, funnel } = {}) {
+export function diagnoseShop({ orders, goods, promo, after_sales: afterSales } = {}) {
   const dimensions = {
     orders: summarizeOrders(orders ?? {}),
     inventory: summarizeInventory(goods ?? {}),
     promo: summarizePromo(promo ?? {}),
-    funnel: summarizeFunnel(funnel ?? {}),
+    after_sales: summarizeAfterSales(afterSales ?? {}),
   };
 
   const issues = [];
@@ -30,5 +30,5 @@ export {
   summarizeOrders,
   summarizeInventory,
   summarizePromo,
-  summarizeFunnel,
+  summarizeAfterSales,
 };

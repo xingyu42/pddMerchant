@@ -93,12 +93,13 @@ export function toOrderView(raw) {
 - Inventory `detail.data_quality` and segmentation `summary.data_quality` MUST distinguish `goods_complete`, `orders_complete` and each scan's truncated/rate-limited flags. Forward `goodsTotal`, `goodsScanTruncated`, and `goodsScanRateLimited` along with order flags.
 - Incomplete segmentation uses internal `data_completeness` codes `partial_goods`, `partial_orders`, or `partial_goods_orders` (output as Chinese labels, see table below). Incomplete orders make `units_sold` (window given by top-level `window_days`; formerly `units_sold_30d`) and `stock_days` null; `observed_units_sold` preserves observed sales, not an estimate of the missing portion.
 - Queries MUST NOT generate operating advice, grades, scores, ranks, or good/bad promo classifications. The action-plan service is removed.
-- Diagnosis uses `summarizeOrders`, `summarizeInventory`, `summarizePromo`, and `summarizeFunnel`; internal `full` / `partial` describes data availability only (output `数据完整` / `数据不完整`). Missing inputs remain visible as partial dimensions.
+- Diagnosis uses `summarizeOrders`, `summarizeInventory`, `summarizePromo`, and `summarizeAfterSales`; internal `full` / `partial` describes data availability only (output `数据完整` / `数据不完整`). Missing inputs remain visible as partial dimensions.
 - Diagnose `detail` keys (v2, set directly by `summarize*`):
   - orders: `shipping_p95_hours`（1 位小数）, `refund_rate_pct`（有列表样本时恒输出；无订单样本或样本缺 `after_sales_status` 字段时 null）, `pending_ship_count`, `delayed_ship_count`（formerly `refund_rate` / `unship` / `delay`）。
   - inventory: `data_quality`, `total`, `out_of_stock_count`, `low_stock_count`, `low_stock_threshold`, `out_of_stock_rate_pct`, `low_or_out_rate_pct`, `reported_total`, `matched_by`(label), `stale_count`, `stale_sample[{ goods_id, goods_name, quantity }]`, `ambiguous_groups[{ normalized_name, sku_count, sample_quantities }]`（formerly `out_of_stock` / `low_stock` / `*_rate` / `total_reported`; `stale_sample[].units_sold_30d` removed）。
   - promo: `impression`, `click`, `gmv_yuan`, `spend_yuan`, `ctr_pct`（曝光为 0 时 null）, `roi`。
-  - funnel: `total_orders`, `refund_count`, `refund_rate_pct`, `fulfillment_rate_pct`, `status_distribution`（以中文状态为键）, `window_days`。`refund_count` 为 null（售后字段缺失）时三者均为 null，并追加 hint；headline 写「退款数据不可用」，不得写「退款 0 单」。
+  - after_sales: `total_orders`, `refund_count`, `refund_rate_pct`, `after_sales_count`, `after_sales_rate_pct`, `status_distribution`（以中文状态为键）, `window_days`。`refund_count` 计退款成功，`after_sales_count` 计售后处理中，两类占比各以采集到的全部订单数为分母。未知计数和对应占比保持 null，空样本计数为 0、占比为 null；headline 区分退款成功与售后处理中，字段缺失时说明售后数据不可用。售后统计使用事实名称，移除以退款率补数命名的 `fulfillment_rate_pct`。
+- After-sales entry points: `getAfterSalesDiagnosis(ctx, { days })` → `diagnose after-sales [--days 30]` (envelope command `diagnose.after-sales`); `diagnoseShop({ orders, goods, promo, after_sales })`, shop views and comparisons use dimension key `after_sales`. Standalone scans default to 30 days with truncation/rate-limit hints; shop defaults to its 7-day first-page order sample. The old `diagnose funnel` entry point is removed.
 - Order list scope and refund semantics: see **Scenario: Order list scope & refund identification** below。
 - Inventory `stale_count` retains its legacy field name but means observed zero-sales goods, not an operating judgment. Missing order enrichment makes it null.
 - Promo ROI is a numerical ratio (null when spend is zero); no break-even threshold or classification is returned. `promo.roi` data: `{ headline, by(label), items, total, summary{ spend_yuan, gmv_yuan, roi, excluded_inactive_count, excluded_inactive_spend_yuan }, totals{ impression, click, ctr_pct, spend_yuan, gmv_yuan, net_gmv_yuan, cost_per_order_yuan, goods_fav_spend_yuan, mall_fav_spend_yuan, inquiry_spend_yuan } | null, mall_id }`; CTR is recomputed as click / impression (upstream ctr has unknown units and is not used)。
@@ -109,7 +110,7 @@ export function toOrderView(raw) {
 | Output field | Internal code → label |
 | --- | --- |
 | diagnose / shop / compare `status` | `full` 数据完整, `partial` 数据不完整 |
-| diagnose issues/hints `dimension` | `orders` 订单, `inventory` 库存, `promo` 推广, `funnel` 履约 |
+| diagnose issues/hints `dimension` | `orders` 订单, `inventory` 库存, `promo` 推广, `after_sales` 售后 |
 | compare metric `note` | `current_snapshot_only` 仅有当前快照，无上期数据 |
 | inventory / segment `matched_by` | `goods_id` 按商品 ID 匹配, `goods_name` 按商品名匹配, `mixed` 按商品名匹配（一侧缺少商品 ID） |
 | segment `summary.data_completeness` | `full` 数据完整, `no_promo` 数据完整（无推广数据）, `no_orders` 数据完整（统计期内无订单）, `empty` 无商品, `partial` 数据不完整, `partial_goods` 商品数据不完整, `partial_orders` 订单数据不完整, `partial_goods_orders` 商品与订单数据均不完整 |
@@ -203,7 +204,7 @@ CLI: `pdd orders list [--status all|pending_ship|shipped|received|after_sales]` 
 | `orders list` default | `all` | 待发货 / 售后 / 退款 / 已取消 must be visible |
 | `getOrderStatsView` local sample | `all` | refund counts need after-sales orders |
 | `collectOrdersInput` (diagnose orders / shop / compare) | `all` | same |
-| `getFunnelDiagnosis` | `all` | same |
+| `getAfterSalesDiagnosis` | `all` | same |
 | `collectGoodsInput` (diagnose inventory), `goods segment` | `valid` (default) | sales = paid orders without after-sales, all shipping states |
 
 - Refund identification uses ONLY order `after_sales_status`: `5` → refunded (`refund_count`); any other non-null code → in progress (`after_sales_count`). String codes are compared numerically (`'5'` counts as refunded). `refund_status` / `refundStatus` / `after_sale_type` / `afterSaleType` do not exist upstream and MUST NOT be read.
@@ -236,7 +237,8 @@ CLI: `pdd orders list [--status all|pending_ship|shipped|received|after_sales]` 
 - `test/adapter/orders-contract.test.js`: default payload 0/0, all scope mappings, unknown scope `E_USAGE`.
 - `test/services/orders-statistics.test.js`: null/5/10/11 sample counts; field-absent → null; empty → 0 / null; legacy refund fields ignored.
 - `test/services/orders-scope.test.js`: scope passed to `orders.list` per caller (table above).
-- `test/services/diagnose-facts.test.js`: funnel/orders null propagation, no 「退款 0 单」.
+- `test/services/diagnose-facts.test.js`: after-sales/orders null propagation, independent refund/open counts and rates, empty denominators, absence of `fulfillment_rate_pct`.
+- `test/e2e/factual-surface.e2e.test.js`: `diagnose after-sales` and shop `dimensions.after_sales` preserve refund/open counts and rates; comparison tests cover `compare.dimensions.after_sales`.
 - e2e: `orders list --status pending_ship` succeeds; `--status bogus` exit 2; contract-v2 covers the `--status` variant.
 
 ### 7. Wrong vs Correct

@@ -20,7 +20,7 @@ export function compareShopDiagnosis(input = {}) {
   const { current, previous } = input;
   if (!current) return null;
 
-  const dimNames = ['orders', 'inventory', 'promo', 'funnel'];
+  const dimNames = ['orders', 'inventory', 'promo', 'after_sales'];
   const dimensions = {};
 
   for (const name of dimNames) {

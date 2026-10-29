@@ -57,7 +57,7 @@ shops.js     → shops list / shops current
 orders.js    → orders list / detail / stats
 goods.js     → goods list / stock / segment / update / templates / publish
 promo.js     → promo roi
-diagnose.js  → diagnose shop / orders / inventory / promo / funnel
+diagnose.js  → diagnose shop / orders / inventory / promo / after-sales
 action.js    → action plan
 account.js   → account add / remove / list / default
 ```
@@ -75,7 +75,7 @@ account.js   → account add / remove / list / default
 | `goods-segmentation.js`  | 商品分层         | `segmentGoods()`                                   |
 | `promo.js` / `promo-roi.js` | 推广报表与 ROI | `getPromoReport()`, `analyzePromoRoi()`             |
 | `goods-publish.js`       | **商品发布**     | `listCostTemplates()`, `publishGoodsFromLink()`     |
-| `diagnose/`              | 店铺诊断         | 订单、库存、推广、漏斗与趋势比较                   |
+| `diagnose/`              | 店铺诊断         | 订单、库存、推广、售后与趋势比较                   |
 | `pricing-validator.js`   | 定价策略         | `buildPricingPlan()`, `validatePricingPlan()`       |
 | `image-transform.js`     | 图片处理         | `transformImages()`                                 |
 

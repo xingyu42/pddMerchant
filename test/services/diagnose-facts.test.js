@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 import {
-  summarizeOrders, summarizeInventory, summarizePromo, summarizeFunnel, diagnoseShop,
+  summarizeOrders, summarizeInventory, summarizePromo, summarizeAfterSales, diagnoseShop,
 } from '../../src/services/diagnose/index.js';
 import { compareShopDiagnosis, resolveCompareWindows } from '../../src/services/diagnose/trend-compare.js';
 import { toDimensionView } from '../../src/services/views/diagnose.js';
@@ -117,33 +117,49 @@ describe('diagnostic source availability and facts', () => {
     assert.equal(result.detail.ctr_pct, 33.33);
   });
 
-  it('keeps absent funnel data partial and a zero-order denominator undefined', () => {
-    assert.equal(summarizeFunnel().status, 'partial');
-    assert.equal(summarizeFunnel({ orderStats: { total: '4' } }).status, 'partial');
-    const empty = summarizeFunnel({ orderStats: { total: 0, refund_count: 0, refund_rate: 0 } });
+  it('keeps absent after-sales data partial and zero-order rates undefined', () => {
+    assert.equal(summarizeAfterSales().status, 'partial');
+    assert.equal(summarizeAfterSales({ orderStats: { total: '4' } }).status, 'partial');
+    const empty = summarizeAfterSales({ orderStats: { total: 0, refund_count: 0, after_sales_count: 0 } });
     assert.equal(empty.status, 'full');
     assert.equal(empty.detail.total_orders, 0);
-    assert.equal(empty.detail.fulfillment_rate_pct, null);
     assert.equal(empty.detail.refund_rate_pct, null);
-    const complete = summarizeFunnel({ orderStats: structuredClone(SAMPLE_LIST_STATS), windowDays: 7 });
-    assert.equal(complete.detail.fulfillment_rate_pct, 75);
+    assert.equal(empty.detail.after_sales_count, 0);
+    assert.equal(empty.detail.after_sales_rate_pct, null);
+    assert.equal(Object.hasOwn(empty.detail, 'fulfillment_rate_pct'), false);
+    const complete = summarizeAfterSales({ orderStats: structuredClone(SAMPLE_LIST_STATS), windowDays: 7 });
     assert.equal(complete.detail.refund_rate_pct, 25);
     assert.equal(complete.detail.refund_count, 1);
+    assert.equal(complete.detail.after_sales_count, 1);
+    assert.equal(complete.detail.after_sales_rate_pct, 25);
+    assert.equal(Object.hasOwn(complete.detail, 'fulfillment_rate_pct'), false);
     assert.equal(complete.detail.window_days, 7);
     assert.deepEqual(complete.detail.status_distribution, { '已发货，待收货': 4 });
   });
 
-  it('propagates unknown refund counts to funnel and orders rates instead of assuming zero', () => {
-    const unknown = { ...structuredClone(SAMPLE_LIST_STATS), refund_count: null, refund_rate: null };
-    const funnel = summarizeFunnel({ orderStats: unknown, windowDays: 7 });
-    assert.equal(funnel.detail.total_orders, 4);
-    assert.equal(funnel.detail.refund_count, null);
-    assert.equal(funnel.detail.refund_rate_pct, null);
-    assert.equal(funnel.detail.fulfillment_rate_pct, null);
-    assert.ok(funnel.hints.some((hint) => hint.includes('退款数据不可用')));
+  it('propagates unknown after-sales counts without assuming zero', () => {
+    const unknown = { ...structuredClone(SAMPLE_LIST_STATS), refund_count: null, after_sales_count: null, refund_rate: null };
+    const afterSales = summarizeAfterSales({ orderStats: unknown, windowDays: 7 });
+    assert.equal(afterSales.detail.total_orders, 4);
+    assert.equal(afterSales.detail.refund_count, null);
+    assert.equal(afterSales.detail.refund_rate_pct, null);
+    assert.equal(afterSales.detail.after_sales_count, null);
+    assert.equal(afterSales.detail.after_sales_rate_pct, null);
+    assert.ok(afterSales.hints.some((hint) => hint.includes('售后数据不可用')));
+    const view = toDimensionView('after_sales', afterSales);
+    assert.deepEqual(view.headline, ['近 7 天订单 4 单，售后数据不可用']);
     const orders = summarizeOrders({ stats: { unship: 0, delay: 0 }, listStats: unknown });
     assert.equal(orders.detail.refund_rate_pct, null);
     assert.ok(orders.hints.some((hint) => hint.includes('退款数据不可用')));
+  });
+
+  it('preserves an unknown open after-sales count independently of known refunds', () => {
+    const result = summarizeAfterSales({ orderStats: { total: 3, refund_count: 1 } });
+    assert.equal(result.detail.refund_rate_pct, 33.33);
+    assert.equal(result.detail.after_sales_count, null);
+    assert.equal(result.detail.after_sales_rate_pct, null);
+    const view = toDimensionView('after_sales', result);
+    assert.ok(view.headline.includes('售后处理中数据不可用'));
   });
 
   it('words the orders refund headline by why the rate is null and keeps the reason out of output', () => {
@@ -165,7 +181,7 @@ describe('diagnostic source availability and facts', () => {
       orders: { stats: { unship: 0, delay: 0 }, listStats: structuredClone(SAMPLE_LIST_STATS) },
       goods: { goods: structuredClone(SAMPLE_GOODS), orders30d: [] },
       promo: { totals: { spend: 100, gmv: 50 } },
-      funnel: { orderStats: structuredClone(SAMPLE_LIST_STATS) },
+      after_sales: { orderStats: structuredClone(SAMPLE_LIST_STATS) },
     };
     assert.equal(diagnoseShop(input).status, 'full');
     const partial = diagnoseShop({ ...input, promo: undefined });
@@ -191,13 +207,13 @@ describe('numeric window comparisons', () => {
         orders: { detail: { shipping_p95_hours: 10, pending_ship_count: 5, delayed_ship_count: 2 } },
         inventory: { detail: { total: 4, low_stock_count: 1 } },
         promo: { detail: { spend_yuan: 120, roi: 1.25 } },
-        funnel: { detail: { total_orders: 20 } },
+        after_sales: { detail: { total_orders: 20 } },
       } },
       previous: { dimensions: {
         orders: { detail: { shipping_p95_hours: 20, pending_ship_count: 3, delayed_ship_count: 1 } },
         inventory: { detail: { total: 3, low_stock_count: 0 } },
         promo: { detail: { spend_yuan: 100, roi: 0 } },
-        funnel: { detail: { total_orders: null } },
+        after_sales: { detail: { total_orders: null } },
       } },
     };
     const before = structuredClone(input);
@@ -205,7 +221,7 @@ describe('numeric window comparisons', () => {
     assert.deepEqual(dimensions.orders.metrics.shipping_p95_hours, { current: 10, previous: 20, delta: -10, delta_pct: -50 });
     assert.deepEqual(dimensions.promo.metrics.spend_yuan, { current: 120, previous: 100, delta: 20, delta_pct: 20 });
     assert.deepEqual(dimensions.promo.metrics.roi, { current: 1.25, previous: 0, delta: 1.25, delta_pct: null });
-    assert.deepEqual(dimensions.funnel.metrics.total_orders, { current: 20, previous: null, delta: null, delta_pct: null });
+    assert.deepEqual(dimensions.after_sales.metrics.total_orders, { current: 20, previous: null, delta: null, delta_pct: null });
     for (const metric of [dimensions.orders.metrics.pending_ship_count, dimensions.orders.metrics.delayed_ship_count, ...Object.values(dimensions.inventory.metrics)]) {
       assert.equal(metric.previous, null);
       assert.equal(metric.delta, null);

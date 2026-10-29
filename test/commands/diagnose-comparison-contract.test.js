@@ -76,7 +76,9 @@ it('requests distinct comparison windows and computes their nonzero differences'
     [1698790400, 1699395200], [1699395200, 1700000000],
   ]);
   assert.deepEqual(comparison.dimensions.promo.metrics.spend_yuan, { current: 100, previous: 50, delta: 50, delta_pct: 100 });
-  assert.deepEqual(comparison.dimensions.funnel.metrics.total_orders, { current: 1, previous: 2, delta: -1, delta_pct: -50 });
+  assert.deepEqual(comparison.dimensions.after_sales.metrics.total_orders, { current: 1, previous: 2, delta: -1, delta_pct: -50 });
+  assert.deepEqual(comparison.dimensions.after_sales.metrics.after_sales_count, { current: 0, previous: 0, delta: 0, delta_pct: null });
+  assert.equal(Object.hasOwn(comparison.dimensions.after_sales.metrics, 'fulfillment_rate_pct'), false);
   assert.deepEqual(comparison.dimensions.orders.metrics.pending_ship_count, {
     current: 1, previous: null, delta: null, delta_pct: null, note: '仅有当前快照，无上期数据',
   });
