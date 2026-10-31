@@ -1,6 +1,6 @@
 ---
 name: pdd-cli
-description: 通过 pdd CLI 操作拼多多商家后台，查询订单/商品/推广/诊断/店铺综合体验星级、录入成本与查净利润、上货/多账号/运行配置，输出统一 envelope JSON 供 AI 消费
+description: 拼多多商家后台 pdd CLI：查询订单、商品、推广与经营报表（售后、体验星级、客服、评价、流量、净利润），录入商品成本，改价、上下架、改库存与上货，多账号切换与登录失效处理。
 user-invocable: true
 metadata:
   openclaw:
@@ -8,318 +8,189 @@ metadata:
       bins: [node]
 ---
 
-# pdd-cli — 拼多多商家后台自动化
+# pdd-cli
 
-`pdd` 是一个基于 Patchright 的拼多多商家后台 CLI。它驱动 Chromium、拦截后台 XHR 响应，把结果封装成稳定的 **envelope 契约** 输出，专为脚本 / AI 消费设计。纯 JavaScript（Node.js ESM），无构建步骤。
+`pdd` 驱动 Chromium 打开拼多多商家后台、拦截 XHR 响应，并把结果封装为单行 JSON envelope。纯 Node.js ESM，无构建步骤。
 
-## 何时使用本 skill
+## 调用
 
-当任务涉及以下任一项时激活：
-
-- 查询/统计拼多多**订单**（列表、详情、P50/P95 时效）
-- 管理**商品**（列表、库存告警、销量与库存统计、上下架、改价改库存改标题、批量编辑、从链接上货）
-- 录入本地**商品成本**，查询窗口内**商品净利润**
-- 拉取**推广报表**与 ROI 统计
-- 查询**店铺数据统计**（订单 / 库存 / 推广 / 售后维度）及平台**店铺综合体验星级**
-- **多账号 / 多店铺**切换与批量执行
-- 查看、校验和修改项目内**运行配置**
-- 鉴权（首次登录 / 重新登录 / 环境自检 / 后台自动续期）
-
-## 调用方式
-
-在项目根目录下运行。入口 bin 名为 `pdd`：
+在项目根目录运行，始终加 `--json`：
 
 ```bash
-# 未全局 link 时的规范调用
-node bin/pdd.js <command> [options]
-
-# 若已 npm link / 全局安装
-pdd <command> [options]
+node bin/pdd.js <command> [options] --json   # 已 npm link 时可写 pdd <command>
 ```
 
-**AI / 脚本消费必须加 `--json`**，得到单行 JSON envelope，便于解析：
+全局选项写在子命令前：`--json` / `--timeout <ms>` / `--mall <id>` / `--account <slug>` / `--consumer-account <昵称|手机号|slug>` / `--all-accounts` / `--headed` / `--verbose` / `--no-color`。各命令参数以 `node bin/pdd.js <command> --help` 为准。
 
-```bash
-node bin/pdd.js orders list --json
-```
-
-## 输出契约（envelope）
-
-所有命令输出统一结构，这是**神圣契约**，字段稳定（输出契约 v2，`meta.v: 2`）：
+## 读取结果
 
 ```json
-{
-  "ok": true,
-  "command": "orders.list",
-  "data": { "headline": ["近 7 天共 22 单，本页 20 单", "本页状态：已发货，待收货 20 单"], "items": [], "total": 22, "mall_id": "900001" },
-  "error": null,
-  "meta": { "v": 2, "exit_code": 0, "latency_ms": 812, "xhr_count": 1, "warnings": [] }
-}
+{"ok":true,"command":"orders.list","data":{"headline":["近 7 天共 22 单，本页 20 单"],"items":[],"total":22,"mall_id":"900001"},"error":null,"meta":{"v":2,"exit_code":0,"latency_ms":812,"warnings":[]}}
 ```
 
-- `ok` — 布尔，是否成功
-- `command` — 命令标识（如 `goods.update.price`）
-- `data` — 成功时的业务数据，**恒为对象**，必含 `headline`
-- `error` — 失败时的错误对象（`ok:false` 时非空，`data` 为 `null`）
-- `meta` — 仅技术元信息（版本、退出码、耗时、警告等）；只有 `meta.warnings` 允许增长；业务上下文（`total`、`mall_id` 等）在 `data` 里
+- `ok:false` 时 `error` 含 `code` / `message`，可能带 `hint` / `detail`，`data` 为 `null`。业务字段在 `data`，`meta` 只有技术信息；`meta.warnings` 可能带待办事项（见「登录失效与人工处理」）。
+- `data` 恒为对象并含 `headline`；列表为 `{ headline, items, total, ... }`。键名 snake_case；金额为元（`_yuan`）；比率为 0–100 百分数（`_pct`）；时间 `_at` 为北京时间 `YYYY-MM-DD HH:mm:ss`；枚举为中文标签，无法识别的码显示 `未知(<code>)`；`goods_id` / `mall_id` / `order_sn` 为字符串。
+- `--all-accounts` 返回 `{ headline, accounts: { <slug>: { ok, data | error, latency_ms } }, summary }`。
 
-### data 字段约定（v2）
+按退出码判断结果：
 
-- **`headline`**：1–3 句中文事实陈述（数量、状态、数据缺失），不含建议或好坏判断。
-- **列表命令**：`{ headline, items: [...], total, ... }`（如 `orders list`、`goods list/stock/templates`、`promo roi`、`shops list`、`account list`）。
-- **键名** 全部 snake_case；**金额** 单位为元、后缀 `_yuan`（如 `paid_amount_yuan: 29.9`）；**比率** 为 0-100 的百分数、后缀 `_pct`（如 `refund_rate_pct: 3.12`）；**ROI** 为倍数 `roi`；**时间** `_at` 为 `YYYY-MM-DD HH:mm:ss`（北京时间），日期为 `YYYY-MM-DD`；时长 `_hours`。
-- **枚举** 一律是中文标签（如订单 `status: "已发货，待收货"`、诊断 `status: "数据完整"`）；无法识别的码显示为 `未知(<code>)`。
-- **缺失** 为 `null`，不是 0；分母为 0 的比率也是 `null`。
-- **标识**（`goods_id`、`mall_id`、`order_sn`）为字符串。
-- **利润率例外**：`gross_margin_pct/net_margin_pct` 为有符号百分数，可负、可超过 ±100，保持原值；零收入时 null。
-- 不含上游原始对象，也不含收件人姓名 / 电话 / 地址。
-- 批量（`--all-accounts`）：`data = { headline, accounts: { <slug>: { ok, data | error, latency_ms } }, summary }`，每个账号的 `data` 即该命令自身的 v2 data。
+| 码 | 含义 | 处理 |
+|----|------|------|
+| 0 | 成功 | |
+| 1 | 通用错误 | 读 `error.message` 与 `error.hint`（daemon 启停超时、控制台端口占用等） |
+| 2 | 参数错误 | 按 `error.message` 修正参数 |
+| 3 | 鉴权 | 按「登录失效与人工处理」分辨 `error.code` |
+| 4 | 限流 | 连续 3 次 429 触发 5 分钟全局冷却，等待后重试 |
+| 5 | 网络 | 包括 `E_AUTH_CHECK_INDETERMINATE`（无法判定登录态），登录态仍可能有效，稍后重试 |
+| 6 | 业务错误 | 如店铺无权限，转告用户 |
+| 7 | 部分成功 | 逐项检查结果 |
 
-**向用户转述时优先使用 `data.headline`；需要细节时再引用字段的中文含义，不要复述键名**（例如说「实付 23.50 元」，不要说「paid_amount_yuan 是 23.5」）。
+### 转述结果
 
-**8 个退出码**（据此判断结果，勿只看 stdout）：
+- 以 `data.headline` 开头；需要细节时用字段的中文含义转述（「实付 23.50 元」）。
+- `null` 表示未知或数据缺失，说「数据不可用」；分母为 0 的比率也是 `null`。
+- 诊断的 `status`（`数据完整` / `数据不完整`）只描述数据完整性；`hints`、`data_quality`、截断标记原样转述。
+- 输出是事实数字。经营判断、评分、保本 ROI 和建议留给用户自己做。
+- 报表的字段与口径细节见 [reports.md](reports.md)；转述 `diagnose *`、`goods traffic`、`goods profit` 结果前先读。
 
-| 码 | 含义 | 码 | 含义 |
-|----|------|----|------|
-| 0 | OK 成功 | 4 | RATE_LIMIT 限流 |
-| 1 | GENERAL 通用错误 | 5 | NETWORK 网络 |
-| 2 | USAGE 用法/参数错误 | 6 | BUSINESS 业务错误 |
-| 3 | AUTH 鉴权失效 | 7 | PARTIAL 部分成功 |
+## 命令
 
-退出码 `3`（AUTH）→ 先看 `error.code`：`E_AUTH_HUMAN_REQUIRED` / `E_AUTH_RELOGIN_BLOCKED` 按下文「密码自动重登」处理，其余提示用户重新登录（`node bin/pdd.js login`）。退出码 `4`（RATE_LIMIT）→ 3 连 429 触发 5 分钟全局冷却，需等待后重试。
-
-## 全局选项（放在子命令前）
-
-| 选项 | 说明 |
-|------|------|
-| `--json` | 单行 JSON 输出（AI/脚本必加） |
-| `--no-color` | 禁用彩色 |
-| `--timeout <ms>` | 全局超时（毫秒） |
-| `--mall <id>` | 指定店铺 ID（默认用当前） |
-| `--headed` | 有头浏览器（调试用） |
-| `--verbose` | 启用 debug 日志 |
-| `--account <slug>` | 指定账号（多账号模式） |
-| `--consumer-account <ref>` | 指定消费者账号（昵称、手机号或存储 slug） |
-| `--all-accounts` | 对所有注册账号执行 |
-
-## 命令参考
-
-### ⚙️ 鉴权与环境（顶层）
+### 鉴权与环境
 
 ```bash
-node bin/pdd.js init [--qr]                 # 首次交互式登录（默认弹浏览器；--qr 无头扫码）
-node bin/pdd.js login [--qr|--consumer]  # 重新登录刷新 auth-state
-node bin/pdd.js doctor [--probe xhr]        # 环境自检（Chromium / auth-state / 登录态）
+node bin/pdd.js init [--qr]              # 首次登录（默认弹浏览器；--qr 终端扫码）
+node bin/pdd.js login [--qr|--consumer]  # 重新登录
+node bin/pdd.js doctor [--probe xhr]     # 环境与登录态自检
 ```
 
-### 🛠️ 运行配置 config
+### 运行配置
 
 ```bash
-node bin/pdd.js config show --json                  # 查看有效配置、本地覆盖和字段来源
-node bin/pdd.js config set rateLimitQps 4 --json   # 校验后写入本地稀疏覆盖
-node bin/pdd.js config unset rateLimitQps --json   # 删除本地覆盖并回退到高优先级环境变量或基线
-node bin/pdd.js config validate --json              # 分层校验；配置损坏时仍可执行
+node bin/pdd.js config show|validate --json
+node bin/pdd.js config set <key> <value> --json   # 校验后写入 config/config.json 本地覆盖
+node bin/pdd.js config unset <key> --json
 ```
 
-配置优先级为：`config/config.example.json` 基线 → 可选的稀疏 `config/config.json` → 映射环境变量 → 显式 CLI 参数。
+优先级：`config/config.example.json` 基线 → `config/config.json` → 环境变量 → CLI 参数。秘密、安全与测试开关只走环境变量（见 `.env.example`）；config 命令不显示它们。
 
-- `config set <key> <value>` 先按公开字段 Schema 校验；`config/config.json` 不存在时会原子创建，只保存本地覆盖项。字段或值非法时不会创建或覆盖文件。
-- `config unset <key>` 只删除本地覆盖；文件或字段不存在时是稳定 no-op，不会创建空文件。
-- config 命令不接受或显示 AuthKey、主密码、代理 token 等秘密字段；修改后由下一次命令加载。
-
-### 📦 订单 orders
+### 订单
 
 ```bash
-node bin/pdd.js orders list --page 1 --size 20 [--since <unix>] [--until <unix>] [--status all|pending_ship|shipped|received|after_sales]
-node bin/pdd.js orders detail --sn <订单号/shipping_id>
-node bin/pdd.js orders stats --size 50      # 远程 + 本地聚合 P50/P95
+node bin/pdd.js orders list [--page 1] [--size 20] [--since <unix>] [--until <unix>] [--status all|pending_ship|shipped|received|after_sales]
+node bin/pdd.js orders detail --sn <订单号>
+node bin/pdd.js orders stats [--size 50]   # 本地样本 P50/P95、退款与售后计数
 ```
 
-- `orders list` 默认 `--status all`：返回全部订单（待发货、已发货待收货、已收货、售后中、退款成功、已取消）。`pending_ship` 待发货、`shipped` 已发货待收货、`received` 已收货（这三项不含售后中的订单）、`after_sales` 售后处理中；其他取值以退出码 2 拒绝。时间窗默认近 7 天（按成团时间），更早的待发货订单不会出现在列表中，待发货总数以 `orders stats` 为准。`--size` 取 100 会被上游拒绝，50 可用。
-- 订单 `after_sales_status`：`退款成功` / `售后处理中` / `null`（无售后）/ `未知(<code>)`。
-- 退款统计只依据 `after_sales_status`：`orders stats` 本地样本给出 `refund_count`（退款成功）、`after_sales_count`（售后处理中）与 `refund_rate_pct`。若上游订单缺少售后状态字段，计数和占比保留 `null`，headline 说明数据不可用。
-- `diagnose inventory` / `goods segment` 的销量统计计入待发货、已发货、已收货订单，不计退款、售后中与已取消订单；`diagnose orders/shop/after-sales` 的售后统计使用全部订单。
+- `orders list` 默认近 7 天（按成团时间）全部订单；`pending_ship` / `shipped` / `received` 不含售后中订单。更早的待发货订单不在列表里，待发货总数以 `orders stats` 为准。`--size` 最大用 50（100 会被上游拒绝）。
+- 退款只看 `after_sales_status`：`退款成功` / `售后处理中` / `null`（无售后）。
 
-### 🛍️ 商品 goods
-
-**读操作：**
-```bash
-node bin/pdd.js goods list --page 1 --size 10 --status onsale|offline
-node bin/pdd.js goods stock --threshold 10  # 低库存/缺货告警
-node bin/pdd.js goods segment --days 30 --size 50 --max-pages 10 [--no-promo]  # 商品销量与库存统计
-node bin/pdd.js goods profit --days 30 [--goods-id <id>] --json
-node bin/pdd.js goods traffic --days 30 [--goods-id <id>] --json
-```
-
-**写操作（`goods update` 子组，默认 dry-run，须 `--confirm` 才真正执行）：**
-```bash
-node bin/pdd.js goods update status --goods-id <id> --status onsale|offline --confirm
-node bin/pdd.js goods update price  --goods-id <id> --price-yuan <元> [--sku-id <id>] --confirm
-node bin/pdd.js goods update stock  --goods-id <id> --quantity <n> [--sku-id <id>] --confirm
-node bin/pdd.js goods update title  --goods-id <id> --title "<新标题>" --confirm
-node bin/pdd.js goods update batch  --changes '[{"goods_id":1001,"field":"price_yuan","value":29.9}]' --confirm
-# batch field 取值：status | price_yuan | stock | title；价格 value 单位为元
-```
-
-**上货与运费模板：**
-```bash
-node bin/pdd.js goods templates            # 先查运费模板 ID
-node bin/pdd.js goods publish --url <链接或纯数字goods_id> [--cost-template <id>] [--confirm]
-# 默认仅创建草稿；--confirm 直接提交发布
-```
-
-> ⚠️ 所有 `goods update` 和 `goods publish --confirm` 属**写操作**，会改动线上商品。执行前须向用户确认 `--goods-id`、`--price-yuan`（单位为**元**，最多 2 位小数，例如 `29.9`）等参数无误。旧的分单位参数 `--price` 已移除，使用会以退出码 2 拒绝；batch 的 `field: "price"` 同样被拒绝。
->
-> 写操作回显：`{ headline, goods_id, field, value, sku_id?, dry_run, result?: { success, failed_count }, mall_id }`（`field` 为 `status|price_yuan|stock|title`；价格回显为元，上下架回显为「上架 / 下架」）；预演 headline 形如「预演：商品 101 价格将改为 29.90 元，未提交」。batch 预演为 `{ headline, planned[], count, dry_run, mall_id }`，提交后为 `{ headline, succeeded, failed, results[{ goods_id, field, ok, error_code?, message? }], dry_run, mall_id }`。
-
-### 本地商品成本与净利润
+### 商品
 
 ```bash
-node bin/pdd.js goods cost set --goods-id 101 --purchase-yuan 8.20 --packaging-yuan 0.50 --courier-yuan 3 [--spec <精确规格>] [--insurance-yuan 0.3] [--technical-service-yuan 0.2] [--confirm] --json
-node bin/pdd.js goods cost list [--goods-id 101] --json
-node bin/pdd.js goods cost import costs.json [--confirm] --json
-node bin/pdd.js goods cost remove --goods-id 101 [--spec <精确规格>] [--confirm] --json
+node bin/pdd.js goods list [--page 1] [--size 10] [--status onsale|offline]
+node bin/pdd.js goods stock [--threshold 10]                         # 低库存 / 缺货
+node bin/pdd.js goods segment [--days 30] [--max-pages 10] [--no-promo]  # 销量与库存统计
+node bin/pdd.js goods traffic [--days 30] [--goods-id <id>]          # 商品流量与推广拆分
+node bin/pdd.js goods profit [--days 30] [--goods-id <id>]           # 净利润（需先录入成本）
+node bin/pdd.js goods templates                                      # 运费模板 ID
 ```
 
-- 成本命令仅操作本地 SQLite，需要已登记商家账号（`--account`），无需在线登录、浏览器或 daemon；`--mall`/配置默认店铺优先，否则账号绑定店铺，始终核对输出 mall_id。成本按账号+店铺+商品+规格隔离，删除账号级联清理。四个成本命令均拒绝 `--all-accounts`，写命令缺 confirm 仅预演。
-- 货本按件，其余费用按单；金额为元，允许 0，最多两位小数。set 整条替换，省略运费险/技术服务费归零。spec 原文精确匹配，未命中回落默认；remove 缺 spec 仅删除默认行。
-- import 仅 UTF-8 JSON 数组（BOM 可用，1 MiB / 5000 条上限）；每条字段为 `goods_id`（推荐字符串）、可选 spec、必填 purchase_yuan/packaging_yuan/courier_yuan、可选 insurance_yuan/technical_service_yuan。完整模板见 README「商品成本与净利润」。未知列及重复商品/规格键导致整批拒绝；exit 2 / E_COST_IMPORT_INVALID 的 row_errors 按记录序号从 1 定位，语法错误 row:null。
-- list/import 返回 items/total，set 返回 entry，remove 返回 matched_count/removed_count；写命令含 dry_run，记录含 updated_at。一次导入全成功或全回滚。
-- profit 默认 30 天，days 仅整数 1–90；按 group_time（成团时间）统计上海完整自然日、不含当天、end_at 排他。goods-id 只筛 items，summary 保持全店；收入=实付+平台优惠，退款成功按货退回处理，已发货扣全部按单费用，未发货为 0，发货时间缺失使相关退款费用为 null；未付款取消收入与成本为 0，10/11 售后处理中正常计入并单列单数及收入。
-- gross_profit_yuan 扣商家成本，net_profit_yuan 再扣推广；相应 gross_margin_pct/net_margin_pct 允许负值及超过 ±100。推广**仅含商品推广报表口径**，商品按 goodsId 归属，summary.promo_spend_yuan 取 totals.spend，shop_promo_spend_yuan 为未归属差额且只影响 summary；负差额为 null/hint，已知总计仍保留。
-- 缺成本或推广失败利润为 null，完整拉取无商品推广记录时花费为 0；订单截断/限流时窗口财务 null，保留 observed_order_count/observed_revenue_yuan，读取 summary.data_quality/hints。cost_updated_at 为实际使用成本的最大更新时间，default_fallback_order_count 为规格回落单数；当前成本更新会重算历史窗口。
-- 免费后台缺少商家成本、准确退款金额/货物退回明细、补贴共担比例。转述结果时保留两项高估说明：仅退款不退货、商家共担平台补贴；以及“仅含商品推广报表口径”。只转述事实数字与数据可得性，省去保本 ROI、盈亏分类和经营建议。
+商品缺少 `goods_id` 时，库存与销量匹配回退到商品名，`matched_by` 显示「按商品名匹配（一侧缺少商品 ID）」，属正常结果。
 
-### 🚀 推广 promo
+### 商品写操作
 
 ```bash
-node bin/pdd.js promo roi --by plan|sku|channel [--since YYYY-MM-DD] [--page 1] [--size 50] [--include-inactive]  # ROI 统计
+node bin/pdd.js goods update status --goods-id <id> --status onsale|offline [--confirm]
+node bin/pdd.js goods update price  --goods-id <id> --price-yuan <元> [--sku-id <id>] [--confirm]
+node bin/pdd.js goods update stock  --goods-id <id> --quantity <n> [--sku-id <id>] [--confirm]
+node bin/pdd.js goods update title  --goods-id <id> --title "<新标题>" [--confirm]
+node bin/pdd.js goods update batch  --changes '[{"goods_id":1001,"field":"price_yuan","value":29.9}]' [--confirm]
+node bin/pdd.js goods publish --url <链接或goods_id> [--cost-template <id>] [--confirm]
 ```
 
-### 🩺 诊断 diagnose
+写操作会改动线上商品，按以下顺序执行：
+
+1. 与用户核对商品 ID 和目标值。价格单位是**元**，最多两位小数（`--price-yuan 29.9`）；batch 的 `field` 取 `status | price_yuan | stock | title`。
+2. 先不加 `--confirm` 运行，得到预演（`dry_run:true`，headline 形如「预演：商品 101 价格将改为 29.90 元，未提交」）。
+3. 把预演 headline 给用户看，用户明确同意后加 `--confirm` 重跑。
+4. 完成标准：返回 `ok:true` 且 `dry_run:false`；batch 逐项检查 `results[].ok`，把失败项及 `message` 告诉用户。
+
+`goods publish` 不加 `--confirm` 时在后台创建草稿，加 `--confirm` 直接提交发布；先用 `goods templates` 取运费模板 ID。
+
+### 商品成本
 
 ```bash
-node bin/pdd.js diagnose shop [--compare] [--days 7]   # 四维数据汇总与数值环比
-node bin/pdd.js diagnose orders                        # 订单维度（P95/退款/堆积）
-node bin/pdd.js diagnose inventory                     # 库存维度（缺货/低库存）
-node bin/pdd.js diagnose promo                         # 推广维度（ROI/CTR）
-node bin/pdd.js diagnose after-sales [--days 30]       # 售后维度（退款成功/售后处理中）
-node bin/pdd.js diagnose experience [--days 7]         # 平台店铺综合体验星级、指标与趋势
-node bin/pdd.js diagnose customer-service [--days 30]  # 多多客服人工回复汇总与逐日趋势
-node bin/pdd.js diagnose reviews [--days 30]           # 平台标签、问题类型与中差评
-node bin/pdd.js diagnose traffic [--days 30]           # 全店逐日流量及平台同行指标
+node bin/pdd.js goods cost set --goods-id 101 --purchase-yuan 8.20 --packaging-yuan 0.50 --courier-yuan 3 [--spec <精确规格>] [--insurance-yuan 0.3] [--technical-service-yuan 0.2] [--confirm]
+node bin/pdd.js goods cost list [--goods-id 101]
+node bin/pdd.js goods cost import costs.json [--confirm]
+node bin/pdd.js goods cost remove --goods-id 101 [--spec <精确规格>] [--confirm]
 ```
 
-售后维度键为 `after_sales`，`detail` 包含 `total_orders`、`refund_count`、`refund_rate_pct`、`after_sales_count`、`after_sales_rate_pct`、`status_distribution`、`window_days`。其中 `after_sales_count` 只计售后处理中订单，两类占比均以采集到的全部订单数为分母；空样本占比为 `null`。店铺汇总默认使用近 7 天首批 50 条订单，单独售后查询默认近 30 天分页采集，并保留截断及限流提示。旧 `diagnose funnel` 命令和 `fulfillment_rate_pct` 字段已移除。
+- 只读写本地 SQLite，需要已登记的商家账号，无需在线登录。成本按账号 + 店铺 + 商品 + 规格隔离；店铺取 `--mall` 或配置，否则取账号绑定店铺，核对输出的 `mall_id`。写命令同样先预演再 `--confirm`；均只作用于单个账号。
+- 货本按件，包材、快递、运费险、技术服务费按单；金额为元，允许 0。`set` 整条替换，省略的可选费用归零。`--spec` 按原文精确匹配，未命中时回落默认成本；`remove` 不带 `--spec` 只删默认行。
+- `import`：UTF-8 JSON 数组，最多 1 MiB / 5000 条，字段 `goods_id`、可选 `spec`、`purchase_yuan`、`packaging_yuan`、`courier_yuan`、可选 `insurance_yuan` / `technical_service_yuan`（模板见 README「商品成本与净利润」）。整批校验通过才写入；失败返回 `E_COST_IMPORT_INVALID`（退出码 2），`error.detail.row_errors` 按从 1 开始的记录序号定位，JSON 语法错误为 `row:null`。
 
-`diagnose experience` 单独返回 `snapshot`（星级、较前一天变化、下一星级及排名门槛、综合分行业排名、平台评级、统计日期）、`indicators[]`（维度、名称、值、单位、下一星级门槛及平台达标状态）、`consumer_experience_plan` 和 `trend`。`--days` 默认 7，接受 1–30 的整数，越界为 `E_USAGE` / exit 2。趋势窗口截止到平台就绪日期，`snapshot.stat_date` 使用快照自己的统计日期；`trend.items[]` 按日期升序保留有数据的行。比率用百分数，时长用小时或天，未知值保持 `null`；店铺活跃度上游已为百分数，用户评价得分排名保留平台原单位。转述平台星级、评级文案和达标判定时保留原意。快照失败时命令失败；趋势不可用时 `trend:null`、`status:"数据不完整"` 并给出 `hints`，延迟标记仅追加提示。`mall_id` 从 ctx 明文输出，店铺名和上游 `mallId` / `mallName` 字段由白名单剔除。`diagnose shop` 保持原有四维汇总。
-
-这些查询不生成经营建议、健康评分、商品等级或推广优劣分类。`action plan` 和 `--break-even` 已移除。诊断的 `status`（`数据完整` / `数据不完整`）只表示数据完整性，不代表经营好坏；缺失数值保留为 `null`，不能当成零。环比窗口为 `{ start_date, end_date, days }`；`_pct` 指标的 `delta` 是百分点、`delta_pct` 是相对变化率；当前库存和待发货快照不做历史对比（`note: "仅有当前快照，无上期数据"`）。
-
-`diagnose customer-service` 返回 `{ headline, window, caliber, summary, trend, hints, mall_id }`。`--days` 默认 30，接受 1-63 的整数，上海日期窗口为今天减 days 至昨天；`caliber` 固定「多多客服-客服数据（人工回复）」。`summary` 为 desert 区间汇总；`trend.items[]` 取页面自动加载的最近 31 天中落在窗口内的行，按日期排序，保留类目响应时长参考。百分比键后缀 `_pct`，响应时长后缀 `_seconds`，无咨询日指标为 `null`。汇总失败时命令失败，趋势的可降级错误产生 `trend:null` 和 hint。该人工回复序列与 `diagnose experience` 的星级口径各自独立。
-
-`diagnose reviews` 的 `--days` 接受 30、60、90、180，默认 30，其他值为 `E_USAGE` / exit 2。`keyword_tags` 是平台满意/不满意标签及计数，`issue_types[]` 是五类问题正负面计数和平台占比，`negative_reviews` 为 `{ items, total, truncated }`。中差评筛选为描述评分 1-3 星，每页 10 条、最多 30 页，翻满时标记截断并给出 hint。条目含商品 ID、上海评价时间、三项评分、历史评分、正文、追评、标签、已回复状态和图片数；历史评分存在时三项评分为 `null`。正文和追评中的手机号按 `138****5678` 格式掩码，昵称、头像、订单、规格、图片/视频链接和快照均由白名单过滤。CLI 直接使用平台聚合；三个数据源分别降级为 `null` 并提示，全部失败时整体失败。超时、取消和程序异常继续抛出。
-
-`diagnose traffic` 接受 1-30 天，截止日来自平台就绪日期；访客汇总是逐日访客数之和，跨日存在重复。`goods traffic` 接受 1、7、30 天（默认 30），取截至上海昨天的平台区间数据，最多采集 20 页；`--goods-id` 保留字符串。推广按商品归属汇总稳定成本和全店托管计划，分别保留直接、间接成交；`non_promo_*` = 商品总成交减去推广直接成交。负差额置 null 并提示；推广失败或截断时推广和差值字段均为 null，`data_quality.promo_complete:false`；完整无记录为 0。推广拆分来自第三方插件静态分析，尚未经有投放店铺实测。明文接口失败或返回字体混淆数据时命令报错。
-
-### 🏬 店铺 shops
+### 推广
 
 ```bash
-node bin/pdd.js shops list      # 当前账号下所有店铺
-node bin/pdd.js shops current   # 当前店铺
+node bin/pdd.js promo roi [--by plan|sku|channel] [--since YYYY-MM-DD] [--size 50] [--include-inactive]
 ```
 
-### 👤 多账号 account
+### 经营报表
 
 ```bash
-node bin/pdd.js account add                              # 添加账号（有头浏览器登录+自动注册）
-node bin/pdd.js account list                             # 列出所有账号
-node bin/pdd.js account default --slug <slug>            # 设默认账号
-node bin/pdd.js account remove --slug <slug>             # 级联删除账号及关联数据
+node bin/pdd.js diagnose shop [--compare] [--days 7]   # 订单/库存/推广/售后四维汇总与环比
+node bin/pdd.js diagnose orders|inventory|promo        # 单维度统计
+node bin/pdd.js diagnose after-sales [--days 30]       # 退款成功与售后处理中
+node bin/pdd.js diagnose experience [--days 7]         # 店铺综合体验星级，1–30 天
+node bin/pdd.js diagnose customer-service [--days 30]  # 客服人工回复，1–63 天；逐日趋势最多最近 31 天
+node bin/pdd.js diagnose reviews [--days 30]           # 评价标签与中差评，30/60/90/180 天
+node bin/pdd.js diagnose traffic [--days 30]           # 全店逐日流量，1–30 天
 ```
 
-### 按需认证检查
+`goods traffic` 的 `non_promo_*` 是 CLI 推算的差值，推广拆分口径尚未实测；`goods profit` 有两项可能高估。转述前读 [reports.md](reports.md)。
 
-登录、普通命令及 doctor 独立检查商家认证，成功命令只回写重新验证通过的冻结材料。普通命令从不自动拉起后台进程；需要人工处理时由显式启动的 `pdd daemon` 托管控制台（见下节）。网络无法判定（退出码 5）不代表登录失效，明确失效（退出码 3）才提示重新登录。
+### 店铺与账号
 
-### 密码自动重登
+```bash
+node bin/pdd.js shops list|current
+node bin/pdd.js account add                    # 有头浏览器登录并登记
+node bin/pdd.js account list
+node bin/pdd.js account default --slug <slug>
+node bin/pdd.js account remove --slug <slug>   # 级联删除该账号的登录态与成本等数据
+```
 
-账号保存了密码时，普通命令发现商家登录态失效会在同一条命令内自动用账密重登一次，成功则命令照常完成。密码只能由用户本人在控制台录入。
+## 登录失效与人工处理
+
+账号保存了密码时，普通命令发现登录失效会在同一条命令内自动重登一次。需要人工时，由用户本人在网页控制台完成。
 
 | 看到 | 处理 |
 |------|------|
-| `error.code = E_AUTH_HUMAN_REQUIRED`（登录遇到短信、滑块等验证） | 执行 `node bin/pdd.js console link`，把链接转给用户，由用户本人完成验证 |
-| `meta.warnings` 中有 `{ code: 'daemon_not_running' }`，或 `console link` 返回 `E_DAEMON_NOT_RUNNING` | 先执行 `node bin/pdd.js daemon start`，再执行 `console link` |
-| `meta.warnings` 中有 `{ code: 'account_action_required', account, reason }` | 同上，对 `account` 指明的账号执行 `console link` 并把链接转给用户；命令本身可能已经成功 |
-| `error.code = E_AUTH_RELOGIN_BLOCKED`（密码错误、账号被锁或接管多次超时，已熔断） | 执行 `console link` 让用户重设密码或解除熔断；用户无法处理时改用 `node bin/pdd.js login --qr` 扫码登录 |
-| `error.code = E_PASSWORD_LOGIN_FORM_CHANGED` | 改用 `login --qr` 扫码登录，并告知用户登录页已变化 |
-| `error.code = E_AUTH_RELOGIN_FAILED`，或 `error.detail.relogin = 'throttled'` | 自动重登暂不可用；稍后重试，或提示用户执行 `login` |
-
-- **任何情况下都不要在聊天中向用户索要密码或登录名**，也不要尝试替用户输入验证码。
-- 同一账号两次自动重登至少间隔 30 分钟（`PDD_PASSWORD_RELOGIN_MIN_INTERVAL_MS`），遇到验证或熔断后会暂停，直到用户处理；反复重试命令不会加快恢复。
-- `account list` 和 `doctor` 的 `has_password` / `password_relogin_status`（doctor 为 `password_relogin.status`）显示是否保存了密码及当前状态，如 `可用`、`等待人工：短信验证`、`已熔断：密码错误`；这两个命令本身不会触发重登。
-
-### daemon 与控制台
+| `E_AUTH_EXPIRED` | 请用户执行 `node bin/pdd.js login`（或 `login --qr`） |
+| `E_AUTH_HUMAN_REQUIRED`（短信、滑块等验证） | 执行 `console link`，把 `data.url` 转给用户本人完成 |
+| `meta.warnings` 含 `account_action_required`（命令本身可能已成功） | 对 `account` 指明的账号执行 `console link` 并转给用户 |
+| warning `daemon_not_running`，或 `console link` 返回 `E_DAEMON_NOT_RUNNING` | 先 `daemon start`，再 `console link` |
+| `E_AUTH_RELOGIN_BLOCKED`（密码错误、账号锁定或多次超时，已熔断） | `console link` 让用户重设密码或解除熔断；用户无法处理时改用 `login --qr` |
+| `E_PASSWORD_LOGIN_FORM_CHANGED` | 改用 `login --qr`，并告知用户登录页已变化 |
+| `E_AUTH_RELOGIN_FAILED`，或 `error.detail.relogin = 'throttled'` | 自动重登暂不可用，稍后重试或请用户 `login` |
+| `E_MASTER_KEY_MISSING` / `E_MASTER_KEY_MISMATCH` / `E_MASTER_KEY_INSECURE` / `E_SECRET_DECRYPT_FAILED` | 主密钥与数据库不配套，重新登录无效。把 `error.hint` 转告用户，由用户决定恢复密钥或清库；数据库与 `master.key` 保持原样，删除、改权限都交给用户本人 |
 
 ```bash
-node bin/pdd.js daemon start                 # 后台启动；已运行则直接返回状态（含 console_url）
-node bin/pdd.js daemon status                # running / heartbeat_at / last_patrol_at / patrol_enabled
-node bin/pdd.js console link [--account <slug>]   # 一次性链接，10 分钟有效；data.url 原样转给用户
+node bin/pdd.js daemon start                      # 后台启动；已运行则返回状态（含 console_url）
+node bin/pdd.js daemon status
+node bin/pdd.js console link [--account <slug>]   # 一次性链接，10 分钟有效
 node bin/pdd.js daemon stop
 ```
 
-- `console link` 输出的链接含一次性凭证：只转发给用户本人，不要写入文件、日志或其他会话。
-- 用户在控制台中录入密码、过验证、扫码；你只需等待用户告知完成，再重试原命令。不要轮询或代替用户操作控制台。
-- daemon 不随机器启动；看到 `daemon_not_running` 时启动它即可，平时不必常开。
+- 密码和验证码只由用户本人在控制台输入；聊天中绝不索要密码、登录名或验证码。
+- `console link` 的链接含一次性凭证，只原样转给用户本人，不写入文件、日志或其他会话。用户告知完成后再重试原命令，期间无需轮询控制台。
+- 同一账号两次自动重登至少间隔 30 分钟，遇到验证或熔断后暂停到用户处理为止；重复执行命令不会加快恢复。
+- `account list` 与 `doctor` 显示 `has_password` 和重登状态（如 `可用`、`等待人工：短信验证`、`已熔断：密码错误`），本身不触发重登。
+- daemon 需显式启动，不随机器启动；普通命令从不拉起它。
 
-## 典型工作流
+## 环境与数据
 
-**首次上手：**
-运行环境要求 Node.js >= 24。
-
-```bash
-npx patchright install chromium   # 装 Chromium（仅一次）
-node bin/pdd.js init              # 登录
-node bin/pdd.js doctor            # 确认环境就绪
-```
-
-**店铺数据查询：**
-```bash
-node bin/pdd.js diagnose shop --compare --json   # 查看指标与环比
-node bin/pdd.js goods segment --json             # 查看销量与库存
-node bin/pdd.js promo roi --json                 # 查看推广投入和产出
-```
-
-**从竞品链接上货：**
-```bash
-node bin/pdd.js goods templates --json           # 取运费模板 ID
-node bin/pdd.js goods publish --url <链接> --cost-template <id> --json        # 先建草稿
-node bin/pdd.js goods publish --url <链接> --cost-template <id> --confirm --json  # 确认后发布
-```
-
-## 关键环境变量
-
-| 变量 | 用途 |
-|------|------|
-| `PDD_TEST_ADAPTER=fixture` | Mock 模式（跳过真实浏览器，测试用） |
-| `PDD_TEST_FIXTURE_DIR=<path>` | fixture 数据目录 |
-| `PDD_DB_PATH=<path>` | 商家/消费者账号及加密登录态的 SQLite 数据库，默认 `data/pdd.db`；主密钥 `master.key` 自动生成在数据库同目录（默认 `data/master.key`） |
-| （固定）`log/cli/` | CLI 日志按本地日轮转；引导阶段写 stderr；路径不可配置 |
-| `PDD_CONSUMER_LOGIN_URL=<url>` | 覆盖消费者端登录页地址 |
-| `PDD_MALL_ID_STRICT_PARSE=0` | 放宽 mall ID 到 64 字符（默认 1-15 位数字） |
-| `PDD_SCRAPE_SIMULATE=0` | 关闭抓取时的人类行为模拟（默认开启） |
-| `PDD_SCRAPE_SOFTBLOCK_THRESHOLD` | IP 软封连续命中阈值进入冷却（默认 2） |
-| `PDD_SCRAPE_SOFTBLOCK_COOLDOWN_MS` | IP 软封冷却时长 ms（默认 2h） |
-
-## 注意事项
-
-- **AI 消费一律加 `--json`**，并结合退出码判断成败，勿只解析文本。
-- **写操作默认 dry-run**：`goods update *` 不加 `--confirm` 只预演，不改线上数据；确认参数后再加 `--confirm`。
-- **价格单位是元**：`--price-yuan 29.9` 表示 29.90 元（上游仍以分提交，CLI 精确换算）；输出中的金额字段（`*_yuan`）同为元。
-- **鉴权失效（退出码 3）** → 按「密码自动重登」一节分辨错误码；需要人工时用 `console link` 转给用户，其余重新 `login`。**限流（退出码 4）** → 等待冷却后重试。
-- `--consumer-account` 的昵称、手机号或 slug 用于数据库账号查找；登录态按账号 ID 加密保存，使用时在内存中解密。
-- 数据库和同目录的主密钥均为敏感文件，勿提交，须一起备份与恢复。并发认证更新使用账号租约与 revision CAS（仅在修订号匹配时提交）。升级后需重新登录所有商家和消费者账号；旧版 JSON 数据保留原样，`doctor` 检测到时给出提示。
-- 本地运行差异优先用 `config set` 写入稀疏 `config/config.json`；秘密、安全和测试开关仍只通过环境变量注入。
-- 商品缺少 `goods_id` 时，库存 / 销量匹配会回退到商品名，`matched_by` 显示为「按商品名匹配（一侧缺少商品 ID）」，属正常兼容结果。
-- Mock 模式：设 `PDD_TEST_ADAPTER=fixture` + `PDD_TEST_FIXTURE_DIR=<dir>`，并用临时 `PDD_DB_PATH` 隔离数据库与密钥，可在无浏览器/无真实账号下跑通命令，适合演示与调试。
-- 敏感字段（cookie、authorization、anti_content、手机号、地址等）在日志中自动 SHA256 脱敏；密码、登录名和主密钥一律输出 `[REDACTED]`。
+- 首次使用：`npx patchright install chromium` → `init` → `doctor`（Node.js >= 24）。
+- 账号与加密登录态存在 SQLite（默认 `data/pdd.db`，`PDD_DB_PATH` 覆盖），主密钥 `master.key` 在同目录。两者是敏感文件，保持在仓库之外，备份时一起保存。
+- Mock 模式：`PDD_TEST_ADAPTER=fixture` + `PDD_TEST_FIXTURE_DIR=<dir>`，再用临时 `PDD_DB_PATH` 隔离数据库，可在无浏览器、无真实账号时跑通命令。
+- 其他环境变量见 `.env.example`。
