@@ -21,6 +21,9 @@ import { PROMO_ROI_ITEM_FIELDS, PROMO_TOTALS_FIELDS } from '../../src/services/v
 import { STALE_SAMPLE_FIELDS } from '../../src/services/views/diagnose.js';
 import { DAEMON_STATUS_VIEW_FIELDS } from '../../src/services/views/daemon.js';
 import { runDaemonContract, runConsoleLinkContract } from '../helpers/daemon-cli.js';
+import { runCostContract, runProfitContract } from '../helpers/goods-cost-cli.js';
+import { GOODS_COST_ENTRY_FIELDS } from '../../src/services/views/goods-cost.js';
+import { GOODS_PROFIT_ITEM_FIELDS, GOODS_PROFIT_SUMMARY_FIELDS, GOODS_PROFIT_QUALITY_FIELDS } from '../../src/services/views/goods-profit.js';
 
 // 两件商品：101 有销量，102 有库存但无销量（零销量样本非空，供 stale_sample 白名单校验）
 function staleGoodsFixtures() {
@@ -72,6 +75,16 @@ async function discoverRegisteredCommands() {
 const VALID_AUTH_STATE = { cookies: [{ name: 'PASS_ID', value: 'synthetic' }], origins: [] };
 
 const V2_CASES = [
+  { command: 'goods.profit', args: ['goods', 'profit'], execute: runProfitContract,
+    entityFields: { 'items[]': GOODS_PROFIT_ITEM_FIELDS, summary: GOODS_PROFIT_SUMMARY_FIELDS,
+      'summary.data_quality': GOODS_PROFIT_QUALITY_FIELDS } },
+  { command: 'goods.cost.list', args: ['goods', 'cost', 'list'], execute: () => runCostContract('list'),
+    entityFields: { 'items[]': GOODS_COST_ENTRY_FIELDS } },
+  { command: 'goods.cost.set', args: ['goods', 'cost', 'set'], execute: () => runCostContract('set'),
+    entityFields: { entry: GOODS_COST_ENTRY_FIELDS } },
+  { command: 'goods.cost.remove', args: ['goods', 'cost', 'remove'], execute: () => runCostContract('remove') },
+  { command: 'goods.cost.import', args: ['goods', 'cost', 'import'], execute: () => runCostContract('import'),
+    entityFields: { 'items[]': GOODS_COST_ENTRY_FIELDS } },
   { command: 'console.link', args: ['console', 'link'], execute: runConsoleLinkContract,
     entityFields: { '': ['headline', 'url', 'expires_at'] } },
   { command: 'daemon.start', args: ['daemon', 'start'], execute: () => runDaemonContract('start') },

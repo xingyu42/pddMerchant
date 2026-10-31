@@ -1,6 +1,6 @@
 ---
 name: pdd-cli
-description: 通过 pdd CLI 操作拼多多商家后台 — 订单/商品/推广/诊断/上货/多账号/运行配置，输出统一 envelope JSON 供 AI 消费
+description: 通过 pdd CLI 操作拼多多商家后台，查询订单/商品/推广/诊断、录入成本与查净利润、上货/多账号/运行配置，输出统一 envelope JSON 供 AI 消费
 user-invocable: true
 metadata:
   openclaw:
@@ -18,6 +18,7 @@ metadata:
 
 - 查询/统计拼多多**订单**（列表、详情、P50/P95 时效）
 - 管理**商品**（列表、库存告警、销量与库存统计、上下架、改价改库存改标题、批量编辑、从链接上货）
+- 录入本地**商品成本**，查询窗口内**商品净利润**
 - 拉取**推广报表**与 ROI 统计
 - 查询**店铺数据统计**（订单 / 库存 / 推广 / 售后维度）
 - **多账号 / 多店铺**切换与批量执行
@@ -70,6 +71,7 @@ node bin/pdd.js orders list --json
 - **枚举** 一律是中文标签（如订单 `status: "已发货，待收货"`、诊断 `status: "数据完整"`）；无法识别的码显示为 `未知(<code>)`。
 - **缺失** 为 `null`，不是 0；分母为 0 的比率也是 `null`。
 - **标识**（`goods_id`、`mall_id`、`order_sn`）为字符串。
+- **利润率例外**：`gross_margin_pct/net_margin_pct` 为有符号百分数，可负、可超过 ±100，保持原值；零收入时 null。
 - 不含上游原始对象，也不含收件人姓名 / 电话 / 地址。
 - 批量（`--all-accounts`）：`data = { headline, accounts: { <slug>: { ok, data | error, latency_ms } }, summary }`，每个账号的 `data` 即该命令自身的 v2 data。
 
@@ -145,6 +147,7 @@ node bin/pdd.js orders stats --size 50      # 远程 + 本地聚合 P50/P95
 node bin/pdd.js goods list --page 1 --size 10 --status onsale|offline
 node bin/pdd.js goods stock --threshold 10  # 低库存/缺货告警
 node bin/pdd.js goods segment --days 30 --size 50 --max-pages 10 [--no-promo]  # 商品销量与库存统计
+node bin/pdd.js goods profit --days 30 [--goods-id <id>] --json
 ```
 
 **写操作（`goods update` 子组，默认 dry-run，须 `--confirm` 才真正执行）：**
@@ -167,6 +170,24 @@ node bin/pdd.js goods publish --url <链接或纯数字goods_id> [--cost-templat
 > ⚠️ 所有 `goods update` 和 `goods publish --confirm` 属**写操作**，会改动线上商品。执行前须向用户确认 `--goods-id`、`--price-yuan`（单位为**元**，最多 2 位小数，例如 `29.9`）等参数无误。旧的分单位参数 `--price` 已移除，使用会以退出码 2 拒绝；batch 的 `field: "price"` 同样被拒绝。
 >
 > 写操作回显：`{ headline, goods_id, field, value, sku_id?, dry_run, result?: { success, failed_count }, mall_id }`（`field` 为 `status|price_yuan|stock|title`；价格回显为元，上下架回显为「上架 / 下架」）；预演 headline 形如「预演：商品 101 价格将改为 29.90 元，未提交」。batch 预演为 `{ headline, planned[], count, dry_run, mall_id }`，提交后为 `{ headline, succeeded, failed, results[{ goods_id, field, ok, error_code?, message? }], dry_run, mall_id }`。
+
+### 本地商品成本与净利润
+
+```bash
+node bin/pdd.js goods cost set --goods-id 101 --purchase-yuan 8.20 --packaging-yuan 0.50 --courier-yuan 3 [--spec <精确规格>] [--insurance-yuan 0.3] [--technical-service-yuan 0.2] [--confirm] --json
+node bin/pdd.js goods cost list [--goods-id 101] --json
+node bin/pdd.js goods cost import costs.json [--confirm] --json
+node bin/pdd.js goods cost remove --goods-id 101 [--spec <精确规格>] [--confirm] --json
+```
+
+- 成本命令仅操作本地 SQLite，需要已登记商家账号（`--account`），无需在线登录、浏览器或 daemon；`--mall`/配置默认店铺优先，否则账号绑定店铺，始终核对输出 mall_id。成本按账号+店铺+商品+规格隔离，删除账号级联清理。四个成本命令均拒绝 `--all-accounts`，写命令缺 confirm 仅预演。
+- 货本按件，其余费用按单；金额为元，允许 0，最多两位小数。set 整条替换，省略运费险/技术服务费归零。spec 原文精确匹配，未命中回落默认；remove 缺 spec 仅删除默认行。
+- import 仅 UTF-8 JSON 数组（BOM 可用，1 MiB / 5000 条上限）；每条字段为 `goods_id`（推荐字符串）、可选 spec、必填 purchase_yuan/packaging_yuan/courier_yuan、可选 insurance_yuan/technical_service_yuan。完整模板见 README「商品成本与净利润」。未知列及重复商品/规格键导致整批拒绝；exit 2 / E_COST_IMPORT_INVALID 的 row_errors 按记录序号从 1 定位，语法错误 row:null。
+- list/import 返回 items/total，set 返回 entry，remove 返回 matched_count/removed_count；写命令含 dry_run，记录含 updated_at。一次导入全成功或全回滚。
+- profit 默认 30 天，days 仅整数 1–90；按 group_time（成团时间）统计上海完整自然日、不含当天、end_at 排他。goods-id 只筛 items，summary 保持全店；收入=实付+平台优惠，退款成功按货退回处理，已发货扣全部按单费用，未发货为 0，发货时间缺失使相关退款费用为 null；未付款取消收入与成本为 0，10/11 售后处理中正常计入并单列单数及收入。
+- gross_profit_yuan 扣商家成本，net_profit_yuan 再扣推广；相应 gross_margin_pct/net_margin_pct 允许负值及超过 ±100。推广**仅含商品推广报表口径**，商品按 goodsId 归属，summary.promo_spend_yuan 取 totals.spend，shop_promo_spend_yuan 为未归属差额且只影响 summary；负差额为 null/hint，已知总计仍保留。
+- 缺成本或推广失败利润为 null，完整拉取无商品推广记录时花费为 0；订单截断/限流时窗口财务 null，保留 observed_order_count/observed_revenue_yuan，读取 summary.data_quality/hints。cost_updated_at 为实际使用成本的最大更新时间，default_fallback_order_count 为规格回落单数；当前成本更新会重算历史窗口。
+- 免费后台缺少商家成本、准确退款金额/货物退回明细、补贴共担比例。转述结果时保留两项高估说明：仅退款不退货、商家共担平台补贴；以及“仅含商品推广报表口径”。只转述事实数字与数据可得性，省去保本 ROI、盈亏分类和经营建议。
 
 ### 🚀 推广 promo
 

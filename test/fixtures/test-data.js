@@ -170,3 +170,21 @@ export function createAccounts(slugs = ['shop-a', 'shop-b']) {
     last_login_at: '2026-10-06T16:30:05.000Z', disabled: false, is_default: index === 0,
   }));
 }
+
+export function createProfitOrders(overrides = [{}]) {
+  const now = Math.floor(Date.now() / 1000);
+  const end = Math.floor((now + 8 * 3600) / 86400) * 86400 - 8 * 3600;
+  return overrides.map((fields, index) => createUpstreamOrder({
+    order_sn: `SYN-PROFIT-${index}`, group_time: end - 3600, order_time: end - 40 * 86400, pay_status: 2, ...fields,
+  }));
+}
+
+export function createProfitFixtures({ orders = createProfitOrders(),
+  entities = [{ goodsId: '101', goodsName: 'Tea', spend: 1, gmv: 24, impression: 10, click: 1 }], totalSpend = 1.5 } = {}) {
+  return {
+    'endpoints/orders.list.json': ORDER_LIST.normalize({ success: true, result: { totalItemNum: orders.length, pageItems: orders } }),
+    'endpoints/promo.entityReport.json': PROMO_ENTITY_REPORT.normalize({ success: true, result: {
+      entityReportList: entities, totalSumReport: { spend: totalSpend, gmv: 24, impression: 10, click: 1 },
+    } }),
+  };
+}

@@ -3,6 +3,22 @@
 
 // 数据可得性（diagnose status / compare status）
 export const DATA_STATUS_LABEL = Object.freeze({ full: '数据完整', partial: '数据不完整' });
+export const COST_SCOPE_LABEL = Object.freeze({ default: '商品默认', spec: '指定规格' });
+export const PROFIT_HINT_LABEL = Object.freeze({
+  orders_truncated: '订单量超出采集上限，窗口财务金额为 null，保留已观测样本',
+  orders_ratelimited: '订单采集因限流中断，窗口财务金额为 null，保留已观测样本',
+  invalid_order_window: '成团时间缺失或重复订单事实冲突，订单采集不完整',
+  promo_incomplete: '推广采集不完整，相关推广花费和净利润为 null',
+  promo_unavailable: '推广数据拉取失败，相关推广花费和净利润为 null',
+  negative_promo_difference: '推广报表总计减商品归属合计的差额为负，店铺级推广花费为 null',
+  promo_amount_unknown: '推广金额缺失或单位无效，相关金额为 null',
+});
+export const PROFIT_FIXED_HINTS = Object.freeze([
+  '成本按当前录入值计算，历史窗口会随成本更新重算',
+  '退款成功按全额退款且货已退回处理；仅退款不退货时，利润可能高估',
+  '平台优惠按全部结算给商家计入收入；商家共担补贴活动时，利润可能高估',
+  '推广花费仅含商品推广报表口径',
+]);
 
 // diagnose 维度
 export const DIMENSION_LABEL = Object.freeze({ orders: '订单', inventory: '库存', promo: '推广', after_sales: '售后' });

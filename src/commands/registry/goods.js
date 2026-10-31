@@ -9,15 +9,34 @@ import * as updateTitle from '../goods/update/title.js';
 import * as updateBatch from '../goods/update/batch.js';
 import * as publish from '../goods/publish.js';
 import * as templates from '../goods/templates.js';
+import * as costList from '../goods/cost/list.js';
+import * as costSet from '../goods/cost/set.js';
+import * as costRemove from '../goods/cost/remove.js';
+import * as costImport from '../goods/cost/import.js';
+import * as profit from '../goods/profit.js';
 
-export function register(program, wireAction) {
-  const goods = program.command('goods').description('🛍️ 商品管理');
+function registerCosts(goods, wireAction) {
+  const costs = goods.command('cost').description('本地商品成本（写入需 --confirm）');
+  wireAction(costs.command('list').option('--goods-id <id>', '商品 ID'), 'goods.cost.list', costList.run);
+  wireAction(costs.command('set').requiredOption('--goods-id <id>', '商品 ID').option('--spec <text>', '精确规格文本')
+    .requiredOption('--purchase-yuan <yuan>', '每件货本（元）').requiredOption('--packaging-yuan <yuan>', '每单包材（元）')
+    .requiredOption('--courier-yuan <yuan>', '每单快递（元）').option('--insurance-yuan <yuan>', '每单运费险（元）')
+    .option('--technical-service-yuan <yuan>', '每单技术服务费（元）').option('--confirm', '确认保存，默认预演'),
+  'goods.cost.set', costSet.run);
+  wireAction(costs.command('remove').requiredOption('--goods-id <id>', '商品 ID')
+    .option('--spec <text>', '仅删除此规格；缺省仅删除默认行').option('--confirm', '确认删除，默认预演'),
+  'goods.cost.remove', costRemove.run);
+  wireAction(costs.command('import <file>').description('导入 JSON 成本记录').option('--confirm', '确认导入，默认预演'),
+    'goods.cost.import', costImport.run);
+}
+
+function registerReads(goods, wireAction) {
   wireAction(
     goods
       .command('list')
       .description('商品列表')
-      .option('--page <n>', '页码', (v) => Number(v), 1)
-      .option('--size <n>', '每页数量', (v) => Number(v), 10)
+      .option('--page <n>', '页码', (value) => Number(value), 1)
+      .option('--size <n>', '每页数量', (value) => Number(value), 10)
       .option('--status <s>', '状态筛选：onsale | offline', 'onsale'),
     'goods.list',
     list.run
@@ -26,9 +45,9 @@ export function register(program, wireAction) {
     goods
       .command('stock')
       .description('库存告警（按阈值筛低库存/缺货）')
-      .option('--page <n>', '页码', (v) => Number(v), 1)
-      .option('--size <n>', '每页数量', (v) => Number(v), 50)
-      .option('--threshold <n>', '低库存阈值', (v) => Number(v), 10),
+      .option('--page <n>', '页码', (value) => Number(value), 1)
+      .option('--size <n>', '每页数量', (value) => Number(value), 50)
+      .option('--threshold <n>', '低库存阈值', (value) => Number(value), 10),
     'goods.stock',
     stock.run
   );
@@ -36,20 +55,21 @@ export function register(program, wireAction) {
     goods
       .command('segment')
       .description('商品销量与库存统计')
-      .option('--days <n>', '销量统计窗口天数', (v) => Number(v), 30)
-      .option('--size <n>', '商品分页大小', (v) => Number(v), 50)
-      .option('--max-pages <n>', '最大商品页数', (v) => Number(v), 10)
+      .option('--days <n>', '销量统计窗口天数', (value) => Number(value), 30)
+      .option('--size <n>', '商品分页大小', (value) => Number(value), 50)
+      .option('--max-pages <n>', '最大商品页数', (value) => Number(value), 10)
       .option('--no-promo', '跳过推广 ROI 数据'),
     'goods.segment',
     segment.run
   );
+}
 
-  const goodsUpdate = goods.command('update').description('商品编辑（写操作，需 --confirm 确认）');
+function registerStatusAndPrice(goodsUpdate, wireAction) {
   wireAction(
     goodsUpdate
       .command('status')
       .description('上下架')
-      .requiredOption('--goods-id <id>', '商品 ID', (v) => Number(v))
+      .requiredOption('--goods-id <id>', '商品 ID', (value) => Number(value))
       .requiredOption('--status <s>', '目标状态: onsale | offline')
       .option('--confirm', '确认执行（默认 dry-run）'),
     'goods.update.status',
@@ -59,19 +79,22 @@ export function register(program, wireAction) {
     goodsUpdate
       .command('price')
       .description('修改价格')
-      .requiredOption('--goods-id <id>', '商品 ID', (v) => Number(v))
+      .requiredOption('--goods-id <id>', '商品 ID', (value) => Number(value))
       .requiredOption('--price-yuan <yuan>', '价格（元，最多 2 位小数，例如 29.9）')
       .option('--sku-id <id>', 'SKU ID（可选）')
       .option('--confirm', '确认执行（默认 dry-run）'),
     'goods.update.price',
     updatePrice.run
   );
+}
+
+function registerOtherUpdates(goodsUpdate, wireAction) {
   wireAction(
     goodsUpdate
       .command('stock')
       .description('修改库存')
-      .requiredOption('--goods-id <id>', '商品 ID', (v) => Number(v))
-      .requiredOption('--quantity <n>', '库存数量', (v) => Number(v))
+      .requiredOption('--goods-id <id>', '商品 ID', (value) => Number(value))
+      .requiredOption('--quantity <n>', '库存数量', (value) => Number(value))
       .option('--sku-id <id>', 'SKU ID（可选）')
       .option('--confirm', '确认执行（默认 dry-run）'),
     'goods.update.stock',
@@ -81,7 +104,7 @@ export function register(program, wireAction) {
     goodsUpdate
       .command('title')
       .description('修改标题')
-      .requiredOption('--goods-id <id>', '商品 ID', (v) => Number(v))
+      .requiredOption('--goods-id <id>', '商品 ID', (value) => Number(value))
       .requiredOption('--title <text>', '新标题')
       .option('--confirm', '确认执行（默认 dry-run）'),
     'goods.update.title',
@@ -96,7 +119,9 @@ export function register(program, wireAction) {
     'goods.update.batch',
     updateBatch.run
   );
+}
 
+function registerPublishing(goods, wireAction) {
   wireAction(
     goods
       .command('publish')
@@ -115,4 +140,17 @@ export function register(program, wireAction) {
     'goods.templates',
     templates.run
   );
+}
+
+export function register(program, wireAction) {
+  const goods = program.command('goods').description('🛍️ 商品管理');
+  registerCosts(goods, wireAction);
+  wireAction(goods.command('profit').description('商品净利润（商品推广报表口径）')
+    .option('--days <n>', '成团时间窗口，1–90 个完整上海自然日', (value) => Number(value), 30)
+    .option('--goods-id <id>', '只筛商品列表，全店合计保持原样'), 'goods.profit', profit.run);
+  registerReads(goods, wireAction);
+  const goodsUpdate = goods.command('update').description('商品编辑（写操作，需 --confirm 确认）');
+  registerStatusAndPrice(goodsUpdate, wireAction);
+  registerOtherUpdates(goodsUpdate, wireAction);
+  registerPublishing(goods, wireAction);
 }

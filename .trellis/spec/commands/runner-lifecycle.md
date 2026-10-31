@@ -31,6 +31,9 @@ async function action(ctx) {
 - `ctx` is the boundary object for command/service code; do not bypass it with global state unless infra owns that state。
 - Batch mode MUST preserve per-item errors and use exit code 7 for partial outcomes。
 - Fixture runtime MUST emulate lifecycle enough that command tests exercise the same envelope/error behavior。
+- `needsAccount` 默认 false，仅命令显式启用时让 `needsBrowser:false + needsAuth:false` 分支解析本地 merchant 账号并填写 ctx/account meta；无账号报 E_ACCOUNT_REQUIRED / exit 2。未启用时保留既有跳过账号解析行为。
+- `needsMall:'stored'` 为显式本地范围声明，runner 不启动浏览器、不探测/切换店铺、不解密登录态、不做认证/重登；service 从 config.mall 或账号 identity 确定存储范围。该能力只新增 opt-in 分支，既有命令、超时、finalizer 与 batch 行为不变。
+- 本地成本命令全部 allowAllAccounts:false；goods.profit 使用原有只读认证/多账号循环。回归入口 `test/commands/goods-cost-runtime.test.js`、`test/e2e/goods-cost.e2e.test.js`，共享生命周期必须全量 npm test。
 
 ## 4. Validation & Error Matrix
 

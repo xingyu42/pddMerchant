@@ -178,6 +178,17 @@ export async function listGoods(ctx, options) {
 }
 ```
 
+## Scenario: Goods Cost and Net Profit
+
+- services/goods-cost-input.js 单独拥有非负元金额、精确规格及字符串 ID 校验；goods-cost.js 编排本地预演/确认，goods-cost-import.js 原生解析 UTF-8 JSON 后整批校验（1 MiB / 5000 条）。未知列、重复商品/规格键、坏行全部拒绝，无先写好行行为。
+- goods.profit days 为 1–90，默认 30；按 group_time 成团时间统计上海最近 N 个完整自然日、不含当天，[start,end)；复用 collectOrdersForStaleAnalysis，显式 scope all、size 50、since=start/until=end-1。保留 truncation/rate-limit，按成团时间过滤、订单号内部去重，缺时间或冲突样本标不完整。
+- goods-profit-calculation.js 是纯函数：收入=order_amount+platform_discount，不重复加 shipping_amount 或扣 merchant_discount。未付款取消收入及所有成本 0；退款成功（5）收入/货本 0，已发货扣全部按单项，未发货为 0，发货时间缺失/无效时这些费用 null。10/11 正常计算并单列单数及收入；未知售后码/缺字段相关财务 null。
+- 成本先精确 spec，后商品默认，无匹配则利润/率 null；货本乘 goods_number，按单项只扣一次，缺数量只影响依赖数量的项。cost_updated_at 是实际使用记录的最大时间，default_fallback_order_count 为非空规格未命中后实际回落单数；成本只有当前值，历史查询会重算。
+- goods-profit-promo.js 完整分页 entityReport，保留已删除推广历史，只按 goodsId 归属，无名称回退。商品花费按实体归属合计，全店 promo_spend_yuan 取 totals.spend，shop_promo_spend_yuan 为总计减归属合计；负差额为 null/hint，已知总计和按总计计算的净利润保留。totals 每页不累加；口径固定提示“仅含商品推广报表口径”，关注/询单覆盖留后续研究。
+- 推广失败/截断/限流相关花费与净利润 null；完整无该商品记录为 0，金额无效保留 null。窗口订单采集不完整时窗口财务 null，observed_order_count/observed_revenue_yuan 保留样本。summary 严格传播所需未知输入，禁止仅合计有成本商品。
+- view 白名单由 views/goods-cost.js / goods-profit.js 导出，中文 availability/hints 表在 labels.js。gross_margin_pct/net_margin_pct 为有符号百分数，可超过 ±100 且原样保留，零收入为 null。filter_goods_id 仅筛 items，summary 全店。固定提示当前成本重算与两项高估：仅退款不退货、商家共担补贴。
+- 测试：goods-cost*、goods-profit* 服务/视图单测，orders-scope/orders-contract/promo-money 回归，两个 goods 成本/利润 fixture e2e 与五个命令的 data-contract-v2；共享 runner/存储改动执行 npm test。
+
 ## Scenario: Order list scope & refund identification
 
 ### 1. Scope / Trigger
@@ -205,6 +216,7 @@ CLI: `pdd orders list [--status all|pending_ship|shipped|received|after_sales]` 
 | `getOrderStatsView` local sample | `all` | refund counts need after-sales orders |
 | `collectOrdersInput` (diagnose orders / shop / compare) | `all` | same |
 | `getAfterSalesDiagnosis` | `all` | same |
+| `goods profit` | `all` | 成团时间完整窗口须包含退款、10/11 和未付款取消；显式覆盖 collector 的 valid 默认 |
 | `collectGoodsInput` (diagnose inventory), `goods segment` | `valid` (default) | sales = paid orders without after-sales, all shipping states |
 
 - Refund identification uses ONLY order `after_sales_status`: `5` → refunded (`refund_count`); any other non-null code → in progress (`after_sales_count`). String codes are compared numerically (`'5'` counts as refunded). `refund_status` / `refundStatus` / `after_sale_type` / `afterSaleType` do not exist upstream and MUST NOT be read.

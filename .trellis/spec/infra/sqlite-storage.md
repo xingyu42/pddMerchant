@@ -58,7 +58,7 @@ authStateConflict() -> PddCliError(E_AUTH_STATE_CONFLICT)
 
 Schema v1 表：`meta`、`accounts`、`auth_states`、`leases`、`credentials`、`relogin_states`、`pending_actions`（完整 DDL 见 `src/infra/db.js` 的 `SCHEMA_V1`）。后续任务只能以 v2、v3… 追加迁移，不修改既有列语义。
 
-当前 schema v2 在 v1 上追加 `console_tokens`、`console_sessions`；新库在同一事务中依次执行 V1、V2，已有 v1 库仅执行 V2，`user_version > 2` 拒绝。两个新表的可空 `account_id` 均级联删除；只保存 token/session 的哈希。
+schema v2 在 v1 上追加 `console_tokens`、`console_sessions`，两个表的可空 account_id 均级联删除，只保存 token/session 的哈希。当前 schema v3 再追加 `goods_cost_entries`；新库同事务依次执行 V1/V2/V3，旧库仅执行缺失版本，`user_version > 3` 拒绝。迁移失败 DDL/版本号同事务回滚，旧版本二进制拒绝 v3；回退须恢复升级前一致 DB 备份与配对 master.key，避免手工降低版本号。
 
 ## 3. Contracts
 
@@ -66,7 +66,7 @@ Schema v1 表：`meta`、`accounts`、`auth_states`、`leases`、`credentials`�
 - 事务必须短小且同步：**禁止在事务内 await 浏览器、网络或任何 Promise**。浏览器/网络工作在两个事务之间完成。
 - `accounts`：`UNIQUE(kind, slug)`、`UNIQUE(kind, identity)`，每个 kind 最多一个默认账号。`identity` 商家为 mall_id、消费者为 uid。slug 由 `slugifyStorageName(displayName, { existingSlugs, stableId: identity })` 生成，生成后不随显示名变化。
 - 账号 ID 由 `meta.account_sequence` 单调分配，删除后不复用。原因：AAD 绑定账号 ID，复用 ID 会让被删账号的旧密文在新账号下仍可解开。
-- `removeAccount` 删除账号行，外键 `ON DELETE CASCADE` 一并删除 auth_states、credentials、relogin_states、pending_actions、console_tokens、console_sessions。不存在"只删账号、保留登录态"的状态。
+- `removeAccount` 删除账号行，外键 `ON DELETE CASCADE` 一并删除 auth_states、credentials、relogin_states、pending_actions、console_tokens、console_sessions、goods_cost_entries。
 - 加密范围：`auth_states.state_sealed` 封装整个 `{ cookies, origins }`；`credentials.password_sealed` 封装 `{ v:1, login_name, password }`，登录名（通常是手机号）一起加密，表结构不变。账号名、mall_id、uid、校验结论等元数据以明文列存储，便于查询与视图投影。
 - 主密钥文件为 `{ "version": 1, "key": "<base64>" }`，`wx` + `0o600` 创建；并发首次生成时 `EEXIST` 一方改读。POSIX 读取时要求 0600；Windows 创建后尽力执行 `icacls` 收紧到当前用户，失败只记日志。
 - 库中已有指纹而密钥文件缺失时 **不得重新生成**密钥。
@@ -196,7 +196,8 @@ purgeExpiredConsoleRows(now = Date.now()) -> { tokens, sessions }; // deleted ro
 ### 6. Tests Required
 
 - `test/infra/daemon-state.test.js`：抢占、互斥、续期、到期边界、旧 token 失权、停止请求、metadata 白名单、异常脱敏、过期清理事务回滚。
-- `test/infra/db.test.js`：新库 v2、v1 全表数据保留升级、v3 拒绝、两张控制台表级联删除。
+- `test/infra/db.test.js`：新库 v3、v1/v2 全表数据保留升级、v4 拒绝、控制台与商品成本表级联删除。
+
 - `test/infra/leases.test.js`：默认存活 pid 过期保留、心跳过期接管、重试规则一致、零等待一次尝试。
 
 ### 7. Wrong vs Correct
@@ -207,3 +208,11 @@ await acquireLease('daemon', 'main', { timeoutMs: 0 });
 // Correct: the daemon wrapper owns heartbeat staleness and contention => null.
 const lease = await acquireDaemonLease();
 ```
+
+## 9. Merchant Cost Storage
+
+- `goods_cost_entries` 主键 `(account_id,mall_id,goods_id,spec)`；account_id 外键 ON DELETE CASCADE，goods/mall 为文本。spec 空串是默认行哨兵，store 对外映射 null；真实非空规格保留原文精确匹配。
+- `purchase_fen` 按件，`packaging_fen/courier_fen/insurance_fen/technical_service_fen` 按单；非负整数分，默认可选项为 0。updated_at 为当前提交时间 ISO；普通 last-writer-wins，无历史版本或单调时间戳扩展。
+- `src/infra/goods-cost-store.js` 拥有参数化 SQL、账号检查、CRUD 和短同步事务；service 拥有单位解析与利润规则。批量写前复查 merchant 账号，全批同事务与提交时间，失败整批回滚。读取一次成本快照后在事务外采集网络数据。
+- 原生 CRUD 异常映射 E_COST_STORE_IO / exit 1，db.js 已有版本/打开错误保留，错误和日志省略数据库路径及原生异常。成本数据沿用整个数据库的敏感文件保护，不增加密钥或环境变量。
+- 验证 `test/infra/goods-cost-store.test.js`：隔离、覆盖时间、全批回滚、级联、账号删除/重登后不继承旧成本；结合 db/account-store 与成本 fixture e2e。
