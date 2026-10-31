@@ -148,6 +148,7 @@ node bin/pdd.js goods list --page 1 --size 10 --status onsale|offline
 node bin/pdd.js goods stock --threshold 10  # 低库存/缺货告警
 node bin/pdd.js goods segment --days 30 --size 50 --max-pages 10 [--no-promo]  # 商品销量与库存统计
 node bin/pdd.js goods profit --days 30 [--goods-id <id>] --json
+node bin/pdd.js goods traffic --days 30 [--goods-id <id>] --json
 ```
 
 **写操作（`goods update` 子组，默认 dry-run，须 `--confirm` 才真正执行）：**
@@ -206,6 +207,7 @@ node bin/pdd.js diagnose after-sales [--days 30]       # 售后维度（退款�
 node bin/pdd.js diagnose experience [--days 7]         # 平台店铺综合体验星级、指标与趋势
 node bin/pdd.js diagnose customer-service [--days 30]  # 多多客服人工回复汇总与逐日趋势
 node bin/pdd.js diagnose reviews [--days 30]           # 平台标签、问题类型与中差评
+node bin/pdd.js diagnose traffic [--days 30]           # 全店逐日流量及平台同行指标
 ```
 
 售后维度键为 `after_sales`，`detail` 包含 `total_orders`、`refund_count`、`refund_rate_pct`、`after_sales_count`、`after_sales_rate_pct`、`status_distribution`、`window_days`。其中 `after_sales_count` 只计售后处理中订单，两类占比均以采集到的全部订单数为分母；空样本占比为 `null`。店铺汇总默认使用近 7 天首批 50 条订单，单独售后查询默认近 30 天分页采集，并保留截断及限流提示。旧 `diagnose funnel` 命令和 `fulfillment_rate_pct` 字段已移除。
@@ -217,6 +219,8 @@ node bin/pdd.js diagnose reviews [--days 30]           # 平台标签、问题�
 `diagnose customer-service` 返回 `{ headline, window, caliber, summary, trend, hints, mall_id }`。`--days` 默认 30，接受 1-63 的整数，上海日期窗口为今天减 days 至昨天；`caliber` 固定「多多客服-客服数据（人工回复）」。`summary` 为 desert 区间汇总；`trend.items[]` 取页面自动加载的最近 31 天中落在窗口内的行，按日期排序，保留类目响应时长参考。百分比键后缀 `_pct`，响应时长后缀 `_seconds`，无咨询日指标为 `null`。汇总失败时命令失败，趋势的可降级错误产生 `trend:null` 和 hint。该人工回复序列与 `diagnose experience` 的星级口径各自独立。
 
 `diagnose reviews` 的 `--days` 接受 30、60、90、180，默认 30，其他值为 `E_USAGE` / exit 2。`keyword_tags` 是平台满意/不满意标签及计数，`issue_types[]` 是五类问题正负面计数和平台占比，`negative_reviews` 为 `{ items, total, truncated }`。中差评筛选为描述评分 1-3 星，每页 10 条、最多 30 页，翻满时标记截断并给出 hint。条目含商品 ID、上海评价时间、三项评分、历史评分、正文、追评、标签、已回复状态和图片数；历史评分存在时三项评分为 `null`。正文和追评中的手机号按 `138****5678` 格式掩码，昵称、头像、订单、规格、图片/视频链接和快照均由白名单过滤。CLI 直接使用平台聚合；三个数据源分别降级为 `null` 并提示，全部失败时整体失败。超时、取消和程序异常继续抛出。
+
+`diagnose traffic` 接受 1-30 天，截止日来自平台就绪日期；访客汇总是逐日访客数之和，跨日存在重复。`goods traffic` 接受 1、7、30 天（默认 30），取截至上海昨天的平台区间数据，最多采集 20 页；`--goods-id` 保留字符串。推广按商品归属汇总稳定成本和全店托管计划，分别保留直接、间接成交；`non_promo_*` = 商品总成交减去推广直接成交。负差额置 null 并提示；推广失败或截断时推广和差值字段均为 null，`data_quality.promo_complete:false`；完整无记录为 0。推广拆分来自第三方插件静态分析，尚未经有投放店铺实测。明文接口失败或返回字体混淆数据时命令报错。
 
 ### 🏬 店铺 shops
 

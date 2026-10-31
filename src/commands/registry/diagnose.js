@@ -7,8 +7,11 @@ import * as afterSales from '../diagnose/after-sales.js';
 import * as experience from '../diagnose/experience.js';
 import * as customerService from '../diagnose/customer-service.js';
 import * as reviews from '../diagnose/reviews.js';
+import * as traffic from '../diagnose/traffic.js';
 
 function registerServiceReports(diagnose, wireAction) {
+  wireAction(diagnose.command('traffic').description('全店逐日流量与平台同行指标')
+    .option('--days <n>', '窗口天数（1-30，截至平台就绪日期）', Number, 30), 'diagnose.traffic', traffic.run);
   wireAction(
     diagnose.command('customer-service').description('多多客服人工回复数据与逐日趋势')
       .option('--days <n>', '区间天数（1-63，截至昨天）', (value) => Number(value), 30),

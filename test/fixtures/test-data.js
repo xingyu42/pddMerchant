@@ -6,6 +6,44 @@ import { NAVIGATOR_INFO, NAVIGATOR_READY_DATE, NAVIGATOR_LIST } from '../../src/
 import { CS_OVERVIEW, CS_MONTH_TREND } from '../../src/adapter/endpoints/customer-service.js';
 import { REVIEWS_LIST, REVIEWS_KEYWORD_AGG, REVIEWS_TYPE_AGG } from '../../src/adapter/endpoints/reviews.js';
 import { toLocalDate } from '../../src/infra/units.js';
+import { TRAFFIC_READY_TIME, TRAFFIC_OVERVIEW, GOODS_TRAFFIC_LIST } from '../../src/adapter/endpoints/traffic.js';
+import { GOODS_PROMOTION_LIST } from '../../src/adapter/endpoints/promo-goods.js';
+
+export function createTrafficFixtures() {
+  const success = (result) => ({ success: true, errorCode: 1000000, result });
+  const end = '2026-10-30';
+  return {
+    'endpoints/traffic.readyTime.json': TRAFFIC_READY_TIME.normalize(success(end)),
+    'endpoints/traffic.overviewList.json': TRAFFIC_OVERVIEW.normalize(success([
+      { statDate: '2026-10-29', uv: 10, pv: 20, guv: 8, gpv: 15, payOrdrUsrCnt: 2, payOrdrCnt: 3,
+        payOrdrAmt: 12.34, payUvRto: 0.2, payOrdrAup: 4.11, uvCfmVal: 1.234, uv1dPln: 5, uv1dOst: 20 },
+      { statDate: end, uv: 20, pv: 30, guv: 18, gpv: 25, payOrdrUsrCnt: 4, payOrdrCnt: 5,
+        payOrdrAmt: 23.45, payUvRto: 0.2, payOrdrAup: 4.69, uvCfmVal: 1.1725, uv1dPln: 8, uv1dOst: 25 },
+    ])),
+  };
+}
+
+export function createGoodsTrafficFixtures({ promo = true, count = 3 } = {}) {
+  const fixtures = {};
+  for (let page = 1; page <= Math.max(1, Math.ceil(count / 50)); page += 1) {
+    const items = Array.from({ length: Math.min(50, count - (page - 1) * 50) }, (_unused, index) => ({
+      goodsId: String(101 + (page - 1) * 50 + index), goodsName: '合成商品', goodsUv: 100, goodsPv: 200,
+      goodsFavCnt: 3, ordrCrtUsrCnt: 5, ordrVstrRto: 0.05, goodsVcr: 0.02, payOrdrRto: 0.4,
+      payOrdrCnt: 4, payOrdrGoodsQty: 5, payOrdrUsrCnt: 2, payOrdrAmt: 20, cnsltUsrQty: 1,
+      cate3Name: '合成类目', hdThumbUrl: 'SYN-PRIVATE', adStrategyJumpUrl: 'SYN-PRIVATE', peerPerfUv: 5,
+    }));
+    const suffix = page === 1 ? '' : `.page${page}`;
+    fixtures[`endpoints/traffic.goodsDetailList${suffix}.json`] = GOODS_TRAFFIC_LIST.normalize({ result: { goodsDetailList: items, totalNum: count } });
+  }
+  // Same synthetic response for both scenes exercises cross-scene addition; 103 exceeds goods totals.
+  fixtures['endpoints/promo.goodsPromotionList.json'] = GOODS_PROMOTION_LIST.normalize({ result: promo ? { adInfos: [
+    { goodsId: '101', reportInfo: { directOrderNum: 1, indirectOrderNum: 1, directGmv: 1230,
+      indirectGmv: { value: 2 }, spend: { value: 123, unit: 'PERCENT', unitCode: 100 }, click: 3 } },
+    { goodsId: '103', reportInfo2: { directOrderNum: 10, indirectOrderNum: 0, directGmv: 30000,
+      indirectGmv: 0, spend: 1000, click: 20 } },
+  ] } : { adInfos: null, totalAdNum: 0 } });
+  return fixtures;
+}
 
 export function createCustomerServiceFixtures() {
   const summary = { consultUserCnt: 3, needManuReplyConsultUserCnt: 3, receiveUserCnt: 3,

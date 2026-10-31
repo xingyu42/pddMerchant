@@ -14,6 +14,7 @@ import * as costSet from '../goods/cost/set.js';
 import * as costRemove from '../goods/cost/remove.js';
 import * as costImport from '../goods/cost/import.js';
 import * as profit from '../goods/profit.js';
+import * as traffic from '../goods/traffic.js';
 
 function registerCosts(goods, wireAction) {
   const costs = goods.command('cost').description('本地商品成本（写入需 --confirm）');
@@ -31,6 +32,9 @@ function registerCosts(goods, wireAction) {
 }
 
 function registerReads(goods, wireAction) {
+  wireAction(goods.command('traffic').description('商品区间流量与推广直接成交拆分')
+    .option('--days <n>', '平台原生区间（1、7、30 天）', Number, 30)
+    .option('--goods-id <id>', '商品 ID'), 'goods.traffic', traffic.run);
   wireAction(
     goods
       .command('list')

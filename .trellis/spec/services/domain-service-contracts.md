@@ -278,6 +278,40 @@ CLI：`pdd diagnose customer-service [--days 30]`、`pdd diagnose reviews [--day
 Wrong：仅传 pageNo 给 fixture 分页器，重复读取第一页；将 descScore 发为数字数组。
 Correct：内部 page 与 pageNo 同步，buildPayload 保留精确请求格式；descScore 固定字符串数组 `['1','2','3']`。
 
+## Scenario: Traffic and Goods Traffic
+
+### 1. Scope / Trigger
+
+适用于全店逐日流量及商品区间流量，保持现有 diagnose 四维汇总。
+
+### 2. Signatures
+
+`getTrafficView(ctx, { days = 30 })` → `diagnose traffic`；`getGoodsTrafficView(ctx, { days = 30, goodsId })` → `goods traffic`。命令均为 needsAuth:true、needsMall:'switch'。
+
+### 3. Contracts
+
+- 全店 days 为 1-30 整数；先 `traffic.readyTime` 再 `traffic.overviewList`，page-api POST `/sydney/api/mallFlow/queryMallFlowOverViewReadyTime`（空请求）及 `queryMallFlowOverViewList`（beginDate/endDate）。截止日取 readyTime，逐日行及同行均值/优秀值映射由 `views/traffic.js` 拥有；只汇总访客、订单、金额，提示访客跨日重复；窗口内无返回统计日时 summary 各项为 null，返回日数少于窗口天数时追加提示。
+- 商品 days 仅 1/7/30 → queryType 0/1/2；窗口为上海最近完整自然日。`traffic.goodsDetailList` page-api POST `/sydney/api/goodsDataShow/queryGoodsDetailVOList`，参数 startDate/endDate/queryType/sortCol:0/sortType:1/pageNum/pageSize:50/goodsId?，省略 actVs。按 totalNum 翻页，最多 20 页。行白名单在 `views/goods-traffic.js`；数值字段（含 goodsId）中的 PUA 字符触发 E_BUSINESS，商品名、类目等原文字段不做该检测。
+- `promo.goodsPromotionList` 复用 fetch 请求体合并策略，保留页面生成签名。POST `/mms-gateway/venus/api/goods/promotion/v3/list`：beginDate/endDate/blockType:3/clientType:1/pageNumber/pageSize:50/filter.searchKeyV2（当前批商品 ID 逗号拼接）/sortBy:9999/orderBy:9999/scenesMode:1 或 3/withTagsInfo:true。每批最多 50 个商品，每场景最多 20 页；只累加当前批的商品，阻止上游忽略过滤条件时重复归属。
+- adapter 依次展开 optimizationMessage/reportInfo/reportInfo2；空串视为缺失，金额对象读取 value（无 unit/YUAN 按元，FEN 除 100，PERCENT 除 unitCode 或 100；其他单位输出 null 并追加 promo_unknown_unit 提示，与 promo.js MoneyVO 一致），裸数字厘除 1000，转整数分后累计。adInfos:null 且 totalAdNum:0 为未开通；未知金额传播 null。
+- non_promo_* = 商品总量减去推广直接成交；间接成交单列。负差额 null/hint；推广可降级 PddCliError 或分页上限使全部推广和差值 null，promo_complete:false；完整无记录为 0。所有输出保留固定口径及尚未经有投放店铺实测的提示。
+
+### 4. Validation & Error Matrix
+
+days 越界 / 非法 goods-id → E_USAGE / exit 2，请求前验证；主流量/明细失败 → 整体失败；逐日 statDate 缺失或日期无效 → E_NETWORK，避免窗口过滤静默丢行；推广普通 PddCliError → 降级；超时、取消、程序异常 → 传播。商品提前空页且尚未达到总量也标记 goods_truncated。
+
+### 5. Good/Base/Bad Cases
+
+Good：两场景直接成交 1.23 元各一条，合计 2.46 元，再从商品总额减去。Base：未开通推广返回 0。Bad：跨批重复累计同一推广行、失败补零、将访客按推广拆分。
+
+### 6. Tests Required
+
+`traffic-contract.test.js`：请求、PUA、缺集合、金额形态、空串回退、未开通。`traffic-view.test.js`：白名单、百分数、金额、null、同行映射。`traffic.test.js`：窗口、原生 queryType、双场景、跨批归属、分页、失败降级和异常传播。两条 fixture e2e 和 data-contract-v2 的 items[] 字段集覆盖最终 JSON。
+
+### 7. Wrong vs Correct
+
+Wrong：total - (direct + indirect)，推广失败时输出 0。Correct：仅减 direct，失败时输出 null 并标记 promo_complete:false。
+
 ## Scenario: Goods Cost and Net Profit
 
 - services/goods-cost-input.js 单独拥有非负元金额、精确规格及字符串 ID 校验；goods-cost.js 编排本地预演/确认，goods-cost-import.js 原生解析 UTF-8 JSON 后整批校验（1 MiB / 5000 条）。未知列、重复商品/规格键、坏行全部拒绝，无先写好行行为。

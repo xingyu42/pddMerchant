@@ -3,6 +3,16 @@
 
 // 数据可得性（diagnose status / compare status）
 export const DATA_STATUS_LABEL = Object.freeze({ full: '数据完整', partial: '数据不完整' });
+export const TRAFFIC_HINT_LABEL = Object.freeze({
+  daily_uv_sum: '访客汇总为逐日访客数之和，跨日存在重复访客',
+  missing_days: '返回的统计日少于窗口天数，summary 仅汇总已返回的统计日',
+  promo_caliber: '推广拆分口径来自对第三方插件实现的分析，尚未经有投放店铺实测',
+  non_promo_caliber: '非推广成交 = 商品明细总量减去推广直接成交，平台不提供该拆分',
+  goods_truncated: '商品明细采集不完整（分页上限或提前空页），结果已截断',
+  promo_unavailable: '推广数据拉取失败或已达采集上限，推广及非推广成交字段为 null',
+  negative_difference: '总成交减去推广直接成交出现负差额，对应非推广成交字段为 null',
+  promo_unknown_unit: '推广金额单位未知，对应推广金额及非推广成交额为 null',
+});
 export const CUSTOMER_SERVICE_CALIBER = '多多客服-客服数据（人工回复）';
 export const CUSTOMER_SERVICE_HINT_LABEL = Object.freeze({ trend_unavailable: '客服逐日趋势拉取失败' });
 export const REVIEW_HINT_LABEL = Object.freeze({
