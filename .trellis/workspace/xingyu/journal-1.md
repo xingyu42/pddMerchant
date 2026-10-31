@@ -1291,3 +1291,25 @@ Claude 写 design/implement（精简版，指标映射表为唯一事实来源�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 43: ③ 流量与商品明细：实现、审计与提交
+<!-- trellis-session: v=2 fp=8e0f2c277c13a5f1 -->
+
+**Date**: 2026-11-01
+**Task**: ③ 流量与商品明细：实现、审计与提交
+**Branch**: `feat/operating-data-gaps`
+
+### Summary
+
+Codex 实现 diagnose traffic（全店逐日流量）与 goods traffic（全店商品明细+推广直接成交拆分）；trellis-check 审计修复 PUA 检测范围过宽、空窗口 summary 补 0、嵌套超限，补测试；推广金额单位改为沿用 promo.js MoneyVO 规则（FEN÷100，未知单位 null+提示）。npm test 96 文件 1305 通过 / 1 跳过。待实测：推广列表页请求触发、goodsId 字符串入参、推广拆分口径。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fe1710a` | ✨ feat(traffic): add shop daily traffic and goods traffic reports |
+
+### Status
+
+[OK] **Completed**
