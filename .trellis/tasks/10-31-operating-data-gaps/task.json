@@ -1,0 +1,31 @@
+{
+  "id": "operating-data-gaps",
+  "name": "operating-data-gaps",
+  "title": "经营数据补全：利润/星级/客服评价/流量",
+  "description": "补齐商品净利润、店铺综合体验星级、客服与评价、流量四类事实报表；父任务持有需求全集与跨子任务验收",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "xingyu",
+  "assignee": "xingyu",
+  "createdAt": "2026-10-31",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-31-goods-profit",
+    "10-31-shop-experience-star",
+    "10-31-cs-and-reviews",
+    "10-31-traffic-and-goods-detail"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

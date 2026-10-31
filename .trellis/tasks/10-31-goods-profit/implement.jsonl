@@ -1,0 +1,11 @@
+{"file": "docs/adr/0004-goods-profit-reporting-semantics.md", "reason": "Profit semantics decided in design discussion (revenue, refunds, promo attribution, cost matching)"}
+{"file": "CONTEXT.md", "reason": "Merchant Cost Entry / Goods Net Profit glossary terms"}
+{"file": ".trellis/spec/architecture/dependency-flow.md", "reason": "commands -> services -> adapter -> infra layering"}
+{"file": ".trellis/spec/commands/command-contracts.md", "reason": "Command registration, options, dry-run/confirm conventions"}
+{"file": ".trellis/spec/commands/runner-lifecycle.md", "reason": "withCommand lifecycle, account/mall context, fixture mode"}
+{"file": ".trellis/spec/services/domain-service-contracts.md", "reason": "Factual-only reporting, order scope & refund identification, promo ROI data shape"}
+{"file": ".trellis/spec/infra/sqlite-storage.md", "reason": "SQLite schema/migration conventions and account cascade deletion for cost storage"}
+{"file": ".trellis/spec/infra/envelope-errors-output.md", "reason": "Envelope v2, data contract, exit codes"}
+{"file": ".trellis/spec/adapter/fixture-mode.md", "reason": "Fixture adapter for tests"}
+{"file": ".trellis/spec/standards/coding-style.md", "reason": "Function size, nesting, naming"}
+{"file": ".trellis/spec/standards/testing.md", "reason": "Vitest conventions, contract test coverage"}
