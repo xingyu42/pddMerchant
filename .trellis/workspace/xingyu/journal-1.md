@@ -1269,3 +1269,25 @@ Claude 写 design/implement（精简版，指标映射表为唯一事实来源�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 42: ④ 客服数据与评价汇总交付
+<!-- trellis-session: v=2 fp=ac94b36b3dcd7dc8 -->
+
+**Date**: 2026-10-31
+**Task**: ④ 客服数据与评价汇总交付
+**Branch**: `feat/operating-data-gaps`
+
+### Summary
+
+只读实测确认 reviews/list 的 descScore 为字符串数组、客服 31 天趋势为 GET（statDate，无咨询为 null，改用 legacy 被动捕获）；Claude 写设计，Codex 实现，零偏离。diagnose customer-service / diagnose reviews，手机号掩码、PII 白名单投影、REDACT_KEYS 追加。npm test 1246 通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a4b5764` | ✨ feat(diagnose): add customer service and review reports |
+
+### Status
+
+[OK] **Completed**
