@@ -1224,3 +1224,26 @@ Fast-forwarded feat/patrol-request-probe into main. Integration acceptance of pa
 ### Status
 
 [OK] **Completed**
+
+
+## Session 40: 经营数据补全：需求拷问 + ① 商品净利润交付
+<!-- trellis-session: v=2 fp=6de520d84c52fce9 -->
+
+**Date**: 2026-10-31
+**Task**: 经营数据补全：需求拷问 + ① 商品净利润交付
+**Branch**: `feat/operating-data-gaps`
+
+### Summary
+
+grill-with-docs 拷问四类经营数据缺口（Q1-Q28），只读侦察店铺综合体验星级、流量/客服/评价接口及店透视免费/付费拆分实现（Codex 静态分析）；新增 Operating Reports 术语与 ADR 0004；建父任务+4 子任务。① 由 Codex 设计与实现、Claude 评审：goods cost set/list/remove/import（SQLite v3）与 goods profit（成团时间完整自然日、推广按 goodsId 归属），修复推广异常吞没问题，npm test 1137 通过。分支 feat/operating-data-gaps，未推送。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4602882` | 📝 docs: record operating-report terms, ADR 0004 and backend recon |
+| `83f70b2` | ✨ feat(goods): add merchant cost entry and goods profit report |
+
+### Status
+
+[OK] **Completed**
