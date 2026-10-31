@@ -1224,3 +1224,92 @@ Fast-forwarded feat/patrol-request-probe into main. Integration acceptance of pa
 ### Status
 
 [OK] **Completed**
+
+
+## Session 40: 经营数据补全：需求拷问 + ① 商品净利润交付
+<!-- trellis-session: v=2 fp=6de520d84c52fce9 -->
+
+**Date**: 2026-10-31
+**Task**: 经营数据补全：需求拷问 + ① 商品净利润交付
+**Branch**: `feat/operating-data-gaps`
+
+### Summary
+
+grill-with-docs 拷问四类经营数据缺口（Q1-Q28），只读侦察店铺综合体验星级、流量/客服/评价接口及店透视免费/付费拆分实现（Codex 静态分析）；新增 Operating Reports 术语与 ADR 0004；建父任务+4 子任务。① 由 Codex 设计与实现、Claude 评审：goods cost set/list/remove/import（SQLite v3）与 goods profit（成团时间完整自然日、推广按 goodsId 归属），修复推广异常吞没问题，npm test 1137 通过。分支 feat/operating-data-gaps，未推送。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4602882` | 📝 docs: record operating-report terms, ADR 0004 and backend recon |
+| `83f70b2` | ✨ feat(goods): add merchant cost entry and goods profit report |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 41: ② 店铺综合体验星级交付
+<!-- trellis-session: v=2 fp=b2ca5dbb0ed37a89 -->
+
+**Date**: 2026-10-31
+**Task**: ② 店铺综合体验星级交付
+**Branch**: `feat/operating-data-gaps`
+
+### Summary
+
+Claude 写 design/implement（精简版，指标映射表为唯一事实来源），Codex 实现；Codex 发现设计 §4/§6 关于 mall_id 的矛盾并停下报告，已修正为沿用 ctx 明文 mall_id、仅禁止上游 mallId/mallName。diagnose experience 透传星级快照、10 项指标门槛与达标、消费者体验提升计划、趋势。npm test 1176 通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5ae2a98` | ✨ feat(diagnose): add shop experience star rating report |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 42: ④ 客服数据与评价汇总交付
+<!-- trellis-session: v=2 fp=ac94b36b3dcd7dc8 -->
+
+**Date**: 2026-10-31
+**Task**: ④ 客服数据与评价汇总交付
+**Branch**: `feat/operating-data-gaps`
+
+### Summary
+
+只读实测确认 reviews/list 的 descScore 为字符串数组、客服 31 天趋势为 GET（statDate，无咨询为 null，改用 legacy 被动捕获）；Claude 写设计，Codex 实现，零偏离。diagnose customer-service / diagnose reviews，手机号掩码、PII 白名单投影、REDACT_KEYS 追加。npm test 1246 通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a4b5764` | ✨ feat(diagnose): add customer service and review reports |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 43: ③ 流量与商品明细：实现、审计与提交
+<!-- trellis-session: v=2 fp=8e0f2c277c13a5f1 -->
+
+**Date**: 2026-11-01
+**Task**: ③ 流量与商品明细：实现、审计与提交
+**Branch**: `feat/operating-data-gaps`
+
+### Summary
+
+Codex 实现 diagnose traffic（全店逐日流量）与 goods traffic（全店商品明细+推广直接成交拆分）；trellis-check 审计修复 PUA 检测范围过宽、空窗口 summary 补 0、嵌套超限，补测试；推广金额单位改为沿用 promo.js MoneyVO 规则（FEN÷100，未知单位 null+提示）。npm test 96 文件 1305 通过 / 1 跳过。待实测：推广列表页请求触发、goodsId 字符串入参、推广拆分口径。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fe1710a` | ✨ feat(traffic): add shop daily traffic and goods traffic reports |
+
+### Status
+
+[OK] **Completed**

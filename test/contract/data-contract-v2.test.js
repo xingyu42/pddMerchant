@@ -5,7 +5,8 @@ import { Command } from 'commander';
 import { assertDataContractV2 } from '../helpers/data-contract.js';
 import { runCli } from '../helpers/isolated-cli.js';
 import {
-  createAccounts, createFactFixtures, createPublishFixtures, createUpstreamGoods,
+  createAccounts, createFactFixtures, createPublishFixtures, createUpstreamGoods, createExperienceFixtures,
+  createCustomerServiceFixtures, createReviewFixtures, createTrafficFixtures, createGoodsTrafficFixtures,
 } from '../fixtures/test-data.js';
 import { ACCOUNT_VIEW_FIELDS, ACCOUNT_REMOVED_VIEW_FIELDS } from '../../src/services/views/account.js';
 import { CONFIG_FIELD_VIEW_FIELDS } from '../../src/services/views/config.js';
@@ -21,6 +22,15 @@ import { PROMO_ROI_ITEM_FIELDS, PROMO_TOTALS_FIELDS } from '../../src/services/v
 import { STALE_SAMPLE_FIELDS } from '../../src/services/views/diagnose.js';
 import { DAEMON_STATUS_VIEW_FIELDS } from '../../src/services/views/daemon.js';
 import { runDaemonContract, runConsoleLinkContract } from '../helpers/daemon-cli.js';
+import { runCostContract, runProfitContract } from '../helpers/goods-cost-cli.js';
+import { GOODS_COST_ENTRY_FIELDS } from '../../src/services/views/goods-cost.js';
+import { GOODS_PROFIT_ITEM_FIELDS, GOODS_PROFIT_SUMMARY_FIELDS, GOODS_PROFIT_QUALITY_FIELDS } from '../../src/services/views/goods-profit.js';
+import { EXPERIENCE_INDICATOR_FIELDS, EXPERIENCE_TREND_ITEM_FIELDS,
+  EXPERIENCE_SNAPSHOT_FIELDS } from '../../src/services/views/experience.js';
+import { CS_SUMMARY_FIELDS, CS_TREND_ITEM_FIELDS } from '../../src/services/views/customer-service.js';
+import { REVIEW_TAG_FIELDS, ISSUE_TYPE_FIELDS, NEGATIVE_REVIEW_FIELDS } from '../../src/services/views/reviews.js';
+import { TRAFFIC_ITEM_FIELDS, TRAFFIC_SUMMARY_FIELDS } from '../../src/services/views/traffic.js';
+import { GOODS_TRAFFIC_ITEM_FIELDS } from '../../src/services/views/goods-traffic.js';
 
 // 两件商品：101 有销量，102 有库存但无销量（零销量样本非空，供 stale_sample 白名单校验）
 function staleGoodsFixtures() {
@@ -72,6 +82,28 @@ async function discoverRegisteredCommands() {
 const VALID_AUTH_STATE = { cookies: [{ name: 'PASS_ID', value: 'synthetic' }], origins: [] };
 
 const V2_CASES = [
+  { command: 'diagnose.traffic', args: ['diagnose', 'traffic'], fixtures: createTrafficFixtures(),
+    entityFields: { 'items[]': TRAFFIC_ITEM_FIELDS, summary: TRAFFIC_SUMMARY_FIELDS } },
+  { command: 'goods.traffic', args: ['goods', 'traffic'], fixtures: createGoodsTrafficFixtures(),
+    entityFields: { 'items[]': GOODS_TRAFFIC_ITEM_FIELDS } },
+  { command: 'diagnose.customer-service', args: ['diagnose', 'customer-service'], fixtures: createCustomerServiceFixtures(),
+    entityFields: { summary: CS_SUMMARY_FIELDS, 'trend.items[]': CS_TREND_ITEM_FIELDS } },
+  { command: 'diagnose.reviews', args: ['diagnose', 'reviews'], fixtures: createReviewFixtures(),
+    entityFields: { 'keyword_tags.positive[]': REVIEW_TAG_FIELDS, 'keyword_tags.negative[]': REVIEW_TAG_FIELDS,
+      'issue_types[]': ISSUE_TYPE_FIELDS, 'negative_reviews.items[]': NEGATIVE_REVIEW_FIELDS } },
+  { command: 'diagnose.experience', args: ['diagnose', 'experience'], fixtures: createExperienceFixtures(),
+    entityFields: { snapshot: EXPERIENCE_SNAPSHOT_FIELDS, 'indicators[]': EXPERIENCE_INDICATOR_FIELDS,
+      'trend.items[]': EXPERIENCE_TREND_ITEM_FIELDS } },
+  { command: 'goods.profit', args: ['goods', 'profit'], execute: runProfitContract,
+    entityFields: { 'items[]': GOODS_PROFIT_ITEM_FIELDS, summary: GOODS_PROFIT_SUMMARY_FIELDS,
+      'summary.data_quality': GOODS_PROFIT_QUALITY_FIELDS } },
+  { command: 'goods.cost.list', args: ['goods', 'cost', 'list'], execute: () => runCostContract('list'),
+    entityFields: { 'items[]': GOODS_COST_ENTRY_FIELDS } },
+  { command: 'goods.cost.set', args: ['goods', 'cost', 'set'], execute: () => runCostContract('set'),
+    entityFields: { entry: GOODS_COST_ENTRY_FIELDS } },
+  { command: 'goods.cost.remove', args: ['goods', 'cost', 'remove'], execute: () => runCostContract('remove') },
+  { command: 'goods.cost.import', args: ['goods', 'cost', 'import'], execute: () => runCostContract('import'),
+    entityFields: { 'items[]': GOODS_COST_ENTRY_FIELDS } },
   { command: 'console.link', args: ['console', 'link'], execute: runConsoleLinkContract,
     entityFields: { '': ['headline', 'url', 'expires_at'] } },
   { command: 'daemon.start', args: ['daemon', 'start'], execute: () => runDaemonContract('start') },

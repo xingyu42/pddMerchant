@@ -54,7 +54,7 @@ describe('database', () => {
   });
 
   it('refuses a newer schema version with a path-free upgrade error', () => {
-    openDatabase().exec('PRAGMA user_version = 3');
+    openDatabase().exec('PRAGMA user_version = 4');
     closeDatabase();
     assert.throws(() => openDatabase(dbPath), (error) => {
       assert.ok(error instanceof PddCliError);
@@ -67,9 +67,9 @@ describe('database', () => {
     });
   });
 
-  it('migrates to v2 idempotently across reopen and preserves existing rows', () => {
-    const expectedTables = ['accounts', 'auth_states', 'console_sessions', 'console_tokens', 'credentials', 'leases', 'meta', 'pending_actions', 'relogin_states'];
-    assert.equal(get('PRAGMA user_version').user_version, 2);
+  it('migrates to v3 idempotently across reopen and preserves existing rows', () => {
+    const expectedTables = ['accounts', 'auth_states', 'console_sessions', 'console_tokens', 'credentials', 'goods_cost_entries', 'leases', 'meta', 'pending_actions', 'relogin_states'];
+    assert.equal(get('PRAGMA user_version').user_version, 3);
     assert.deepEqual(all("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").map((row) => row.name), expectedTables);
     run('INSERT INTO meta (key, value) VALUES (?, ?)', 'migration-sentinel', 'preserved');
     const schema = all('SELECT type, name, sql FROM sqlite_master ORDER BY type, name');
@@ -77,13 +77,13 @@ describe('database', () => {
     closeDatabase();
     openDatabase(dbPath);
 
-    assert.equal(get('PRAGMA user_version').user_version, 2);
+    assert.equal(get('PRAGMA user_version').user_version, 3);
     assert.deepEqual(all('SELECT type, name, sql FROM sqlite_master ORDER BY type, name'), schema);
     assert.equal(get('SELECT value FROM meta WHERE key = ?', 'migration-sentinel').value, 'preserved');
   });
 
   it('upgrades a v1 database with an additive migration preserving every existing table', () => {
-    openDatabase().exec('DROP TABLE console_tokens; DROP TABLE console_sessions; PRAGMA user_version = 1');
+    openDatabase().exec('DROP TABLE IF EXISTS goods_cost_entries; DROP TABLE console_tokens; DROP TABLE console_sessions; PRAGMA user_version = 1');
     const accountId = insertAccount('existing', { isDefault: 1 });
     run('INSERT INTO meta(key, value) VALUES (?, ?)', 'migration-sentinel', 'preserved');
     run('INSERT INTO auth_states(account_id, revision, state_sealed, updated_at) VALUES (?, 7, ?, ?)', accountId, 'sealed-state', NOW);
@@ -96,12 +96,48 @@ describe('database', () => {
     const schema = all('SELECT type, name, sql FROM sqlite_master ORDER BY type, name');
     closeDatabase();
     openDatabase(dbPath);
-    assert.equal(get('PRAGMA user_version').user_version, 2);
+    assert.equal(get('PRAGMA user_version').user_version, 3);
     assert.deepEqual(tables.map((table) => all(`SELECT * FROM ${table}`)), before);
     const upgraded = all('SELECT type, name, sql FROM sqlite_master ORDER BY type, name');
     for (const row of schema) assert.ok(upgraded.some((candidate) => JSON.stringify(candidate) === JSON.stringify(row)));
     assert.ok(get("SELECT name FROM sqlite_master WHERE name = 'console_tokens'"));
     assert.ok(get("SELECT name FROM sqlite_master WHERE name = 'console_sessions'"));
+  });
+
+  it('refuses a conflicting migration on repeated opens', () => {
+    openDatabase().exec('DROP TABLE IF EXISTS goods_cost_entries; PRAGMA user_version = 2');
+    const accountId = insertAccount('v2');
+    run('INSERT INTO console_tokens VALUES (?, ?, ?, ?, NULL)', 'token', accountId, NOW, NOW);
+    openDatabase().exec('CREATE TABLE goods_cost_entries (sentinel TEXT)');
+    closeDatabase();
+    assert.throws(() => openDatabase(dbPath), { code: 'E_AUTH_STATE_IO' });
+    assert.throws(() => openDatabase(dbPath));
+  });
+
+  it('upgrades a v2 database preserving its console and account rows', () => {
+    openDatabase().exec('DROP TABLE IF EXISTS goods_cost_entries; PRAGMA user_version = 2');
+    const accountId = insertAccount('v2-preserved');
+    run('INSERT INTO console_tokens VALUES (?, ?, ?, ?, NULL)', 'retained-token', accountId, NOW, NOW);
+    closeDatabase();
+    openDatabase(dbPath);
+    assert.equal(get('PRAGMA user_version').user_version, 3);
+    assert.equal(get('SELECT account_id FROM console_tokens').account_id, accountId);
+    assert.ok(get("SELECT name FROM sqlite_master WHERE name = 'goods_cost_entries'"));
+  });
+
+  it('cascades goods costs for every mall and spec while retaining another account', () => {
+    const removed = insertAccount('cost-removed');
+    const retained = insertAccount('cost-retained');
+    for (const accountId of [removed, retained]) {
+      for (const mallId of ['900001', '900002']) {
+        for (const spec of ['', 'red']) {
+          run(`INSERT INTO goods_cost_entries VALUES (?, ?, '101', ?, 100, 0, 0, 0, 0, ?)`, accountId, mallId, spec, NOW);
+        }
+      }
+    }
+    run('DELETE FROM accounts WHERE id = ?', removed);
+    assert.equal(get('SELECT count(*) AS count FROM goods_cost_entries WHERE account_id = ?', removed).count, 0);
+    assert.equal(get('SELECT count(*) AS count FROM goods_cost_entries WHERE account_id = ?', retained).count, 4);
   });
 
   it('rolls back all writes when a transaction callback throws', () => {

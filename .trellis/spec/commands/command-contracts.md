@@ -78,7 +78,7 @@ src/services/<domain>.js           业务逻辑（被 handler 调用）
 
 ## 3. Contracts
 
-- `withCommand` 选项 `needsBrowser`（默认 `true`）：本地管理命令（`daemon start/stop/status/run`、`console link`）设为 `false`，同时 `needsAuth: false`，runner 既不启动浏览器也不解析账号；输出仍走统一 finalizer 与 data 契约 v2。需要浏览器或账号上下文的命令不得设置它。
+- `withCommand` 选项 `needsBrowser`（默认 `true`）：本地管理命令设为 `false`，同时 `needsAuth:false`，runner 跳过浏览器，输出仍走统一 finalizer 与 data 契约 v2。`needsAccount` 默认 false；仅显式 true 时在无浏览器分支解析本地 merchant 账号，缺账号为 `E_ACCOUNT_REQUIRED` / exit 2。`needsMall:'stored'` 仅显式启用，声明由 service 消费本地店铺键，无页面探测或切店；所有既有命令默认行为保持原样。
 - Global flags include `--json`、`--no-color`、`--timeout <ms>`、`--mall <id>`、`--headed`、`--verbose`。
 - Command handlers MUST call `withCommand()` indirectly via `wireAction` / runner facade。
 - `pdd config show/set/unset/validate` is the maintenance exception: it MUST use `wireAction(..., { runtimeConfigPolicy: 'maintenance' })` so damaged config can still be diagnosed or safely repaired, and MUST NOT enter auth/browser/mall runner lifecycle。
@@ -94,6 +94,14 @@ src/services/<domain>.js           业务逻辑（被 handler 调用）
 - `goods segment`, `promo roi`, and `diagnose` return factual statistics and data-quality hints only. No operating advice, health scores, tiers, or promo quality classifications. `action plan` and `--break-even` are removed and must fail as usage errors.
 
 ## 4. Validation & Error Matrix
+
+### Goods Cost / Profit
+
+- `goods cost set/list/remove/import` 使用 `needsBrowser:false,needsAuth:false,needsAccount:true,needsMall:'stored',allowAllAccounts:false`；只读本地账号与成本，跳过 auth-state 解密/在线认证/重登/daemon。有效 mall 参数（含运行配置默认）优先，否则账号 identity。
+- 成本写命令 `set/remove/import` 缺 confirm 预演，xhr_count 为 0，所有输入先验证；confirm 仅写 SQLite。金额 flags 保持字符串，parseYuanToFen 接受 >=0、最多两位小数；原 price >0 规则不变。goods_id 保留字符串精度。
+- import 的 `<file>` 从 config.args[0] 读取，格式为 UTF-8 JSON 数组，整批拒绝/整批事务；E_COST_IMPORT_INVALID / exit 2 的 detail.row_errors 为 1-based 记录序号，语法损坏 row:null，省去物理行号。
+- `goods profit` 保留普通 needsAuth + mall switch 生命周期；days 默认 30，仅整数 1–90，非法为 E_USAGE / exit 2。goods-id 只筛列表，summary 始终全店；列表/summary 及 quality 的固定键由 views/goods-profit.js 拥有。
+- 验证：`test/commands/goods-cost-runtime.test.js`、`goods-cost-contract.test.js`，`test/e2e/goods-cost.e2e.test.js`、`goods-profit.e2e.test.js`，以及五个命令的 data-contract-v2 用例。共享 runner 改动运行 npm test。
 
 | 输入条件                                                   | 结果                                                  |
 | ---------------------------------------------------------- | ----------------------------------------------------- |

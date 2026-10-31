@@ -213,11 +213,12 @@ export function withCommand({
   needsAuth = true,
   needsMall = 'current',
   needsBrowser = true,
+  needsAccount = false,
   allowAllAccounts = true,
   run,
   render,
 }) {
-  const spec = { name, needsAuth, needsMall, needsBrowser, run, render };
+  const spec = { name, needsAuth, needsMall, needsBrowser, needsAccount, run, render };
   return function executeCommand(opts = {}, { runtimeConfig } = {}) {
     if (opts.allAccounts && !allowAllAccounts) {
       throw new PddCliError({

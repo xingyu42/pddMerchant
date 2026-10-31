@@ -3,6 +3,46 @@
 
 // 数据可得性（diagnose status / compare status）
 export const DATA_STATUS_LABEL = Object.freeze({ full: '数据完整', partial: '数据不完整' });
+export const TRAFFIC_HINT_LABEL = Object.freeze({
+  daily_uv_sum: '访客汇总为逐日访客数之和，跨日存在重复访客',
+  missing_days: '返回的统计日少于窗口天数，summary 仅汇总已返回的统计日',
+  promo_caliber: '推广拆分口径来自对第三方插件实现的分析，尚未经有投放店铺实测',
+  non_promo_caliber: '非推广成交 = 商品明细总量减去推广直接成交，平台不提供该拆分',
+  goods_truncated: '商品明细采集不完整（分页上限或提前空页），结果已截断',
+  promo_unavailable: '推广数据拉取失败或已达采集上限，推广及非推广成交字段为 null',
+  negative_difference: '总成交减去推广直接成交出现负差额，对应非推广成交字段为 null',
+  promo_unknown_unit: '推广金额单位未知，对应推广金额及非推广成交额为 null',
+});
+export const CUSTOMER_SERVICE_CALIBER = '多多客服-客服数据（人工回复）';
+export const CUSTOMER_SERVICE_HINT_LABEL = Object.freeze({ trend_unavailable: '客服逐日趋势拉取失败' });
+export const REVIEW_HINT_LABEL = Object.freeze({
+  keywords_unavailable: '评价标签聚合拉取失败', types_unavailable: '评价问题类型拉取失败',
+  reviews_unavailable: '中差评列表拉取失败', list_truncated: '中差评列表已达 30 页采集上限，结果已截断',
+});
+export const EXPERIENCE_DIMENSION_LABEL = Object.freeze({
+  after_sales: '售后服务', quality: '商品品质', logistics: '物流服务', activity: '店铺活跃', special: '特色服务',
+});
+export const EXPERIENCE_UNIT_LABEL = Object.freeze({ pct: '百分比', hours: '小时', days: '天', raw: '平台原值' });
+export const EXPERIENCE_STANDARD_LABEL = Object.freeze({ 0: '已达标', 1: '未达标' });
+export const EXPERIENCE_HINT_LABEL = Object.freeze({
+  ready_date_unavailable: '趋势就绪日期拉取失败', trend_unavailable: '趋势数据拉取失败', delayed: '平台标记数据延迟',
+});
+export const COST_SCOPE_LABEL = Object.freeze({ default: '商品默认', spec: '指定规格' });
+export const PROFIT_HINT_LABEL = Object.freeze({
+  orders_truncated: '订单量超出采集上限，窗口财务金额为 null，保留已观测样本',
+  orders_ratelimited: '订单采集因限流中断，窗口财务金额为 null，保留已观测样本',
+  invalid_order_window: '成团时间缺失或重复订单事实冲突，订单采集不完整',
+  promo_incomplete: '推广采集不完整，相关推广花费和净利润为 null',
+  promo_unavailable: '推广数据拉取失败，相关推广花费和净利润为 null',
+  negative_promo_difference: '推广报表总计减商品归属合计的差额为负，店铺级推广花费为 null',
+  promo_amount_unknown: '推广金额缺失或单位无效，相关金额为 null',
+});
+export const PROFIT_FIXED_HINTS = Object.freeze([
+  '成本按当前录入值计算，历史窗口会随成本更新重算',
+  '退款成功按全额退款且货已退回处理；仅退款不退货时，利润可能高估',
+  '平台优惠按全部结算给商家计入收入；商家共担补贴活动时，利润可能高估',
+  '推广花费仅含商品推广报表口径',
+]);
 
 // diagnose 维度
 export const DIMENSION_LABEL = Object.freeze({ orders: '订单', inventory: '库存', promo: '推广', after_sales: '售后' });

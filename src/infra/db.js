@@ -91,6 +91,22 @@ CREATE TABLE console_sessions (
 );
 `;
 
+const SCHEMA_V3 = `
+CREATE TABLE goods_cost_entries (
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  mall_id TEXT NOT NULL CHECK (length(mall_id) > 0),
+  goods_id TEXT NOT NULL CHECK (length(goods_id) > 0),
+  spec TEXT NOT NULL DEFAULT '',
+  purchase_fen INTEGER NOT NULL CHECK (typeof(purchase_fen) = 'integer' AND purchase_fen >= 0),
+  packaging_fen INTEGER NOT NULL CHECK (typeof(packaging_fen) = 'integer' AND packaging_fen >= 0),
+  courier_fen INTEGER NOT NULL CHECK (typeof(courier_fen) = 'integer' AND courier_fen >= 0),
+  insurance_fen INTEGER NOT NULL DEFAULT 0 CHECK (typeof(insurance_fen) = 'integer' AND insurance_fen >= 0),
+  technical_service_fen INTEGER NOT NULL DEFAULT 0 CHECK (typeof(technical_service_fen) = 'integer' AND technical_service_fen >= 0),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (account_id, mall_id, goods_id, spec)
+);
+`;
+
 let database = null;
 let databasePath = null;
 let databaseGeneration = 0;
@@ -119,7 +135,7 @@ function executeTransaction(connection, callback) {
 function migrate(connection) {
   executeTransaction(connection, () => {
     const version = connection.prepare('PRAGMA user_version').get().user_version;
-    if (version > 2) {
+    if (version > 3) {
       throw new PddCliError({
         code: 'E_DATABASE_VERSION_UNSUPPORTED', message: '数据库由更新版本的 pdd-cli 创建，请升级 pdd-cli',
         hint: '请升级 pdd-cli 后重试', exitCode: ExitCodes.AUTH,
@@ -127,7 +143,8 @@ function migrate(connection) {
     }
     if (version < 1) connection.exec(SCHEMA_V1);
     if (version < 2) connection.exec(SCHEMA_V2);
-    connection.exec('PRAGMA user_version = 2');
+    if (version < 3) connection.exec(SCHEMA_V3);
+    connection.exec('PRAGMA user_version = 3');
   });
 }
 

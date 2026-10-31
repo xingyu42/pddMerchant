@@ -1,4 +1,4 @@
-import { responseShapeError } from '../../infra/errors.js';
+import { responseShapeError, PddCliError, ExitCodes } from '../../infra/errors.js';
 
 const PROMO_NAV = {
   url: 'https://yingxiao.pinduoduo.com/goods/report/promotion/overView',
@@ -17,6 +17,14 @@ const PROMO_EXTERNAL_FIELDS = [
 
 function formatDate(d) {
   return d.toISOString().slice(0, 10);
+}
+
+function reportDate(explicit, fallback) {
+  if (explicit === undefined) return formatDate(fallback);
+  const valid = typeof explicit === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(explicit)
+    && Number.isFinite(Date.parse(explicit)) && new Date(explicit).toISOString().slice(0, 10) === explicit;
+  if (!valid) throw new PddCliError({ code: 'E_USAGE', message: '推广报表日期需要有效 YYYY-MM-DD', exitCode: ExitCodes.USAGE });
+  return explicit;
 }
 
 function formatDateTime(d) {
@@ -138,6 +146,7 @@ function readReport(raw, endpoint, totalsField, listField) {
 
 export const PROMO_ENTITY_REPORT = {
   name: 'promo.entityReport',
+  fixtureListKey: 'entities',
   urlPattern: /mms-gateway\/poseidon\/api\/report\/queryEntityReport/,
   apiUrl: '/mms-gateway/poseidon/api/report/queryEntityReport',
   nav: PROMO_NAV,
@@ -155,8 +164,8 @@ export const PROMO_ENTITY_REPORT = {
       queryDimensionType: 2,
       reportPromotionType: params.promotionType ?? 9,
       blockTypes: [6],
-      startDate: formatDate(since),
-      endDate: formatDate(until),
+      startDate: reportDate(params.startDate, since),
+      endDate: reportDate(params.endDate, until),
       externalFields: PROMO_EXTERNAL_FIELDS,
       queryRange: { pageNumber: params.page ?? 1, pageSize: params.size ?? 10 },
       orderBy: 9999,

@@ -178,6 +178,151 @@ export async function listGoods(ctx, options) {
 }
 ```
 
+## Scenario: Shop Experience Star
+
+### 1. Scope / Trigger
+
+适用于 `diagnose.experience` 的端点、服务、视图及 fixture；独立查询平台店铺综合体验星级，`DIAGNOSE_DIMENSIONS` 保持原有四个维度。
+
+### 2. Signatures
+
+```js
+getShopExperienceView(ctx, { days = 7 } = {}) // src/services/experience.js; returns v2 data
+toExperienceView(info, { trend = null, mallId = null, hints = [] } = {}) // views/experience.js
+```
+
+CLI：`pdd diagnose experience [--days 7]`，`needsAuth:true`、`needsMall:'switch'`。端点为 `experience.navigatorReadyDate`、`experience.navigatorInfo`、`experience.navigatorList`，均走 `page-api`；先 ReadyDate，再 Info，最后 List（参数 `{ beginDate, endDate }`）。
+
+### 3. Contracts
+
+- `data` 字段：`headline`、`status`、`snapshot`、`indicators`、`consumer_experience_plan`、`trend`、`hints`、`mall_id`。`mall_id` 使用 `mallIdOf(ctx)` 的明文值，与其他 diagnose 命令一致。
+- `snapshot` 字段：`stat_date`、`star`、`star_change`、`next_star`、`next_star_rank_pct`、`score_rank_pct`、`score_grade`、`star_text`、`industry`；统计日期来自 Info.timestamp，平台文案原样保留。
+- `indicators[]` 字段：`key`、`dimension`、`name`、`value`、`unit`、`next_star_threshold`、`next_star_status`。十项指标及字段、单位映射以 [views/experience.js](../../../src/services/views/experience.js) 的 `INDICATORS` 为唯一来源，中文标签在 `labels.js`。
+- 比率及门槛乘 100；`gmvRk` 已为百分数，保留原值；时长保留小时/天，`dsr3m` 单位为「平台原值」。数值统一用 `infra/units.js` 保留 2 位小数，null 保留 null。门槛读 `<field>NextPctThreshold`；达标状态仅映射平台 `<field>NextStarRkDesc`：0 已达标、1 未达标，其他/null 为 null，指标值为 null 时状态也为 null。
+- `consumer_experience_plan` 为 `{ enabled, required, next_star_status }`，来自 `isRps`、`isRequireRps`、`isRpsNextStarRkDesc`。
+- `trend` 为 null 或 `{ start_date, end_date, days, items }`；截止日来自 ReadyDate，起日为截止日减 `days - 1`，使用 UTC 日期运算隔离宿主时区。`items[]` 为 `{ date, star, score_rank_pct, <十项指标 key> }`，按日期升序保留窗口内有数据的行，缺日保留缺行。
+- 输出白名单剔除 `mallId`、`mallName`、店铺名、图片 URL、`avgDescRevScrRcatePct3m`、`mallStarToc`，以及未确认的指标 `*Rk`、`*RkDesc`、`*4p5Standard`、`*5Standard`、`*RkStage`；保留已确认的 `scoreRk`、`gmvRk` 和下一星级达标状态用于映射。CLI 仅透传平台评分和判定。
+
+### 4. Validation & Error Matrix
+
+| 条件 | 结果 |
+| --- | --- |
+| days 为非整数或超出 1–30 | `E_USAGE` / exit 2，发起端点请求前校验 |
+| Info 失败 | 整体失败，交 runner 输出错误 envelope |
+| ReadyDate / List 的可降级 `PddCliError` | 保留快照，`trend:null`、`status:数据不完整`，追加对应 hint |
+| 意外异常、超时或取消 | 原样抛出，沿用 `goods-profit-promo.js` 的 catch 模式 |
+| `normalFlag === false` 或 `delayData != null` | 追加「平台标记数据延迟」，数据完整性状态保持原值 |
+
+### 5. Good/Base/Bad Cases
+
+- Good：人工回复率 0.5、门槛 0.8、状态 1 输出 50、80、「未达标」，签收退货退款时长 null 保持 null。
+- Base：完整的空趋势数组保留窗口及空 items；平台缺少某日时保留缺行。
+- Bad：按阈值自行生成达标判定、缺失补 0、用当前日期替代 ReadyDate，均偏离平台事实。
+
+### 6. Tests Required
+
+`experience-contract.test.js` 校验 payload、严格成功码和上游白名单；`experience-view.test.js` 校验十项映射、null、达标标签、headline 和字段集合；`experience.test.js` 校验窗口、days 边界和错误传播。`experience.e2e.test.js` 验证单行 JSON、明文 ctx.mall_id、上游键及店铺名剔除；`data-contract-v2.test.js` 用 `entityFields` 覆盖 `snapshot`、`indicators[]`、`trend.items[]`。fixture builder 使用侦察样本和真实 normalize，自动化验证仅用 fixture。
+
+### 7. Wrong vs Correct
+
+Wrong：`value >= threshold ? '已达标' : '未达标'`，自行推导平台判定。
+Correct：值存在时映射 `<field>NextStarRkDesc` 的 0/1；未知码或缺失值输出 null。
+
+## Scenario: Customer Service and Reviews
+
+### 1. Scope / Trigger
+
+适用于独立的客服与评价查询，保持 `diagnose shop` 的现有四维汇总。
+
+### 2. Signatures
+
+```js
+getCustomerServiceView(ctx, { days = 30 } = {})
+getReviewsView(ctx, { days = 30 } = {})
+```
+
+CLI：`pdd diagnose customer-service [--days 30]`、`pdd diagnose reviews [--days 30]`，均为 `needsAuth:true`、`needsMall:'switch'`。
+
+### 3. Contracts
+
+- 客服 days 为 1-63 的整数，窗口按上海日期取 `[今天-days, 昨天]`。`cs.overview` 使用 page-api POST `/desert/stat/mallServiceOverviewData`，请求 `{ startDate, endDate }`；`cs.monthTrend` 使用 legacy 导航与 `/desert\/stat\/mallMonthServiceData/` 被动捕获 GET，返回固定最近 31 天，按 `statDate` 过滤。导航页为 `/mms-chat/overview/service`；两者成功条件为 `success === true && errorCode === 1000000`。
+- 客服 data：`{ headline, window, caliber, summary, trend, hints, mall_id }`，口径固定「多多客服-客服数据（人工回复）」。summary 与 trend 指标映射以 `views/customer-service.js` 的 `METRICS` 为准；比率乘 100，时长单位秒、保留 2 位小数，null 保留。trend 为 null 或 `{ items:[{ date, ...summary字段, category_top10_avg_response_seconds, category_avg_response_seconds }] }`，日期升序；客服账号名及比较字段由白名单过滤。
+- 评价 days 映射 `{30:1, 60:5, 90:4, 180:3}` 为 rangeType。endTime 为当前 Unix 秒，startTime=endTime-days*86400。标签和类型聚合的请求为 `{ startTime, endTime, rangeType }`；列表为 `{ startTime, endTime, pageNo, pageSize:10, descScore:['1','2','3'] }`，三个端点均为 page-api POST `/saturn/reviews/*`，导航页 `/goods/evaluation/index`。成功判定为 `success === true || errorCode === 1000000`。
+- 列表每页 10 条，最多 30 页；满 30 页标记 truncated 并提示。service 调用同时携带内部 `page` 和上游 `pageNo`，fixture 分页器使用前者，`buildPayload` 仅投影后者；fixture 使用 `totalRows` 和 `data`。
+- 评价 data：`{ headline, window_days, keyword_tags, issue_types, negative_reviews, hints, mall_id }`。标签 `{ name,count }`；类型 `{ name,positive_count,negative_count,share_pct }`，平台 proportion 已为 0-100。列表 `{ items,total,truncated }`，total 取 totalRows。item 字段以 `NEGATIVE_REVIEW_FIELDS` 为准；score 非零时输出 history_score，三项评分为 null。createTime 秒转上海时间；appendReview 字符串直接取，文本对象投影为文本。
+- 正文和追评手机号 `/1[3-9]\d{9}/g` 掩码为前三位加四星加后四位。昵称、头像、订单、规格、快照和媒体 URL 在 adapter 白名单过滤，仅保留回复状态、图片数量与文本标签。`REDACT_KEYS` 增加 cs_name、nickname、avatar、orderSn。
+
+### 4. Validation & Error Matrix
+
+| 条件 | 结果 |
+| --- | --- |
+| 客服 days 越界或评价 days 非指定值 | `E_USAGE` / exit 2，请求前校验 |
+| 客服 overview 失败 | 整体失败 |
+| 客服 trend 的可降级 PddCliError | `trend:null` 并追加 hint |
+| 任一评价源的可降级 PddCliError | 对应部分 null 并追加 hint；三源全失败抛最后一个错误 |
+| 程序异常、超时、取消 | 继续抛出 |
+| 上游集合或列表 totalRows 缺失 | adapter 抛 `E_NETWORK` |
+
+### 5. Good/Base/Bad Cases
+
+- Good：回复率 0.666666 输出 66.67，响应 14.666 秒输出 14.67，无咨询日仍保留类目均值。
+- Base：评价列表为空时输出空 items 和 total 0，其余数据源独立存在。
+- Bad：把人工回复序列与星级口径合并、自行分词、输出完整评价原始对象。
+
+### 6. Tests Required
+
+`customer-service-contract.test.js` / `reviews-contract.test.js` 覆盖 payload、成功判定和白名单；对应 view/service 测试覆盖字段、单位、窗口、null、掩码、分页与降级。两个同名 e2e 验证单行 envelope、隐私剔除、参数 exit 2、分页截断与数据源失败；`data-contract-v2.test.js` 用 entityFields 覆盖所有实体数组。
+
+### 7. Wrong vs Correct
+
+Wrong：仅传 pageNo 给 fixture 分页器，重复读取第一页；将 descScore 发为数字数组。
+Correct：内部 page 与 pageNo 同步，buildPayload 保留精确请求格式；descScore 固定字符串数组 `['1','2','3']`。
+
+## Scenario: Traffic and Goods Traffic
+
+### 1. Scope / Trigger
+
+适用于全店逐日流量及商品区间流量，保持现有 diagnose 四维汇总。
+
+### 2. Signatures
+
+`getTrafficView(ctx, { days = 30 })` → `diagnose traffic`；`getGoodsTrafficView(ctx, { days = 30, goodsId })` → `goods traffic`。命令均为 needsAuth:true、needsMall:'switch'。
+
+### 3. Contracts
+
+- 全店 days 为 1-30 整数；先 `traffic.readyTime` 再 `traffic.overviewList`，page-api POST `/sydney/api/mallFlow/queryMallFlowOverViewReadyTime`（空请求）及 `queryMallFlowOverViewList`（beginDate/endDate）。截止日取 readyTime，逐日行及同行均值/优秀值映射由 `views/traffic.js` 拥有；只汇总访客、订单、金额，提示访客跨日重复；窗口内无返回统计日时 summary 各项为 null，返回日数少于窗口天数时追加提示。
+- 商品 days 仅 1/7/30 → queryType 0/1/2；窗口为上海最近完整自然日。`traffic.goodsDetailList` page-api POST `/sydney/api/goodsDataShow/queryGoodsDetailVOList`，参数 startDate/endDate/queryType/sortCol:0/sortType:1/pageNum/pageSize:50/goodsId?，省略 actVs。按 totalNum 翻页，最多 20 页。行白名单在 `views/goods-traffic.js`；数值字段（含 goodsId）中的 PUA 字符触发 E_BUSINESS，商品名、类目等原文字段不做该检测。
+- `promo.goodsPromotionList` 复用 fetch 请求体合并策略，保留页面生成签名。POST `/mms-gateway/venus/api/goods/promotion/v3/list`：beginDate/endDate/blockType:3/clientType:1/pageNumber/pageSize:50/filter.searchKeyV2（当前批商品 ID 逗号拼接）/sortBy:9999/orderBy:9999/scenesMode:1 或 3/withTagsInfo:true。每批最多 50 个商品，每场景最多 20 页；只累加当前批的商品，阻止上游忽略过滤条件时重复归属。
+- adapter 依次展开 optimizationMessage/reportInfo/reportInfo2；空串视为缺失，金额对象读取 value（无 unit/YUAN 按元，FEN 除 100，PERCENT 除 unitCode 或 100；其他单位输出 null 并追加 promo_unknown_unit 提示，与 promo.js MoneyVO 一致），裸数字厘除 1000，转整数分后累计。adInfos:null 且 totalAdNum:0 为未开通；未知金额传播 null。
+- non_promo_* = 商品总量减去推广直接成交；间接成交单列。负差额 null/hint；推广可降级 PddCliError 或分页上限使全部推广和差值 null，promo_complete:false；完整无记录为 0。所有输出保留固定口径及尚未经有投放店铺实测的提示。
+
+### 4. Validation & Error Matrix
+
+days 越界 / 非法 goods-id → E_USAGE / exit 2，请求前验证；主流量/明细失败 → 整体失败；逐日 statDate 缺失或日期无效 → E_NETWORK，避免窗口过滤静默丢行；推广普通 PddCliError → 降级；超时、取消、程序异常 → 传播。商品提前空页且尚未达到总量也标记 goods_truncated。
+
+### 5. Good/Base/Bad Cases
+
+Good：两场景直接成交 1.23 元各一条，合计 2.46 元，再从商品总额减去。Base：未开通推广返回 0。Bad：跨批重复累计同一推广行、失败补零、将访客按推广拆分。
+
+### 6. Tests Required
+
+`traffic-contract.test.js`：请求、PUA、缺集合、金额形态、空串回退、未开通。`traffic-view.test.js`：白名单、百分数、金额、null、同行映射。`traffic.test.js`：窗口、原生 queryType、双场景、跨批归属、分页、失败降级和异常传播。两条 fixture e2e 和 data-contract-v2 的 items[] 字段集覆盖最终 JSON。
+
+### 7. Wrong vs Correct
+
+Wrong：total - (direct + indirect)，推广失败时输出 0。Correct：仅减 direct，失败时输出 null 并标记 promo_complete:false。
+
+## Scenario: Goods Cost and Net Profit
+
+- services/goods-cost-input.js 单独拥有非负元金额、精确规格及字符串 ID 校验；goods-cost.js 编排本地预演/确认，goods-cost-import.js 原生解析 UTF-8 JSON 后整批校验（1 MiB / 5000 条）。未知列、重复商品/规格键、坏行全部拒绝，无先写好行行为。
+- goods.profit days 为 1–90，默认 30；按 group_time 成团时间统计上海最近 N 个完整自然日、不含当天，[start,end)；复用 collectOrdersForStaleAnalysis，显式 scope all、size 50、since=start/until=end-1。保留 truncation/rate-limit，按成团时间过滤、订单号内部去重，缺时间或冲突样本标不完整。
+- goods-profit-calculation.js 是纯函数：收入=order_amount+platform_discount，不重复加 shipping_amount 或扣 merchant_discount。未付款取消收入及所有成本 0；退款成功（5）收入/货本 0，已发货扣全部按单项，未发货为 0，发货时间缺失/无效时这些费用 null。10/11 正常计算并单列单数及收入；未知售后码/缺字段相关财务 null。
+- 成本先精确 spec，后商品默认，无匹配则利润/率 null；货本乘 goods_number，按单项只扣一次，缺数量只影响依赖数量的项。cost_updated_at 是实际使用记录的最大时间，default_fallback_order_count 为非空规格未命中后实际回落单数；成本只有当前值，历史查询会重算。
+- goods-profit-promo.js 完整分页 entityReport，保留已删除推广历史，只按 goodsId 归属，无名称回退。商品花费按实体归属合计，全店 promo_spend_yuan 取 totals.spend，shop_promo_spend_yuan 为总计减归属合计；负差额为 null/hint，已知总计和按总计计算的净利润保留。totals 每页不累加；口径固定提示“仅含商品推广报表口径”，关注/询单覆盖留后续研究。
+- 推广失败/截断/限流相关花费与净利润 null；完整无该商品记录为 0，金额无效保留 null。窗口订单采集不完整时窗口财务 null，observed_order_count/observed_revenue_yuan 保留样本。summary 严格传播所需未知输入，禁止仅合计有成本商品。
+- view 白名单由 views/goods-cost.js / goods-profit.js 导出，中文 availability/hints 表在 labels.js。gross_margin_pct/net_margin_pct 为有符号百分数，可超过 ±100 且原样保留，零收入为 null。filter_goods_id 仅筛 items，summary 全店。固定提示当前成本重算与两项高估：仅退款不退货、商家共担补贴。
+- 测试：goods-cost*、goods-profit* 服务/视图单测，orders-scope/orders-contract/promo-money 回归，两个 goods 成本/利润 fixture e2e 与五个命令的 data-contract-v2；共享 runner/存储改动执行 npm test。
+
 ## Scenario: Order list scope & refund identification
 
 ### 1. Scope / Trigger
@@ -205,6 +350,7 @@ CLI: `pdd orders list [--status all|pending_ship|shipped|received|after_sales]` 
 | `getOrderStatsView` local sample | `all` | refund counts need after-sales orders |
 | `collectOrdersInput` (diagnose orders / shop / compare) | `all` | same |
 | `getAfterSalesDiagnosis` | `all` | same |
+| `goods profit` | `all` | 成团时间完整窗口须包含退款、10/11 和未付款取消；显式覆盖 collector 的 valid 默认 |
 | `collectGoodsInput` (diagnose inventory), `goods segment` | `valid` (default) | sales = paid orders without after-sales, all shipping states |
 
 - Refund identification uses ONLY order `after_sales_status`: `5` → refunded (`refund_count`); any other non-null code → in progress (`after_sales_count`). String codes are compared numerically (`'5'` counts as refunded). `refund_status` / `refundStatus` / `after_sale_type` / `afterSaleType` do not exist upstream and MUST NOT be read.

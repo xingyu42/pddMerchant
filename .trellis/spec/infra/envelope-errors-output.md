@@ -46,7 +46,7 @@ Exit codes：
 | 时间点 | string `YYYY-MM-DD HH:mm:ss`（Asia/Shanghai），后缀 `_at` | `paid_at` |
 | 日期 | string `YYYY-MM-DD`，后缀 `_date`，或窗口 `{ start_date, end_date, days }` | |
 | 时长 | number，后缀 `_hours`（1 位小数）或 `_seconds` | `ship_p95_hours` |
-| 比率 | number，百分数 0-100，2 位小数，后缀 `_pct` | `refund_rate_pct: 3.12` |
+| 比率 | number，百分数 0-100，2 位小数，后缀 `_pct`；利润率例外见下 | `refund_rate_pct: 3.12` |
 | 倍数 | ROI 保持倍数 number | `roi: 2.35` |
 | 枚举 | 中文标签 string；未知码 `未知(<code>)`；对照表集中在 `src/services/views/labels.js` | `status: '待发货'` |
 | 标识 | string | `goods_id: '101'` |
@@ -71,6 +71,8 @@ Exit codes：
 - Human diagnostics, raw debug and logs MUST NOT write to stdout in JSON mode。
 - Human (non-`--json`) rendering prints `data.headline` first, renders `data.items` as a row table (headers = union of row keys) and remaining keys as a key/value table; batch rendering prints the batch headline before per-account blocks。
 - Errors MUST use `PddCliError` and `ExitCodes` from `src/infra/errors.js`。
+- 利润率显式例外：goods.profit 的 gross_margin_pct/net_margin_pct 为有符号百分数，可负、可超过 ±100，不做截断；零收入或未知分子/分母为 null。gross 扣商家成本，net 再扣商品归属/报表总推广，保留数字正负，无盈亏分类。
+- 成本导入错误 E_COST_IMPORT_INVALID / exit 2 使用 error.detail.row_errors[{row,field,message}]；语义错误 row 为 1-based 记录序号，JSON 语法错误 row:null。E_COST_IMPORT_IO / exit 2、E_COST_STORE_IO / exit 1 使用安全固定消息，省略原生路径。以上仍为标准 error envelope，data:null。
 - Unknown errors MUST be mapped into the standard envelope instead of escaping as stack traces on stdout。
 
 ## 4. Validation & Error Matrix

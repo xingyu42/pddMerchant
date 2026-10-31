@@ -1,0 +1,7 @@
+{"file": "docs/adr/0004-goods-profit-reporting-semantics.md", "reason": "Verify implementation matches decided profit semantics"}
+{"file": ".trellis/spec/services/domain-service-contracts.md", "reason": "No advice/scores/classifications; null-vs-zero rules"}
+{"file": ".trellis/spec/infra/envelope-errors-output.md", "reason": "data contract v2 compliance"}
+{"file": ".trellis/spec/infra/sqlite-storage.md", "reason": "Schema migration and cascade correctness"}
+{"file": ".trellis/spec/infra/logging-redaction.md", "reason": "No sensitive data leakage"}
+{"file": ".trellis/spec/standards/coding-style.md", "reason": "Function size, nesting, naming"}
+{"file": ".trellis/spec/standards/testing.md", "reason": "Contract test coverage and fixture conventions"}

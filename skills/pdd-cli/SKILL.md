@@ -1,6 +1,6 @@
 ---
 name: pdd-cli
-description: 通过 pdd CLI 操作拼多多商家后台 — 订单/商品/推广/诊断/上货/多账号/运行配置，输出统一 envelope JSON 供 AI 消费
+description: 通过 pdd CLI 操作拼多多商家后台，查询订单/商品/推广/诊断/店铺综合体验星级、录入成本与查净利润、上货/多账号/运行配置，输出统一 envelope JSON 供 AI 消费
 user-invocable: true
 metadata:
   openclaw:
@@ -18,8 +18,9 @@ metadata:
 
 - 查询/统计拼多多**订单**（列表、详情、P50/P95 时效）
 - 管理**商品**（列表、库存告警、销量与库存统计、上下架、改价改库存改标题、批量编辑、从链接上货）
+- 录入本地**商品成本**，查询窗口内**商品净利润**
 - 拉取**推广报表**与 ROI 统计
-- 查询**店铺数据统计**（订单 / 库存 / 推广 / 售后维度）
+- 查询**店铺数据统计**（订单 / 库存 / 推广 / 售后维度）及平台**店铺综合体验星级**
 - **多账号 / 多店铺**切换与批量执行
 - 查看、校验和修改项目内**运行配置**
 - 鉴权（首次登录 / 重新登录 / 环境自检 / 后台自动续期）
@@ -70,6 +71,7 @@ node bin/pdd.js orders list --json
 - **枚举** 一律是中文标签（如订单 `status: "已发货，待收货"`、诊断 `status: "数据完整"`）；无法识别的码显示为 `未知(<code>)`。
 - **缺失** 为 `null`，不是 0；分母为 0 的比率也是 `null`。
 - **标识**（`goods_id`、`mall_id`、`order_sn`）为字符串。
+- **利润率例外**：`gross_margin_pct/net_margin_pct` 为有符号百分数，可负、可超过 ±100，保持原值；零收入时 null。
 - 不含上游原始对象，也不含收件人姓名 / 电话 / 地址。
 - 批量（`--all-accounts`）：`data = { headline, accounts: { <slug>: { ok, data | error, latency_ms } }, summary }`，每个账号的 `data` 即该命令自身的 v2 data。
 
@@ -145,6 +147,8 @@ node bin/pdd.js orders stats --size 50      # 远程 + 本地聚合 P50/P95
 node bin/pdd.js goods list --page 1 --size 10 --status onsale|offline
 node bin/pdd.js goods stock --threshold 10  # 低库存/缺货告警
 node bin/pdd.js goods segment --days 30 --size 50 --max-pages 10 [--no-promo]  # 商品销量与库存统计
+node bin/pdd.js goods profit --days 30 [--goods-id <id>] --json
+node bin/pdd.js goods traffic --days 30 [--goods-id <id>] --json
 ```
 
 **写操作（`goods update` 子组，默认 dry-run，须 `--confirm` 才真正执行）：**
@@ -168,6 +172,24 @@ node bin/pdd.js goods publish --url <链接或纯数字goods_id> [--cost-templat
 >
 > 写操作回显：`{ headline, goods_id, field, value, sku_id?, dry_run, result?: { success, failed_count }, mall_id }`（`field` 为 `status|price_yuan|stock|title`；价格回显为元，上下架回显为「上架 / 下架」）；预演 headline 形如「预演：商品 101 价格将改为 29.90 元，未提交」。batch 预演为 `{ headline, planned[], count, dry_run, mall_id }`，提交后为 `{ headline, succeeded, failed, results[{ goods_id, field, ok, error_code?, message? }], dry_run, mall_id }`。
 
+### 本地商品成本与净利润
+
+```bash
+node bin/pdd.js goods cost set --goods-id 101 --purchase-yuan 8.20 --packaging-yuan 0.50 --courier-yuan 3 [--spec <精确规格>] [--insurance-yuan 0.3] [--technical-service-yuan 0.2] [--confirm] --json
+node bin/pdd.js goods cost list [--goods-id 101] --json
+node bin/pdd.js goods cost import costs.json [--confirm] --json
+node bin/pdd.js goods cost remove --goods-id 101 [--spec <精确规格>] [--confirm] --json
+```
+
+- 成本命令仅操作本地 SQLite，需要已登记商家账号（`--account`），无需在线登录、浏览器或 daemon；`--mall`/配置默认店铺优先，否则账号绑定店铺，始终核对输出 mall_id。成本按账号+店铺+商品+规格隔离，删除账号级联清理。四个成本命令均拒绝 `--all-accounts`，写命令缺 confirm 仅预演。
+- 货本按件，其余费用按单；金额为元，允许 0，最多两位小数。set 整条替换，省略运费险/技术服务费归零。spec 原文精确匹配，未命中回落默认；remove 缺 spec 仅删除默认行。
+- import 仅 UTF-8 JSON 数组（BOM 可用，1 MiB / 5000 条上限）；每条字段为 `goods_id`（推荐字符串）、可选 spec、必填 purchase_yuan/packaging_yuan/courier_yuan、可选 insurance_yuan/technical_service_yuan。完整模板见 README「商品成本与净利润」。未知列及重复商品/规格键导致整批拒绝；exit 2 / E_COST_IMPORT_INVALID 的 row_errors 按记录序号从 1 定位，语法错误 row:null。
+- list/import 返回 items/total，set 返回 entry，remove 返回 matched_count/removed_count；写命令含 dry_run，记录含 updated_at。一次导入全成功或全回滚。
+- profit 默认 30 天，days 仅整数 1–90；按 group_time（成团时间）统计上海完整自然日、不含当天、end_at 排他。goods-id 只筛 items，summary 保持全店；收入=实付+平台优惠，退款成功按货退回处理，已发货扣全部按单费用，未发货为 0，发货时间缺失使相关退款费用为 null；未付款取消收入与成本为 0，10/11 售后处理中正常计入并单列单数及收入。
+- gross_profit_yuan 扣商家成本，net_profit_yuan 再扣推广；相应 gross_margin_pct/net_margin_pct 允许负值及超过 ±100。推广**仅含商品推广报表口径**，商品按 goodsId 归属，summary.promo_spend_yuan 取 totals.spend，shop_promo_spend_yuan 为未归属差额且只影响 summary；负差额为 null/hint，已知总计仍保留。
+- 缺成本或推广失败利润为 null，完整拉取无商品推广记录时花费为 0；订单截断/限流时窗口财务 null，保留 observed_order_count/observed_revenue_yuan，读取 summary.data_quality/hints。cost_updated_at 为实际使用成本的最大更新时间，default_fallback_order_count 为规格回落单数；当前成本更新会重算历史窗口。
+- 免费后台缺少商家成本、准确退款金额/货物退回明细、补贴共担比例。转述结果时保留两项高估说明：仅退款不退货、商家共担平台补贴；以及“仅含商品推广报表口径”。只转述事实数字与数据可得性，省去保本 ROI、盈亏分类和经营建议。
+
 ### 🚀 推广 promo
 
 ```bash
@@ -182,11 +204,23 @@ node bin/pdd.js diagnose orders                        # 订单维度（P95/退�
 node bin/pdd.js diagnose inventory                     # 库存维度（缺货/低库存）
 node bin/pdd.js diagnose promo                         # 推广维度（ROI/CTR）
 node bin/pdd.js diagnose after-sales [--days 30]       # 售后维度（退款成功/售后处理中）
+node bin/pdd.js diagnose experience [--days 7]         # 平台店铺综合体验星级、指标与趋势
+node bin/pdd.js diagnose customer-service [--days 30]  # 多多客服人工回复汇总与逐日趋势
+node bin/pdd.js diagnose reviews [--days 30]           # 平台标签、问题类型与中差评
+node bin/pdd.js diagnose traffic [--days 30]           # 全店逐日流量及平台同行指标
 ```
 
 售后维度键为 `after_sales`，`detail` 包含 `total_orders`、`refund_count`、`refund_rate_pct`、`after_sales_count`、`after_sales_rate_pct`、`status_distribution`、`window_days`。其中 `after_sales_count` 只计售后处理中订单，两类占比均以采集到的全部订单数为分母；空样本占比为 `null`。店铺汇总默认使用近 7 天首批 50 条订单，单独售后查询默认近 30 天分页采集，并保留截断及限流提示。旧 `diagnose funnel` 命令和 `fulfillment_rate_pct` 字段已移除。
 
+`diagnose experience` 单独返回 `snapshot`（星级、较前一天变化、下一星级及排名门槛、综合分行业排名、平台评级、统计日期）、`indicators[]`（维度、名称、值、单位、下一星级门槛及平台达标状态）、`consumer_experience_plan` 和 `trend`。`--days` 默认 7，接受 1–30 的整数，越界为 `E_USAGE` / exit 2。趋势窗口截止到平台就绪日期，`snapshot.stat_date` 使用快照自己的统计日期；`trend.items[]` 按日期升序保留有数据的行。比率用百分数，时长用小时或天，未知值保持 `null`；店铺活跃度上游已为百分数，用户评价得分排名保留平台原单位。转述平台星级、评级文案和达标判定时保留原意。快照失败时命令失败；趋势不可用时 `trend:null`、`status:"数据不完整"` 并给出 `hints`，延迟标记仅追加提示。`mall_id` 从 ctx 明文输出，店铺名和上游 `mallId` / `mallName` 字段由白名单剔除。`diagnose shop` 保持原有四维汇总。
+
 这些查询不生成经营建议、健康评分、商品等级或推广优劣分类。`action plan` 和 `--break-even` 已移除。诊断的 `status`（`数据完整` / `数据不完整`）只表示数据完整性，不代表经营好坏；缺失数值保留为 `null`，不能当成零。环比窗口为 `{ start_date, end_date, days }`；`_pct` 指标的 `delta` 是百分点、`delta_pct` 是相对变化率；当前库存和待发货快照不做历史对比（`note: "仅有当前快照，无上期数据"`）。
+
+`diagnose customer-service` 返回 `{ headline, window, caliber, summary, trend, hints, mall_id }`。`--days` 默认 30，接受 1-63 的整数，上海日期窗口为今天减 days 至昨天；`caliber` 固定「多多客服-客服数据（人工回复）」。`summary` 为 desert 区间汇总；`trend.items[]` 取页面自动加载的最近 31 天中落在窗口内的行，按日期排序，保留类目响应时长参考。百分比键后缀 `_pct`，响应时长后缀 `_seconds`，无咨询日指标为 `null`。汇总失败时命令失败，趋势的可降级错误产生 `trend:null` 和 hint。该人工回复序列与 `diagnose experience` 的星级口径各自独立。
+
+`diagnose reviews` 的 `--days` 接受 30、60、90、180，默认 30，其他值为 `E_USAGE` / exit 2。`keyword_tags` 是平台满意/不满意标签及计数，`issue_types[]` 是五类问题正负面计数和平台占比，`negative_reviews` 为 `{ items, total, truncated }`。中差评筛选为描述评分 1-3 星，每页 10 条、最多 30 页，翻满时标记截断并给出 hint。条目含商品 ID、上海评价时间、三项评分、历史评分、正文、追评、标签、已回复状态和图片数；历史评分存在时三项评分为 `null`。正文和追评中的手机号按 `138****5678` 格式掩码，昵称、头像、订单、规格、图片/视频链接和快照均由白名单过滤。CLI 直接使用平台聚合；三个数据源分别降级为 `null` 并提示，全部失败时整体失败。超时、取消和程序异常继续抛出。
+
+`diagnose traffic` 接受 1-30 天，截止日来自平台就绪日期；访客汇总是逐日访客数之和，跨日存在重复。`goods traffic` 接受 1、7、30 天（默认 30），取截至上海昨天的平台区间数据，最多采集 20 页；`--goods-id` 保留字符串。推广按商品归属汇总稳定成本和全店托管计划，分别保留直接、间接成交；`non_promo_*` = 商品总成交减去推广直接成交。负差额置 null 并提示；推广失败或截断时推广和差值字段均为 null，`data_quality.promo_complete:false`；完整无记录为 0。推广拆分来自第三方插件静态分析，尚未经有投放店铺实测。明文接口失败或返回字体混淆数据时命令报错。
 
 ### 🏬 店铺 shops
 

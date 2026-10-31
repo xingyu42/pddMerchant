@@ -1,0 +1,6 @@
+{"file": "docs/research/goods-detail-plain-and-spider-font-2026-10-31.md", "reason": "Plain goods detail endpoint, venus promo fields and units"}
+{"file": "docs/research/traffic-cs-review-recon-2026-10-31.md", "reason": "Traffic endpoints and fields (sections 2-3)"}
+{"file": ".trellis/spec/adapter/endpoint-xhr-contracts.md", "reason": "page-api / fetch strategy conventions"}
+{"file": ".trellis/spec/adapter/fixture-mode.md", "reason": "Fixture naming aligned with spec.name"}
+{"file": ".trellis/spec/services/domain-service-contracts.md", "reason": "Factual-only reporting, null-vs-zero"}
+{"file": ".trellis/spec/infra/envelope-errors-output.md", "reason": "data contract v2"}

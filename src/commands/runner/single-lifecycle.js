@@ -20,13 +20,18 @@ import { finalizeSuccess, finalizeError } from './envelope-finalizer.js';
 
 export { armDeadline } from '../../infra/abort.js';
 
-async function resolveAccount(opts, needsAuth, warnings) {
-  return resolveAccountContext({
+async function resolveAccount(opts, needsAuth, warnings, needsAccount = false) {
+  const resolved = await resolveAccountContext({
     account: opts.account,
     accountId: opts.accountId,
     needsAuth,
     warnings,
   });
+  if (needsAccount && resolved.accountId == null) {
+    throw new PddCliError({ code: 'E_ACCOUNT_REQUIRED', message: '需要已登记的商家账号',
+      hint: '使用 --account 选择账号，或执行 pdd login 登记账号', exitCode: ExitCodes.USAGE });
+  }
+  return resolved;
 }
 
 async function assertAuthValid(context, runtime, transaction) {
@@ -154,7 +159,8 @@ export async function executeSingle(spec, opts = {}, {
     ? getLogger().withOp({ command: name, correlation_id: correlationId })
     : getLogger();
 
-  const accountCtx = spec.needsBrowser === false && !needsAuth ? null : await resolveAccount(opts, needsAuth, warnings);
+  const skipAccount = spec.needsBrowser === false && !needsAuth && !spec.needsAccount;
+  const accountCtx = skipAccount ? null : await resolveAccount(opts, needsAuth, warnings, spec.needsAccount);
   const deadline = armDeadline(opts, parentSignal ?? opts.signal, startedAt);
 
   const runtime = {

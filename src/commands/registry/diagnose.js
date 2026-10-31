@@ -4,9 +4,29 @@ import * as orders from '../diagnose/orders.js';
 import * as inventory from '../diagnose/inventory.js';
 import * as promo from '../diagnose/promo.js';
 import * as afterSales from '../diagnose/after-sales.js';
+import * as experience from '../diagnose/experience.js';
+import * as customerService from '../diagnose/customer-service.js';
+import * as reviews from '../diagnose/reviews.js';
+import * as traffic from '../diagnose/traffic.js';
+
+function registerServiceReports(diagnose, wireAction) {
+  wireAction(diagnose.command('traffic').description('全店逐日流量与平台同行指标')
+    .option('--days <n>', '窗口天数（1-30，截至平台就绪日期）', Number, 30), 'diagnose.traffic', traffic.run);
+  wireAction(
+    diagnose.command('customer-service').description('多多客服人工回复数据与逐日趋势')
+      .option('--days <n>', '区间天数（1-63，截至昨天）', (value) => Number(value), 30),
+    'diagnose.customer-service', customerService.run
+  );
+  wireAction(
+    diagnose.command('reviews').description('评价标签、问题类型与中差评汇总')
+      .option('--days <n>', '评价窗口天数（30、60、90、180）', (value) => Number(value), 30),
+    'diagnose.reviews', reviews.run
+  );
+}
 
 export function register(program, wireAction) {
   const diagnose = program.command('diagnose').description('店铺数据统计');
+  registerServiceReports(diagnose, wireAction);
   wireAction(
     diagnose.command('shop').description('店铺各维度数据汇总')
       .option('--compare', '启用环比对比')
@@ -34,5 +54,11 @@ export function register(program, wireAction) {
       .option('--days <n>', '分析窗口天数', (v) => Number(v), 30),
     'diagnose.after-sales',
     afterSales.run
+  );
+  wireAction(
+    diagnose.command('experience').description('店铺综合体验星级与指标趋势')
+      .option('--days <n>', '趋势窗口天数（1–30）', (value) => Number(value), 7),
+    'diagnose.experience',
+    experience.run
   );
 }

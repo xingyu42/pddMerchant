@@ -61,6 +61,7 @@ function resolveScope(scope = ORDER_LIST_DEFAULT_SCOPE) {
 
 export const ORDER_LIST = {
   name: 'orders.list',
+  fixtureListKey: 'orders',
   fixtureIsServiceFacing: true,
   strategy: 'page-api',
   nav: { url: PDD_HOME },

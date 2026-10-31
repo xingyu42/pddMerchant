@@ -43,7 +43,7 @@ src/adapter/         Patchright + XHR 拦截 + auth
 src/infra/           envelope/errors/logger/timeouts
 ```
 
-依赖单向：`commands/ → services/ → adapter/ → infra/`，层级守卫测试保障。
+依赖单向：`commands/ → services/ → adapter/ → infra/`，通过人工审查检查分层。
 
 ---
 
@@ -52,10 +52,11 @@ src/infra/           envelope/errors/logger/timeouts
 | 分组 | 命令 |
 |------|------|
 | **orders** | `list` / `detail` / `stats` |
-| **goods** | `list` / `stock` / `segment` / `publish` / `templates` |
+| **goods** | `list` / `stock` / `segment` / `profit` / `publish` / `templates` |
+| **goods cost** | `set` / `list` / `remove` / `import <file>`（本地成本，写入需 `--confirm`） |
 | **goods update** | `status` / `price` / `stock` / `title` / `batch`（需 `--confirm`） |
 | **promo** | `roi`（`search` / `scene` 已合并废弃） |
-| **diagnose** | `shop` / `orders` / `inventory` / `promo` / `after-sales` |
+| **diagnose** | `shop` / `orders` / `inventory` / `promo` / `after-sales` / `experience [--days 7]` / `customer-service [--days 30]` / `reviews [--days 30]` |
 | **shops** | `list` / `current` |
 | **config** | `show` / `set <key> <value>` / `unset <key>` / `validate` |
 | **account** | `add` / `list` / `default` / `remove` |
@@ -73,7 +74,58 @@ src/infra/           envelope/errors/logger/timeouts
 
 售后查询使用 `diagnose after-sales [--days 30]`（原 `diagnose funnel`）；店铺总览及环比的维度键改为 `after_sales`。售后维度提供退款成功数/率和售后处理中数/占比，已移除 `fulfillment_rate_pct`。两类占比均以采集到的全部订单数为分母；总览默认近 7 天首批 50 条，单独查询默认近 30 天分页采集。
 
+店铺综合体验星级使用 `diagnose experience [--days 7]` 单独查询，`--days` 为 1–30 的整数。输出平台当前星级、综合分行业排名、各指标值与下一星级门槛及达标状态、消费者体验提升计划和每日趋势；平台评级文案与达标判定原样保留。趋势截止到平台就绪日期，缺失日期保留缺行，未知指标为 `null`；比率规整为百分数，时长使用小时或天。趋势拉取失败时保留当前快照并标记数据不完整，`mall_id` 沿用店铺上下文明文值。`diagnose shop` 继续汇总原有四个维度。
+
 ---
+
+## 流量与商品明细
+
+`pdd diagnose traffic [--days 30]` 返回全店逐日访客、浏览、成交指标及平台给出的同行均值、优秀值。天数接受 1-30 的整数，截止日取平台就绪日期。`summary.shop_visitor_count` 是逐日访客数之和，跨日存在重复访客。
+
+`pdd goods traffic [--days 1|7|30] [--goods-id <id>]` 默认 30 天，截至上海日期的昨天，采用平台原生区间口径。每条商品明细包含访客、浏览、收藏、下单与成交指标；金额单位元，比率单位百分数。商品明细最多 20 页，截断时 `data_quality.goods_truncated` 为 true。明文接口失败或返回字体混淆数据时命令报错。
+
+推广数据按商品 ID 汇总稳定成本推广和全店托管计划，分别输出直接、间接成交及花费、点击数。`non_promo_order_count` / `non_promo_amount_yuan` 为总成交减去推广直接成交的差值，平台不提供该拆分；负差额为 null 并附提示。推广拉取失败或达到分页上限时，推广字段及差值均为 null，`data_quality.promo_complete` 为 false；完整查询中无投放记录的商品推广字段为 0。推广拆分口径来自第三方插件静态分析，尚未经有投放店铺实测。
+
+## 客服与评价
+
+`pdd diagnose customer-service [--days 30]` 查询「多多客服-客服数据（人工回复）」：天数接受 1-63 的整数，按上海日期统计今天往前指定天数至昨天的区间汇总。逐日趋势由页面自动加载的最近 31 天数据提供，保留窗口内日期和类目参考值；较长窗口的汇总仍覆盖整个区间。人工回复率输出 0-100 百分数（`_pct`），响应时长单位为秒（`_seconds`），无咨询日保留 `null`。汇总失败时命令失败，趋势失败时保留汇总并给出 `hints`。
+
+`pdd diagnose reviews [--days 30]` 接受 30、60、90、180 天，输出平台满意/不满意标签及计数、五类问题的正负面计数和占比，以及描述评分 1-3 星的中差评。每页 10 条，最多 30 页；达到上限时 `negative_reviews.truncated:true` 并提示截断。正文和追评的手机号片段掩码显示；昵称、头像、订单信息、规格和媒体链接由白名单过滤，仅保留图片数量和已回复状态。平台历史评分单独输出 `history_score`，对应三项评分为 `null`。三个数据源独立降级，全部失败时命令失败；参数越界返回 exit 2。
+
+## 商品成本与净利润
+
+```bash
+pdd goods cost set --goods-id 101 --purchase-yuan 8.20 --packaging-yuan 0.50 --courier-yuan 3 --confirm --json
+pdd goods cost list --goods-id 101 --json
+pdd goods cost import costs.json --confirm --json
+pdd goods cost remove --goods-id 101 --spec '红色 / 大号' --confirm --json
+pdd goods profit --days 30 --goods-id 101 --json
+```
+
+成本保存在现有 SQLite 中，按账号、店铺、商品及可选规格文本隔离；删除账号时级联删除。成本命令需要已登记商家账号，支持 `--account` 和 `--mall`，无需在线登录或启动浏览器。店铺优先取参数/运行配置中的店铺，否则取账号绑定店铺；请核对输出 `mall_id`。四个成本命令均只操作本地数据，写命令缺少 `--confirm` 时仅预演，且均拒绝 `--all-accounts`。
+
+货本按件扣除，包材、快递及可选 `--insurance-yuan`（运费险）、`--technical-service-yuan`（技术服务费）按单扣除。所有金额单位为元，允许 0，最多两位小数。set 整条替换；可选费用省略时为 0。默认成本的 `spec` 为 null；指定 `--spec` 时按原文本精确匹配，未命中时回落商品默认成本。remove 缺 spec 仅删默认行。
+
+导入文件是 UTF-8 JSON 数组，支持 BOM，最多 1 MiB / 5000 条；禁止额外账号/店铺列和重复商品/规格键。示例：
+
+```json
+[
+  { "goods_id": "101", "spec": null, "purchase_yuan": "8.20", "packaging_yuan": "0.50", "courier_yuan": "3.00" },
+  { "goods_id": "101", "spec": "红色 / 大号", "purchase_yuan": "9.20", "packaging_yuan": "0.50", "courier_yuan": "3.00", "insurance_yuan": "0.30", "technical_service_yuan": "0.20" }
+]
+```
+
+全批校验通过后才提交；错误整批拒绝，`E_COST_IMPORT_INVALID` / exit 2 的 `error.detail.row_errors` 给出从 1 开始的记录序号，JSON 语法错误 `row:null`。`list/import` 返回 `items/total`，`set` 返回 `entry`，`remove` 返回 `matched_count/removed_count`，写命令均含 `dry_run`；记录含 `updated_at`。
+
+`goods profit --days` 取整数 1–90，默认 30，非法值 exit 2。窗口按 `group_time`（成团时间）统计上海最近 N 个完整自然日、不含当天；`window.end_at` 为排他上界。`--goods-id` 仅筛 items，summary 始终全店。收入为实付加平台优惠，不重复加买家运费或扣商家优惠；退款成功按全额退款、货已退回，货本与收入为 0，已发货仍扣全部按单项，未发货按单项为 0；发货时间缺失时相关费用为 null。未付款取消收入及成本全为 0；售后 10/11 正常计入，并输出 `after_sales_order_count/after_sales_revenue_yuan`。
+
+主要财务字段是 `revenue_yuan`、各项成本、`merchant_cost_yuan`、`gross_profit_yuan`、`promo_spend_yuan`、`net_profit_yuan`。`gross_margin_pct` 为扣商家成本后的毛利率，`net_margin_pct` 为扣推广后的净利率，均为有符号百分数，可负、可超过 ±100、无截断；零收入时为 null，这是通用百分率 0–100 规则的例外。只展示数字正负，无保本 ROI、盈亏分类或经营建议。
+
+推广花费**仅含商品推广报表口径**：商品按 entityReport.goodsId 归属，全店取 totals.spend，店铺级花费为总计减商品归属合计，仅在 summary 扣除；差额为负时该差额为 null 并给 hint，已知全店总计保留。是否覆盖店铺关注、询单等计划留后续有投放数据时验证。
+
+缺成本、推广失败等未知值保留 null；完整拉取但无该商品推广记录时花费为 0。订单截断或限流时 `summary.data_quality` 和 hints 标记不完整，窗口财务为 null，保留 `observed_order_count/observed_revenue_yuan`。`cost_updated_at` 是实际使用成本记录的最大更新时间，`default_fallback_order_count` 是规格未命中后回落默认成本的观测单数。成本只保留当前值，修改后历史窗口会重算。
+
+免费后台缺少商家货本、包材/快递成本、准确退款金额与货物退回明细、平台补贴共担比例，因此录入成本并保留两项高估说明：仅退款不退货时利润可能高估；商家共担补贴活动按全部平台优惠结算时，收入与利润可能高估。数据库升级到 schema v3；回退旧版需恢复升级前一致备份的 DB 与配对 master.key，请勿手动降低 user_version。
 
 ## AI Agent 集成
 
