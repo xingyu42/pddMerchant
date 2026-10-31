@@ -1247,3 +1247,25 @@ grill-with-docs 拷问四类经营数据缺口（Q1-Q28），只读侦察店铺�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 41: ② 店铺综合体验星级交付
+<!-- trellis-session: v=2 fp=b2ca5dbb0ed37a89 -->
+
+**Date**: 2026-10-31
+**Task**: ② 店铺综合体验星级交付
+**Branch**: `feat/operating-data-gaps`
+
+### Summary
+
+Claude 写 design/implement（精简版，指标映射表为唯一事实来源），Codex 实现；Codex 发现设计 §4/§6 关于 mall_id 的矛盾并停下报告，已修正为沿用 ctx 明文 mall_id、仅禁止上游 mallId/mallName。diagnose experience 透传星级快照、10 项指标门槛与达标、消费者体验提升计划、趋势。npm test 1176 通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5ae2a98` | ✨ feat(diagnose): add shop experience star rating report |
+
+### Status
+
+[OK] **Completed**
