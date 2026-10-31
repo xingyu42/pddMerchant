@@ -204,6 +204,8 @@ node bin/pdd.js diagnose inventory                     # 库存维度（缺货/�
 node bin/pdd.js diagnose promo                         # 推广维度（ROI/CTR）
 node bin/pdd.js diagnose after-sales [--days 30]       # 售后维度（退款成功/售后处理中）
 node bin/pdd.js diagnose experience [--days 7]         # 平台店铺综合体验星级、指标与趋势
+node bin/pdd.js diagnose customer-service [--days 30]  # 多多客服人工回复汇总与逐日趋势
+node bin/pdd.js diagnose reviews [--days 30]           # 平台标签、问题类型与中差评
 ```
 
 售后维度键为 `after_sales`，`detail` 包含 `total_orders`、`refund_count`、`refund_rate_pct`、`after_sales_count`、`after_sales_rate_pct`、`status_distribution`、`window_days`。其中 `after_sales_count` 只计售后处理中订单，两类占比均以采集到的全部订单数为分母；空样本占比为 `null`。店铺汇总默认使用近 7 天首批 50 条订单，单独售后查询默认近 30 天分页采集，并保留截断及限流提示。旧 `diagnose funnel` 命令和 `fulfillment_rate_pct` 字段已移除。
@@ -211,6 +213,10 @@ node bin/pdd.js diagnose experience [--days 7]         # 平台店铺综合体�
 `diagnose experience` 单独返回 `snapshot`（星级、较前一天变化、下一星级及排名门槛、综合分行业排名、平台评级、统计日期）、`indicators[]`（维度、名称、值、单位、下一星级门槛及平台达标状态）、`consumer_experience_plan` 和 `trend`。`--days` 默认 7，接受 1–30 的整数，越界为 `E_USAGE` / exit 2。趋势窗口截止到平台就绪日期，`snapshot.stat_date` 使用快照自己的统计日期；`trend.items[]` 按日期升序保留有数据的行。比率用百分数，时长用小时或天，未知值保持 `null`；店铺活跃度上游已为百分数，用户评价得分排名保留平台原单位。转述平台星级、评级文案和达标判定时保留原意。快照失败时命令失败；趋势不可用时 `trend:null`、`status:"数据不完整"` 并给出 `hints`，延迟标记仅追加提示。`mall_id` 从 ctx 明文输出，店铺名和上游 `mallId` / `mallName` 字段由白名单剔除。`diagnose shop` 保持原有四维汇总。
 
 这些查询不生成经营建议、健康评分、商品等级或推广优劣分类。`action plan` 和 `--break-even` 已移除。诊断的 `status`（`数据完整` / `数据不完整`）只表示数据完整性，不代表经营好坏；缺失数值保留为 `null`，不能当成零。环比窗口为 `{ start_date, end_date, days }`；`_pct` 指标的 `delta` 是百分点、`delta_pct` 是相对变化率；当前库存和待发货快照不做历史对比（`note: "仅有当前快照，无上期数据"`）。
+
+`diagnose customer-service` 返回 `{ headline, window, caliber, summary, trend, hints, mall_id }`。`--days` 默认 30，接受 1-63 的整数，上海日期窗口为今天减 days 至昨天；`caliber` 固定「多多客服-客服数据（人工回复）」。`summary` 为 desert 区间汇总；`trend.items[]` 取页面自动加载的最近 31 天中落在窗口内的行，按日期排序，保留类目响应时长参考。百分比键后缀 `_pct`，响应时长后缀 `_seconds`，无咨询日指标为 `null`。汇总失败时命令失败，趋势的可降级错误产生 `trend:null` 和 hint。该人工回复序列与 `diagnose experience` 的星级口径各自独立。
+
+`diagnose reviews` 的 `--days` 接受 30、60、90、180，默认 30，其他值为 `E_USAGE` / exit 2。`keyword_tags` 是平台满意/不满意标签及计数，`issue_types[]` 是五类问题正负面计数和平台占比，`negative_reviews` 为 `{ items, total, truncated }`。中差评筛选为描述评分 1-3 星，每页 10 条、最多 30 页，翻满时标记截断并给出 hint。条目含商品 ID、上海评价时间、三项评分、历史评分、正文、追评、标签、已回复状态和图片数；历史评分存在时三项评分为 `null`。正文和追评中的手机号按 `138****5678` 格式掩码，昵称、头像、订单、规格、图片/视频链接和快照均由白名单过滤。CLI 直接使用平台聚合；三个数据源分别降级为 `null` 并提示，全部失败时整体失败。超时、取消和程序异常继续抛出。
 
 ### 🏬 店铺 shops
 

@@ -1,0 +1,6 @@
+{"file": "docs/research/traffic-cs-review-recon-2026-10-31.md", "reason": "CS and review endpoints, fields, units (sections 5-6)"}
+{"file": ".trellis/spec/adapter/endpoint-xhr-contracts.md", "reason": "page-api and legacy capture conventions"}
+{"file": ".trellis/spec/adapter/fixture-mode.md", "reason": "Fixture naming aligned with spec.name"}
+{"file": ".trellis/spec/services/domain-service-contracts.md", "reason": "Factual-only reporting, null-vs-zero"}
+{"file": ".trellis/spec/infra/logging-redaction.md", "reason": "REDACT_KEYS and PII rules"}
+{"file": ".trellis/spec/infra/envelope-errors-output.md", "reason": "data contract v2"}

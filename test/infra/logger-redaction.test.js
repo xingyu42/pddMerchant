@@ -11,6 +11,11 @@ import { emit as emitEnvelope, buildEnvelope } from '../../src/infra/output.js';
 const secret = 'synthetic-private-value-103984';
 const fingerprint = 'fp:' + createHash('sha256').update(secret).digest('hex').slice(0, 8);
 
+it.each(['cs_name', 'nickname', 'avatar', 'orderSn'])('redacts customer service and review key %s', (key) => {
+  assert.ok(REDACT_KEYS.includes(key));
+  assert.equal(redactRecursive({ nested: [{ [key]: secret }] }).nested[0][key], fingerprint);
+});
+
 it.each(SECRET_KEYS)('redacts %s in objects, nested arrays, Maps and errors without fingerprints', (key) => {
   assert.ok(REDACT_KEYS.includes(key));
   const error = Object.assign(new Error('safe message'), { [key]: secret });

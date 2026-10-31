@@ -3,6 +3,12 @@
 
 // 数据可得性（diagnose status / compare status）
 export const DATA_STATUS_LABEL = Object.freeze({ full: '数据完整', partial: '数据不完整' });
+export const CUSTOMER_SERVICE_CALIBER = '多多客服-客服数据（人工回复）';
+export const CUSTOMER_SERVICE_HINT_LABEL = Object.freeze({ trend_unavailable: '客服逐日趋势拉取失败' });
+export const REVIEW_HINT_LABEL = Object.freeze({
+  keywords_unavailable: '评价标签聚合拉取失败', types_unavailable: '评价问题类型拉取失败',
+  reviews_unavailable: '中差评列表拉取失败', list_truncated: '中差评列表已达 30 页采集上限，结果已截断',
+});
 export const EXPERIENCE_DIMENSION_LABEL = Object.freeze({
   after_sales: '售后服务', quality: '商品品质', logistics: '物流服务', activity: '店铺活跃', special: '特色服务',
 });

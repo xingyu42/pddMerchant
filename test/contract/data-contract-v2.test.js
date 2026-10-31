@@ -6,6 +6,7 @@ import { assertDataContractV2 } from '../helpers/data-contract.js';
 import { runCli } from '../helpers/isolated-cli.js';
 import {
   createAccounts, createFactFixtures, createPublishFixtures, createUpstreamGoods, createExperienceFixtures,
+  createCustomerServiceFixtures, createReviewFixtures,
 } from '../fixtures/test-data.js';
 import { ACCOUNT_VIEW_FIELDS, ACCOUNT_REMOVED_VIEW_FIELDS } from '../../src/services/views/account.js';
 import { CONFIG_FIELD_VIEW_FIELDS } from '../../src/services/views/config.js';
@@ -26,6 +27,8 @@ import { GOODS_COST_ENTRY_FIELDS } from '../../src/services/views/goods-cost.js'
 import { GOODS_PROFIT_ITEM_FIELDS, GOODS_PROFIT_SUMMARY_FIELDS, GOODS_PROFIT_QUALITY_FIELDS } from '../../src/services/views/goods-profit.js';
 import { EXPERIENCE_INDICATOR_FIELDS, EXPERIENCE_TREND_ITEM_FIELDS,
   EXPERIENCE_SNAPSHOT_FIELDS } from '../../src/services/views/experience.js';
+import { CS_SUMMARY_FIELDS, CS_TREND_ITEM_FIELDS } from '../../src/services/views/customer-service.js';
+import { REVIEW_TAG_FIELDS, ISSUE_TYPE_FIELDS, NEGATIVE_REVIEW_FIELDS } from '../../src/services/views/reviews.js';
 
 // 两件商品：101 有销量，102 有库存但无销量（零销量样本非空，供 stale_sample 白名单校验）
 function staleGoodsFixtures() {
@@ -77,6 +80,11 @@ async function discoverRegisteredCommands() {
 const VALID_AUTH_STATE = { cookies: [{ name: 'PASS_ID', value: 'synthetic' }], origins: [] };
 
 const V2_CASES = [
+  { command: 'diagnose.customer-service', args: ['diagnose', 'customer-service'], fixtures: createCustomerServiceFixtures(),
+    entityFields: { summary: CS_SUMMARY_FIELDS, 'trend.items[]': CS_TREND_ITEM_FIELDS } },
+  { command: 'diagnose.reviews', args: ['diagnose', 'reviews'], fixtures: createReviewFixtures(),
+    entityFields: { 'keyword_tags.positive[]': REVIEW_TAG_FIELDS, 'keyword_tags.negative[]': REVIEW_TAG_FIELDS,
+      'issue_types[]': ISSUE_TYPE_FIELDS, 'negative_reviews.items[]': NEGATIVE_REVIEW_FIELDS } },
   { command: 'diagnose.experience', args: ['diagnose', 'experience'], fixtures: createExperienceFixtures(),
     entityFields: { snapshot: EXPERIENCE_SNAPSHOT_FIELDS, 'indicators[]': EXPERIENCE_INDICATOR_FIELDS,
       'trend.items[]': EXPERIENCE_TREND_ITEM_FIELDS } },

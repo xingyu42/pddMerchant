@@ -56,7 +56,7 @@ src/infra/           envelope/errors/logger/timeouts
 | **goods cost** | `set` / `list` / `remove` / `import <file>`（本地成本，写入需 `--confirm`） |
 | **goods update** | `status` / `price` / `stock` / `title` / `batch`（需 `--confirm`） |
 | **promo** | `roi`（`search` / `scene` 已合并废弃） |
-| **diagnose** | `shop` / `orders` / `inventory` / `promo` / `after-sales` / `experience [--days 7]` |
+| **diagnose** | `shop` / `orders` / `inventory` / `promo` / `after-sales` / `experience [--days 7]` / `customer-service [--days 30]` / `reviews [--days 30]` |
 | **shops** | `list` / `current` |
 | **config** | `show` / `set <key> <value>` / `unset <key>` / `validate` |
 | **account** | `add` / `list` / `default` / `remove` |
@@ -77,6 +77,12 @@ src/infra/           envelope/errors/logger/timeouts
 店铺综合体验星级使用 `diagnose experience [--days 7]` 单独查询，`--days` 为 1–30 的整数。输出平台当前星级、综合分行业排名、各指标值与下一星级门槛及达标状态、消费者体验提升计划和每日趋势；平台评级文案与达标判定原样保留。趋势截止到平台就绪日期，缺失日期保留缺行，未知指标为 `null`；比率规整为百分数，时长使用小时或天。趋势拉取失败时保留当前快照并标记数据不完整，`mall_id` 沿用店铺上下文明文值。`diagnose shop` 继续汇总原有四个维度。
 
 ---
+
+## 客服与评价
+
+`pdd diagnose customer-service [--days 30]` 查询「多多客服-客服数据（人工回复）」：天数接受 1-63 的整数，按上海日期统计今天往前指定天数至昨天的区间汇总。逐日趋势由页面自动加载的最近 31 天数据提供，保留窗口内日期和类目参考值；较长窗口的汇总仍覆盖整个区间。人工回复率输出 0-100 百分数（`_pct`），响应时长单位为秒（`_seconds`），无咨询日保留 `null`。汇总失败时命令失败，趋势失败时保留汇总并给出 `hints`。
+
+`pdd diagnose reviews [--days 30]` 接受 30、60、90、180 天，输出平台满意/不满意标签及计数、五类问题的正负面计数和占比，以及描述评分 1-3 星的中差评。每页 10 条，最多 30 页；达到上限时 `negative_reviews.truncated:true` 并提示截断。正文和追评的手机号片段掩码显示；昵称、头像、订单信息、规格和媒体链接由白名单过滤，仅保留图片数量和已回复状态。平台历史评分单独输出 `history_score`，对应三项评分为 `null`。三个数据源独立降级，全部失败时命令失败；参数越界返回 exit 2。
 
 ## 商品成本与净利润
 

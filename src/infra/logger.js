@@ -53,6 +53,10 @@ const REDACT_KEYS = [
   'qr_content',
   'auth_path',
   'authStatePath',
+  'cs_name',
+  'nickname',
+  'avatar',
+  'orderSn',
 ];
 
 const REDACT_KEY_SET = new Set(REDACT_KEYS);

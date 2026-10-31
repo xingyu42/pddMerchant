@@ -3,6 +3,57 @@ import { GOODS_LIST } from '../../src/adapter/endpoints/goods.js';
 import { GOODS_PUBLISH_COST_TEMPLATE_LIST } from '../../src/adapter/endpoints/goods-publish.js';
 import { PROMO_ENTITY_REPORT } from '../../src/adapter/endpoints/promo.js';
 import { NAVIGATOR_INFO, NAVIGATOR_READY_DATE, NAVIGATOR_LIST } from '../../src/adapter/endpoints/experience.js';
+import { CS_OVERVIEW, CS_MONTH_TREND } from '../../src/adapter/endpoints/customer-service.js';
+import { REVIEWS_LIST, REVIEWS_KEYWORD_AGG, REVIEWS_TYPE_AGG } from '../../src/adapter/endpoints/reviews.js';
+import { toLocalDate } from '../../src/infra/units.js';
+
+export function createCustomerServiceFixtures() {
+  const summary = { consultUserCnt: 3, needManuReplyConsultUserCnt: 3, receiveUserCnt: 3,
+    manuReplyRate3Min: 1, manuReplyRate30s: 0.666666, artificialResponseTime: 14.666,
+    unsatisfiedServeScoreCnt: 0, serveRefundCnt: 0, complainCsUserCnt: 0 };
+  const empty = Object.fromEntries(Object.keys(summary).map((key) => [key, null]));
+  const reference = { avgReplyTimeTop10: 5.555, avgReplyTimeTotal: 20,
+    cs_name: 'SYN-CS-PRIVATE', consultUserCntCompare: 99, reply30sRateStapleRank: 5 };
+  const success = (result) => ({ success: true, errorCode: 1000000, result });
+  return {
+    'endpoints/cs.overview.json': CS_OVERVIEW.normalize(success({ ...summary, ...reference })),
+    'endpoints/cs.monthTrend.json': CS_MONTH_TREND.normalize(success([
+      { ...empty, ...reference, statDate: toLocalDate(Date.now() - 2 * 86400000) },
+      { ...summary, ...reference, statDate: toLocalDate(Date.now() - 86400000) },
+    ])),
+  };
+}
+
+function syntheticReview(index) {
+  return { goodsId: 101 + index, createTime: 1793376000, score: index === 1 ? 3 : 0,
+    descScore: 3, logisticsScore: 2, serviceScore: 1, comment: '联系13812345678，描述不符',
+    appendReview: index % 2 ? '追评13987654321' : { comment: '追评13987654321', name: 'SYN-REVIEW-PRIVATE' },
+    keywords: ['描述不符'], reply: index % 2 ? '' : 'SYN-REVIEW-PRIVATE',
+    pictures: ['SYN-REVIEW-PRIVATE/photo1', 'SYN-REVIEW-PRIVATE/photo2'], video: 'SYN-REVIEW-PRIVATE/video',
+    name: 'SYN-REVIEW-PRIVATE', avatar: 'SYN-REVIEW-PRIVATE', orderSn: 'SYN-REVIEW-PRIVATE',
+    orderId: 'SYN-REVIEW-PRIVATE', specs: 'SYN-REVIEW-PRIVATE', thumbUrl: 'SYN-REVIEW-PRIVATE',
+    goodsInfoUrl: 'SYN-REVIEW-PRIVATE', orderSnapshotInfo: { name: 'SYN-REVIEW-PRIVATE' } };
+}
+
+export function createReviewFixtures({ count = 11 } = {}) {
+  const success = (result) => ({ success: true, errorCode: 1000000, result });
+  const fixtures = {
+    'endpoints/reviews.keywordAgg.json': REVIEWS_KEYWORD_AGG.normalize(success({
+      positiveKeywordList: [{ keywordName: '做工好', num: 4 }], negativeKeywordList: [{ keywordName: '描述不符', num: 2 }],
+    })),
+    'endpoints/reviews.typeAgg.json': REVIEWS_TYPE_AGG.normalize(success({ typeList:
+      ['商品质量', '商品描述', '商品价格', '商家服务', '物流问题'].map((typeName, index) =>
+        ({ typeName, positive: index === 0 ? 4 : 0, negative: index === 1 ? 5 : 0, proportion: index === 0 ? 44 : 14 })),
+    })),
+  };
+  for (let pageNo = 1; pageNo <= Math.max(1, Math.ceil(count / 10)); pageNo += 1) {
+    const offset = (pageNo - 1) * 10;
+    const data = Array.from({ length: Math.min(10, count - offset) }, (_unused, index) => syntheticReview(offset + index));
+    const suffix = pageNo === 1 ? '' : `.page${pageNo}`;
+    fixtures[`endpoints/reviews.list${suffix}.json`] = REVIEWS_LIST.normalize(success({ totalRows: count, data }));
+  }
+  return fixtures;
+}
 
 export const SAMPLE_LIST_STATS = Object.freeze({
   total: 4,
