@@ -56,7 +56,7 @@ src/infra/           envelope/errors/logger/timeouts
 | **goods cost** | `set` / `list` / `remove` / `import <file>`（本地成本，写入需 `--confirm`） |
 | **goods update** | `status` / `price` / `stock` / `title` / `batch`（需 `--confirm`） |
 | **promo** | `roi`（`search` / `scene` 已合并废弃） |
-| **diagnose** | `shop` / `orders` / `inventory` / `promo` / `after-sales` |
+| **diagnose** | `shop` / `orders` / `inventory` / `promo` / `after-sales` / `experience [--days 7]` |
 | **shops** | `list` / `current` |
 | **config** | `show` / `set <key> <value>` / `unset <key>` / `validate` |
 | **account** | `add` / `list` / `default` / `remove` |
@@ -73,6 +73,8 @@ src/infra/           envelope/errors/logger/timeouts
 `goods segment`、`promo roi` 和 `diagnose` 只提供事实统计与数据完整性提示，不生成经营建议、健康评分、商品等级或推广优劣分类。`action plan` 和 `--break-even` 已移除；依赖旧输出字段的脚本需要调整。
 
 售后查询使用 `diagnose after-sales [--days 30]`（原 `diagnose funnel`）；店铺总览及环比的维度键改为 `after_sales`。售后维度提供退款成功数/率和售后处理中数/占比，已移除 `fulfillment_rate_pct`。两类占比均以采集到的全部订单数为分母；总览默认近 7 天首批 50 条，单独查询默认近 30 天分页采集。
+
+店铺综合体验星级使用 `diagnose experience [--days 7]` 单独查询，`--days` 为 1–30 的整数。输出平台当前星级、综合分行业排名、各指标值与下一星级门槛及达标状态、消费者体验提升计划和每日趋势；平台评级文案与达标判定原样保留。趋势截止到平台就绪日期，缺失日期保留缺行，未知指标为 `null`；比率规整为百分数，时长使用小时或天。趋势拉取失败时保留当前快照并标记数据不完整，`mall_id` 沿用店铺上下文明文值。`diagnose shop` 继续汇总原有四个维度。
 
 ---
 

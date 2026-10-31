@@ -1,6 +1,6 @@
 ---
 name: pdd-cli
-description: 通过 pdd CLI 操作拼多多商家后台，查询订单/商品/推广/诊断、录入成本与查净利润、上货/多账号/运行配置，输出统一 envelope JSON 供 AI 消费
+description: 通过 pdd CLI 操作拼多多商家后台，查询订单/商品/推广/诊断/店铺综合体验星级、录入成本与查净利润、上货/多账号/运行配置，输出统一 envelope JSON 供 AI 消费
 user-invocable: true
 metadata:
   openclaw:
@@ -20,7 +20,7 @@ metadata:
 - 管理**商品**（列表、库存告警、销量与库存统计、上下架、改价改库存改标题、批量编辑、从链接上货）
 - 录入本地**商品成本**，查询窗口内**商品净利润**
 - 拉取**推广报表**与 ROI 统计
-- 查询**店铺数据统计**（订单 / 库存 / 推广 / 售后维度）
+- 查询**店铺数据统计**（订单 / 库存 / 推广 / 售后维度）及平台**店铺综合体验星级**
 - **多账号 / 多店铺**切换与批量执行
 - 查看、校验和修改项目内**运行配置**
 - 鉴权（首次登录 / 重新登录 / 环境自检 / 后台自动续期）
@@ -203,9 +203,12 @@ node bin/pdd.js diagnose orders                        # 订单维度（P95/退�
 node bin/pdd.js diagnose inventory                     # 库存维度（缺货/低库存）
 node bin/pdd.js diagnose promo                         # 推广维度（ROI/CTR）
 node bin/pdd.js diagnose after-sales [--days 30]       # 售后维度（退款成功/售后处理中）
+node bin/pdd.js diagnose experience [--days 7]         # 平台店铺综合体验星级、指标与趋势
 ```
 
 售后维度键为 `after_sales`，`detail` 包含 `total_orders`、`refund_count`、`refund_rate_pct`、`after_sales_count`、`after_sales_rate_pct`、`status_distribution`、`window_days`。其中 `after_sales_count` 只计售后处理中订单，两类占比均以采集到的全部订单数为分母；空样本占比为 `null`。店铺汇总默认使用近 7 天首批 50 条订单，单独售后查询默认近 30 天分页采集，并保留截断及限流提示。旧 `diagnose funnel` 命令和 `fulfillment_rate_pct` 字段已移除。
+
+`diagnose experience` 单独返回 `snapshot`（星级、较前一天变化、下一星级及排名门槛、综合分行业排名、平台评级、统计日期）、`indicators[]`（维度、名称、值、单位、下一星级门槛及平台达标状态）、`consumer_experience_plan` 和 `trend`。`--days` 默认 7，接受 1–30 的整数，越界为 `E_USAGE` / exit 2。趋势窗口截止到平台就绪日期，`snapshot.stat_date` 使用快照自己的统计日期；`trend.items[]` 按日期升序保留有数据的行。比率用百分数，时长用小时或天，未知值保持 `null`；店铺活跃度上游已为百分数，用户评价得分排名保留平台原单位。转述平台星级、评级文案和达标判定时保留原意。快照失败时命令失败；趋势不可用时 `trend:null`、`status:"数据不完整"` 并给出 `hints`，延迟标记仅追加提示。`mall_id` 从 ctx 明文输出，店铺名和上游 `mallId` / `mallName` 字段由白名单剔除。`diagnose shop` 保持原有四维汇总。
 
 这些查询不生成经营建议、健康评分、商品等级或推广优劣分类。`action plan` 和 `--break-even` 已移除。诊断的 `status`（`数据完整` / `数据不完整`）只表示数据完整性，不代表经营好坏；缺失数值保留为 `null`，不能当成零。环比窗口为 `{ start_date, end_date, days }`；`_pct` 指标的 `delta` 是百分点、`delta_pct` 是相对变化率；当前库存和待发货快照不做历史对比（`note: "仅有当前快照，无上期数据"`）。
 

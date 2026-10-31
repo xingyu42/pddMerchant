@@ -3,6 +3,14 @@
 
 // 数据可得性（diagnose status / compare status）
 export const DATA_STATUS_LABEL = Object.freeze({ full: '数据完整', partial: '数据不完整' });
+export const EXPERIENCE_DIMENSION_LABEL = Object.freeze({
+  after_sales: '售后服务', quality: '商品品质', logistics: '物流服务', activity: '店铺活跃', special: '特色服务',
+});
+export const EXPERIENCE_UNIT_LABEL = Object.freeze({ pct: '百分比', hours: '小时', days: '天', raw: '平台原值' });
+export const EXPERIENCE_STANDARD_LABEL = Object.freeze({ 0: '已达标', 1: '未达标' });
+export const EXPERIENCE_HINT_LABEL = Object.freeze({
+  ready_date_unavailable: '趋势就绪日期拉取失败', trend_unavailable: '趋势数据拉取失败', delayed: '平台标记数据延迟',
+});
 export const COST_SCOPE_LABEL = Object.freeze({ default: '商品默认', spec: '指定规格' });
 export const PROFIT_HINT_LABEL = Object.freeze({
   orders_truncated: '订单量超出采集上限，窗口财务金额为 null，保留已观测样本',

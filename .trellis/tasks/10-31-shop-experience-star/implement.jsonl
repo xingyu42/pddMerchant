@@ -1,0 +1,6 @@
+{"file": "docs/research/pilot-mall-recon-2026-10-31.md", "reason": "Endpoint params, response fields, units"}
+{"file": ".trellis/spec/adapter/endpoint-xhr-contracts.md", "reason": "Endpoint spec / page-api conventions"}
+{"file": ".trellis/spec/adapter/fixture-mode.md", "reason": "Fixture naming aligned with spec.name"}
+{"file": ".trellis/spec/services/domain-service-contracts.md", "reason": "Factual-only reporting, null-vs-zero"}
+{"file": ".trellis/spec/infra/envelope-errors-output.md", "reason": "data contract v2"}
+{"file": ".trellis/spec/standards/testing.md", "reason": "Contract test coverage"}

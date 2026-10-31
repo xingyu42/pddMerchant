@@ -4,6 +4,7 @@ import * as orders from '../diagnose/orders.js';
 import * as inventory from '../diagnose/inventory.js';
 import * as promo from '../diagnose/promo.js';
 import * as afterSales from '../diagnose/after-sales.js';
+import * as experience from '../diagnose/experience.js';
 
 export function register(program, wireAction) {
   const diagnose = program.command('diagnose').description('店铺数据统计');
@@ -34,5 +35,11 @@ export function register(program, wireAction) {
       .option('--days <n>', '分析窗口天数', (v) => Number(v), 30),
     'diagnose.after-sales',
     afterSales.run
+  );
+  wireAction(
+    diagnose.command('experience').description('店铺综合体验星级与指标趋势')
+      .option('--days <n>', '趋势窗口天数（1–30）', (value) => Number(value), 7),
+    'diagnose.experience',
+    experience.run
   );
 }

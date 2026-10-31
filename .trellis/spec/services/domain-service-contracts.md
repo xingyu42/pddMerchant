@@ -178,6 +178,56 @@ export async function listGoods(ctx, options) {
 }
 ```
 
+## Scenario: Shop Experience Star
+
+### 1. Scope / Trigger
+
+适用于 `diagnose.experience` 的端点、服务、视图及 fixture；独立查询平台店铺综合体验星级，`DIAGNOSE_DIMENSIONS` 保持原有四个维度。
+
+### 2. Signatures
+
+```js
+getShopExperienceView(ctx, { days = 7 } = {}) // src/services/experience.js; returns v2 data
+toExperienceView(info, { trend = null, mallId = null, hints = [] } = {}) // views/experience.js
+```
+
+CLI：`pdd diagnose experience [--days 7]`，`needsAuth:true`、`needsMall:'switch'`。端点为 `experience.navigatorReadyDate`、`experience.navigatorInfo`、`experience.navigatorList`，均走 `page-api`；先 ReadyDate，再 Info，最后 List（参数 `{ beginDate, endDate }`）。
+
+### 3. Contracts
+
+- `data` 字段：`headline`、`status`、`snapshot`、`indicators`、`consumer_experience_plan`、`trend`、`hints`、`mall_id`。`mall_id` 使用 `mallIdOf(ctx)` 的明文值，与其他 diagnose 命令一致。
+- `snapshot` 字段：`stat_date`、`star`、`star_change`、`next_star`、`next_star_rank_pct`、`score_rank_pct`、`score_grade`、`star_text`、`industry`；统计日期来自 Info.timestamp，平台文案原样保留。
+- `indicators[]` 字段：`key`、`dimension`、`name`、`value`、`unit`、`next_star_threshold`、`next_star_status`。十项指标及字段、单位映射以 [views/experience.js](../../../src/services/views/experience.js) 的 `INDICATORS` 为唯一来源，中文标签在 `labels.js`。
+- 比率及门槛乘 100；`gmvRk` 已为百分数，保留原值；时长保留小时/天，`dsr3m` 单位为「平台原值」。数值统一用 `infra/units.js` 保留 2 位小数，null 保留 null。门槛读 `<field>NextPctThreshold`；达标状态仅映射平台 `<field>NextStarRkDesc`：0 已达标、1 未达标，其他/null 为 null，指标值为 null 时状态也为 null。
+- `consumer_experience_plan` 为 `{ enabled, required, next_star_status }`，来自 `isRps`、`isRequireRps`、`isRpsNextStarRkDesc`。
+- `trend` 为 null 或 `{ start_date, end_date, days, items }`；截止日来自 ReadyDate，起日为截止日减 `days - 1`，使用 UTC 日期运算隔离宿主时区。`items[]` 为 `{ date, star, score_rank_pct, <十项指标 key> }`，按日期升序保留窗口内有数据的行，缺日保留缺行。
+- 输出白名单剔除 `mallId`、`mallName`、店铺名、图片 URL、`avgDescRevScrRcatePct3m`、`mallStarToc`，以及未确认的指标 `*Rk`、`*RkDesc`、`*4p5Standard`、`*5Standard`、`*RkStage`；保留已确认的 `scoreRk`、`gmvRk` 和下一星级达标状态用于映射。CLI 仅透传平台评分和判定。
+
+### 4. Validation & Error Matrix
+
+| 条件 | 结果 |
+| --- | --- |
+| days 为非整数或超出 1–30 | `E_USAGE` / exit 2，发起端点请求前校验 |
+| Info 失败 | 整体失败，交 runner 输出错误 envelope |
+| ReadyDate / List 的可降级 `PddCliError` | 保留快照，`trend:null`、`status:数据不完整`，追加对应 hint |
+| 意外异常、超时或取消 | 原样抛出，沿用 `goods-profit-promo.js` 的 catch 模式 |
+| `normalFlag === false` 或 `delayData != null` | 追加「平台标记数据延迟」，数据完整性状态保持原值 |
+
+### 5. Good/Base/Bad Cases
+
+- Good：人工回复率 0.5、门槛 0.8、状态 1 输出 50、80、「未达标」，签收退货退款时长 null 保持 null。
+- Base：完整的空趋势数组保留窗口及空 items；平台缺少某日时保留缺行。
+- Bad：按阈值自行生成达标判定、缺失补 0、用当前日期替代 ReadyDate，均偏离平台事实。
+
+### 6. Tests Required
+
+`experience-contract.test.js` 校验 payload、严格成功码和上游白名单；`experience-view.test.js` 校验十项映射、null、达标标签、headline 和字段集合；`experience.test.js` 校验窗口、days 边界和错误传播。`experience.e2e.test.js` 验证单行 JSON、明文 ctx.mall_id、上游键及店铺名剔除；`data-contract-v2.test.js` 用 `entityFields` 覆盖 `snapshot`、`indicators[]`、`trend.items[]`。fixture builder 使用侦察样本和真实 normalize，自动化验证仅用 fixture。
+
+### 7. Wrong vs Correct
+
+Wrong：`value >= threshold ? '已达标' : '未达标'`，自行推导平台判定。
+Correct：值存在时映射 `<field>NextStarRkDesc` 的 0/1；未知码或缺失值输出 null。
+
 ## Scenario: Goods Cost and Net Profit
 
 - services/goods-cost-input.js 单独拥有非负元金额、精确规格及字符串 ID 校验；goods-cost.js 编排本地预演/确认，goods-cost-import.js 原生解析 UTF-8 JSON 后整批校验（1 MiB / 5000 条）。未知列、重复商品/规格键、坏行全部拒绝，无先写好行行为。

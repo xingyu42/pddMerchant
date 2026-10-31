@@ -2,6 +2,7 @@ import { ORDER_DETAIL, ORDER_LIST, ORDER_STATS } from '../../src/adapter/endpoin
 import { GOODS_LIST } from '../../src/adapter/endpoints/goods.js';
 import { GOODS_PUBLISH_COST_TEMPLATE_LIST } from '../../src/adapter/endpoints/goods-publish.js';
 import { PROMO_ENTITY_REPORT } from '../../src/adapter/endpoints/promo.js';
+import { NAVIGATOR_INFO, NAVIGATOR_READY_DATE, NAVIGATOR_LIST } from '../../src/adapter/endpoints/experience.js';
 
 export const SAMPLE_LIST_STATS = Object.freeze({
   total: 4,
@@ -150,6 +151,41 @@ export function createFactFixtures() {
     const path = `endpoints/${spec.name}.json`;
     return [path, spec.normalize(responses[path])];
   }));
+}
+
+// Recon metric values; shop identity, dates in the sparse series and noise are synthetic.
+export function createUpstreamExperience(overrides = {}) {
+  return {
+    mallId: 'SYN-EXPERIENCE-ID', mallName: 'SYN-EXPERIENCE-NAME', imageUrl: 'https://example.invalid/experience.png',
+    timestamp: '2026-10-29', mallStarTomms: 4.6, mallStarTommsChange: 0,
+    mallStarTommsNext: 4.7, mallStarTommsNextPct: 50, scoreRk: 46.136,
+    scoreDsc: '良', mallStarDesc: '已超越40%同行', stplName: '母婴', normalFlag: true, delayData: null,
+    ptHelpRate1m: 0.0323, ptHelpRate1mNextPctThreshold: null, ptHelpRate1mNextStarRkDesc: null,
+    aprsIn3minRplyUsrRto1m: 0.5, aprsIn3minRplyUsrRto1mNextPctThreshold: 0.8,
+    aprsIn3minRplyUsrRto1mNextStarRkDesc: 1,
+    rfSignTime1m: 27.77, rfSignTime1mNextPctThreshold: 3.995, rfSignTime1mNextStarRkDesc: null,
+    rfProcTime1m: null, rfProcTime1mNextPctThreshold: null, rfProcTime1mNextStarRkDesc: null,
+    dsr3m: null, dsr3mNextPctThreshold: null, dsr3mNextStarRkDesc: null,
+    posTypeRto1m: 0.9091, posTypeRto1mNextPctThreshold: 0.9444, posTypeRto1mNextStarRkDesc: null,
+    seriousInferiorRto1m: 0.0013, seriousInferiorRto1mNextPctThreshold: null, seriousInferiorRto1mNextStarRkDesc: null,
+    adjNfkAvgCfmSignTime1m: 2.04, adjNfkAvgCfmSignTime1mNextPctThreshold: null, adjNfkAvgCfmSignTime1mNextStarRkDesc: null,
+    lgstMergeFine1m: 0.0194, lgstMergeFine1mNextPctThreshold: null, lgstMergeFine1mNextStarRkDesc: null,
+    gmvRk: 22.24, gmvRkNextPctThreshold: 50, gmvRkNextStarRkDesc: null,
+    isRps: false, isRequireRps: true, isRpsNextStarRkDesc: null,
+    mallStarToc: 4.5, avgDescRevScrRcatePct3m: null, ptHelpRate1mRk: 52.92,
+    ptHelpRate1mRkDesc: 1, ptHelpRate1m4p5Standard: 0, ptHelpRate1m5Standard: 0, ptHelpRate1mRkStage: 2,
+    ...overrides,
+  };
+}
+
+export function createExperienceFixtures() {
+  const success = (result) => ({ success: true, errorCode: 1000000, result });
+  const rows = ['2026-10-30', '2026-10-24'].map((date) => createUpstreamExperience({ pt: date }));
+  return {
+    'endpoints/experience.navigatorInfo.json': NAVIGATOR_INFO.normalize(success(createUpstreamExperience())),
+    'endpoints/experience.navigatorReadyDate.json': NAVIGATOR_READY_DATE.normalize(success('2026-10-30')),
+    'endpoints/experience.navigatorList.json': NAVIGATOR_LIST.normalize(success(rows)),
+  };
 }
 
 // goods publish fixture 流程（PDD_TEST_ADAPTER=fixture）：发布结果 + 提交回执，值均为合成数据

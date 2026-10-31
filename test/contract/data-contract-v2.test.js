@@ -5,7 +5,7 @@ import { Command } from 'commander';
 import { assertDataContractV2 } from '../helpers/data-contract.js';
 import { runCli } from '../helpers/isolated-cli.js';
 import {
-  createAccounts, createFactFixtures, createPublishFixtures, createUpstreamGoods,
+  createAccounts, createFactFixtures, createPublishFixtures, createUpstreamGoods, createExperienceFixtures,
 } from '../fixtures/test-data.js';
 import { ACCOUNT_VIEW_FIELDS, ACCOUNT_REMOVED_VIEW_FIELDS } from '../../src/services/views/account.js';
 import { CONFIG_FIELD_VIEW_FIELDS } from '../../src/services/views/config.js';
@@ -24,6 +24,8 @@ import { runDaemonContract, runConsoleLinkContract } from '../helpers/daemon-cli
 import { runCostContract, runProfitContract } from '../helpers/goods-cost-cli.js';
 import { GOODS_COST_ENTRY_FIELDS } from '../../src/services/views/goods-cost.js';
 import { GOODS_PROFIT_ITEM_FIELDS, GOODS_PROFIT_SUMMARY_FIELDS, GOODS_PROFIT_QUALITY_FIELDS } from '../../src/services/views/goods-profit.js';
+import { EXPERIENCE_INDICATOR_FIELDS, EXPERIENCE_TREND_ITEM_FIELDS,
+  EXPERIENCE_SNAPSHOT_FIELDS } from '../../src/services/views/experience.js';
 
 // 两件商品：101 有销量，102 有库存但无销量（零销量样本非空，供 stale_sample 白名单校验）
 function staleGoodsFixtures() {
@@ -75,6 +77,9 @@ async function discoverRegisteredCommands() {
 const VALID_AUTH_STATE = { cookies: [{ name: 'PASS_ID', value: 'synthetic' }], origins: [] };
 
 const V2_CASES = [
+  { command: 'diagnose.experience', args: ['diagnose', 'experience'], fixtures: createExperienceFixtures(),
+    entityFields: { snapshot: EXPERIENCE_SNAPSHOT_FIELDS, 'indicators[]': EXPERIENCE_INDICATOR_FIELDS,
+      'trend.items[]': EXPERIENCE_TREND_ITEM_FIELDS } },
   { command: 'goods.profit', args: ['goods', 'profit'], execute: runProfitContract,
     entityFields: { 'items[]': GOODS_PROFIT_ITEM_FIELDS, summary: GOODS_PROFIT_SUMMARY_FIELDS,
       'summary.data_quality': GOODS_PROFIT_QUALITY_FIELDS } },
