@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/adapter/auth-mall-context.md", "reason": "Current password login / challenge detection contract to compare findings against"}
+{"file": ".trellis/spec/infra/logging-redaction.md", "reason": "Redaction rules: report must not contain cookies, tokens or account data"}
+{"file": ".trellis/tasks/archive/2026-10/10-27-password-relogin-core/research/real-login-experiment.md", "reason": "Prior real-account observations (auto SMS on submit, unknown stuck state)"}
+{"file": ".trellis/tasks/archive/2026-10/10-27-daemon-console/research/real-device-verification.md", "reason": "N27a wrong login-name misclassified as unknown challenge; N25 slider unverified"}

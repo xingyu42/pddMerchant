@@ -3,7 +3,8 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, vi } from 'vitest';
-import { attemptPasswordLogin, inspectPasswordLoginPage, PASSWORD_LOGIN_SELECTORS as selectors, PASSWORD_LOGIN_TEXTS, PASSWORD_LOGIN_URL } from '../../src/adapter/password-login.js';
+import { attemptPasswordLogin, classifyAuthResponse, inspectPasswordLoginPage, PASSWORD_LOGIN_SELECTORS as selectors, PASSWORD_LOGIN_TEXTS, PASSWORD_LOGIN_URL } from '../../src/adapter/password-login.js';
+import { classifyRateLimit } from '../../src/adapter/classify-rate-limit.js';
 import { mockPasswordLogin } from '../../src/adapter/mock-dispatcher.js';
 import { MERCHANT_CHECK_URL } from '../../src/adapter/merchant-auth-probe.js';
 import { PddCliError, ExitCodes } from '../../src/infra/errors.js';
@@ -15,6 +16,10 @@ function fakePage(options = {}) {
   let submitted = false;
   const page = {
     calls,
+    listeners: {},
+    on(event, fn) { (this.listeners[event] ??= []).push(fn); },
+    off(event, fn) { this.listeners[event] = (this.listeners[event] ?? []).filter((f) => f !== fn); },
+    emit(event, arg) { (this.listeners[event] ?? []).forEach((fn) => fn(arg)); },
     goto: async (url) => { calls.push(['goto', url]); if (options.navigationError) throw options.navigationError; },
     frames: () => [page, ...(options.frames ?? [])],
     context: () => ({ cookies: async (urls) => { calls.push(['cookies', urls]); return submitted ? options.cookies ?? [] : []; } }),
@@ -47,7 +52,13 @@ function fakePage(options = {}) {
         click: async () => {
           calls.push(['click', selector, submitted]);
           if (options.missing === selector) throw new Error(credential.loginName);
-          if (selector === selectors.submit) { submitted = true; options.onSubmit?.(); }
+          if (selector === selectors.submit) {
+            submitted = true;
+            options.onSubmit?.();
+            if (options.authResponse !== undefined) {
+              page.emit('response', { url: () => 'https://mms.pinduoduo.com/janus/api/auth', json: async () => options.authResponse });
+            }
+          }
         },
       };
       return element;
@@ -270,6 +281,54 @@ describe('password login browser adapter', () => {
     await vi.advanceTimersByTimeAsync(2100);
     await rejection;
     assert.equal(submissionCount(page), 0);
+  });
+
+  for (const [raw, expected] of [
+    [{ error_code: 402 }, { outcome: 'wrong_password' }],
+    [{ error_code: 8000000 }, { outcome: 'account_locked' }],
+    [{ error_code: 54001 }, { outcome: 'challenge', challenge: 'unknown' }],
+    [{ errorCode: 2000015 }, { outcome: 'challenge', challenge: 'sms' }],
+    [{ errorCode: 2000020 }, { outcome: 'challenge', challenge: 'sms' }],
+  ]) {
+    it(`classifies auth response ${raw.error_code ?? raw.errorCode} from the response, overriding empty DOM text`, async () => {
+      live();
+      const page = fakePage({ authResponse: raw });
+      assert.deepEqual(await attemptPasswordLogin(page, credential, deadline()), expected);
+      assert.equal(submissionCount(page), 1);
+    });
+  }
+
+  it('falls back to DOM/cookie detection when no auth response is captured', async () => {
+    live();
+    const page = fakePage({ cookies: [{ name: 'PASS_ID', value: 'fixture' }] });
+    assert.deepEqual(await attemptPasswordLogin(page, credential, deadline()), { outcome: 'success' });
+  });
+});
+
+describe('classifyAuthResponse', () => {
+  for (const [raw, expected] of [
+    [{ error_code: 402 }, { outcome: 'wrong_password' }],
+    [{ error_code: 8000000 }, { outcome: 'account_locked' }],
+    [{ error_code: 54001 }, { outcome: 'challenge', challenge: 'unknown' }],
+    [{ error_code: 2000015 }, { outcome: 'challenge', challenge: 'sms' }],
+    [{ error_code: 2000020 }, { outcome: 'challenge', challenge: 'sms' }],
+    [{ error_code: 2000021 }, { outcome: 'challenge', challenge: 'sms' }],
+    [{ errorCode: 402 }, { outcome: 'wrong_password' }],
+  ]) {
+    it(`maps ${raw.error_code ?? raw.errorCode} to ${JSON.stringify(expected)}`, () => {
+      assert.deepEqual(classifyAuthResponse(raw), expected);
+    });
+  }
+
+  for (const raw of [null, undefined, {}, { error_code: 2000099 }, { error_code: null }, 'nope', { result: {} }]) {
+    it(`returns null for unmapped/absent code ${JSON.stringify(raw)}`, () => {
+      assert.equal(classifyAuthResponse(raw), null);
+    });
+  }
+
+  it('keeps 54001 as a rate-limit class on the endpoint path, distinct from the login challenge mapping', () => {
+    assert.equal(classifyRateLimit({ error_code: 54001 }), 'business-54001');
+    assert.deepEqual(classifyAuthResponse({ error_code: 54001 }), { outcome: 'challenge', challenge: 'unknown' });
   });
 });
 
