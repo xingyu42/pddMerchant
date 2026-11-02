@@ -1,4 +1,28 @@
-﻿# pdd-cli Agent Context
+<!-- TRELLIS:START -->
+# mini-trellis
+
+This project uses mini-trellis as a memory layer. Working knowledge lives under `.trellis/`:
+
+- `.trellis/spec/` — durable contracts (short markdown; read `index.md` first)
+- `.trellis/research/` — topic inbox (`<topic>.md`; `README.md` is not a topic)
+- `.trellis/workspace/` — per-developer journals
+
+Record a session with `/mini-trellis:remember` (Claude/OpenCode), `/mini-trellis-remember` (Pi), or `$mini-trellis-remember` (Codex). When earlier decisions or relevant project rules are needed, use `mini-trellis mem recall "<topic or path>"`; expand evidence with `mini-trellis mem read "<ref>"`. No search is required for unrelated work. Promote lasting boundaries into spec with `mini-trellis-update-spec`.
+
+Record only confirmed decisions, reusable research findings, or the session/compact handoff. Skip ordinary turns and unconfirmed guesses. New installs write notes without an automatic git commit; use `mini-trellis doctor` to check host wiring and `mini-trellis refresh --dry-run` before refreshing assets.
+
+Keep confirmed rules short and faithful. Unconfirmed scope, exceptions, and implementation choices stay open or are labeled as inference, not added to the contract.
+
+For a confirmed update, follow this short order: read the existing topic; edit that file; read it back and check the new rule, limits, and negations; run `python3 ./.trellis/scripts/add_session.py --title "..." --summary "..." --topic <actual-topic-path>`; read the journal and check its topic link. Journal-only success is not topic success; report partial writes accurately. New notes follow the requested or discussion language; updates preserve the document language.
+
+When recall excerpts already answer the question with source and qualifiers, cite them and stop. Expand only missing context; do not repeat a lookup or fall back to dialogue-only `search` merely to reconfirm sufficient evidence.
+
+mini-trellis does not create or drive tasks.
+
+Managed by mini-trellis. Edits outside this block are preserved.
+<!-- TRELLIS:END -->
+
+# pdd-cli Agent Context
 
 `pdd-cli` is a JavaScript ESM CLI for Pinduoduo merchant operations, requiring Node.js >= 24. It uses Commander and Patchright/Chromium to reuse the merchant frontend runtime and capture XHR/fetch business responses. There is no TypeScript or build step; check `package.json` for scripts.
 
@@ -17,7 +41,7 @@ Project-specific skills live under `.agents/skills/`. Use the smallest matching 
 - `bin/pdd.js` defines CLI routing and options; keep domain logic out of it.
 - `withCommand()` owns auth/account/mall context, timeout/abort, fixture mode, batch mode, and envelope emission; `src/commands/_runner.js` is a facade over `src/commands/runner/`.
 - Keep dependencies flowing `commands -> services -> adapter -> infra`; avoid reverse imports.
-- Use the matching project skill for detailed file routes and runtime configuration. Before implementation, read the relevant `.trellis/spec/` guidelines and active task artifacts, if any.
+- Use the matching project skill for detailed file routes and runtime configuration. Before implementation, read the relevant `.trellis/spec/` guidelines and related `.trellis/research/` topics, if any.
 
 ## Core Contracts
 
@@ -42,27 +66,8 @@ Project-specific skills live under `.agents/skills/`. Use the smallest matching 
 - Check `git diff` before finishing and confirm changes stay within the requested scope.
 - Report checks actually performed and any unverified behavior. Claim CI coverage only after inspecting the relevant workflow and results.
 
-<!-- TRELLIS:START -->
-# Trellis Instructions
 
-These instructions are for AI assistants working in this project.
-
-This project is managed by Trellis. The working knowledge you need lives under `.trellis/`:
-
-- `.trellis/workflow.md` — development phases, when to create tasks, skill routing
-- `.trellis/spec/` — package- and layer-scoped coding guidelines (read before writing code in a given layer)
-- `.trellis/workspace/` — per-developer journals and session traces
-- `.trellis/tasks/` — active and archived tasks (PRDs, research, jsonl context)
-
-If a Trellis command is available on your platform (e.g. `/trellis:finish-work`, `/trellis:continue`), prefer it over manual steps. Not every platform exposes every command.
-
-If you're using Codex or another agent-capable tool, additional project-scoped helpers may live in:
-- `.agents/skills/` — reusable Trellis skills
-- `.codex/agents/` — optional custom subagents
-
-Managed by Trellis. Edits outside this block are preserved; edits inside may be overwritten by a future `trellis update`.
-
-<!-- TRELLIS:END -->
 
 禁止在回答中使用“不是A而是B”这种句式，除非有绝对必要。
 在回答中，禁止使用“不能/不等于/不把/不是/不能看作”等类似内容进行边界限定，除非我明确关心此处的边界。
+

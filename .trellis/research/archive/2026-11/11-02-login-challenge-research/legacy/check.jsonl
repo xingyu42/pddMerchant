@@ -1,0 +1,2 @@
+{"file": ".trellis/tasks/11-02-login-challenge-research/prd.md", "reason": "Acceptance criteria and read-only constraints for the research report"}
+{"file": ".trellis/spec/infra/logging-redaction.md", "reason": "Verify the report contains no sensitive values"}

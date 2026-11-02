@@ -1,0 +1,2 @@
+{"file": ".trellis/tasks/11-02-login-response-detection/prd.md", "reason": "Acceptance criteria and scope boundaries to verify against"}
+{"file": ".trellis/spec/infra/logging-redaction.md", "reason": "Verify no sensitive values enter logs/output"}

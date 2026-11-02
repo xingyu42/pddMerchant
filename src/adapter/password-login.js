@@ -28,6 +28,51 @@ export const PASSWORD_LOGIN_TEXTS = Object.freeze({
 });
 const CHALLENGES = Object.freeze(['slider', 'click', 'sms', 'risk_confirm', 'unknown']);
 
+// 账密登录提交接口；成功时 PASS_ID 写入 Cookie，失败时响应带 error_code（见调研报告）。
+export const PASSWORD_AUTH_URL = 'https://mms.pinduoduo.com/janus/api/auth';
+// error_code → 登录结果。缺失或未收录的码返回 null，交由 DOM 文案兜底。
+const AUTH_RESPONSE_OUTCOMES = Object.freeze({
+  402: { outcome: 'wrong_password' },
+  8000000: { outcome: 'account_locked' },
+  54001: { outcome: 'challenge', challenge: 'unknown' },
+  2000015: { outcome: 'challenge', challenge: 'sms' },
+  2000020: { outcome: 'challenge', challenge: 'sms' },
+  2000021: { outcome: 'challenge', challenge: 'sms' },
+});
+
+function authErrorCode(raw) {
+  if (raw == null || typeof raw !== 'object') return null;
+  const code = raw.error_code ?? raw.errorCode;
+  return code == null ? null : String(code);
+}
+
+export function classifyAuthResponse(raw) {
+  const code = authErrorCode(raw);
+  if (code == null) return null;
+  return AUTH_RESPONSE_OUTCOMES[code] ?? null;
+}
+
+function isAuthSubmitUrl(url) {
+  try { return new URL(url).pathname === '/janus/api/auth'; }
+  catch { return false; }
+}
+
+// 监听账密登录响应，只取最新的 error_code。读 body 的任何失败都吞掉，绝不外抛进登录流程。
+function watchAuthResponse(page) {
+  const state = { code: null };
+  const onResponse = (response) => {
+    try {
+      const url = typeof response?.url === 'function' ? response.url() : response?.url;
+      if (!isAuthSubmitUrl(url)) return;
+      Promise.resolve(response.json?.())
+        .then((raw) => { const code = authErrorCode(raw); if (code != null) state.code = code; })
+        .catch(() => {});
+    } catch { /* 监听器不得向页面抛出异常。 */ }
+  };
+  page.on('response', onResponse);
+  return { state, detach: () => page.off('response', onResponse) };
+}
+
 // 包括非导航操作在内的浏览器调用均受时间预算约束，原始错误统一丢弃。
 async function taskStep(task, action) {
   assertAuthTask(task);
@@ -123,9 +168,12 @@ async function acceptAgreement(element, task) {
   await taskStep(task, () => native ? element.check(options) : element.click(options));
 }
 
-async function waitForLogin(page, task) {
+async function waitForLogin(page, task, authState) {
   while (Date.now() < task.deadlineAt) {
     assertAuthTask(task);
+    // 接口响应比页面文案更可靠，优先据其判定；分类不出结果再走 DOM 兜底。
+    const fromResponse = classifyAuthResponse({ errorCode: authState?.code });
+    if (fromResponse) return fromResponse;
     try {
       const observed = await inspectPasswordLoginPage(page, task);
       if (observed.challenge) return { outcome: 'challenge', challenge: observed.challenge };
@@ -147,6 +195,7 @@ export async function attemptPasswordLogin(page, credential, options = {}) {
   assertAuthTask(task);
   if (isMockEnabled()) return mockPasswordLogin(task);
   let phase = 'navigation';
+  const watcher = watchAuthResponse(page);
   try {
     await taskStep(task, () => page.goto(PASSWORD_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: budgetMs(task, TIMEOUTS.NAV) }));
     phase = 'form';
@@ -154,11 +203,13 @@ export async function attemptPasswordLogin(page, credential, options = {}) {
     if (observed) return observed.challenge ? { outcome: 'challenge', challenge: observed.challenge } : { outcome: observed.outcome };
     phase = 'submitted';
     await taskStep(task, () => page.locator(PASSWORD_LOGIN_SELECTORS.submit).first().click({ timeout: budgetMs(task, TIMEOUTS.ELEMENT_READY) }));
-    return await waitForLogin(page, task);
+    return await waitForLogin(page, task, watcher.state);
   } catch {
     assertAuthTask({ signal: task.signal });
     if (phase === 'submitted' && Date.now() >= task.deadlineAt) return { outcome: 'challenge', challenge: 'unknown' };
     assertAuthTask(task);
     return { outcome: phase === 'form' ? 'form_changed' : 'network_error' };
+  } finally {
+    watcher.detach();
   }
 }

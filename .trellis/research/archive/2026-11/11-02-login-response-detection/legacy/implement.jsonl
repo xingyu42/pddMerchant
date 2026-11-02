@@ -1,0 +1,3 @@
+{"file": ".trellis/tasks/11-02-login-challenge-research/research/login-challenge-frontend.md", "reason": "Source of error codes (402/8000000/54001/2000015..) and their frontend meaning"}
+{"file": ".trellis/spec/adapter/auth-mall-context.md", "reason": "Password login / relogin outcome contract the change must respect"}
+{"file": ".trellis/spec/infra/logging-redaction.md", "reason": "Redaction rules: response listener must not log cookies/tokens/PII"}
