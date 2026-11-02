@@ -1,4 +1,5 @@
 .ace-tool/
+.codegraph/
 .jshook-profile/
 .agents/
 .ccg/
@@ -17,12 +18,12 @@ log/
 
 issue.md
 
-# Trellis: track planning artifacts and specs only; research binaries/captures stay local
+# Trellis: track notes and specs only; research binaries/captures stay local
 .trellis/.runtime/
 **/raw-sensitive/
-.trellis/tasks/**/research/**
-!.trellis/tasks/**/research/**/
-!.trellis/tasks/**/research/**/*.md
+.trellis/research/**/research/**
+!.trellis/research/**/research/**/
+!.trellis/research/**/research/**/*.md
 
 
 
