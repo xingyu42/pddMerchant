@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "scope": "signed-workbench-3.7.0.14",
+  "generated_on": "2026-08-28",
+  "entries": [
+    {
+      "observation_id": "historic-v3-first-recovery",
+      "sample_label": "checked-archive-v3",
+      "parent_label": "checked-after-first-close-20260811",
+      "lineage": "verified_copy_by_session_log",
+      "baseline_utc": "2026-08-11T08:54:00Z",
+      "baseline_precision": "minute",
+      "observed_at_utc": "2026-08-27T12:20:26Z",
+      "elapsed_days_approx": 16.143,
+      "outcome": "official_recovery_accepted",
+      "evidence_level": "E3",
+      "classification": "confirmed",
+      "external_account_activity_controlled": false,
+      "interpretation": "Archived checked recovery state was accepted after about 16.1 days; this is not an idle-TTL or 30-day proof."
+    },
+    {
+      "observation_id": "historic-v4-source-replay",
+      "sample_label": "checked-archive-v4",
+      "parent_label": "checked-after-first-close-20260811",
+      "lineage": "verified_copy_by_session_log",
+      "observed_at_utc": "2026-08-27T13:12:03Z",
+      "outcome": "target_recovery_not_observed",
+      "evidence_level": "E2",
+      "classification": "unverified",
+      "interpretation": "A second copy of the old source did not reproduce the target request; single-use, rotation, and startup variance remain unseparated."
+    },
+    {
+      "observation_id": "historic-v5-post-success-copy",
+      "sample_label": "checked-post-success-v5",
+      "parent_label": "checked-archive-v3-after-write",
+      "lineage": "verified_copy_by_session_log",
+      "observed_at_utc": "2026-08-27T13:29:41Z",
+      "outcome": "workbench_reached",
+      "evidence_level": "E2",
+      "classification": "confirmed",
+      "interpretation": "A copy of the post-success V3 state recovered again; its age must not be calculated from the original 2026-08-11 baseline."
+    }
+  ],
+  "safety": {
+    "paths_recorded": false,
+    "file_names_recorded": false,
+    "content_hashes_recorded": false,
+    "request_or_auth_values_recorded": false,
+    "account_identifiers_recorded": false
+  }
+}
