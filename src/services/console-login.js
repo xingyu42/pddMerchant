@@ -3,16 +3,17 @@ import { withMerchantAuthUpdate, assertAuthTask } from '../adapter/merchant-auth
 import { isMockEnabled, mockPasswordLogin } from '../adapter/mock-dispatcher.js';
 import { FIXTURE_QR_IMAGE, openFixtureTakeover } from '../adapter/console-login-fixture.js';
 import { invalidTakeoverInput, validateSmsCode } from '../adapter/takeover.js';
-import { getCredential } from '../infra/account-store.js';
+import { getCredential, findAccountByIdentity } from '../infra/account-store.js';
+import { assertPasswordCredential } from '../adapter/password-credential.js';
 import { transaction } from '../infra/db.js';
 import { abortableSleep } from '../infra/abort.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 import { getMasterKey } from '../infra/master-key.js';
 import { consoleAccount } from './console-accounts.js';
 import { consoleRequestError } from './console-runtime.js';
-import { saveMerchantLogin } from './auth-account-storage.js';
+import { saveMerchantLogin, provisionMerchantLogin } from './auth-account-storage.js';
 import { getReloginSummary, recordReloginAttempt, recordReloginOutcome, recordTakeoverTimeout,
-  markManualLoginSucceeded, commitFixtureRelogin } from './password-relogin.js';
+  markManualLoginSucceeded, commitFixtureRelogin, setAccountPassword } from './password-relogin.js';
 import { openConsoleBrowser, attemptConsolePassword, captureConsoleQr, openConsoleTakeover,
   consoleHasPassId, verifyConsoleLogin, closeConsoleBrowser, submitConsoleSms } from './console-login-browser.js';
 
@@ -22,6 +23,13 @@ const TAKEOVER_MS = 600_000;
 const SESSION_MS = 720_000;
 const RETENTION_MS = 300_000;
 const AWAITING_HUMAN = new Set(['takeover', 'sms']);
+const EMPTY_STATE = Object.freeze({ cookies: [], origins: [] });
+const ADD_FAILURES = Object.freeze({
+  wrong_password: '登录名或密码错误，账号未添加',
+  account_locked: '登录失败次数过多，账号已被暂时锁定，请稍后再试',
+  form_changed: '登录页结构已变化，自动填写失败，账号未添加',
+  network_error: '登录过程中网络异常，账号未添加，请稍后重试',
+});
 
 export const consoleFixtureEnabled = isMockEnabled;
 
@@ -36,22 +44,45 @@ function activeSessions() {
   return [...sessions.values()].filter((session) => !session.finished);
 }
 
-export function startConsoleSession(slug, { mode, ownerTag, signal } = {}) {
+function assertRunning(signal) {
   if (signal?.aborted) throw consoleRequestError(503, 'E_CONSOLE_STOPPING', '控制台正在停止，请稍后重新打开');
-  const account = consoleAccount(slug);
-  assertStart(account, mode);
+}
+
+// 同一 key（账号 ID，新增账号统一为 add）的新会话取代旧会话；最多两个 key 同时活跃。
+function registerSession(fields, { ownerTag, signal }, operation) {
   const active = activeSessions();
-  const old = active.filter((session) => session.accountId === account.id).at(-1);
-  if (new Set(active.filter((session) => session.accountId !== account.id).map((session) => session.accountId)).size >= 2) {
+  const old = active.filter((session) => session.key === fields.key).at(-1);
+  if (new Set(active.filter((session) => session.key !== fields.key).map((session) => session.key)).size >= 2) {
     throw consoleRequestError(429, 'E_CONSOLE_BUSY', '已有两个登录会话，请稍后再试');
   }
   old?.controller.abort();
-  const session = { id: randomBytes(16).toString('base64url'), accountId: account.id, mode, ownerTag,
+  const session = { id: randomBytes(16).toString('base64url'), ...fields, ownerTag,
     controller: new AbortController(), state: 'filling', message: null, qrImage: null,
     expiresAt: Date.now() + SESSION_MS, fixture: isMockEnabled() };
   sessions.set(session.id, session);
-  session.done = runSession(session, account, old?.done, signal);
+  session.done = runSession(session, old?.done, signal, () => operation(session));
   return { session_id: session.id };
+}
+
+export function startConsoleSession(slug, { mode, ownerTag, signal } = {}) {
+  assertRunning(signal);
+  const account = consoleAccount(slug);
+  assertStart(account, mode);
+  return registerSession({ key: account.id, accountId: account.id, mode }, { ownerTag, signal },
+    (session) => withMerchantAuthUpdate(account.id, (tx) => executeSession(session, tx, account), {
+      recoveryMallId: account.identity, deadlineAt: session.deadlineAt, signal: session.controller.signal,
+    }));
+}
+
+// 新增账号：凭据只留在会话内存里直到会话结束，请求体字段用完即删。
+export function startConsoleAddSession(body, { ownerTag, signal } = {}) {
+  try {
+    assertRunning(signal);
+    const credential = assertPasswordCredential({ loginName: body?.login_name, password: body?.password });
+    return registerSession({ key: 'add', accountId: null, mode: 'add', credential }, { ownerTag, signal }, executeAddSession);
+  } finally {
+    if (body && typeof body === 'object') { delete body.login_name; delete body.password; }
+  }
 }
 
 function setWindow(session, state, duration) {
@@ -72,12 +103,12 @@ async function beginPassword(session, tx) {
   // 只有挑战需要人：短信走输入框，其余挑战转播验证码弹窗；表单变化、网络错误等按结果码结束。
   const error = recordReloginOutcome(tx, outcome, session);
   if (outcome.outcome !== 'challenge') throw error;
-  if (outcome.challenge === 'sms') setWindow(session, 'sms', TAKEOVER_MS);
-  else await beginTakeover(session);
+  await awaitHuman(session, outcome.challenge);
   return false;
 }
 
-async function beginTakeover(session) {
+async function awaitHuman(session, challenge) {
+  if (challenge === 'sms') return setWindow(session, 'sms', TAKEOVER_MS);
   if (session.fixture) session.takeover = openFixtureTakeover();
   else await openConsoleTakeover(session);
   setWindow(session, 'takeover', TAKEOVER_MS);
@@ -100,7 +131,7 @@ async function waitForLogin(session, tx) {
 }
 
 function finishTimeout(session) {
-  if (AWAITING_HUMAN.has(session.state)) recordTakeoverTimeout(session.accountId);
+  if (AWAITING_HUMAN.has(session.state) && session.accountId != null) recordTakeoverTimeout(session.accountId);
   session.state = 'timed_out';
   session.message = '登录等待超时，请重新开始';
 }
@@ -137,6 +168,36 @@ async function executeSession(session, tx, account) {
   else await commitLogin(session, tx);
 }
 
+// 新增账号不持有账号租约、不写重登状态；登录失败直接结束会话，挑战照常交给人。
+async function executeAddSession(session) {
+  const task = { signal: session.controller.signal, deadlineAt: session.deadlineAt };
+  if (!session.fixture) await openConsoleBrowser(session, task, EMPTY_STATE);
+  const attempt = session.fixture ? await mockPasswordLogin({ ...task, deadlineAt: Date.now() + 70_000 })
+    : await attemptConsolePassword(session, task, session.credential);
+  assertAuthTask(task);
+  if (!['success', 'challenge'].includes(attempt.outcome)) {
+    session.state = 'failed';
+    session.message = ADD_FAILURES[attempt.outcome] ?? '登录未完成，请重新开始';
+    return;
+  }
+  if (attempt.outcome === 'challenge') await awaitHuman(session, attempt.challenge);
+  const outcome = attempt.outcome === 'success' ? 'success' : await waitForLogin(session, task);
+  assertAuthTask(task);
+  if (outcome === 'timeout') return finishTimeout(session);
+  await commitAddedAccount(session, task);
+}
+
+// 店铺已登记时更新其登录状态（短租约），否则新建账号；两种情况都保存这次验证过的密码。
+async function commitAddedAccount(session, task) {
+  session.state = 'verifying';
+  const result = await verifyConsoleLogin(session, task);
+  const existed = findAccountByIdentity('merchant', result.identity.mallId) !== null;
+  const { account } = await provisionMerchantLogin(async () => result, task);
+  setAccountPassword(account.id, session.credential);
+  session.state = 'succeeded';
+  session.message = existed ? '该店铺已在账号列表中，已更新登录状态和密码' : '账号已添加，密码已保存';
+}
+
 function sessionFailure(session, error) {
   if (session.controller.signal.aborted || Date.now() >= session.expiresAt) {
     if (session.expired || !session.controller.signal.aborted) finishTimeout(session);
@@ -152,7 +213,7 @@ function sessionFailure(session, error) {
   session.message = messages[error?.code] ?? '登录未完成，请重新开始';
 }
 
-async function runSession(session, account, previous, parentSignal) {
+async function runSession(session, previous, parentSignal, operation) {
   session.deadlineAt = session.expiresAt;
   const abort = () => session.controller.abort();
   const close = () => { void closeConsoleBrowser(session); };
@@ -162,9 +223,7 @@ async function runSession(session, account, previous, parentSignal) {
   const timer = setTimeout(() => { session.expired = true; session.controller.abort(); }, SESSION_MS);
   try {
     await previous;
-    await withMerchantAuthUpdate(account.id, (tx) => executeSession(session, tx, account), {
-      recoveryMallId: account.identity, deadlineAt: session.deadlineAt, signal: session.controller.signal,
-    });
+    await operation();
   } catch (error) {
     try { sessionFailure(session, error); }
     catch { session.state = 'failed'; session.message = '登录状态保存失败，请重新开始'; }
@@ -175,6 +234,7 @@ async function runSession(session, account, previous, parentSignal) {
     session.controller.signal.removeEventListener('abort', close);
     await closeConsoleBrowser(session);
     session.qrImage = null;
+    session.credential = null;
     session.browser = session.context = session.page = session.takeover = null;
     session.finished = true;
     session.retention = setTimeout(() => sessions.delete(session.id), RETENTION_MS);

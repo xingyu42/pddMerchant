@@ -108,7 +108,7 @@ function AccountList() {
       <h1>商家账号</h1>
       <${Notice} error=${error} />
       ${loading && html`<p class="muted">加载中…</p>`}
-      ${!loading && items.length === 0 && !error && html`<p class="muted">尚未注册账号，请先在命令行执行 pdd login</p>`}
+      ${!loading && items.length === 0 && !error && html`<p class="muted">尚未添加账号，可在下方用登录名和密码新增</p>`}
       <ul class="cards">
         ${items.map((account) => html`
           <li key=${account.slug}>
@@ -119,10 +119,12 @@ function AccountList() {
             </a>
           </li>`)}
       </ul>
+      <${AddAccountForm} />
     </section>`;
 }
 
-function PasswordForm({ slug, onSaved }) {
+// 登录名 + 密码表单，只写不读。
+function CredentialForm({ title, hint, submitText, busyText, submitCredential }) {
   const [loginName, setLoginName] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -132,8 +134,7 @@ function PasswordForm({ slug, onSaved }) {
     setBusy(true);
     setError(null);
     try {
-      await api(`/api/accounts/${encodeURIComponent(slug)}/password`, { login_name: loginName, password });
-      onSaved('密码已保存');
+      await submitCredential({ login_name: loginName, password });
     } catch (failure) {
       setError(failure);
     } finally {
@@ -145,19 +146,38 @@ function PasswordForm({ slug, onSaved }) {
   };
   return html`
     <form class="panel" onSubmit=${submit} autocomplete="off">
-      <h2>录入或重设密码</h2>
-      <p class="muted">只能写入，保存后不会再显示。</p>
-      <label>登录名（手机号）
+      <h2>${title}</h2>
+      <p class="muted">${hint}</p>
+      <label>登录名（手机号或账号名，子账号须用账号名）
         <input name="pdd-login-name" value=${loginName} onInput=${(e) => setLoginName(e.currentTarget.value)}
-          autocomplete="off" inputmode="tel" required maxlength="128" />
+          autocomplete="off" autocapitalize="off" spellcheck="false" required maxlength="128" />
       </label>
       <label>密码
         <input name="pdd-password" type="password" value=${password} onInput=${(e) => setPassword(e.currentTarget.value)}
           autocomplete="new-password" required maxlength="128" />
       </label>
       <${Notice} error=${error} />
-      <button type="submit" disabled=${busy}>${busy ? '保存中…' : '保存'}</button>
+      <button type="submit" disabled=${busy}>${busy ? busyText : submitText}</button>
     </form>`;
+}
+
+function PasswordForm({ slug, onSaved }) {
+  const save = async (body) => {
+    await api(`/api/accounts/${encodeURIComponent(slug)}/password`, body);
+    onSaved('密码已保存');
+  };
+  return html`<${CredentialForm} title="录入或重设密码" hint="只能写入，保存后不会再显示。"
+    submitText="保存" busyText="保存中…" submitCredential=${save} />`;
+}
+
+// 新增账号：用登录名和密码登录，核验通过后按店铺登记账号并保存密码；短信、验证码在会话页完成。
+function AddAccountForm() {
+  const add = async (body) => {
+    const { session_id: id } = await api('/api/accounts/add', body);
+    navigate(`/sessions/${encodeURIComponent(id)}`);
+  };
+  return html`<${CredentialForm} title="新增账号" hint="用店铺的登录名和密码登录，核验通过后添加账号并保存密码。"
+    submitText="登录并添加" busyText="提交中…" submitCredential=${add} />`;
 }
 
 function AccountActions({ account, onDone, onError }) {

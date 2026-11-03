@@ -23,12 +23,17 @@ function validText(value) {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= 128;
 }
 
+export function assertPasswordCredential(credential) {
+  const { loginName, password } = credential ?? {};
+  if (!validText(loginName) || !validText(password)) {
+    throw new PddCliError({ code: 'E_USAGE', message: '登录名和密码须为非空字符串，且长度至多 128 个字符', exitCode: ExitCodes.USAGE });
+  }
+  return { loginName, password };
+}
+
 export function savePasswordCredential(accountId, credential) {
   return credentialOperation(() => {
-    const { loginName, password } = credential ?? {};
-    if (!validText(loginName) || !validText(password)) {
-      throw new PddCliError({ code: 'E_USAGE', message: '登录名和密码须为非空字符串，且长度至多 128 个字符', exitCode: ExitCodes.USAGE });
-    }
+    const { loginName, password } = assertPasswordCredential(credential);
     merchantAccount(accountId);
     getMasterKey();
     const sealed = seal({ v: 1, login_name: loginName, password }, aad('credentials', accountId));

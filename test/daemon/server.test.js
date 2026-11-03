@@ -72,6 +72,10 @@ it('keeps every interactive POST behind session and JSON guards and omits fixtur
     assert.equal((await consoleRequest(port, path, { method: 'POST', headers, body: '{}' })).status, 403);
     assert.equal((await consoleRequest(port, path, { method: 'POST', headers: { ...headers, ...json }, body: '{}' })).status, 404);
   }
+  const add = '/api/accounts/add';
+  assert.equal((await consoleRequest(port, add, { method: 'POST', headers: json, body: '{}' })).status, 401);
+  assert.equal((await consoleRequest(port, add, { method: 'POST', headers, body: '{}' })).status, 403);
+  assert.equal((await consoleRequest(port, add, { method: 'POST', headers: { ...headers, ...json }, body: '{}' })).status, 400);
   vi.stubEnv('PDD_TEST_ADAPTER', '');
   const live = await consoleRequest(port, '/api/sessions/unknown/fixture-complete', {
     method: 'POST', headers: { ...headers, ...json }, body: '{"outcome":"success"}',
@@ -212,6 +216,16 @@ it('keeps GET previews reusable and consumes links only on protected JSON POST r
   assert.equal(replay.status, 410);
   assert.match(replay.body, /链接已失效，请重新获取/);
   assertSecurity(replay);
+  // 已登录的浏览器再次打开用过的链接：直接进入控制台，不签发新会话。
+  for (const token of [path.split('/').at(-1), 'invalid']) {
+    const reopened = await consoleRequest(port, '/api/redeem', { ...options, headers: { ...options.headers, Cookie: cookie },
+      body: JSON.stringify({ token }) });
+    assert.equal(reopened.status, 200);
+    assert.deepEqual(JSON.parse(reopened.body), { location: '/' });
+    assert.equal(reopened.headers['set-cookie'], undefined);
+  }
+  const stale = await consoleRequest(port, '/api/redeem', { ...options, headers: { ...options.headers, Cookie: 'pdd_console=stale' } });
+  assert.equal(stale.status, 410);
   assert.equal((await consoleRequest(port, '/c/invalid')).status, 200);
 });
 

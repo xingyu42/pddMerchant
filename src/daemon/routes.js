@@ -3,7 +3,7 @@ import { consoleHealth, consoleRequestError } from '../services/console-runtime.
 import { listConsoleAccounts, saveConsolePassword, clearConsolePassword, unblockConsoleAccount } from '../services/console-accounts.js';
 import { readConsoleCookie, requireJsonPost, readJson, send, sendHtml } from './http.js';
 import { serveStatic } from './static.js';
-import { startConsoleSession, getConsoleSession, consoleSessionFrames, consoleSessionPointer,
+import { startConsoleSession, startConsoleAddSession, getConsoleSession, consoleSessionFrames, consoleSessionPointer,
   consoleSessionText, consoleSessionSms, refreshConsoleQr, cancelConsoleSession, completeFixtureConsoleSession,
   consoleFixtureEnabled } from '../services/console-login.js';
 import { streamFrames } from './sse.js';
@@ -15,6 +15,8 @@ export const CONSOLE_ROUTES = Object.freeze([
     run: ({ response }) => serveStatic('/app/redeem.js', response) },
   { method: 'POST', template: '/api/redeem', pattern: /^\/api\/redeem$/, public: true, run: redeem },
   { method: 'GET', template: '/api/accounts', pattern: /^\/api\/accounts$/, run: () => listConsoleAccounts() },
+  { method: 'POST', template: '/api/accounts/add', pattern: /^\/api\/accounts\/add$/,
+    run: ({ body, ownerTag, signal }) => startConsoleAddSession(body, { ownerTag, signal }) },
   { method: 'POST', template: '/api/accounts/:slug/password', pattern: /^\/api\/accounts\/([^/]+)\/password$/,
     run: ({ slug, body }) => saveConsolePassword(slug, body) },
   { method: 'POST', template: '/api/accounts/:slug/password/clear', pattern: /^\/api\/accounts\/([^/]+)\/password\/clear$/,
@@ -47,10 +49,18 @@ function redemptionPage({ response }) {
   sendHtml(response, 200, '正在进入控制台，请稍候…', '<script src="/app/redeem.js" defer></script>');
 }
 
-function redeem({ body, response, runtimeConfig }) {
-  const { sessionValue: consoleSession, accountSlug } = redeemConsoleToken(body?.token);
-  response.setHeader('Set-Cookie', consoleSessionCookie(consoleSession, runtimeConfig));
-  return { location: accountSlug ? `/#/accounts/${encodeURIComponent(accountSlug)}` : '/' };
+const LINK_FAILURES = new Set(['E_CONSOLE_LINK_GONE', 'E_CONSOLE_LINK_EXPIRED']);
+
+function redeem({ body, request, response, runtimeConfig }) {
+  try {
+    const { sessionValue: consoleSession, accountSlug } = redeemConsoleToken(body?.token);
+    response.setHeader('Set-Cookie', consoleSessionCookie(consoleSession, runtimeConfig));
+    return { location: accountSlug ? `/#/accounts/${encodeURIComponent(accountSlug)}` : '/' };
+  } catch (error) {
+    // 已登录的浏览器再次打开用过或过期的链接（重复点击、页面重复加载）时直接进入控制台，不签发新会话。
+    if (LINK_FAILURES.has(error?.code) && resolveConsoleSession(readConsoleCookie(request))) return { location: '/' };
+    throw error;
+  }
 }
 
 function authenticated(request, response, path) {
