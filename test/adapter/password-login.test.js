@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, vi } from 'vitest';
-import { attemptPasswordLogin, classifyAuthResponse, inspectPasswordLoginPage, PASSWORD_LOGIN_SELECTORS as selectors, PASSWORD_LOGIN_TEXTS, PASSWORD_LOGIN_URL } from '../../src/adapter/password-login.js';
+import { attemptPasswordLogin, classifyAuthResponse, PASSWORD_LOGIN_SELECTORS as selectors, PASSWORD_LOGIN_URL } from '../../src/adapter/password-login.js';
 import { classifyRateLimit } from '../../src/adapter/classify-rate-limit.js';
 import { mockPasswordLogin } from '../../src/adapter/mock-dispatcher.js';
 import { MERCHANT_CHECK_URL } from '../../src/adapter/merchant-auth-probe.js';
@@ -21,15 +21,19 @@ function fakePage(options = {}) {
     off(event, fn) { this.listeners[event] = (this.listeners[event] ?? []).filter((f) => f !== fn); },
     emit(event, arg) { (this.listeners[event] ?? []).forEach((fn) => fn(arg)); },
     goto: async (url) => { calls.push(['goto', url]); if (options.navigationError) throw options.navigationError; },
-    frames: () => [page, ...(options.frames ?? [])],
-    context: () => ({ cookies: async (urls) => { calls.push(['cookies', urls]); return submitted ? options.cookies ?? [] : []; } }),
+    context: () => ({
+      cookies: async (urls) => {
+        calls.push(['cookies', urls]);
+        if (submitted && options.pollErrors?.length) throw options.pollErrors.shift();
+        return submitted ? options.cookies ?? [] : [];
+      },
+    }),
     locator(selector) {
-      const challenge = Object.entries(selectors).find(([key, value]) => value === selector && ['sms', 'slider', 'click', 'risk_confirm', 'unknown'].includes(key))?.[0];
-      const present = challenge ? (submitted || options.preChallenge) && options.challenge === challenge : selector === selectors.agreement ? options.agreement : true;
+      const present = selector === selectors.agreement ? options.agreement : true;
       const element = {
         first: () => element,
         all: async () => present ? [element] : [],
-        isVisible: async () => !options.hidden || options.hidden !== challenge,
+        isVisible: async () => true,
         isChecked: async () => options.checked ?? false,
         check: async () => { calls.push(['check', selector, submitted]); },
         getAttribute: async (name) => {
@@ -37,12 +41,7 @@ function fakePage(options = {}) {
             if (name === 'type') return options.customAgreement ? null : 'checkbox';
             if (name === 'aria-checked') return options.checked ? 'true' : 'false';
           }
-          return name === 'id' ? 'captcha-root' : 'captcha-panel hidden-token-123456';
-        },
-        innerText: async () => {
-          calls.push(['text', submitted]);
-          if (submitted && options.pollErrors?.length) throw options.pollErrors.shift();
-          return submitted ? options.text ?? '' : options.preText ?? '';
+          return null;
         },
         waitFor: async () => { if (options.missing === selector) throw new Error(credential.password); },
         fill: async (value) => {
@@ -72,10 +71,9 @@ function deadline() { return { deadlineAt: Date.now() + 2000 }; }
 function submissionCount(page) { return page.calls.filter(([action, selector]) => action === 'click' && selector === selectors.submit).length; }
 
 describe('password login browser adapter', () => {
-  it('keeps selectors/texts frozen and only accepts a scoped nonempty exact PASS_ID', async () => {
+  it('keeps selectors frozen and only accepts a scoped nonempty exact PASS_ID', async () => {
     live();
     assert.ok(Object.isFrozen(selectors));
-    assert.ok(Object.isFrozen(PASSWORD_LOGIN_TEXTS));
     const page = fakePage({ cookies: [{ name: 'PASS_ID', value: 'fixture-value' }], agreement: true });
     assert.deepEqual(await attemptPasswordLogin(page, credential, deadline()), { outcome: 'success' });
     assert.deepEqual(page.calls[0], ['goto', PASSWORD_LOGIN_URL]);
@@ -94,22 +92,6 @@ describe('password login browser adapter', () => {
     assert.equal(page.calls.filter(([action]) => action === 'check').length, 0);
   });
 
-  it('does not mistake the ordinary SMS login tab label for a challenge', async () => {
-    live();
-    const page = fakePage({ preText: '短信验证码登录', text: '短信验证码登录', cookies: [{ name: 'PASS_ID', value: 'fixture' }] });
-    assert.deepEqual(await attemptPasswordLogin(page, credential, deadline()), { outcome: 'success' });
-  });
-
-  for (const text of ['账号或密码错误', '账号已被锁定', '拖动滑块完成验证', '请依次点击图片', '请输入短信验证码', '账号存在风险', '验证码已发送']) {
-    it(`submits despite static pre-submit text: ${text}`, async () => {
-      live();
-      const page = fakePage({ preText: text, cookies: [{ name: 'PASS_ID', value: 'fixture' }] });
-      assert.deepEqual(await attemptPasswordLogin(page, credential, deadline()), { outcome: 'success' });
-      assert.equal(submissionCount(page), 1);
-      assert.ok(page.calls.filter(([action]) => action === 'text').every(([, submitted]) => submitted));
-    });
-  }
-
   it('supports the historical custom agreement and does not toggle checked controls', async () => {
     live();
     for (const checked of [true, false]) {
@@ -118,39 +100,6 @@ describe('password login browser adapter', () => {
       assert.equal(page.calls.filter(([action, selector]) => action === 'click' && selector === selectors.agreement).length, checked ? 0 : 1);
     }
   });
-
-  for (const challenge of ['sms', 'slider', 'click', 'risk_confirm', 'unknown']) {
-    it(`classifies ${challenge} with zero interactions after the only submission`, async () => {
-      live();
-      const page = fakePage({ challenge });
-      assert.deepEqual(await attemptPasswordLogin(page, credential, deadline()), { outcome: 'challenge', challenge });
-      assert.equal(submissionCount(page), 1);
-      assert.equal(page.calls.filter(([action, , after]) => ['click', 'check', 'press', 'fill'].includes(action) && after === true).length, 0);
-    });
-  }
-
-  it('stops at challenges present before filling/submitting', async () => {
-    live();
-    const page = fakePage({ challenge: 'slider', preChallenge: true });
-    assert.deepEqual(await attemptPasswordLogin(page, credential, deadline()), { outcome: 'challenge', challenge: 'slider' });
-    assert.equal(submissionCount(page), 0);
-    assert.equal(page.calls.filter(([action]) => action === 'fill').length, 0);
-  });
-
-  for (const [text, outcome] of [
-    ['账号或密码错误', 'wrong_password'], ['密码不正确', 'wrong_password'],
-    ['账号已被锁定', 'account_locked'], ['密码错误次数过多', 'account_locked'],
-    ['拖动滑块完成验证', 'slider'], ['请依次点击图片', 'click'],
-    ['请输入短信验证码', 'sms'], ['账号存在风险', 'risk_confirm'],
-  ]) {
-    it(`classifies fixed text ${outcome} without returning page content`, async () => {
-      live();
-      const page = fakePage({ text: `${text} ${credential.loginName} ${credential.password}` });
-      const result = await attemptPasswordLogin(page, credential, deadline());
-      assert.deepEqual(result, ['wrong_password', 'account_locked'].includes(outcome) ? { outcome } : { outcome: 'challenge', challenge: outcome });
-      assert.equal(submissionCount(page), 1);
-    });
-  }
 
   for (const missing of ['passwordTab', 'loginName', 'password', 'submit']) {
     it(`maps missing ${missing} to form_changed without exposing browser errors`, async () => {
@@ -176,7 +125,7 @@ describe('password login browser adapter', () => {
       await vi.advanceTimersByTimeAsync(2100);
       assert.deepEqual(await pending, { outcome: 'success' });
       assert.equal(submissionCount(page), 1);
-      assert.equal(page.calls.filter(([action]) => action === 'text').length, 2);
+      assert.equal(page.calls.filter(([action]) => action === 'cookies').length, 2);
     });
   }
 
@@ -211,22 +160,6 @@ describe('password login browser adapter', () => {
     page.context = () => ({ cookies: async () => { controller.abort(); throw new Error(credential.password); } });
     await assert.rejects(attemptPasswordLogin(page, credential, { signal: controller.signal, ...deadline() }), { code: 'E_AUTH_CANCELLED' });
     assert.equal(submissionCount(page), 1);
-  });
-
-  it('ignores hidden challenges and detects challenges inside frames', async () => {
-    live();
-    const hidden = fakePage({ challenge: 'slider', hidden: 'slider', cookies: [{ name: 'PASS_ID', value: 'fixture' }] });
-    assert.deepEqual(await attemptPasswordLogin(hidden, credential, deadline()), { outcome: 'success' });
-    const frame = fakePage({ challenge: 'click', preChallenge: true });
-    const page = fakePage({ frames: [frame] });
-    assert.deepEqual(await attemptPasswordLogin(page, credential, deadline()), { outcome: 'challenge', challenge: 'click' });
-  });
-
-  it('returns only metadata for experiment observations, without page text or long numeric tokens', async () => {
-    const page = fakePage({ challenge: 'sms', preChallenge: true, preText: `验证码已发送，60秒后重发 ${credential.password}` });
-    assert.deepEqual(await inspectPasswordLoginPage(page, deadline()), {
-      challenge: 'sms', sms_sent: true, containers: [{ id: ['captcha-root'], class: ['captcha-panel'] }],
-    });
   });
 
   it('treats an unclassified submitted deadline as unknown and never retries submission', async () => {
@@ -290,7 +223,7 @@ describe('password login browser adapter', () => {
     [{ errorCode: 2000015 }, { outcome: 'challenge', challenge: 'sms' }],
     [{ errorCode: 2000020 }, { outcome: 'challenge', challenge: 'sms' }],
   ]) {
-    it(`classifies auth response ${raw.error_code ?? raw.errorCode} from the response, overriding empty DOM text`, async () => {
+    it(`classifies auth response ${raw.error_code ?? raw.errorCode} from the response`, async () => {
       live();
       const page = fakePage({ authResponse: raw });
       assert.deepEqual(await attemptPasswordLogin(page, credential, deadline()), expected);
@@ -298,10 +231,20 @@ describe('password login browser adapter', () => {
     });
   }
 
-  it('falls back to DOM/cookie detection when no auth response is captured', async () => {
+  it('falls back to PASS_ID cookie detection when no auth response is captured', async () => {
     live();
     const page = fakePage({ cookies: [{ name: 'PASS_ID', value: 'fixture' }] });
     assert.deepEqual(await attemptPasswordLogin(page, credential, deadline()), { outcome: 'success' });
+  });
+
+  it('keeps polling on an unmapped auth code and returns unknown at the deadline', async () => {
+    live();
+    vi.useFakeTimers();
+    const page = fakePage({ authResponse: { error_code: 2000099 } });
+    const pending = attemptPasswordLogin(page, credential, deadline());
+    await vi.advanceTimersByTimeAsync(2100);
+    assert.deepEqual(await pending, { outcome: 'challenge', challenge: 'unknown' });
+    assert.equal(submissionCount(page), 1);
   });
 });
 
