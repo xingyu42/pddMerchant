@@ -177,6 +177,22 @@ it('asks for the SMS code without a takeover picture and fills it into the login
   assertReleased();
 });
 
+it('preserves pointer focus fields and forwards interruption and cancellation in fixture sessions', async () => {
+  vi.stubEnv('PDD_TEST_ADAPTER', 'fixture');
+  vi.stubEnv('PDD_TEST_PASSWORD_LOGIN', 'challenge:slider');
+  const id = start();
+  await stateIs(id, 'takeover');
+  const events = [{ t: 0, type: 'down', x: 0, y: 0 }];
+  await assert.rejects(consoleSessionPointer(id, { events }), { code: 'E_USAGE' });
+  assert.deepEqual(await consoleSessionPointer(id, { gesture_id: 'drag', seq: 0, events }),
+    { ok: true, editable: null, numeric: null });
+  const stopped = { ok: true, editable: null, numeric: null, result: 'interrupted' };
+  assert.deepEqual(await consoleSessionPointer(id, { gesture_id: 'drag', seq: 0, events }), stopped);
+  assert.deepEqual(await consoleSessionPointer(id, { gesture_id: 'drag', seq: 1, events: [], cancel: true }), stopped);
+  assert.deepEqual(await consoleSessionPointer(id, { gesture_id: 'new', seq: 0,
+    events: [...events, { ...events[0], type: 'up' }] }), { ok: true, editable: false, numeric: false });
+});
+
 it.each([['form_changed', '登录页结构已变化，自动填写失败，请改用扫码登录'],
   ['network_error', '登录过程中网络异常，请稍后重试或改用扫码登录']])('ends %s by its result code without takeover', async (outcome, message) => {
   control.outcome = { outcome };

@@ -198,10 +198,18 @@ it('keeps GET previews reusable and consumes links only on protected JSON POST r
     assert.equal(preview.status, 200);
     assert.equal(preview.headers['set-cookie'], undefined);
     assert.match(preview.body, /<script src="\/app\/redeem.js" defer><\/script>/);
+    assert.match(preview.body, /<meta name="viewport" content="width=device-width, initial-scale=1">/);
+    assert.match(preview.body, /<link rel="stylesheet" href="\/app\/styles.css">/);
+    assert.match(preview.body, /<main><p>正在进入控制台，请稍候…<\/p><\/main>/);
     assert.equal(preview.body.includes(path.split('/').at(-1)), false);
     assertSecurity(preview, true);
   }
   assert.equal((await consoleRequest(port, '/app/redeem.js')).status, 200);
+  const styles = await consoleRequest(port, '/app/styles.css');
+  assert.equal(styles.status, 200);
+  assert.match(styles.headers['content-type'], /text\/css/);
+  assertSecurity(styles);
+  assert.equal((await consoleRequest(port, '/app/app.js')).status, 401);
   assert.equal((await consoleRequest(port, '/api/redeem', { method: 'POST', body: '{}' })).status, 403);
   const options = { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-PDD-Console': '1' },
     body: JSON.stringify({ token: path.split('/').at(-1) }) };

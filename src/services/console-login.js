@@ -271,8 +271,8 @@ export function consoleSessionFrames(id) {
 
 export async function consoleSessionPointer(id, body) {
   const session = interactiveSession(id, 'takeover');
-  const { editable, numeric } = await session.takeover.dispatchPointer(body?.events);
-  return { ok: true, editable, numeric };
+  const { editable, numeric, result } = await session.takeover.dispatchPointer(body?.events, body);
+  return { ok: true, editable, numeric, ...(result === 'interrupted' ? { result } : {}) };
 }
 
 // result: submitted | wrong_code | form_changed；登录是否完成由会话轮询 PASS_ID 决定。

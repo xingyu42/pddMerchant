@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { runInNewContext } from 'node:vm';
 import { afterEach, it, vi } from 'vitest';
-import { openTakeover, validateSmsCode } from '../../src/adapter/takeover.js';
+import { openTakeover, validateSmsCode, validatePointerBatch } from '../../src/adapter/takeover.js';
 
 const DIALOG = { x: 100, y: 50, width: 400, height: 300, scrollX: 0, scrollY: 20 };
 const channels = [];
@@ -33,6 +33,14 @@ async function setup() {
   const page = { context: () => context };
   const channel = await openTakeover(page);
   channels.push(channel);
+  const dispatch = channel.dispatchPointer.bind(channel);
+  let gesture = 0;
+  let seq = 0;
+  // 旧用例只关心回放；默认补齐协议字段，协议用例显式指定。
+  channel.dispatchPointer = (events, batch) => {
+    if (!gesture || events?.[0]?.type === 'down') { gesture++; seq = 0; }
+    return dispatch(events, { gesture_id: `gesture-${gesture}`, seq: seq++, ...batch });
+  };
   const frame = (data = 'screencast', sessionId = 1) => cdp.emit('Page.screencastFrame', { data, sessionId });
   const show = async () => { frame(); await settle(); };
   return { cdp, channel, frame, show, context, page };
@@ -265,10 +273,109 @@ it('rejects malformed batches, coordinates, time, text and keys without echoing 
   await show();
   const bad = [null, {}, Array(201).fill(event), [{ ...event, x: -0.1 }], [{ ...event, y: 1.1 }],
     [{ ...event, t: Infinity }], [{ ...event, t: NaN }], [{ ...event, x: '0' }],
-    [{ ...event, t: -1 }], [{ ...event, type: 'secret-input' }], [{ ...event, t: 2 }, event]];
+    [{ ...event, t: -1 }], [{ ...event, t: 1e12 }], [event, { ...event, t: 5001 }],
+    [{ ...event, type: 'secret-input' }], [{ ...event, t: 2 }, event]];
   for (const events of bad) assert.throws(() => channel.dispatchPointer(events), { code: 'E_USAGE' });
   for (const text of [null, 12, 'x'.repeat(65)]) assert.throws(() => channel.insertText(text), { code: 'E_USAGE' });
   for (const key of ['Escape', 'secret-input', '__proto__', null]) assert.throws(() => channel.pressKey(key), { code: 'E_USAGE' });
+});
+
+const pointerEvent = (type, t = 0) => ({ type, t, x: 0.5, y: 0.5 });
+const interrupted = { editable: null, numeric: null, result: 'interrupted' };
+
+it('validates gesture metadata and snapshots events before queueing', async () => {
+  for (const metadata of [null, {}, { gesture_id: '', seq: 0 }, { gesture_id: 'x'.repeat(65), seq: 0 },
+    { gesture_id: 'drag', seq: -1 }, { gesture_id: 'drag', seq: 0.1 }, { gesture_id: 'drag', seq: Infinity },
+    { gesture_id: 'drag', seq: 0, cancel: 'yes' }]) {
+    assert.throws(() => validatePointerBatch([pointerEvent('down')], metadata), { code: 'E_USAGE' });
+  }
+  assert.throws(() => validatePointerBatch([], { gesture_id: 'empty', seq: 0 }), { code: 'E_USAGE' });
+  const { channel, cdp, show } = await setup();
+  await show();
+  const events = [pointerEvent('down')];
+  const metadata = { gesture_id: 'snapshot', seq: 0 };
+  const pending = channel.dispatchPointer(events, metadata);
+  events[0].x = 99;
+  metadata.seq = 50;
+  await pending;
+  assert.equal(mouse(cdp)[0].x, 300);
+});
+
+it('ends an unknown gesture arriving out of order and rejects its delayed first batch', async () => {
+  const { channel, cdp, show } = await setup();
+  await show();
+  for (const seq of [1, 0]) {
+    assert.deepEqual(await channel.dispatchPointer([pointerEvent('down')], { gesture_id: 'reordered', seq }), interrupted);
+  }
+  assert.equal(mouse(cdp).length, 0);
+});
+
+it('resets timing for a new gesture, releases the old press and ignores its delayed cancellation', async () => {
+  const { channel, cdp, show } = await setup();
+  await show();
+  await channel.dispatchPointer([pointerEvent('down', 5000)], { gesture_id: 'old', seq: 0 });
+  await channel.dispatchPointer([pointerEvent('down', 0)], { gesture_id: 'new', seq: 0 });
+  assert.deepEqual(mouse(cdp).map((event) => event.type), ['mousePressed', 'mouseReleased', 'mousePressed']);
+  await channel.dispatchPointer([], { gesture_id: 'old', seq: 1, cancel: true });
+  assert.equal(mouse(cdp).length, 3);
+  assert.deepEqual(await channel.dispatchPointer([], { gesture_id: 'new', seq: 1, cancel: true }), interrupted);
+  assert.equal(mouse(cdp).at(-1).type, 'mouseReleased');
+});
+
+it.each([0, 2])('releases and ends a gesture on duplicate or missing sequence %s', async (seq) => {
+  const { channel, cdp, show } = await setup();
+  await show();
+  await channel.dispatchPointer([pointerEvent('down')], { gesture_id: 'drag', seq: 0 });
+  assert.deepEqual(await channel.dispatchPointer([pointerEvent('move')], { gesture_id: 'drag', seq }), interrupted);
+  assert.deepEqual(mouse(cdp).map((event) => event.type), ['mousePressed', 'mouseReleased']);
+  assert.deepEqual(await channel.dispatchPointer([pointerEvent('up')], { gesture_id: 'drag', seq: 1 }), interrupted);
+  assert.equal(mouse(cdp).length, 2);
+});
+
+it('releases a lost up after idle timeout and resumes dialog relocation', async () => {
+  vi.useFakeTimers();
+  const { channel, cdp, show } = await setup();
+  await show();
+  await channel.dispatchPointer([pointerEvent('down')], { gesture_id: 'lost', seq: 0 });
+  cdp.page.dialog = { ...DIALOG, x: 0 };
+  await vi.advanceTimersByTimeAsync(3000);
+  assert.equal(mouse(cdp).at(-1).type, 'mouseReleased');
+  await show();
+  assert.equal(captures(cdp).at(-1).clip.x, 0);
+  assert.deepEqual(await channel.dispatchPointer([pointerEvent('up', 10)], { gesture_id: 'lost', seq: 1 }), interrupted);
+});
+
+it('keeps the original timing anchor after a late batch and interrupts excessive backlog', async () => {
+  vi.useFakeTimers();
+  const { channel, cdp, show } = await setup();
+  await show();
+  await channel.dispatchPointer([pointerEvent('down')], { gesture_id: 'late', seq: 0 });
+  await vi.advanceTimersByTimeAsync(200);
+  await channel.dispatchPointer([pointerEvent('move', 50)], { gesture_id: 'late', seq: 1 });
+  const next = channel.dispatchPointer([pointerEvent('move', 250)], { gesture_id: 'late', seq: 2 });
+  await vi.advanceTimersByTimeAsync(50);
+  assert.equal(mouse(cdp).length, 3);
+  await next;
+  await vi.advanceTimersByTimeAsync(1100);
+  assert.deepEqual(await channel.dispatchPointer([pointerEvent('move', 300)], { gesture_id: 'late', seq: 3 }), interrupted);
+  assert.equal(mouse(cdp).at(-1).type, 'mouseReleased');
+});
+
+it('rejects excessive cross-batch waits and releases the previous press', async () => {
+  const { channel, cdp, show } = await setup();
+  await show();
+  await channel.dispatchPointer([pointerEvent('down')], { gesture_id: 'gap', seq: 0 });
+  await assert.rejects(channel.dispatchPointer([pointerEvent('up', 5001)], { gesture_id: 'gap', seq: 1 }), { code: 'E_USAGE' });
+  assert.equal(mouse(cdp).at(-1).type, 'mouseReleased');
+});
+
+it('attempts release if dispatching up fails while pressed', async () => {
+  const { channel, cdp, show } = await setup();
+  await show();
+  await channel.dispatchPointer([pointerEvent('down')], { gesture_id: 'release', seq: 0 });
+  cdp.send.mockRejectedValueOnce(new Error('release failed'));
+  await assert.rejects(channel.dispatchPointer([pointerEvent('up')], { gesture_id: 'release', seq: 1 }), /release failed/);
+  assert.deepEqual(mouse(cdp).map((event) => event.type), ['mousePressed', 'mouseReleased', 'mouseReleased']);
 });
 
 it('cancels queued replay on close and detaches even after screencast startup failure', async () => {

@@ -13,6 +13,8 @@ export const CONSOLE_ROUTES = Object.freeze([
   { method: 'GET', template: '/c/:token', pattern: /^\/c\/([^/]+)$/, public: true, run: redemptionPage },
   { method: 'GET', template: '/app/redeem.js', pattern: /^\/app\/redeem\.js$/, public: true,
     run: ({ response }) => serveStatic('/app/redeem.js', response) },
+  { method: 'GET', template: '/app/styles.css', pattern: /^\/app\/styles\.css$/, public: true,
+    run: ({ response }) => serveStatic('/app/styles.css', response) },
   { method: 'POST', template: '/api/redeem', pattern: /^\/api\/redeem$/, public: true, run: redeem },
   { method: 'GET', template: '/api/accounts', pattern: /^\/api\/accounts$/, run: () => listConsoleAccounts() },
   { method: 'POST', template: '/api/accounts/add', pattern: /^\/api\/accounts\/add$/,

@@ -6,6 +6,11 @@ import { readDialog, captureDialog } from './takeover-dialog.js';
 const KEYS = Object.freeze({ Enter: ['Enter', 13], Backspace: ['Backspace', 8], Tab: ['Tab', 9] });
 const SMS_CODE = /^\d{4,8}$/;
 const NO_DIALOG = Object.freeze({ jpeg: null, width: null, height: null });
+const POINTER_WAIT_MS = 5000;
+const POINTER_IDLE_MS = 3000;
+const POINTER_LAG_MS = 1000;
+const POINTER_TIME_MS = 720_000;
+const INTERRUPTED = Object.freeze({ editable: null, numeric: null, result: 'interrupted' });
 const FOCUS_EXPRESSION = `(() => {
   let element = document.activeElement;
   while (['IFRAME', 'FRAME'].includes(element?.tagName)) {
@@ -47,10 +52,20 @@ export function validatePointer(events) {
   return events.map((event) => {
     if (!event || !['down', 'move', 'up'].includes(event.type)
       || ![event.t, event.x, event.y].every(Number.isFinite) || event.t < previous
-      || event.t < 0 || event.x < 0 || event.x > 1 || event.y < 0 || event.y > 1) throw invalidTakeoverInput();
+      || event.t < 0 || event.t > POINTER_TIME_MS || event.t - events[0].t > POINTER_WAIT_MS
+      || event.x < 0 || event.x > 1 || event.y < 0 || event.y > 1) throw invalidTakeoverInput();
     previous = event.t;
     return { t: event.t, type: event.type, x: event.x, y: event.y };
   });
+}
+
+export function validatePointerBatch(input, metadata) {
+  if (!metadata || typeof metadata.gesture_id !== 'string' || !/^[\w-]{1,64}$/.test(metadata.gesture_id)
+    || !Number.isSafeInteger(metadata.seq) || metadata.seq < 0
+    || (metadata.cancel !== undefined && typeof metadata.cancel !== 'boolean')) throw invalidTakeoverInput();
+  const events = validatePointer(input);
+  if (metadata.cancel ? events.length !== 0 : events.length === 0) throw invalidTakeoverInput();
+  return { events, gesture_id: metadata.gesture_id, seq: metadata.seq, cancel: metadata.cancel === true };
 }
 
 export function validateText(text) {
@@ -68,7 +83,7 @@ export function validateKey(key) {
   return { key, code: KEYS[key][0], windowsVirtualKeyCode: KEYS[key][1] };
 }
 
-function inputQueue(signal) {
+export function inputQueue(signal) {
   let pending = Promise.resolve();
   return (operation) => {
     const previous = pending;
@@ -81,29 +96,101 @@ function inputQueue(signal) {
   };
 }
 
-async function replay(cdp, events, state, signal, area) {
-  for (const event of events) {
-    // Remounting the frontend resets its performance.now() origin.
-    const wait = state.lastT == null ? 0 : state.lastWall + event.t - state.lastT - Date.now();
-    if (wait > 0) await waitForPointerTime(wait, signal);
-    if (signal.aborted) throw invalidTakeoverInput();
-    const dispatchedAt = Date.now();
-    if (event.type === 'down') state.pressed = true;
-    if (event.type === 'up') state.pressed = false;
-    await cdp.send('Input.dispatchMouseEvent', {
-      type: { down: 'mousePressed', move: 'mouseMoved', up: 'mouseReleased' }[event.type],
-      x: area.x + event.x * area.width, y: area.y + event.y * area.height,
-      button: event.type === 'move' ? 'none' : 'left', buttons: state.pressed ? 1 : 0,
-      ...(event.type === 'move' ? {} : { clickCount: 1 }),
-    });
-    state.lastT = event.t;
-    state.lastWall = dispatchedAt;
+async function releasePointer(pointer) {
+  clearTimeout(pointer.timer);
+  if (pointer.gesture) pointer.gesture.ended = true;
+  if (pointer.state.pressed) {
+    try { await pointer.dispatch({ ...pointer.lastEvent, type: 'up' }, pointer.area, false); }
+    finally { pointer.state.pressed = false; }
   }
+  return INTERRUPTED;
 }
 
-async function waitForPointerTime(wait, signal) {
-  const deadline = Date.now() + wait;
-  while (Date.now() < deadline) await abortableSleep(Math.min(1000, deadline - Date.now()), signal);
+async function beginPointerBatch(pointer, batch, area) {
+  const first = batch.events[0];
+  if (batch.cancel) {
+    pointer.seen.add(batch.gesture_id);
+    return pointer.gesture?.id === batch.gesture_id ? releasePointer(pointer) : INTERRUPTED;
+  }
+  if (pointer.gesture?.id !== batch.gesture_id) {
+    if (pointer.seen.has(batch.gesture_id) || batch.seq !== 0) {
+      pointer.seen.add(batch.gesture_id);
+      return releasePointer(pointer);
+    }
+    await releasePointer(pointer);
+    pointer.seen.add(batch.gesture_id);
+    pointer.area = area;
+    pointer.gesture = { id: batch.gesture_id, seq: 0, anchor: Date.now() - first.t, lastT: first.t, ended: false };
+  }
+  const gesture = pointer.gesture;
+  if (gesture.ended || batch.seq !== gesture.seq || first.t < gesture.lastT) return releasePointer(pointer);
+  if (first.t - gesture.lastT > POINTER_WAIT_MS) {
+    await releasePointer(pointer);
+    throw invalidTakeoverInput();
+  }
+  gesture.seq++;
+  return null;
+}
+
+function armPointerIdle(pointer) {
+  clearTimeout(pointer.timer);
+  if (!pointer.state.pressed || pointer.signal.aborted) return;
+  const gesture = pointer.gesture;
+  const sequence = gesture.seq;
+  pointer.timer = setTimeout(async () => {
+    try {
+      await pointer.enqueue(() => {
+        if (pointer.gesture === gesture && gesture.seq === sequence) return releasePointer(pointer);
+      });
+    } catch { /* 通道关闭或浏览器退出时，清理由会话负责。 */ }
+  }, Math.max(0, pointer.lastWall + POINTER_IDLE_MS - Date.now()));
+  pointer.timer.unref?.();
+}
+
+async function replayPointerEvents(pointer, events) {
+  for (const event of events) {
+    // 固定手势起点，迟到批次只追赶进度，后续轨迹不随之整体后移。
+    const wait = pointer.gesture.anchor + event.t - Date.now();
+    if (wait < -POINTER_LAG_MS) return releasePointer(pointer);
+    if (wait > POINTER_WAIT_MS) { await releasePointer(pointer); throw invalidTakeoverInput(); }
+    if (wait > 0) await abortableSleep(wait, pointer.signal);
+    if (pointer.signal.aborted) throw invalidTakeoverInput();
+    if (Date.now() - pointer.gesture.anchor - event.t > POINTER_LAG_MS) return releasePointer(pointer);
+    pointer.lastEvent = event;
+    if (event.type === 'down') pointer.state.pressed = true;
+    const pressed = event.type === 'up' ? false : pointer.state.pressed;
+    await pointer.dispatch(event, pointer.area, pressed);
+    pointer.state.pressed = pressed;
+    pointer.lastWall = Date.now();
+    pointer.gesture.lastT = event.t;
+  }
+  if (events.some((event) => event.type === 'up')) pointer.gesture.ended = true;
+  return null;
+}
+
+// 实际 CDP 与离线 fixture 共用顺序、时钟和丢失抬起恢复逻辑。
+export function createPointerReplay(options) {
+  const pointer = { ...options, seen: new Set(), gesture: null, timer: null };
+  pointer.signal.addEventListener('abort', () => clearTimeout(pointer.timer), { once: true });
+  return async (batch, area) => {
+    clearTimeout(pointer.timer);
+    try {
+      const interrupted = await beginPointerBatch(pointer, batch, area);
+      return interrupted ?? await replayPointerEvents(pointer, batch.events);
+    } catch (error) {
+      try { await releasePointer(pointer); } catch { /* 保留原始回放错误。 */ }
+      throw error;
+    } finally { armPointerIdle(pointer); }
+  };
+}
+
+async function dispatchMouse(cdp, event, area, pressed) {
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: { down: 'mousePressed', move: 'mouseMoved', up: 'mouseReleased' }[event.type],
+    x: area.x + event.x * area.width, y: area.y + event.y * area.height,
+    button: event.type === 'move' ? 'none' : 'left', buttons: pressed ? 1 : 0,
+    ...(event.type === 'move' ? {} : { clickCount: 1 }),
+  });
 }
 
 // screencast 帧只用作页面重绘信号，画面本身来自弹窗区域截图。
@@ -145,7 +232,7 @@ export async function openTakeover(page) {
   const frames = createLatestFrames();
   const controller = new AbortController();
   const enqueue = inputQueue(controller.signal);
-  const state = { pressed: false, lastT: null, dialog: null, shown: null };
+  const state = { pressed: false, dialog: null, shown: null };
   const channel = { cdp, frames, state, controller };
   const onFrame = (event) => receiveFrame(channel, event);
   const close = async () => {
@@ -164,15 +251,18 @@ export async function openTakeover(page) {
 
 function takeoverControls(channel) {
   const { cdp, frames, enqueue, state, controller, close } = channel;
+  const replay = createPointerReplay({ state, enqueue, signal: controller.signal,
+    dispatch: (event, area, pressed) => dispatchMouse(cdp, event, area, pressed) });
   return {
     frames, close,
-    dispatchPointer(input) {
-      const events = validatePointer(input);
+    dispatchPointer(input, metadata) {
+      const batch = validatePointerBatch(input, metadata);
       const area = state.shown;
-      if (!area) throw invalidTakeoverInput();
+      if (!area && !batch.cancel) throw invalidTakeoverInput();
       return enqueue(async () => {
-        await replay(cdp, events, state, controller.signal, area);
-        if (!events.some((event) => event.type === 'up')) return { editable: null, numeric: null };
+        const interrupted = await replay(batch, area);
+        if (interrupted) return interrupted;
+        if (!batch.events.some((event) => event.type === 'up')) return { editable: null, numeric: null };
         await abortableSleep(150, controller.signal);
         return readFocus(cdp);
       });

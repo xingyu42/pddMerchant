@@ -181,26 +181,34 @@ function AddAccountForm() {
 }
 
 function AccountActions({ account, onDone, onError }) {
+  const [busy, setBusy] = useState(false);
+  const running = useRef(false);
   const slug = encodeURIComponent(account.slug);
   const blocked = account.password_relogin_status?.startsWith('已熔断') ?? false;
   const run = async (path, message) => {
+    if (running.current) return;
+    running.current = true;
+    setBusy(true);
     try {
       const payload = await api(`/api/accounts/${slug}/${path}`, {});
       if (payload.session_id) navigate(`/sessions/${encodeURIComponent(payload.session_id)}/${slug}`);
       else onDone(message);
     } catch (error) {
       onError(error);
+    } finally {
+      running.current = false;
+      setBusy(false);
     }
   };
   return html`
     <div class="panel actions">
       <h2>操作</h2>
-      ${blocked && html`<button onClick=${() => run('unblock', '已解除熔断')}>解除熔断</button>`}
-      ${account.has_password && !blocked && html`<button onClick=${() => run('relogin')}>开始重登</button>`}
-      ${!blocked && html`<button class="secondary" onClick=${() => run('qr')}>改用扫码登录</button>`}
+      ${blocked && html`<button disabled=${busy} onClick=${() => run('unblock', '已解除熔断')}>解除熔断</button>`}
+      ${account.has_password && !blocked && html`<button disabled=${busy} onClick=${() => run('relogin')}>开始重登</button>`}
+      ${!blocked && html`<button class="secondary" disabled=${busy} onClick=${() => run('qr')}>改用扫码登录</button>`}
       ${blocked && html`<p class="muted">已熔断：先解除熔断或重设密码，再开始重登或扫码。</p>`}
       ${account.has_password && html`
-        <button class="danger" onClick=${() => window.confirm('确定清除已保存的密码？') && run('password/clear', '密码已清除')}>清除密码</button>`}
+        <button class="danger" disabled=${busy} onClick=${() => !running.current && window.confirm('确定清除已保存的密码？') && run('password/clear', '密码已清除')}>清除密码</button>`}
     </div>`;
 }
 
@@ -267,32 +275,85 @@ function useFrames(id, enabled) {
   return frame;
 }
 
-function usePointerBatches(id, image, onFocus) {
-  const queue = useRef([]);
-  const origin = useRef(performance.now());
-  useEffect(() => {
-    const timer = setInterval(async () => {
-      if (queue.current.length === 0) return;
-      const events = queue.current.splice(0);
+async function flushPointerBatches(state) {
+  if (state.sending || state.closed) return;
+  state.sending = true;
+  try {
+    while (!state.closed && state.queue.length) {
+      const gesture = state.queue[0];
+      if (!gesture.events.length) {
+        if (!gesture.ended) break;
+        state.queue.shift();
+        continue;
+      }
+      const body = { gesture_id: gesture.id, seq: gesture.seq++, events: gesture.events.splice(0, 200) };
       try {
-        const result = await api(`/api/sessions/${encodeURIComponent(id)}/pointer`, { events });
-        if (typeof result.editable === 'boolean') onFocus.current?.(result);
-      } catch { /* 丢失的批次由用户重新操作。 */ }
-    }, POINTER_FLUSH_MS);
-    return () => clearInterval(timer);
+        const result = await state.post(body);
+        if (state.closed) return;
+        if (result.result === 'interrupted') interruptPointerBatches(state);
+        else if (typeof result.editable === 'boolean') state.onFocus(result);
+      } catch (error) {
+        if (!state.closed) interruptPointerBatches(state, error);
+        // 请求可能已到达服务端；显式释放，断网时另有服务端空闲超时兜底。
+        try { await state.post({ gesture_id: gesture.id, seq: gesture.seq++, events: [], cancel: true }); }
+        catch { /* 保留重试提示，等待服务端自动释放。 */ }
+      }
+      if (state.queue[0] === gesture && gesture.ended && !gesture.events.length) state.queue.shift();
+    }
+  } finally { state.sending = false; }
+}
+
+function interruptPointerBatches(state, error) {
+  state.queue.length = 0;
+  state.current = null;
+  state.onError(error?.status === 401 ? error : new Error('拖动中断，请重新操作'));
+}
+
+function createPointerBatches(post, onFocus, onError) {
+  const state = { post, onFocus, onError, queue: [], current: null, sending: false, closed: false };
+  const timer = setInterval(() => { void flushPointerBatches(state); }, POINTER_FLUSH_MS);
+  return {
+    send(records) {
+      if (state.closed) return;
+      for (const event of records.filter(Boolean)) {
+        if (event.type === 'down') {
+          if (state.current) state.current.ended = true;
+          const id = Array.from(crypto.getRandomValues(new Uint32Array(4)), (value) => value.toString(16).padStart(8, '0')).join('');
+          state.current = { id, seq: 0, origin: event.t, events: [], ended: false };
+          state.queue.push(state.current);
+          onError(null);
+        }
+        if (!state.current) continue;
+        state.current.events.push({ ...event, t: event.t - state.current.origin });
+        if (event.type === 'up') { state.current.ended = true; state.current = null; }
+      }
+    },
+    close() { state.closed = true; state.queue.length = 0; state.current = null; clearInterval(timer); },
+  };
+}
+
+function usePointerBatches(id, image, onFocus) {
+  const sender = useRef(null);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    setError(null);
+    const batches = createPointerBatches((body) => api(`/api/sessions/${encodeURIComponent(id)}/pointer`, body),
+      (result) => onFocus.current?.(result), setError);
+    sender.current = batches;
+    return () => { batches.close(); sender.current = null; };
   }, [id]);
-  // 坐标按缩放后的图片位置归一化，缩放平移不影响映射。
+  // 坐标按图片当前实际渲染的矩形归一化。
   const sample = useCallback((type, event) => {
     const rect = image.current?.getBoundingClientRect();
     if (!rect || rect.width === 0 || rect.height === 0) return null;
     const clamp = (value) => Math.min(1, Math.max(0, value));
     return {
-      t: Math.round(performance.now() - origin.current), type,
+      t: Math.round(performance.now()), type,
       x: clamp((event.clientX - rect.left) / rect.width), y: clamp((event.clientY - rect.top) / rect.height),
     };
   }, []);
-  const send = useCallback((records) => { queue.current.push(...records.filter(Boolean)); }, []);
-  return { sample, send };
+  const send = useCallback((records) => { sender.current?.send(records); }, []);
+  return { sample, send, error };
 }
 
 // 单指点击或拖动验证码弹窗，只跟踪第一根手指。
@@ -353,11 +414,12 @@ function TakeoverScreen({ id }) {
   const image = useRef(null);
   const keyboard = useRemoteKeyboard(id);
   const onFocus = useRef(keyboard.onFocus);
-  const { sample, send } = usePointerBatches(id, image, onFocus);
+  const { sample, send, error } = usePointerBatches(id, image, onFocus);
   const handlers = usePointerGesture(sample, send);
-  if (!frame?.jpeg) return html`<div class="screen-wrap screen-empty">等待验证码弹窗…</div>`;
+  if (!frame?.jpeg) return html`<${Notice} error=${error} /><div class="screen-wrap screen-empty">等待验证码弹窗…</div>`;
   return html`
     <p class="muted">拖动滑块或点选完成验证；点中输入框会弹出键盘。</p>
+    <${Notice} error=${error} />
     <div class="screen-box">
       <div class="screen-wrap" ...${handlers}>
         <img ref=${image} class="screen" alt="验证码弹窗" draggable="false"
