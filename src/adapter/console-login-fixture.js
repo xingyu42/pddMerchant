@@ -1,5 +1,5 @@
 import { createLatestFrames } from './latest-frames.js';
-import { validatePointer, validateText, validateKey } from './takeover.js';
+import { validatePointerBatch, validateText, validateKey, createPointerReplay, inputQueue } from './takeover.js';
 
 export const FIXTURE_QR_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVR4nGP4+vUrAAXCAuCuRnaIAAAAAElFTkSuQmCC';
 const JPEG = [
@@ -13,10 +13,19 @@ const JPEG = [
 
 export function openFixtureTakeover() {
   const frames = createLatestFrames();
+  const controller = new AbortController();
+  const enqueue = inputQueue(controller.signal);
+  const replay = createPointerReplay({ state: { pressed: false }, signal: controller.signal, enqueue,
+    dispatch: async () => {} });
   frames.publish({ jpeg: JPEG, width: 1, height: 1 });
-  return { frames, dispatchPointer(input) {
-    const released = validatePointer(input).some((event) => event.type === 'up');
-    return released ? { editable: false, numeric: false } : { editable: null, numeric: null };
+  return { frames, dispatchPointer(input, metadata) {
+    const batch = validatePointerBatch(input, metadata);
+    return enqueue(async () => {
+      const interrupted = await replay(batch);
+      if (interrupted) return interrupted;
+      const released = batch.events.some((event) => event.type === 'up');
+      return released ? { editable: false, numeric: false } : { editable: null, numeric: null };
+    });
   }, insertText: validateText, pressKey: validateKey,
-    close: () => frames.close() };
+    close: () => { controller.abort(); frames.close(); } };
 }

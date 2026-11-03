@@ -427,7 +427,7 @@ createConsoleServer() -> { start(context), stop(), address() }; // daemon compon
 - Cookie: `pdd_console=<value>; HttpOnly; SameSite=Strict; Path=/`; add `Secure` only when `consolePublicUrl` is HTTPS.
 - Metadata reads use `getAuthStateMetadata`, without decrypting stored browser state. Prefer `metadata.last_check.verdict`, falling back to `check_verdict`; map verdicts and open action kinds/reasons through `labels.js`. Missing verdict is null; action timestamps are local strings. Reuse `formatPasswordReloginStatus`.
 - Password writes reuse existing credential services, immediately discard parsed body fields, and return fixed whitelisted data. All account sessions can operate all merchant accounts, including disabled accounts.
-- Public routes are `GET /healthz`, `GET /c/:token`, `GET /app/redeem.js`, and `POST /api/redeem`. GET previews serve a small external-script HTML page and leave the token untouched. The browser script POSTs `{ token }` with JSON and `X-PDD-Console: 1`; redemption sets the cookie and returns `{ location }` (`/` or `/#/accounts/<slug>`). Replay/expiry returns fixed 410 JSON. Unauthenticated `/` returns a 401 HTML link hint.
+- Public routes are `GET /healthz`, `GET /c/:token`, `GET /app/redeem.js`, `GET /app/styles.css`, and `POST /api/redeem`. GET previews serve a small external-script HTML page and leave the token untouched. The browser script POSTs `{ token }` with JSON and `X-PDD-Console: 1`; redemption sets the cookie and returns `{ location }` (`/` or `/#/accounts/<slug>`). Replay/expiry returns fixed 410 JSON, unless the request already carries a valid console session cookie: then it returns `{ location: '/' }` without a new cookie (same browser reopening a used link). Unauthenticated `/` returns a 401 HTML link hint.
 - Require the exact configured listen Host/port or public URL host; loopback listeners also accept `localhost`, `127.0.0.1`, `[::1]` with the listen port. POST writes require JSON plus `X-PDD-Console: 1`; cap the body at 64 KiB, stop reading on HTTP 413, set `Connection: close` and destroy the socket after flushing the response instead of draining the remaining upload. Errors are `{ error:{ code, message } }` with Chinese messages and fixed safe fallbacks.
 - All final responses carry no-store/nosniff/no-referrer/DENY; HTML also carries the strict self-only CSP. Parser failures use a fixed secure 400 response. Static files come only from `console/public` and `/vendor/` -> `console/vendor`, with lexical and realpath prefix checks and an explicit MIME map, including `.mjs`.
 - `CONSOLE_ROUTES` owns method, route template, regex, public flag and handler. Future P4 routes go through the same guard. Access logs contain only method/template/status/duration; unknown paths use wildcard templates.
@@ -437,7 +437,7 @@ createConsoleServer() -> { start(context), stop(), address() }; // daemon compon
 | Condition | Result |
 | --- | --- |
 | Link creation without valid daemon lease/address | `E_DAEMON_NOT_RUNNING`, exit 1 |
-| Consumed, absent or malformed token | typed `E_CONSOLE_LINK_GONE`; HTTP 410 |
+| Consumed, absent or malformed token | typed `E_CONSOLE_LINK_GONE`; HTTP 410 (200 `{ location: '/' }` with an existing valid session cookie) |
 | Token at/past expiry | typed `E_CONSOLE_LINK_EXPIRED`; HTTP 410 |
 | Absent, unknown or expired cookie | HTTP 401 |
 | Host mismatch | HTTP 421 |
@@ -456,7 +456,7 @@ createConsoleServer() -> { start(context), stop(), address() }; // daemon compon
 ### 6. Tests Required
 
 - `test/services/console-auth.test.js`: replay, exact expiry, unknown/absent cookies, null/account binding, hashed storage, Secure flag, transactional rollback.
-- `test/daemon/server.test.js`, `static.test.js`: Host, CSRF, JSON/body limit, traversal/symlinks/MIME, security headers including parser failures, account whitelist/password actions, safe access templates, occupied port lease cleanup and owner-protected metadata. Two GET previews preserve redemption; the first JSON POST succeeds and replay returns 410. `test/daemon/redeem.test.js` executes the browser script and checks POST headers, navigation and fixed Chinese failure text.
+- `test/daemon/server.test.js`, `static.test.js`: Host, CSRF, JSON/body limit, traversal/symlinks/MIME, security headers including parser failures, account whitelist/password actions, safe access templates, occupied port lease cleanup and owner-protected metadata. Two GET previews preserve redemption; the first JSON POST succeeds and replay returns 410; replay with the issued cookie returns `/` without Set-Cookie, a stale cookie still gets 410. `test/daemon/redeem.test.js` executes the browser script and checks POST headers, navigation and fixed Chinese failure text.
 - `test/e2e/console.e2e.test.js`: random-port fixture daemon and temporary DB; start/link/redeem/list/password/replay/stop; plaintext credentials absent from responses, stdout/stderr, CLI/daemon logs and DB bytes; token/session absent from logs.
 - `data-contract-v2.test.js` covers `console.link`; daemon helpers allocate random ports and wait for the published URL. Run targeted tests and full `npm test`.
 
@@ -479,22 +479,26 @@ Applies to `services/console-login*.js`, `daemon/routes.js`, `daemon/sse.js` and
 
 ```js
 startConsoleSession(slug, { mode: 'password' | 'qr', ownerTag, signal }) -> { session_id };
+startConsoleAddSession({ login_name, password }, { ownerTag, signal }) -> { session_id }; // mode 'add', no account yet
 getConsoleSession(id) -> { state, message, remaining_seconds, expires_at, qr_image };
 consoleSessionFrames(id) -> { subscribe(callback), [Symbol.asyncIterator]() };
-consoleSessionPointer(id, { events }); consoleSessionText(id, { text } | { key });
+consoleSessionPointer(id, { gesture_id, seq, events, cancel? }); // { ok: true, editable, numeric, result?: 'interrupted' }
+consoleSessionText(id, { text } | { key });
 refreshConsoleQr(id); cancelConsoleSession(id); closeAllConsoleSessions();
 saveMerchantLogin(result, initial, task); // shared verified-candidate + lease/CAS/manual-success commit
 ```
 
 ### 3. Contracts
 
-- Memory-only session ids are 16 random bytes, base64url. A new session cancels the previous account session and waits for its cleanup; at most two accounts have active/reserved sessions. Closing resources still occupy a slot. Terminal status remains available for five minutes, then is dropped.
-- Password and QR start at `/api/accounts/:slug/relogin` and `/qr` (POST `{}`). Session routes are `/api/sessions/:id`, `/frames` (GET); `/pointer`, `/text`, `/sms`, `/qr/refresh`, `/cancel` (POST). All require a console cookie; all POSTs retain JSON/custom-header checks.
+- Memory-only session ids are 16 random bytes, base64url. Sessions are keyed by account id, and every add session shares the key `add`. A new session cancels the previous session with the same key and waits for its cleanup; at most two keys have active/reserved sessions. Closing resources still occupy a slot. Terminal status remains available for five minutes, then is dropped.
+- Password and QR start at `/api/accounts/:slug/relogin` and `/qr` (POST `{}`); adding a shop starts at `/api/accounts/add` (POST `{ login_name, password }`, same validation as saved passwords, 400 `E_USAGE` otherwise; body fields are deleted after use). Session routes are `/api/sessions/:id`, `/frames` (GET); `/pointer`, `/text`, `/sms`, `/qr/refresh`, `/cancel` (POST). All require a console cookie; all POSTs retain JSON/custom-header checks.
 - States are `filling|takeover|sms|qr|verifying|succeeded|failed|timed_out|cancelled`; message is fixed Chinese or null, expires_at is ISO, qr_image is a data URL only in QR state. An identity mismatch fails with `E_ACCOUNT_IDENTITY_MISMATCH` in the safe message; the five-field status contract stays unchanged.
 - Sessions hold `withMerchantAuthUpdate` for the full operation, with the account identity and a twelve-minute deadline. Explicit starts skip automatic throttle/awaiting-human gates, retain the block gate, and use `deviceState(tx)` via `createSnapshotContext`.
 - Password attempts receive seventy seconds and every non-success outcome is recorded through `recordReloginOutcome`. Only challenges wait for a human: `sms` enters state `sms` (no picture; `/sms { code }` fills the login page's SMS dialog via `submitSmsCode` and returns `{ ok, result: submitted|wrong_code|form_changed }`, one submission at a time), other challenges enter `takeover` (captcha dialog relay). `form_changed` / `network_error` end the session as `failed` with a fixed message, without takeover; wrong-password/locked outcomes reuse the breaker and credential-version guard. `takeover` and `sms` expire after ten minutes and increment the timeout counter; QR uses `TIMEOUTS.LOGIN_QR` and recaptures in the same context. Cancellation and QR timeout leave the takeover counter unchanged.
 - PASS_ID is an acquisition signal. Close the login page, independently verify expected identity and shop access, then commit through `saveMerchantLogin`. QR/manual success resets consecutive timeouts; password success also records its outcome. All browser paths close resources and release leases. Daemon stop aborts sessions and rejects new starts.
+- Add sessions hold no account lease and write no relogin state before the shop is known. They log in from a blank browser state with the submitted credential, which lives only in session memory and is cleared when the session ends. `wrong_password` / `account_locked` / `form_changed` / `network_error` end as `failed` with a fixed message and register nothing; challenges use the same `sms` / `takeover` windows (timeouts do not touch any counter). After PASS_ID the login page closes, `verifyConsoleLogin` verifies without an expected mall, `provisionMerchantLogin` registers a new account or updates the existing one for that mall (short lease), and `setAccountPassword` saves the credential. Messages: `账号已添加，密码已保存` / `该店铺已在账号列表中，已更新登录状态和密码`.
 - SSE uses `event: frame` and `{ jpeg, width, height }` (`jpeg: null` while no captcha dialog is found), no-store, five fps maximum. Backpressure drops frames until drain, then sends the latest. End/disconnect releases subscribers. Browser images, credentials and input are never logged.
+- Pointer requests require a per-gesture id and zero-based batch sequence. Successful responses retain `{ ok: true, editable, numeric }`; interruption adds `result: 'interrupted'` with null focus fields. Cancellation uses the same body with `cancel: true, events: []`. The adapter owns sequencing, bounded time validation, fixed-anchor replay and idle release (browser-runtime section 10); fixture shares those rules.
 
 ### 4. Validation & Error Matrix
 
@@ -505,7 +509,7 @@ saveMerchantLogin(result, initial, task); // shared verified-candidate + lease/C
 | third active account | 429 `E_CONSOLE_BUSY` |
 | unknown/dropped id | 404 `E_CONSOLE_SESSION_NOT_FOUND` |
 | wrong state for input/refresh/frames | 409 `E_CONSOLE_SESSION_STATE` |
-| invalid pointer/text/key/SMS code | 400 `E_USAGE`; no input echoed |
+| invalid pointer/text/key/SMS code, or add without non-empty login name/password ≤128 | 400 `E_USAGE`; no input echoed |
 | concurrent SMS submission | 409 `E_CONSOLE_SESSION_STATE` |
 | password outcome form_changed / network_error | session failed with fixed message; no takeover |
 | daemon stopping | 503 `E_CONSOLE_STOPPING` |
@@ -519,7 +523,7 @@ saveMerchantLogin(result, initial, task); // shared verified-candidate + lease/C
 
 ### 6. Tests Required
 
-- `test/services/console-login.test.js`: device continuity, seventy-second budget, captcha takeover vs SMS input vs form/network failure, lease outside transactions, shared verified commit, mismatch/rejected check/CAS preservation, partial resource cleanup, cancellation, real timer boundaries, retention, QR reuse and fixture-only control guards.
+- `test/services/console-login.test.js`: device continuity, seventy-second budget, captcha takeover vs SMS input vs form/network failure, add sessions (blank state, new vs existing shop, SMS, failures without registration, credential validation and body clearing), lease outside transactions, shared verified commit, mismatch/rejected check/CAS preservation, partial resource cleanup, cancellation, real timer boundaries, retention, QR reuse and fixture-only control guards.
 - `test/adapter/takeover.test.js`, `test/daemon/sse.test.js`: CDP acks, latest-frame throttling, pointer timing/coordinates/serialization, validation, keys, backpressure, disconnect and decodable fixture images.
 - `test/e2e/console-login.e2e.test.js`: fixture random-port/temp-DB challenge through SSE/input to success, action resolution, ordinary marker reuse with no new attempt, two-timeout breaker/unblock, QR, account replacement/global limit, daemon stop and secret-free responses/streams/stdout/logs. Run full `npm test` after targeted tests.
 

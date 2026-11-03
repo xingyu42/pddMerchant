@@ -8,19 +8,19 @@ import { loadPasswordCredential } from '../adapter/password-credential.js';
 import { assertAuthTask } from '../adapter/merchant-auth-storage.js';
 import { deviceState } from './password-relogin.js';
 
-export async function openConsoleBrowser(session, tx) {
+// 新增账号没有已存设备状态，调用方传入空白状态。
+export async function openConsoleBrowser(session, tx, state = deviceState(tx)) {
   const { browser, context } = await launchBrowser({ ownerTag: session.ownerTag });
   session.browser = browser;
   await context?.close();
   assertAuthTask(tx);
-  session.context = await createSnapshotContext(browser, deviceState(tx));
+  session.context = await createSnapshotContext(browser, state);
   assertAuthTask(tx);
   session.page = await session.context.newPage();
   assertAuthTask(tx);
 }
 
-export async function attemptConsolePassword(session, tx) {
-  const credential = loadPasswordCredential(tx.accountId);
+export async function attemptConsolePassword(session, tx, credential = loadPasswordCredential(tx.accountId)) {
   const task = { signal: tx.signal, deadlineAt: Math.min(tx.deadlineAt, Date.now() + 70_000) };
   return attemptPasswordLogin(session.page, credential, task);
 }
@@ -49,7 +49,7 @@ export async function verifyConsoleLogin(session, tx) {
   await session.refreshing;
   assertAuthTask(tx);
   await session.takeover?.close();
-  await session.page.close();
+  await session.page?.close();
   const verified = await verifyMerchantContext(session.context, { signal: tx.signal,
     deadlineAt: tx.deadlineAt, expectedMallId: tx.recoveryMallId });
   assertMerchantVerified(verified);

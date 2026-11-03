@@ -24,7 +24,9 @@ export function send(response, status, body, type = 'application/json; charset=u
 }
 
 export function sendHtml(response, status, message, scripts = '') {
-  send(response, status, `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>pdd 控制台</title><p>${message}</p>${scripts}</html>`,
+  send(response, status, `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>pdd 控制台</title>
+<link rel="stylesheet" href="/app/styles.css"></head><body><main><p>${message}</p></main>${scripts}</body></html>`,
     'text/html; charset=utf-8');
 }
 

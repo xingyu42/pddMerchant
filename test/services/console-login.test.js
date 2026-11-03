@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, it, vi } from 'vitest';
-import { insertAccount, getAccountById, putReloginState, getReloginState, listPendingActions } from '../../src/infra/account-store.js';
+import { insertAccount, getAccountById, putReloginState, getReloginState, listPendingActions, listAccounts } from '../../src/infra/account-store.js';
 import { get, run, isInTransaction } from '../../src/infra/db.js';
 import { saveAuthStateSnapshot, loadAuthState } from '../../src/adapter/auth-state.js';
 import { setAccountPassword } from '../../src/services/password-relogin.js';
@@ -39,7 +39,8 @@ vi.mock('../../src/adapter/browser.js', () => ({
 vi.mock('../../src/adapter/password-login.js', () => ({
   attemptPasswordLogin: vi.fn(async (page, credential, task) => {
     assert.equal(isInTransaction(), false);
-    assert.ok(get("SELECT owner_token FROM leases WHERE scope = 'account'"));
+    // 重登持有账号租约；新增账号在登记前不持有任何租约。
+    assert.equal(Boolean(get("SELECT owner_token FROM leases WHERE scope = 'account'")), !control.adding);
     assert.ok(task.deadlineAt - Date.now() <= 70_000);
     assert.ok(task.deadlineAt - Date.now() > 69_000);
     assert.deepEqual(credential, { loginName: 'private-login', password: 'private-password' });
@@ -61,7 +62,7 @@ import { launchBrowser, createSnapshotContext } from '../../src/adapter/browser.
 import { attemptPasswordLogin, submitSmsCode } from '../../src/adapter/password-login.js';
 import { captureQrElement } from '../../src/adapter/qr-login.js';
 import { startConsoleSession, getConsoleSession, cancelConsoleSession, refreshConsoleQr,
-  closeAllConsoleSessions, completeFixtureConsoleSession, consoleSessionSms,
+  closeAllConsoleSessions, completeFixtureConsoleSession, consoleSessionSms, startConsoleAddSession,
   consoleSessionPointer } from '../../src/services/console-login.js';
 
 let account;
@@ -75,6 +76,7 @@ beforeEach(() => {
   control.browser = { close: vi.fn(async () => {}) };
   control.outcome = { outcome: 'success' };
   control.sms = { outcome: 'submitted' };
+  control.adding = false;
   control.failAt = null; control.held = null; control.mallId = 900001; control.login = true;
   account = insertAccount({ identity: '900001', displayName: 'Shop' });
   original = { cookies: [passCookie(), { name: 'device', value: 'trust', domain: '.pinduoduo.com', path: '/' }],
@@ -173,6 +175,22 @@ it('asks for the SMS code without a takeover picture and fills it into the login
   assert.equal(loadAuthState(account.id).revision, 2);
   assert.equal(getReloginState(account.id).status, 'available');
   assertReleased();
+});
+
+it('preserves pointer focus fields and forwards interruption and cancellation in fixture sessions', async () => {
+  vi.stubEnv('PDD_TEST_ADAPTER', 'fixture');
+  vi.stubEnv('PDD_TEST_PASSWORD_LOGIN', 'challenge:slider');
+  const id = start();
+  await stateIs(id, 'takeover');
+  const events = [{ t: 0, type: 'down', x: 0, y: 0 }];
+  await assert.rejects(consoleSessionPointer(id, { events }), { code: 'E_USAGE' });
+  assert.deepEqual(await consoleSessionPointer(id, { gesture_id: 'drag', seq: 0, events }),
+    { ok: true, editable: null, numeric: null });
+  const stopped = { ok: true, editable: null, numeric: null, result: 'interrupted' };
+  assert.deepEqual(await consoleSessionPointer(id, { gesture_id: 'drag', seq: 0, events }), stopped);
+  assert.deepEqual(await consoleSessionPointer(id, { gesture_id: 'drag', seq: 1, events: [], cancel: true }), stopped);
+  assert.deepEqual(await consoleSessionPointer(id, { gesture_id: 'new', seq: 0,
+    events: [...events, { ...events[0], type: 'up' }] }), { ok: true, editable: false, numeric: false });
 });
 
 it.each([['form_changed', '登录页结构已变化，自动填写失败，请改用扫码登录'],
@@ -329,4 +347,79 @@ it('preserves saved state on CAS conflict after the browser login', async () => 
   assert.equal(loadAuthState(account.id).revision, 2);
   assert.deepEqual(loadAuthState(account.id).state, original);
   assertReleased();
+});
+
+function startAdd(body = { login_name: 'private-login', password: 'private-password' }) {
+  control.adding = true;
+  return startConsoleAddSession(body, { ownerTag: 'test-daemon' }).session_id;
+}
+
+function credentialOf(accountId) {
+  return get('SELECT updated_at FROM credentials WHERE account_id = ?', accountId)?.updated_at ?? null;
+}
+
+it('adds a new shop from a blank browser state, saves its password and clears the request body', async () => {
+  control.mallId = 900099;
+  const body = { login_name: 'private-login', password: 'private-password' };
+  const id = startAdd(body);
+  assert.deepEqual(body, {});
+  const status = await stateIs(id, 'succeeded');
+  assert.equal(status.message, '账号已添加，密码已保存');
+  assert.deepEqual(createSnapshotContext.mock.calls[0][1], { cookies: [], origins: [] });
+  assert.deepEqual(attemptPasswordLogin.mock.calls[0][1], { loginName: 'private-login', password: 'private-password' });
+  const added = listAccounts().find((item) => item.identity === '900099');
+  assert.equal(added.display_name, 'Verified Shop');
+  assert.ok(credentialOf(added.id));
+  assert.equal(getReloginState(added.id).status, 'available');
+  assert.equal(loadAuthState(added.id).metadata.check_verdict, 'verified');
+  assert.equal(JSON.stringify(getConsoleSession(id)).includes('private'), false);
+  assert.equal(control.browser.close.mock.calls.length, 1);
+  assertReleased();
+});
+
+it('updates an already registered shop instead of adding a duplicate', async () => {
+  const before = credentialOf(account.id);
+  const id = startAdd();
+  const status = await stateIs(id, 'succeeded');
+  assert.equal(status.message, '该店铺已在账号列表中，已更新登录状态和密码');
+  assert.equal(listAccounts().length, 1);
+  assert.equal(loadAuthState(account.id).revision, 2);
+  assert.notEqual(credentialOf(account.id), before);
+  assertReleased();
+});
+
+it('waits for the SMS code before adding the shop', async () => {
+  control.mallId = 900099;
+  control.outcome = { outcome: 'challenge', challenge: 'sms' };
+  const id = startAdd();
+  await stateIs(id, 'sms');
+  assert.equal(listAccounts().length, 1);
+  assert.deepEqual(await consoleSessionSms(id, { code: '123456' }), { ok: true, result: 'submitted' });
+  control.contexts[0].state.cookies.push(passCookie());
+  await stateIs(id, 'succeeded');
+  assert.ok(listAccounts().some((item) => item.identity === '900099'));
+  assertReleased();
+});
+
+it.each([['wrong_password', '登录名或密码错误，账号未添加'], ['account_locked', '登录失败次数过多，账号已被暂时锁定，请稍后再试'],
+  ['form_changed', '登录页结构已变化，自动填写失败，账号未添加'], ['network_error', '登录过程中网络异常，账号未添加，请稍后重试']])(
+  'ends an add session on %s without registering anything', async (outcome, message) => {
+    control.mallId = 900099;
+    control.outcome = { outcome };
+    const id = startAdd();
+    const status = await stateIs(id, 'failed');
+    assert.equal(status.message, message);
+    assert.equal(listAccounts().length, 1);
+    assert.equal(getReloginState(account.id)?.reason, 'password_reset');
+    assert.equal(control.browser.close.mock.calls.length, 1);
+    assertReleased();
+  });
+
+it('rejects incomplete credentials before starting and still clears the request body', () => {
+  for (const body of [{}, { login_name: 'private-login' }, { login_name: ' ', password: 'private-password' },
+    { login_name: 'private-login', password: 'x'.repeat(129) }]) {
+    assert.throws(() => startAdd(body), (error) => error.code === 'E_USAGE' && !JSON.stringify(error).includes('private'));
+    assert.deepEqual(body, {});
+  }
+  assert.equal(launchBrowser.mock.calls.length, 0);
 });

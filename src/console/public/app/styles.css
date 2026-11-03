@@ -11,6 +11,7 @@
   --alert-fg: #8a4b00;
   --error-bg: #fdecec;
   --error-fg: #a11d1d;
+  --success-fg: #1a7f37;
   --radius: 10px;
   font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
@@ -26,6 +27,7 @@
     --alert-fg: #ffd48a;
     --error-bg: #3d1717;
     --error-fg: #ffb4b4;
+    --success-fg: #3fb950;
   }
 }
 
@@ -116,7 +118,7 @@ button.danger { background: transparent; color: var(--error-fg); border: 1px sol
 .row { display: flex; flex-wrap: wrap; }
 
 .state { font-weight: 600; }
-.state-succeeded { color: #1a7f37; }
+.state-succeeded { color: var(--success-fg); }
 .state-failed, .state-timed_out { color: var(--error-fg); }
 
 .screen-box { position: relative; margin-top: 8px; }

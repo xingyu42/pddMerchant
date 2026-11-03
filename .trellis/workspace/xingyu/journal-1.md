@@ -1348,3 +1348,33 @@ Topics: [.trellis/spec/adapter/auth-mall-context.md](../../spec/adapter/auth-mal
 ### Next Steps
 
 - 可将 2000017/8000037/2000018 等码补进 AUTH_RESPONSE_OUTCOMES，缩短 70s 等待
+
+
+## Session 45: 控制台指针串行发送与回放恢复
+<!-- trellis-session: v=2 fp=f504815f1d083c6e -->
+
+**Date**: 2026-11-03
+**Task**: 控制台指针串行发送与回放恢复
+**Branch**: `fix/console-pointer-ux`
+
+### Summary
+
+修复指针批次并发与乱序、空闲释放、固定时间基准和时间上限；账号按钮防重入，兑换页移动端样式及深色成功色。保留原有新增账号和兑换重放改动，未提交。
+Topics: [.trellis/spec/adapter/browser-runtime.md](../../spec/adapter/browser-runtime.md), [.trellis/spec/frontend/index.md](../../spec/frontend/index.md), [.trellis/spec/services/domain-service-contracts.md](../../spec/services/domain-service-contracts.md)
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] PDD_TEST_ADAPTER=fixture 定向 102 项通过；npm test 97 文件、1343 通过、1 个 Windows 平台跳过。
+- [OK] 临时 fixture daemon + Chrome：390px/1280px、兑换页 CSP/CSS、按钮防连点、200/200/52 串行批次、中断提示、深浅色均通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真实手机触控、输入法及真实验证码后端行为待验证。

@@ -23,9 +23,10 @@ function ordinary(sandbox) {
   }));
 }
 
-async function setup({ accounts = [DEFAULT_ACCOUNT], password = true, challenge = 'unknown' } = {}) {
+// authInvalid 让普通命令触发重登，同时也会让 fixture 核验拒绝新登录；新增账号的用例关掉它。
+async function setup({ accounts = [DEFAULT_ACCOUNT], password = true, challenge = 'unknown', authInvalid = true } = {}) {
   const sandbox = await createDaemonSandbox();
-  Object.assign(sandbox.env, { PDD_TEST_PASSWORD_LOGIN: `challenge:${challenge}`, PDD_TEST_AUTH_INVALID: '1',
+  Object.assign(sandbox.env, { PDD_TEST_PASSWORD_LOGIN: `challenge:${challenge}`, PDD_TEST_AUTH_INVALID: authInvalid ? '1' : '0',
     PDD_TEST_PASSWORD_LOGIN_TRACE: join(sandbox.root, 'attempts.log'), PDD_DEBUG_RAW: '1', PDD_LOG_LEVEL: 'debug' });
   seedDb(sandbox.env.PDD_DB_PATH, { accounts,
     authStates: accounts.map((account) => ({ slug: account.slug, state: { cookies: [], origins: [] } })),
@@ -143,14 +144,23 @@ it('recovers awaiting-human through SSE takeover, clears actions, and ordinary c
 
 async function exerciseInput(test, id) {
   const released = await api(test, `/api/sessions/${id}/pointer`, {
+    gesture_id: 'click', seq: 0,
     events: [{ t: 0, type: 'down', x: 0.5, y: 0.5 }, { t: 50, type: 'up', x: 1, y: 1 }],
   });
   assert.deepEqual(released, { ok: true, editable: false, numeric: false });
-  const moved = await api(test, `/api/sessions/${id}/pointer`, { events: [{ t: 51, type: 'move', x: 1, y: 1 }] });
+  const moved = await api(test, `/api/sessions/${id}/pointer`, { gesture_id: 'move', seq: 0,
+    events: [{ t: 51, type: 'move', x: 1, y: 1 }] });
   assert.deepEqual(moved, { ok: true, editable: null, numeric: null });
+  const interrupted = await api(test, `/api/sessions/${id}/pointer`, { gesture_id: 'move', seq: 2,
+    events: [{ t: 52, type: 'up', x: 1, y: 1 }] });
+  assert.deepEqual(interrupted, { ok: true, editable: null, numeric: null, result: 'interrupted' });
+  await api(test, `/api/sessions/${id}/pointer`, { gesture_id: 'huge', seq: 0,
+    events: [{ t: 1e12, type: 'down', x: 1, y: 1 }] }, 400);
   await api(test, `/api/sessions/${id}/text`, { text: '123456' });
   for (const key of ['Enter', 'Backspace', 'Tab']) await api(test, `/api/sessions/${id}/text`, { key });
-  await api(test, `/api/sessions/${id}/pointer`, { events: [{ t: 1, type: 'down', x: 2, y: 0 }] }, 400);
+  await api(test, `/api/sessions/${id}/pointer`, { gesture_id: 'outside', seq: 0,
+    events: [{ t: 1, type: 'down', x: 2, y: 0 }] }, 400);
+  await api(test, `/api/sessions/${id}/pointer`, { events: [{ t: 1, type: 'down', x: 0, y: 0 }] }, 400);
   await api(test, `/api/sessions/${id}/text`, { text: 'x'.repeat(65) }, 400);
   await api(test, `/api/sessions/${id}/text`, { key: 'Escape' }, 400);
 }
@@ -169,6 +179,25 @@ it('asks for the SMS code in the console without a takeover picture', async () =
     for (let index = 0; index < 60 && (await api(test, `/api/sessions/${id}`)).state !== 'succeeded'; index++) await sleep(50);
     assert.equal((await api(test, `/api/sessions/${id}`)).state, 'succeeded');
     assert.equal(readState(test).state.status, 'available');
+  } finally { await dispose(test); }
+});
+
+it('adds a shop from the console with login name and password, then lists it with the password saved', async () => {
+  const test = await setup({ accounts: [], password: false, authInvalid: false });
+  try {
+    assert.deepEqual((await api(test, '/api/accounts')).items, []);
+    await api(test, '/api/accounts/add', { login_name: credential.loginName }, 400);
+    const { session_id: id } = await api(test, '/api/accounts/add', { login_name: credential.loginName, password: credential.password });
+    for (let index = 0; index < 60 && (await api(test, `/api/sessions/${id}`)).state !== 'takeover'; index++) await sleep(50);
+    assert.equal((await api(test, `/api/sessions/${id}`)).state, 'takeover');
+    await api(test, `/api/sessions/${id}/fixture-complete`, { outcome: 'success' });
+    for (let index = 0; index < 60 && (await api(test, `/api/sessions/${id}`)).state !== 'succeeded'; index++) await sleep(50);
+    const session = await api(test, `/api/sessions/${id}`);
+    assert.equal(session.state, 'succeeded');
+    assert.equal(session.message, '账号已添加，密码已保存');
+    const { items } = await api(test, '/api/accounts');
+    assert.equal(items.length, 1);
+    assert.equal(items[0].has_password, true);
   } finally { await dispose(test); }
 });
 
