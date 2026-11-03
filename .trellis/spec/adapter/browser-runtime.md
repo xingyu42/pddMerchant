@@ -143,24 +143,29 @@ await chromium.launch({
 
 ### 1. Scope / Trigger
 
-Applies to `adapter/takeover.js` and `adapter/latest-frames.js` for console human input and bounded screen delivery.
+Applies to `adapter/takeover.js`, `adapter/takeover-dialog.js` and `adapter/latest-frames.js` for console human input and bounded screen delivery. The takeover relays only the captcha dialog; SMS challenges use `submitSmsCode` in `adapter/password-login.js` instead of a picture.
 
 ### 2. Signatures
 
 ```js
 openTakeover(page) -> { frames, dispatchPointer(events), insertText(text), pressKey(key), close() };
 // frames: latest-frame async iterable plus subscribe(frameOrNullCallback) -> unsubscribe
+// frame: { jpeg, width, height } for the dialog crop, or { jpeg: null, width: null, height: null } while no dialog
 // dispatchPointer(events) -> Promise<{ editable: boolean|null, numeric: boolean|null }>
-// POST /api/sessions/:id/pointer -> { ok: true, editable, numeric }
+// POST /api/sessions/:id/pointer { events } -> { ok: true, editable, numeric }
+submitSmsCode(page, code, { signal, deadlineAt }) -> { outcome: 'submitted' | 'wrong_code' | 'form_changed' };
+validateSmsCode(code) -> code; // 4-8 ASCII digits, else E_USAGE
 ```
 
 ### 3. Contracts
 
-- Open CDP through `page.context().newCDPSession(page)`; start screencast with JPEG, quality 60, maxWidth 1920, everyNthFrame 1. Acknowledge every received frame immediately, even discarded frames.
+- Open CDP through `page.context().newCDPSession(page)`; start screencast with JPEG, quality 10, maxWidth 320, everyNthFrame 1. Screencast frames are only a repaint signal and never published. Acknowledge every received frame immediately.
 - Frames publish at 200ms intervals only when a new frame has arrived since the previous publish (about 5 fps maximum), retaining the latest snapshot for new subscribers and backpressured SSE clients; each subscriber/iterator holds only the latest. Null signals closure. close is idempotent, aborts pending input waits, stops screencast, removes listeners and detaches CDP, including failed startup.
 - Pointer batches contain up to 200 `{ t, type, x, y }` events: finite nonnegative t monotonic within the batch, type down/move/up, finite normalized x/y in 0..1. Snapshot caller input before queueing. Serialize input batches and preserve positive t gaps across batches, accounting for elapsed time; a lower timestamp in a new batch starts a new timeline (frontend remount resets its clock origin). Long waits stay abortable and avoid timer overflow.
 - After replaying a batch containing `up`, wait 150ms with `abortableSleep` and the controller signal, then read focus in the same queued operation through `Runtime.evaluate` with a fixed expression and `returnByValue:true`. Descend through accessible same-origin IFRAME/FRAME active elements, catching document-access failures. Editable means enabled, writable TEXTAREA/contentEditable or INPUT with type text/search/tel/url/email/password/number (missing type means text); numeric means editable plus INPUT tel/number or inputmode numeric/tel/decimal. Only `{ editable, numeric }` booleans leave this focus expression; never element values, names or page text. Project only those two boolean fields from CDP. The service adds `ok:true`; fixture returns false/false for `up`, otherwise null/null.
-- Coordinates use frame metadata deviceWidth/deviceHeight. Down/up use left mousePressed/mouseReleased with clickCount 1; moves use mouseMoved, buttons 1 only while pressed. Text uses Input.insertText with at most 64 Unicode characters. Keys are Enter/Backspace/Tab only, sent as keyDown/keyUp with key/code/windowsVirtualKeyCode 13/8/9.
+- Dialog-only relay: every screencast frame triggers one coalesced refresh. Unless the pointer is pressed, a fixed by-value `Runtime.evaluate` returns only the padded (24px), viewport-clamped rect plus scroll offsets of the first visible `.captcha-wrapper` / `#slide-captcha-dialog` / `#slidemove-captcha-dialog` / `#SmartCaptcha` at least 40×40. A found rect is captured with `Page.captureScreenshot` (JPEG 80, document-coordinate clip, scale 2) and published with CSS width/height. No rect or a malformed rect publishes the empty frame and clears the pointer area; a failed capture publishes nothing and keeps the last picture. There is no full-page view. This DOM read only frames the picture; it never classifies login outcomes. Selectors come from static research and still need real-device confirmation.
+- Coordinates map into the last published dialog rect (`x + nx * width`, `y + ny * height`); pointers are `E_USAGE` while no dialog has been published. The rect stays locked while pressed.
+- SMS: fill `[class*="verify-phone-container"] input[placeholder*="短信验证码"]`, click its `button:has-text("确认")`, then wait up to 5s for the `/janus/api/auth` response. `2000017` → `wrong_code`; any other or no response → `submitted` (PASS_ID still decides success). Missing input/button → `form_changed`; cancellation/timeout throw. The code never enters logs or results. Down/up use left mousePressed/mouseReleased with clickCount 1; moves use mouseMoved, buttons 1 only while pressed. Text uses Input.insertText with at most 64 Unicode characters. Keys are Enter/Backspace/Tab only, sent as keyDown/keyUp with key/code/windowsVirtualKeyCode 13/8/9.
 - Share validators with the offline fixture channel. Frames, text, QR and credentials never enter logs.
 
 ### 4. Validation & Error Matrix
@@ -174,6 +179,8 @@ openTakeover(page) -> { frames, dispatchPointer(events), insertText(text), press
 | focus evaluation rejects, reports exceptionDetails or returns non-boolean/missing fields | editable/numeric both null; preserve successful pointer dispatch |
 | pointer replay failure or aborted focus delay | reject as before; no focus evaluation |
 | malformed dimensions | ack frame and discard it |
+| pointer while no dialog is published | `E_USAGE`; no CDP input |
+| invalid SMS code | `E_USAGE`; no page interaction |
 | screencast startup failure | stop/detach/remove listeners, preserve failure |
 
 ### 5. Good/Base/Bad Cases
@@ -185,7 +192,7 @@ openTakeover(page) -> { frames, dispatchPointer(events), insertText(text), press
 
 ### 6. Tests Required
 
-`test/adapter/takeover.test.js` uses fake CDP/timers for start/acks/latest frames, dimensions, serial cross-batch timing, button states, text/key dispatch, validation and cleanup. Focus coverage asserts the 150ms delay, one by-value evaluation after mouse events and before later input, move-only nulls, failure/malformed-result nulls, replay/abort rejection, editable/numeric cases and frame descent without reading sensitive properties. `test/e2e/console-login.e2e.test.js` asserts the fixture pointer API returns false/false on up and null/null on move. `test/daemon/sse.test.js` checks backpressure/disconnect/terminal closure and decodes the fixture images.
+`test/adapter/takeover.test.js` uses fake CDP/timers for start/acks/latest frames, dialog crop/scale/clip, dialog pointer mapping and press lock, empty frame / disappearing dialog / failed capture, SMS code validation, the dialog expression (visibility/size/padding/clamp), dimensions, serial cross-batch timing, button states, text/key dispatch, validation and cleanup. Focus coverage asserts the 150ms delay, one by-value evaluation after mouse events and before later input, move-only nulls, failure/malformed-result nulls, replay/abort rejection, editable/numeric cases and frame descent without reading sensitive properties. `test/e2e/console-login.e2e.test.js` asserts the fixture pointer API returns false/false on up and null/null on move. `test/daemon/sse.test.js` checks backpressure/disconnect/terminal closure and decodes the fixture images.
 
 ### 7. Wrong vs Correct
 

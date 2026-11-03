@@ -138,18 +138,6 @@ button.danger { background: transparent; color: var(--error-fg); border: 1px sol
   -webkit-touch-callout: none;
 }
 
-.screen-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; }
-
-.screen-tools .tool {
-  min-height: 32px;
-  margin: 0;
-  padding: 4px 12px;
-  font-size: 0.85rem;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #ffffff;
-}
-
 /* 输入法承接框：可聚焦但不可见；16px 字号避免 iOS 聚焦时自动放大页面。 */
 .ime {
   position: absolute;

@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, vi } from 'vitest';
-import { attemptPasswordLogin, classifyAuthResponse, PASSWORD_LOGIN_SELECTORS as selectors, PASSWORD_LOGIN_URL } from '../../src/adapter/password-login.js';
+import { attemptPasswordLogin, classifyAuthResponse, PASSWORD_LOGIN_SELECTORS as selectors, PASSWORD_LOGIN_URL, SMS_SELECTORS, submitSmsCode } from '../../src/adapter/password-login.js';
 import { classifyRateLimit } from '../../src/adapter/classify-rate-limit.js';
 import { mockPasswordLogin } from '../../src/adapter/mock-dispatcher.js';
 import { MERCHANT_CHECK_URL } from '../../src/adapter/merchant-auth-probe.js';
@@ -330,5 +330,74 @@ describe('password login fixture', () => {
     const expired = assert.rejects(mockPasswordLogin({ deadlineAt: Date.now() + 50 }), { code: 'E_AUTH_TIMEOUT' });
     await vi.advanceTimersByTimeAsync(50);
     await expired;
+  });
+});
+
+describe('submitSmsCode', () => {
+  function smsPage({ response, missing } = {}) {
+    const calls = [];
+    const page = {
+      calls, listeners: {},
+      on(event, fn) { (this.listeners[event] ??= []).push(fn); },
+      off(event, fn) { this.listeners[event] = (this.listeners[event] ?? []).filter((f) => f !== fn); },
+      locator(selector) {
+        const element = {
+          first: () => element,
+          fill: async (value) => {
+            if (missing === selector) throw new Error(value);
+            calls.push(['fill', selector, value]);
+          },
+          click: async () => {
+            if (missing === selector) throw new Error('missing');
+            calls.push(['click', selector]);
+            if (response === undefined) return;
+            for (const fn of page.listeners.response ?? []) {
+              fn({ url: () => 'https://mms.pinduoduo.com/janus/api/auth', json: async () => response });
+            }
+          },
+        };
+        return element;
+      },
+    };
+    return page;
+  }
+
+  for (const [response, outcome] of [[{ success: true, result: {} }, 'submitted'], [{ error_code: 2000017 }, 'wrong_code'],
+    [{ errorCode: 2000017 }, 'wrong_code'], [{ error_code: 2000099 }, 'submitted']]) {
+    it(`fills the SMS dialog once and reports ${outcome} for ${JSON.stringify(response)}`, async () => {
+      const page = smsPage({ response });
+      assert.deepEqual(await submitSmsCode(page, '123456', deadline()), { outcome });
+      assert.deepEqual(page.calls, [['fill', SMS_SELECTORS.input, '123456'], ['click', SMS_SELECTORS.confirm]]);
+      assert.equal(page.listeners.response.length, 0);
+    });
+  }
+
+  it('reports submitted when no auth response arrives within five seconds', async () => {
+    vi.useFakeTimers();
+    const page = smsPage();
+    const pending = submitSmsCode(page, '123456', { deadlineAt: Date.now() + 10_000 });
+    await vi.advanceTimersByTimeAsync(4900);
+    let settled = false;
+    void (async () => { await pending; settled = true; })();
+    await vi.advanceTimersByTimeAsync(0);
+    assert.equal(settled, false);
+    await vi.advanceTimersByTimeAsync(200);
+    assert.deepEqual(await pending, { outcome: 'submitted' });
+  });
+
+  for (const key of ['input', 'confirm']) {
+    it(`maps a missing SMS ${key} to form_changed without echoing the code`, async () => {
+      const page = smsPage({ missing: SMS_SELECTORS[key] });
+      const result = await submitSmsCode(page, '654321', deadline());
+      assert.deepEqual(result, { outcome: 'form_changed' });
+      assert.equal(page.calls.some(([action]) => action === 'click'), false);
+      assert.equal(page.listeners.response.length, 0);
+    });
+  }
+
+  it('preserves cancellation', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(submitSmsCode(smsPage(), '123456', { signal: controller.signal, ...deadline() }), { code: 'E_AUTH_CANCELLED' });
   });
 });

@@ -3,7 +3,7 @@ import { openTakeover } from '../adapter/takeover.js';
 import { captureQrElement } from '../adapter/qr-login.js';
 import { verifyMerchantContext, assertMerchantVerified } from '../adapter/merchant-auth.js';
 import { hasPassId, MERCHANT_CHECK_URL } from '../adapter/merchant-auth-probe.js';
-import { attemptPasswordLogin } from '../adapter/password-login.js';
+import { attemptPasswordLogin, submitSmsCode } from '../adapter/password-login.js';
 import { loadPasswordCredential } from '../adapter/password-credential.js';
 import { assertAuthTask } from '../adapter/merchant-auth-storage.js';
 import { deviceState } from './password-relogin.js';
@@ -23,6 +23,11 @@ export async function attemptConsolePassword(session, tx) {
   const credential = loadPasswordCredential(tx.accountId);
   const task = { signal: tx.signal, deadlineAt: Math.min(tx.deadlineAt, Date.now() + 70_000) };
   return attemptPasswordLogin(session.page, credential, task);
+}
+
+export async function submitConsoleSms(session, code) {
+  return submitSmsCode(session.page, code, { signal: session.controller.signal,
+    deadlineAt: Math.min(session.expiresAt, Date.now() + 15_000) });
 }
 
 export async function captureConsoleQr(session) {

@@ -12,6 +12,12 @@ export const PASSWORD_LOGIN_SELECTORS = Object.freeze({
   agreement: 'input[type="checkbox"][class*="agree"], .agree-checkbox, [data-testid="agree-checkbox"]',
   submit: 'button[type="submit"], button:has-text("登录"), [data-testid="login-submit"]',
 });
+// 登录页自带的手机验证弹窗（见调研报告 R4）；打开时页面已自动发送短信。
+export const SMS_SELECTORS = Object.freeze({
+  input: '[class*="verify-phone-container"] input[placeholder*="短信验证码"]',
+  confirm: '[class*="verify-phone-container"] button:has-text("确认")',
+});
+const SMS_RESPONSE_MS = 5000;
 
 // 账密登录提交接口；成功时 PASS_ID 写入 Cookie，失败时响应带 error_code（见调研报告）。
 export const PASSWORD_AUTH_URL = 'https://mms.pinduoduo.com/janus/api/auth';
@@ -44,13 +50,17 @@ function isAuthSubmitUrl(url) {
 
 // 监听账密登录响应，只取最新的 error_code。读 body 的任何失败都吞掉，绝不外抛进登录流程。
 function watchAuthResponse(page) {
-  const state = { code: null };
+  const state = { code: null, responded: false };
   const onResponse = (response) => {
     try {
       const url = typeof response?.url === 'function' ? response.url() : response?.url;
       if (!isAuthSubmitUrl(url)) return;
       Promise.resolve(response.json?.())
-        .then((raw) => { const code = authErrorCode(raw); if (code != null) state.code = code; })
+        .then((raw) => {
+          state.responded = true;
+          const code = authErrorCode(raw);
+          if (code != null) state.code = code;
+        })
         .catch(() => {});
     } catch { /* 监听器不得向页面抛出异常。 */ }
   };
@@ -149,6 +159,34 @@ export async function attemptPasswordLogin(page, credential, options = {}) {
     if (phase === 'submitted' && Date.now() >= task.deadlineAt) return { outcome: 'challenge', challenge: 'unknown' };
     assertAuthTask(task);
     return { outcome: phase === 'form' ? 'form_changed' : 'network_error' };
+  } finally {
+    watcher.detach();
+  }
+}
+
+async function waitForAuthResponse(state, task) {
+  const until = Math.min(task.deadlineAt, Date.now() + SMS_RESPONSE_MS);
+  while (!state.responded && Date.now() < until) {
+    await taskStep(task, () => abortableSleep(Math.min(100, until - Date.now()), task.signal));
+  }
+}
+
+// 把人输入的短信码填进登录页短信弹窗并点确认。只读这次提交的响应判断验证码是否错误（2000017），登录成功仍由 PASS_ID 判定。
+export async function submitSmsCode(page, code, options = {}) {
+  const task = { ...options, deadlineAt: options.deadlineAt ?? Date.now() + TIMEOUTS.ELEMENT_READY };
+  assertAuthTask(task);
+  const watcher = watchAuthResponse(page);
+  try {
+    const timeout = () => ({ timeout: budgetMs(task, TIMEOUTS.ELEMENT_READY) });
+    try {
+      await taskStep(task, () => page.locator(SMS_SELECTORS.input).first().fill(code, timeout()));
+      await taskStep(task, () => page.locator(SMS_SELECTORS.confirm).first().click(timeout()));
+    } catch {
+      assertAuthTask(task);
+      return { outcome: 'form_changed' };
+    }
+    await waitForAuthResponse(watcher.state, task);
+    return { outcome: watcher.state.code === '2000017' ? 'wrong_code' : 'submitted' };
   } finally {
     watcher.detach();
   }

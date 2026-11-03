@@ -23,9 +23,9 @@ function ordinary(sandbox) {
   }));
 }
 
-async function setup({ accounts = [DEFAULT_ACCOUNT], password = true } = {}) {
+async function setup({ accounts = [DEFAULT_ACCOUNT], password = true, challenge = 'unknown' } = {}) {
   const sandbox = await createDaemonSandbox();
-  Object.assign(sandbox.env, { PDD_TEST_PASSWORD_LOGIN: 'challenge:sms', PDD_TEST_AUTH_INVALID: '1',
+  Object.assign(sandbox.env, { PDD_TEST_PASSWORD_LOGIN: `challenge:${challenge}`, PDD_TEST_AUTH_INVALID: '1',
     PDD_TEST_PASSWORD_LOGIN_TRACE: join(sandbox.root, 'attempts.log'), PDD_DEBUG_RAW: '1', PDD_LOG_LEVEL: 'debug' });
   seedDb(sandbox.env.PDD_DB_PATH, { accounts,
     authStates: accounts.map((account) => ({ slug: account.slug, state: { cookies: [], origins: [] } })),
@@ -154,6 +154,23 @@ async function exerciseInput(test, id) {
   await api(test, `/api/sessions/${id}/text`, { text: 'x'.repeat(65) }, 400);
   await api(test, `/api/sessions/${id}/text`, { key: 'Escape' }, 400);
 }
+
+it('asks for the SMS code in the console without a takeover picture', async () => {
+  const test = await setup({ challenge: 'sms' });
+  try {
+    const id = await start(test, DEFAULT_ACCOUNT.slug, 'relogin', 'sms');
+    const session = await api(test, `/api/sessions/${id}`);
+    assert.match(session.message, /短信验证码/);
+    await api(test, `/api/sessions/${id}/frames`, undefined, 409);
+    await api(test, `/api/sessions/${id}/pointer`, { events: [{ t: 0, type: 'up', x: 0, y: 0 }] }, 409);
+    for (const code of ['12', '1234567890', 'abcdef']) await api(test, `/api/sessions/${id}/sms`, { code }, 400);
+    assert.deepEqual(await api(test, `/api/sessions/${id}/sms`, { code: '123456' }), { ok: true, result: 'submitted' });
+    await api(test, `/api/sessions/${id}/fixture-complete`, { outcome: 'success' });
+    for (let index = 0; index < 60 && (await api(test, `/api/sessions/${id}`)).state !== 'succeeded'; index++) await sleep(50);
+    assert.equal((await api(test, `/api/sessions/${id}`)).state, 'succeeded');
+    assert.equal(readState(test).state.status, 'available');
+  } finally { await dispose(test); }
+});
 
 it('blocks after two takeover timeouts, rejects both modes until unblock, and QR success resets the counter', async () => {
   const test = await setup();

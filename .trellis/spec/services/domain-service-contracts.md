@@ -489,12 +489,12 @@ saveMerchantLogin(result, initial, task); // shared verified-candidate + lease/C
 ### 3. Contracts
 
 - Memory-only session ids are 16 random bytes, base64url. A new session cancels the previous account session and waits for its cleanup; at most two accounts have active/reserved sessions. Closing resources still occupy a slot. Terminal status remains available for five minutes, then is dropped.
-- Password and QR start at `/api/accounts/:slug/relogin` and `/qr` (POST `{}`). Session routes are `/api/sessions/:id`, `/frames` (GET); `/pointer`, `/text`, `/qr/refresh`, `/cancel` (POST). All require a console cookie; all POSTs retain JSON/custom-header checks.
-- States are `filling|takeover|qr|verifying|succeeded|failed|timed_out|cancelled`; message is fixed Chinese or null, expires_at is ISO, qr_image is a data URL only in QR state. An identity mismatch fails with `E_ACCOUNT_IDENTITY_MISMATCH` in the safe message; the five-field status contract stays unchanged.
+- Password and QR start at `/api/accounts/:slug/relogin` and `/qr` (POST `{}`). Session routes are `/api/sessions/:id`, `/frames` (GET); `/pointer`, `/text`, `/sms`, `/qr/refresh`, `/cancel` (POST). All require a console cookie; all POSTs retain JSON/custom-header checks.
+- States are `filling|takeover|sms|qr|verifying|succeeded|failed|timed_out|cancelled`; message is fixed Chinese or null, expires_at is ISO, qr_image is a data URL only in QR state. An identity mismatch fails with `E_ACCOUNT_IDENTITY_MISMATCH` in the safe message; the five-field status contract stays unchanged.
 - Sessions hold `withMerchantAuthUpdate` for the full operation, with the account identity and a twelve-minute deadline. Explicit starts skip automatic throttle/awaiting-human gates, retain the block gate, and use `deviceState(tx)` via `createSnapshotContext`.
-- Password attempts receive seventy seconds. Challenge/form/network outcomes offer takeover; wrong-password/locked outcomes reuse the breaker and credential-version guard. Takeover expires after ten minutes and increments the timeout counter; QR uses `TIMEOUTS.LOGIN_QR` and recaptures in the same context. Cancellation and QR timeout leave the takeover counter unchanged.
+- Password attempts receive seventy seconds and every non-success outcome is recorded through `recordReloginOutcome`. Only challenges wait for a human: `sms` enters state `sms` (no picture; `/sms { code }` fills the login page's SMS dialog via `submitSmsCode` and returns `{ ok, result: submitted|wrong_code|form_changed }`, one submission at a time), other challenges enter `takeover` (captcha dialog relay). `form_changed` / `network_error` end the session as `failed` with a fixed message, without takeover; wrong-password/locked outcomes reuse the breaker and credential-version guard. `takeover` and `sms` expire after ten minutes and increment the timeout counter; QR uses `TIMEOUTS.LOGIN_QR` and recaptures in the same context. Cancellation and QR timeout leave the takeover counter unchanged.
 - PASS_ID is an acquisition signal. Close the login page, independently verify expected identity and shop access, then commit through `saveMerchantLogin`. QR/manual success resets consecutive timeouts; password success also records its outcome. All browser paths close resources and release leases. Daemon stop aborts sessions and rejects new starts.
-- SSE uses `event: frame` and `{ jpeg, width, height }`, no-store, five fps maximum. Backpressure drops frames until drain, then sends the latest. End/disconnect releases subscribers. Browser images, credentials and input are never logged.
+- SSE uses `event: frame` and `{ jpeg, width, height }` (`jpeg: null` while no captcha dialog is found), no-store, five fps maximum. Backpressure drops frames until drain, then sends the latest. End/disconnect releases subscribers. Browser images, credentials and input are never logged.
 
 ### 4. Validation & Error Matrix
 
@@ -505,7 +505,9 @@ saveMerchantLogin(result, initial, task); // shared verified-candidate + lease/C
 | third active account | 429 `E_CONSOLE_BUSY` |
 | unknown/dropped id | 404 `E_CONSOLE_SESSION_NOT_FOUND` |
 | wrong state for input/refresh/frames | 409 `E_CONSOLE_SESSION_STATE` |
-| invalid pointer/text/key | 400 `E_USAGE`; no input echoed |
+| invalid pointer/text/key/SMS code | 400 `E_USAGE`; no input echoed |
+| concurrent SMS submission | 409 `E_CONSOLE_SESSION_STATE` |
+| password outcome form_changed / network_error | session failed with fixed message; no takeover |
 | daemon stopping | 503 `E_CONSOLE_STOPPING` |
 | identity mismatch, cancelled task, CAS conflict, rejected/uncertain verification | preserve saved auth; terminal failed/cancelled |
 
@@ -517,7 +519,7 @@ saveMerchantLogin(result, initial, task); // shared verified-candidate + lease/C
 
 ### 6. Tests Required
 
-- `test/services/console-login.test.js`: device continuity, seventy-second budget, lease outside transactions, shared verified commit, mismatch/rejected check/CAS preservation, partial resource cleanup, cancellation, real timer boundaries, retention, QR reuse and fixture-only control guards.
+- `test/services/console-login.test.js`: device continuity, seventy-second budget, captcha takeover vs SMS input vs form/network failure, lease outside transactions, shared verified commit, mismatch/rejected check/CAS preservation, partial resource cleanup, cancellation, real timer boundaries, retention, QR reuse and fixture-only control guards.
 - `test/adapter/takeover.test.js`, `test/daemon/sse.test.js`: CDP acks, latest-frame throttling, pointer timing/coordinates/serialization, validation, keys, backpressure, disconnect and decodable fixture images.
 - `test/e2e/console-login.e2e.test.js`: fixture random-port/temp-DB challenge through SSE/input to success, action resolution, ordinary marker reuse with no new attempt, two-timeout breaker/unblock, QR, account replacement/global limit, daemon stop and secret-free responses/streams/stdout/logs. Run full `npm test` after targeted tests.
 

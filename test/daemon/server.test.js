@@ -64,7 +64,7 @@ it('serves public health and protects every API/static route with security heade
 it('keeps every interactive POST behind session and JSON guards and omits fixture control in live dispatch', async () => {
   const { port, headers } = await setup();
   const paths = ['/api/accounts/unknown/relogin', '/api/accounts/unknown/qr', '/api/sessions/unknown/pointer',
-    '/api/sessions/unknown/text', '/api/sessions/unknown/qr/refresh', '/api/sessions/unknown/cancel',
+    '/api/sessions/unknown/text', '/api/sessions/unknown/sms', '/api/sessions/unknown/qr/refresh', '/api/sessions/unknown/cancel',
     '/api/sessions/unknown/fixture-complete'];
   const json = { 'Content-Type': 'application/json', 'X-PDD-Console': '1' };
   for (const path of paths) {
