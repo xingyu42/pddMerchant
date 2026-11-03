@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 43
-- **Last Active**: 2026-11-01
+- **Total Sessions**: 44
+- **Last Active**: 2026-11-03
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1315 | Active |
+| `journal-1.md` | ~1350 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 44 | 2026-11-03 | 账密登录移除 DOM 兜底；否决控制台挂官方验证码组件 | `b421e81` | `main` |
 | 43 | 2026-11-01 | ③ 流量与商品明细：实现、审计与提交 | `fe1710a` | `feat/operating-data-gaps` |
 | 42 | 2026-10-31 | ④ 客服数据与评价汇总交付 | `a4b5764` | `feat/operating-data-gaps` |
 | 41 | 2026-10-31 | ② 店铺综合体验星级交付 | `5ae2a98` | `feat/operating-data-gaps` |
