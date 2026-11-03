@@ -2,50 +2,71 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { runInNewContext } from 'node:vm';
 import { afterEach, it, vi } from 'vitest';
-import { openTakeover } from '../../src/adapter/takeover.js';
+import { openTakeover, validateSmsCode } from '../../src/adapter/takeover.js';
 
+const DIALOG = { x: 100, y: 50, width: 400, height: 300, scrollX: 0, scrollY: 20 };
 const channels = [];
+const focusCalls = (cdp) => cdp.send.mock.calls
+  .filter(([method, body]) => method === 'Runtime.evaluate' && body.expression.includes('activeElement'));
+const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 afterEach(async () => { for (const channel of channels.splice(0)) await channel.close(); });
 
-async function setup() {
+// 默认页面上有弹窗；改写 page.dialog / page.data 可模拟弹窗消失、定位异常或截图失败。
+function fakeCdp() {
   const cdp = new EventEmitter();
-  cdp.send = vi.fn(async () => ({}));
+  cdp.page = { dialog: DIALOG, data: 'crop' };
+  cdp.send = vi.fn(async (method, body) => {
+    if (method === 'Runtime.evaluate' && body.expression.includes('captcha-wrapper')) return { result: { value: cdp.page.dialog } };
+    if (method === 'Page.captureScreenshot') {
+      if (cdp.page.data instanceof Error) throw cdp.page.data;
+      return { data: cdp.page.data };
+    }
+    return {};
+  });
   cdp.detach = vi.fn(async () => {});
+  return cdp;
+}
+
+async function setup() {
+  const cdp = fakeCdp();
   const context = { newCDPSession: vi.fn(async () => cdp) };
   const page = { context: () => context };
   const channel = await openTakeover(page);
   channels.push(channel);
-  const frame = (data = 'jpeg', width = 1902, height = 984, sessionId = 1) => {
-    cdp.emit('Page.screencastFrame', { data, sessionId, metadata: { deviceWidth: width, deviceHeight: height } });
-  };
-  return { cdp, channel, frame, context, page };
+  const frame = (data = 'screencast', sessionId = 1) => cdp.emit('Page.screencastFrame', { data, sessionId });
+  const show = async () => { frame(); await settle(); };
+  return { cdp, channel, frame, show, context, page };
 }
 
-it('starts CDP screencast, acks every frame and retains latest at five fps for slow consumers', async () => {
+const mouse = (cdp) => cdp.send.mock.calls.filter(([method]) => method === 'Input.dispatchMouseEvent').map(([, body]) => body);
+const captures = (cdp) => cdp.send.mock.calls.filter(([method]) => method === 'Page.captureScreenshot').map(([, body]) => body);
+
+it('uses screencast only as a repaint signal, acks every frame and publishes the latest dialog crop at five fps', async () => {
   vi.useFakeTimers();
   const { cdp, channel, frame, context, page } = await setup();
   assert.equal(context.newCDPSession.mock.calls[0][0], page);
   assert.deepEqual(cdp.send.mock.calls[0], ['Page.startScreencast', {
-    format: 'jpeg', quality: 60, maxWidth: 1920, everyNthFrame: 1,
+    format: 'jpeg', quality: 10, maxWidth: 320, everyNthFrame: 1,
   }]);
   const received = [];
   channel.frames.subscribe((value) => received.push(value));
   const iterator = channel.frames[Symbol.asyncIterator]();
   const pending = iterator.next();
-  frame('old', 100, 200, 7);
-  frame('new', 300, 400, 8);
+  cdp.page.data = 'old';
+  frame('screencast-a', 7);
+  await settle();
+  cdp.page.data = 'new';
+  frame('screencast-b', 8);
+  await settle();
   assert.equal(cdp.send.mock.calls.filter(([method]) => method === 'Page.screencastFrameAck').length, 2);
+  assert.deepEqual(captures(cdp)[0], { format: 'jpeg', quality: 80, clip: { x: 100, y: 70, width: 400, height: 300, scale: 2 } });
   await vi.advanceTimersByTimeAsync(199);
   assert.equal(received.length, 0);
   await vi.advanceTimersByTimeAsync(1);
-  assert.deepEqual((await pending).value, { jpeg: 'new', width: 300, height: 400 });
+  assert.deepEqual((await pending).value, { jpeg: 'new', width: 400, height: 300 });
   await vi.advanceTimersByTimeAsync(1000);
   assert.equal(received.length, 1);
-  frame('discarded');
-  await vi.advanceTimersByTimeAsync(200);
-  frame('latest');
-  await vi.advanceTimersByTimeAsync(200);
-  assert.equal((await iterator.next()).value.jpeg, 'latest');
+  assert.equal(JSON.stringify(received).includes('screencast'), false);
   await channel.close();
   assert.equal((await iterator.next()).done, true);
   assert.equal(received.at(-1), null);
@@ -53,30 +74,29 @@ it('starts CDP screencast, acks every frame and retains latest at five fps for s
   assert.equal(cdp.detach.mock.calls.length, 1);
 });
 
-it('maps normalized coordinates and preserves timestamp gaps across serialized batches', async () => {
+it('maps normalized coordinates into the dialog and preserves timestamp gaps across serialized batches', async () => {
   vi.useFakeTimers();
-  const { cdp, channel, frame } = await setup();
-  frame();
+  const { cdp, channel, show } = await setup();
+  await show();
   const first = channel.dispatchPointer([{ t: 10, type: 'down', x: 0.5, y: 0.25 }, { t: 60, type: 'move', x: 1, y: 1 }]);
   const second = channel.dispatchPointer([{ t: 110, type: 'up', x: 0, y: 0 }]);
   await vi.advanceTimersByTimeAsync(0);
-  const mouse = () => cdp.send.mock.calls.filter(([method]) => method === 'Input.dispatchMouseEvent').map(([, body]) => body);
-  assert.deepEqual(mouse(), [{ type: 'mousePressed', x: 951, y: 246, button: 'left', buttons: 1, clickCount: 1 }]);
+  assert.deepEqual(mouse(cdp), [{ type: 'mousePressed', x: 300, y: 125, button: 'left', buttons: 1, clickCount: 1 }]);
   await vi.advanceTimersByTimeAsync(49);
-  assert.equal(mouse().length, 1);
+  assert.equal(mouse(cdp).length, 1);
   await vi.advanceTimersByTimeAsync(1);
   await first;
-  assert.deepEqual(mouse()[1], { type: 'mouseMoved', x: 1902, y: 984, button: 'none', buttons: 1 });
+  assert.deepEqual(mouse(cdp)[1], { type: 'mouseMoved', x: 500, y: 350, button: 'none', buttons: 1 });
   await vi.advanceTimersByTimeAsync(50);
-  assert.deepEqual(mouse()[2], { type: 'mouseReleased', x: 0, y: 0, button: 'left', buttons: 0, clickCount: 1 });
+  assert.deepEqual(mouse(cdp)[2], { type: 'mouseReleased', x: 100, y: 50, button: 'left', buttons: 0, clickCount: 1 });
   await vi.advanceTimersByTimeAsync(150);
   await second;
 });
 
 it('reads boolean focus once 150ms after an up batch, before later queued input', async () => {
   vi.useFakeTimers();
-  const { cdp, channel, frame } = await setup();
-  frame();
+  const { cdp, channel, show } = await setup();
+  await show();
   cdp.send.mockClear();
   cdp.send.mockImplementation(async () => ({ result: { value: { editable: true, numeric: true, extra: 'discard' } } }));
   const pointer = channel.dispatchPointer(['down', 'up', 'up'].map((type) => ({ t: 0, type, x: 0, y: 0 })));
@@ -95,17 +115,17 @@ it('reads boolean focus once 150ms after an up batch, before later queued input'
 });
 
 it('returns null focus without evaluating a move-only batch', async () => {
-  const { cdp, channel, frame } = await setup();
-  frame();
+  const { cdp, channel, show } = await setup();
+  await show();
   const result = await channel.dispatchPointer([{ t: 0, type: 'move', x: 0, y: 0 }]);
   assert.deepEqual(result, { editable: null, numeric: null });
-  assert.equal(cdp.send.mock.calls.some(([method]) => method === 'Runtime.evaluate'), false);
+  assert.equal(focusCalls(cdp).length, 0);
 });
 
 it('resolves pointer dispatch with null focus when evaluation rejects', async () => {
   vi.useFakeTimers();
-  const { cdp, channel, frame } = await setup();
-  frame();
+  const { cdp, channel, show } = await setup();
+  await show();
   cdp.send.mockImplementation(async (method) => {
     if (method === 'Runtime.evaluate') throw new Error('evaluate failed');
     return {};
@@ -121,8 +141,8 @@ it.each([undefined, {}, { result: { value: null } }, { result: { value: { editab
   { exceptionDetails: {}, result: { value: { editable: true, numeric: true } } },
 ])('returns null focus for an exceptional or malformed evaluation result: %j', async (response) => {
   vi.useFakeTimers();
-  const { cdp, channel, frame } = await setup();
-  frame();
+  const { cdp, channel, show } = await setup();
+  await show();
   cdp.send.mockResolvedValue(response);
   const pointer = channel.dispatchPointer([{ t: 0, type: 'up', x: 0, y: 0 }]);
   await vi.advanceTimersByTimeAsync(150);
@@ -138,12 +158,12 @@ function focusedElement(tagName, attributes = {}, properties = {}) {
 
 it('uses a fixed expression that detects editable and numeric focus using only boolean output', async () => {
   vi.useFakeTimers();
-  const { cdp, channel, frame } = await setup();
-  frame();
+  const { cdp, channel, show } = await setup();
+  await show();
   const pointer = channel.dispatchPointer([{ t: 0, type: 'up', x: 0, y: 0 }]);
   await vi.advanceTimersByTimeAsync(150);
   await pointer;
-  const expression = cdp.send.mock.calls.find(([method]) => method === 'Runtime.evaluate')[1].expression;
+  const expression = focusCalls(cdp)[0][1].expression;
   const cases = [
     [null, false, false], [focusedElement('BODY'), false, false],
     [focusedElement('TEXTAREA'), true, false], [focusedElement('INPUT'), true, false],
@@ -170,12 +190,12 @@ it('uses a fixed expression that detects editable and numeric focus using only b
 
 it('descends through same-origin frames and tolerates inaccessible frame documents', async () => {
   vi.useFakeTimers();
-  const { cdp, channel, frame } = await setup();
-  frame();
+  const { cdp, channel, show } = await setup();
+  await show();
   const pointer = channel.dispatchPointer([{ t: 0, type: 'up', x: 0, y: 0 }]);
   await vi.advanceTimersByTimeAsync(150);
   await pointer;
-  const expression = cdp.send.mock.calls.find(([method]) => method === 'Runtime.evaluate')[1].expression;
+  const expression = focusCalls(cdp)[0][1].expression;
   const input = focusedElement('INPUT', { type: 'number' });
   const inner = focusedElement('FRAME', {}, { contentDocument: { activeElement: input } });
   const outer = focusedElement('IFRAME', {}, { contentDocument: { activeElement: inner } });
@@ -188,24 +208,24 @@ it('descends through same-origin frames and tolerates inaccessible frame documen
 });
 
 it('preserves pointer replay failures without attempting focus detection', async () => {
-  const { cdp, channel, frame } = await setup();
-  frame();
+  const { cdp, channel, show } = await setup();
+  await show();
   const error = new Error('replay failed');
   cdp.send.mockRejectedValue(error);
   await assert.rejects(channel.dispatchPointer([{ t: 0, type: 'up', x: 0, y: 0 }]), (result) => result === error);
-  assert.equal(cdp.send.mock.calls.some(([method]) => method === 'Runtime.evaluate'), false);
+  assert.equal(focusCalls(cdp).length, 0);
 });
 
 it('aborts the focus delay on close without evaluating the page', async () => {
   vi.useFakeTimers();
-  const { cdp, channel, frame } = await setup();
-  frame();
+  const { cdp, channel, show } = await setup();
+  await show();
   const pending = channel.dispatchPointer([{ t: 0, type: 'up', x: 0, y: 0 }]);
   const rejected = assert.rejects(pending);
   await vi.advanceTimersByTimeAsync(100);
   await channel.close();
   await rejected;
-  assert.equal(cdp.send.mock.calls.some(([method]) => method === 'Runtime.evaluate'), false);
+  assert.equal(focusCalls(cdp).length, 0);
 });
 
 it('inserts text and sends whitelisted keyDown/keyUp events with native key codes', async () => {
@@ -222,8 +242,8 @@ it('inserts text and sends whitelisted keyDown/keyUp events with native key code
 
 it('accepts a reset frontend timestamp origin after returning to the session page', async () => {
   vi.useFakeTimers();
-  const { channel, cdp, frame } = await setup();
-  frame();
+  const { channel, cdp, show } = await setup();
+  await show();
   const first = channel.dispatchPointer([{ t: 5000, type: 'down', x: 0, y: 0 }, { t: 5000, type: 'up', x: 0, y: 0 }]);
   await vi.advanceTimersByTimeAsync(150);
   await first;
@@ -239,10 +259,10 @@ it('accepts a reset frontend timestamp origin after returning to the session pag
 });
 
 it('rejects malformed batches, coordinates, time, text and keys without echoing input', async () => {
-  const { channel, frame } = await setup();
+  const { channel, show } = await setup();
   const event = { t: 0, type: 'down', x: 0, y: 1 };
   assert.throws(() => channel.dispatchPointer([event]), { code: 'E_USAGE' });
-  frame();
+  await show();
   const bad = [null, {}, Array(201).fill(event), [{ ...event, x: -0.1 }], [{ ...event, y: 1.1 }],
     [{ ...event, t: Infinity }], [{ ...event, t: NaN }], [{ ...event, x: '0' }],
     [{ ...event, t: -1 }], [{ ...event, type: 'secret-input' }], [{ ...event, t: 2 }, event]];
@@ -252,8 +272,8 @@ it('rejects malformed batches, coordinates, time, text and keys without echoing 
 });
 
 it('cancels queued replay on close and detaches even after screencast startup failure', async () => {
-  const { channel, frame, cdp } = await setup();
-  frame();
+  const { channel, show, cdp } = await setup();
+  await show();
   const pending = channel.dispatchPointer([{ t: 0, type: 'down', x: 0, y: 0 }, { t: 5000, type: 'up', x: 0, y: 0 }]);
   const rejected = assert.rejects(pending);
   await channel.close();
@@ -266,4 +286,88 @@ it('cancels queued replay on close and detaches even after screencast startup fa
   await assert.rejects(openTakeover({ context: () => ({ newCDPSession: async () => failing }) }));
   assert.equal(failing.listenerCount('Page.screencastFrame'), 0);
   assert.equal(failing.detach.mock.calls.length, 1);
+});
+
+it('keeps the dialog area locked while the pointer is pressed', async () => {
+  vi.useFakeTimers();
+  const { cdp, channel, show } = await setup();
+  await show();
+  await channel.dispatchPointer([{ t: 0, type: 'down', x: 0, y: 0 }]);
+  cdp.page.dialog = { ...DIALOG, x: 0 };
+  await show();
+  assert.deepEqual(captures(cdp).map((body) => body.clip.x), [100, 100]);
+  const released = channel.dispatchPointer([{ t: 10, type: 'up', x: 1, y: 1 }]);
+  await vi.advanceTimersByTimeAsync(160);
+  await released;
+  assert.deepEqual([mouse(cdp).at(-1).x, mouse(cdp).at(-1).y], [500, 350]);
+  await show();
+  assert.equal(captures(cdp).at(-1).clip.x, 0);
+});
+
+it('publishes an empty frame and rejects pointers while no valid dialog is found', async () => {
+  vi.useFakeTimers();
+  for (const dialog of [null, { ...DIALOG, width: 0 }, { ...DIALOG, x: Number.NaN }, { ...DIALOG, scrollY: '20' }]) {
+    const { cdp, channel, show } = await setup();
+    cdp.page.dialog = dialog;
+    await show();
+    await vi.advanceTimersByTimeAsync(200);
+    assert.deepEqual((await channel.frames[Symbol.asyncIterator]().next()).value, { jpeg: null, width: null, height: null });
+    assert.equal(captures(cdp).length, 0);
+    assert.throws(() => channel.dispatchPointer([{ t: 0, type: 'move', x: 0, y: 0 }]), { code: 'E_USAGE' });
+  }
+});
+
+it('clears the dialog when it disappears and keeps the last picture on a failed capture', async () => {
+  vi.useFakeTimers();
+  const { cdp, channel, show } = await setup();
+  await show();
+  await vi.advanceTimersByTimeAsync(200);
+  const iterator = channel.frames[Symbol.asyncIterator]();
+  assert.equal((await iterator.next()).value.jpeg, 'crop');
+  for (const data of [new Error('capture failed'), '']) {
+    cdp.page.data = data;
+    await show();
+    await vi.advanceTimersByTimeAsync(200);
+    await channel.dispatchPointer([{ t: 0, type: 'move', x: 0, y: 0 }]);
+  }
+  cdp.page.dialog = null;
+  await show();
+  await vi.advanceTimersByTimeAsync(200);
+  assert.deepEqual((await iterator.next()).value, { jpeg: null, width: null, height: null });
+  assert.throws(() => channel.dispatchPointer([{ t: 0, type: 'move', x: 0, y: 0 }]), { code: 'E_USAGE' });
+});
+
+it('accepts only 4-8 digit SMS codes', () => {
+  for (const code of ['1234', '123456', '12345678']) assert.equal(validateSmsCode(code), code);
+  for (const code of [undefined, null, 123456, '123', '123456789', '12a456', ' 123456', '１２３４５６']) {
+    assert.throws(() => validateSmsCode(code), { code: 'E_USAGE' });
+  }
+});
+
+function dialogElement(rect, style = {}) {
+  return { style: { display: 'block', visibility: 'visible', ...style },
+    getBoundingClientRect: () => ({ left: rect[0], top: rect[1], right: rect[0] + rect[2], bottom: rect[1] + rect[3],
+      width: rect[2], height: rect[3] }) };
+}
+
+it('locates the first visible, large enough dialog with clamped padding', async () => {
+  const { cdp, show } = await setup();
+  await show();
+  const expression = cdp.send.mock.calls.find(([method, body]) => method === 'Runtime.evaluate'
+    && body.expression.includes('captcha-wrapper'))[1].expression;
+  const run = (bySelector) => {
+    const result = runInNewContext(expression, {
+      innerWidth: 1000, innerHeight: 800, scrollX: 0, scrollY: 5,
+      document: { querySelectorAll: (selector) => bySelector[selector] ?? [] },
+      getComputedStyle: (element) => element.style,
+    });
+    return result && JSON.parse(JSON.stringify(result));
+  };
+  assert.equal(run({}), null);
+  assert.deepEqual(run({ '.captcha-wrapper': [dialogElement([10, 700, 400, 300])] }),
+    { x: 0, y: 676, width: 434, height: 124, scrollX: 0, scrollY: 5 });
+  assert.deepEqual(run({
+    '.captcha-wrapper': [dialogElement([100, 100, 300, 300], { display: 'none' }), dialogElement([100, 100, 30, 300])],
+    '#slide-captcha-dialog': [dialogElement([300, 200, 320, 280], { visibility: 'hidden' }), dialogElement([300, 200, 320, 280])],
+  }), { x: 276, y: 176, width: 368, height: 328, scrollX: 0, scrollY: 5 });
 });

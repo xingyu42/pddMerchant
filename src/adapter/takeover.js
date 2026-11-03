@@ -1,8 +1,11 @@
 import { abortableSleep } from '../infra/abort.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { createLatestFrames } from './latest-frames.js';
+import { readDialog, captureDialog } from './takeover-dialog.js';
 
 const KEYS = Object.freeze({ Enter: ['Enter', 13], Backspace: ['Backspace', 8], Tab: ['Tab', 9] });
+const SMS_CODE = /^\d{4,8}$/;
+const NO_DIALOG = Object.freeze({ jpeg: null, width: null, height: null });
 const FOCUS_EXPRESSION = `(() => {
   let element = document.activeElement;
   while (['IFRAME', 'FRAME'].includes(element?.tagName)) {
@@ -55,6 +58,11 @@ export function validateText(text) {
   return text;
 }
 
+export function validateSmsCode(code) {
+  if (typeof code !== 'string' || !SMS_CODE.test(code)) throw invalidTakeoverInput();
+  return code;
+}
+
 export function validateKey(key) {
   if (typeof key !== 'string' || !Object.hasOwn(KEYS, key)) throw invalidTakeoverInput();
   return { key, code: KEYS[key][0], windowsVirtualKeyCode: KEYS[key][1] };
@@ -73,7 +81,7 @@ function inputQueue(signal) {
   };
 }
 
-async function replay(cdp, events, state, signal) {
+async function replay(cdp, events, state, signal, area) {
   for (const event of events) {
     // Remounting the frontend resets its performance.now() origin.
     const wait = state.lastT == null ? 0 : state.lastWall + event.t - state.lastT - Date.now();
@@ -84,7 +92,7 @@ async function replay(cdp, events, state, signal) {
     if (event.type === 'up') state.pressed = false;
     await cdp.send('Input.dispatchMouseEvent', {
       type: { down: 'mousePressed', move: 'mouseMoved', up: 'mouseReleased' }[event.type],
-      x: event.x * state.width, y: event.y * state.height,
+      x: area.x + event.x * area.width, y: area.y + event.y * area.height,
       button: event.type === 'move' ? 'none' : 'left', buttons: state.pressed ? 1 : 0,
       ...(event.type === 'move' ? {} : { clickCount: 1 }),
     });
@@ -98,13 +106,38 @@ async function waitForPointerTime(wait, signal) {
   while (Date.now() < deadline) await abortableSleep(Math.min(1000, deadline - Date.now()), signal);
 }
 
-function receiveFrame(cdp, frames, state, event) {
-  void cdp.send('Page.screencastFrameAck', { sessionId: event.sessionId }).catch(() => {});
-  const { deviceWidth: width, deviceHeight: height } = event.metadata ?? {};
-  if (![width, height].every((value) => Number.isFinite(value) && value > 0)) return;
-  state.width = width;
-  state.height = height;
-  frames.publish({ jpeg: event.data, width, height });
+// screencast 帧只用作页面重绘信号，画面本身来自弹窗区域截图。
+function receiveFrame(channel, event) {
+  void channel.cdp.send('Page.screencastFrameAck', { sessionId: event.sessionId }).catch(() => {});
+  void refresh(channel);
+}
+
+// 页面每重绘一次就刷新一次弹窗画面；刷新进行中到达的帧合并为一次补刷。
+async function refresh(channel) {
+  const { state, controller } = channel;
+  if (state.refreshing) { state.dirty = true; return; }
+  state.refreshing = true;
+  try {
+    do {
+      state.dirty = false;
+      await refreshOnce(channel);
+    } while (state.dirty && !controller.signal.aborted);
+  } finally { state.refreshing = false; }
+}
+
+// 按住期间锁定弹窗区域，保证一次拖动内坐标映射不变；截图偶发失败时保留上一张画面。
+async function refreshOnce({ cdp, frames, state }) {
+  if (!state.pressed) state.dialog = await readDialog(cdp);
+  const dialog = state.dialog;
+  if (!dialog) {
+    state.shown = null;
+    frames.publish(NO_DIALOG);
+    return;
+  }
+  const jpeg = await captureDialog(cdp, dialog);
+  if (!jpeg) return;
+  state.shown = dialog;
+  frames.publish({ jpeg, width: dialog.width, height: dialog.height });
 }
 
 export async function openTakeover(page) {
@@ -112,8 +145,9 @@ export async function openTakeover(page) {
   const frames = createLatestFrames();
   const controller = new AbortController();
   const enqueue = inputQueue(controller.signal);
-  const state = { width: 0, height: 0, pressed: false, lastT: null };
-  const onFrame = (event) => receiveFrame(cdp, frames, state, event);
+  const state = { pressed: false, lastT: null, dialog: null, shown: null };
+  const channel = { cdp, frames, state, controller };
+  const onFrame = (event) => receiveFrame(channel, event);
   const close = async () => {
     if (controller.signal.aborted) return;
     controller.abort();
@@ -123,19 +157,21 @@ export async function openTakeover(page) {
     try { await cdp.detach(); } catch { /* Keep cleanup idempotent. */ }
   };
   cdp.on('Page.screencastFrame', onFrame);
-  try { await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 60, maxWidth: 1920, everyNthFrame: 1 }); }
+  try { await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 10, maxWidth: 320, everyNthFrame: 1 }); }
   catch (error) { await close(); throw error; }
-  return takeoverControls({ cdp, frames, enqueue, state, controller, close });
+  return takeoverControls({ ...channel, enqueue, close });
 }
 
-function takeoverControls({ cdp, frames, enqueue, state, controller, close }) {
+function takeoverControls(channel) {
+  const { cdp, frames, enqueue, state, controller, close } = channel;
   return {
     frames, close,
     dispatchPointer(input) {
       const events = validatePointer(input);
-      if (!state.width) throw invalidTakeoverInput();
+      const area = state.shown;
+      if (!area) throw invalidTakeoverInput();
       return enqueue(async () => {
-        await replay(cdp, events, state, controller.signal);
+        await replay(cdp, events, state, controller.signal, area);
         if (!events.some((event) => event.type === 'up')) return { editable: null, numeric: null };
         await abortableSleep(150, controller.signal);
         return readFocus(cdp);

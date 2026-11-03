@@ -2,20 +2,16 @@
 import { h, render } from '../vendor/preact.mjs';
 import { useCallback, useEffect, useRef, useState } from '../vendor/hooks.mjs';
 import htm from '../vendor/htm.mjs';
-import Panzoom from '../vendor/panzoom.mjs';
 
 const html = htm.bind(h);
 const POINTER_FLUSH_MS = 50;
 const SESSION_POLL_MS = 1000;
-const MAX_ZOOM = 6;
-const PINCH_STEP = 0.8;
-const TOUCH_HOLD_MS = 120;
-const TOUCH_SLOP_PX = 8;
 const IME_SENTINEL = '\u200b';
 const TERMINAL_STATES = new Set(['succeeded', 'failed', 'timed_out', 'cancelled']);
 const STATE_TEXT = {
   filling: '正在自动填写账号密码…',
-  takeover: '需要你在下方画面中完成验证',
+  takeover: '需要你完成下方的验证码',
+  sms: '需要输入短信验证码',
   qr: '请用商家版 App 扫码，或长按保存二维码后从相册识别',
   verifying: '登录成功，正在核验并保存…',
   succeeded: '登录完成，已保存',
@@ -279,104 +275,24 @@ function usePointerBatches(id, image, onFocus) {
   return { sample, send };
 }
 
-function usePanzoom(image, ready) {
-  const panzoom = useRef(null);
-  useEffect(() => {
-    if (!ready || !image.current) return undefined;
-    const instance = Panzoom(image.current, {
-      noBind: true, contain: 'outside', minScale: 1, maxScale: MAX_ZOOM, step: PINCH_STEP,
-      cursor: 'default',
-    });
-    panzoom.current = instance;
-    return () => { instance.destroy(); instance.resetStyle(); panzoom.current = null; };
-  }, [ready]);
-  return panzoom;
-}
-
-// 单指：点击或拖动远端页面；双指：本地缩放平移。按下后短暂等待，第二指到达则整次手势归本地。
-function routeToRemote(router) {
-  clearTimeout(router.timer);
-  router.mode = 'remote';
-  router.send(router.held.splice(0));
-}
-
-function routeToPanzoom(router) {
-  clearTimeout(router.timer);
-  if (router.mode === 'remote') router.send([router.sample('up', router.last)]);
-  router.held = [];
-  router.mode = 'panzoom';
-  router.middle = middleOf(router.pointers);
-  for (const event of router.pointers.values()) router.panzoom.current?.handleDown(event);
-}
-
-function middleOf(pointers) {
-  const [first, second = first] = pointers.values();
-  return { x: (first.clientX + second.clientX) / 2, y: (first.clientY + second.clientY) / 2 };
-}
-
-// Panzoom 自带的双指平移会覆盖捏合焦点，这里按双指中点的增量自行平移。
-function panzoomMove(router, event) {
-  const instance = router.panzoom.current;
-  if (!instance) return;
-  instance.handleMove(event);
-  if (router.pointers.size < 2) return;
-  const middle = middleOf(router.pointers);
-  const scale = instance.getScale();
-  instance.pan((middle.x - router.middle.x) / scale, (middle.y - router.middle.y) / scale, { relative: true, animate: false });
-  router.middle = middle;
-}
-
-function routerDown(router, event) {
-  event.preventDefault();
-  event.currentTarget.setPointerCapture?.(event.pointerId);
-  router.pointers.set(event.pointerId, event);
-  if (router.pointers.size > 1) return routeToPanzoom(router);
-  router.last = event;
-  router.origin = event;
-  router.held = [router.sample('down', event)];
-  if (event.pointerType === 'mouse') return routeToRemote(router);
-  router.mode = 'pending';
-  router.timer = setTimeout(() => routeToRemote(router), TOUCH_HOLD_MS);
-}
-
-function routerMove(router, event) {
-  if (!router.pointers.has(event.pointerId)) return;
-  router.pointers.set(event.pointerId, event);
-  if (router.mode === 'panzoom') return panzoomMove(router, event);
-  router.last = event;
-  const record = router.sample('move', event);
-  if (router.mode === 'remote') return router.send([record]);
-  router.held.push(record);
-  const moved = Math.hypot(event.clientX - router.origin.clientX, event.clientY - router.origin.clientY);
-  if (moved > TOUCH_SLOP_PX) routeToRemote(router);
-}
-
-function routerUp(router, event) {
-  if (!router.pointers.delete(event.pointerId)) return;
-  if (router.mode === 'panzoom') {
-    router.panzoom.current?.handleUp(event);
-    const rest = [...router.pointers.values()];
-    if (rest.length === 0) router.mode = 'idle';
-    else router.panzoom.current?.handleDown(rest[0]);
-    if (rest.length > 1) router.middle = middleOf(router.pointers);
-    return;
-  }
-  if (router.mode === 'pending') routeToRemote(router);
-  router.send([router.sample('up', event)]);
-  router.mode = 'idle';
-}
-
-function useGestureRouter(sample, send, panzoom) {
-  const router = useRef(null);
-  if (!router.current) router.current = { mode: 'idle', pointers: new Map(), held: [], timer: null, origin: null, last: null };
-  Object.assign(router.current, { sample, send, panzoom });
-  useEffect(() => () => clearTimeout(router.current.timer), []);
-  const up = (event) => routerUp(router.current, event);
+// 单指点击或拖动验证码弹窗，只跟踪第一根手指。
+function usePointerGesture(sample, send) {
+  const active = useRef(null);
+  const up = (event) => {
+    if (active.current !== event.pointerId) return;
+    active.current = null;
+    send([sample('up', event)]);
+  };
   return {
-    onPointerDown: (event) => routerDown(router.current, event),
-    onPointerMove: (event) => routerMove(router.current, event),
+    onPointerDown: (event) => {
+      event.preventDefault();
+      if (active.current !== null) return;
+      active.current = event.pointerId;
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      send([sample('down', event)]);
+    },
+    onPointerMove: (event) => { if (active.current === event.pointerId) send([sample('move', event)]); },
     onPointerUp: up, onPointerCancel: up,
-    onWheel: (event) => panzoom.current?.zoomWithWheel(event),
   };
 }
 
@@ -418,29 +334,57 @@ function TakeoverScreen({ id }) {
   const keyboard = useRemoteKeyboard(id);
   const onFocus = useRef(keyboard.onFocus);
   const { sample, send } = usePointerBatches(id, image, onFocus);
-  const panzoom = usePanzoom(image, frame !== null);
-  const handlers = useGestureRouter(sample, send, panzoom);
-  const toggleKeyboard = () => {
-    const element = keyboard.input.current;
-    if (document.activeElement === element) element.blur();
-    else element?.focus({ preventScroll: true });
-  };
-  if (!frame) return html`<div class="screen-wrap screen-empty">等待画面…</div>`;
+  const handlers = usePointerGesture(sample, send);
+  if (!frame?.jpeg) return html`<div class="screen-wrap screen-empty">等待验证码弹窗…</div>`;
   return html`
-    <p class="muted">单指点击或拖动页面；双指缩放、移动画面。点中页面输入框后会弹出键盘。</p>
+    <p class="muted">拖动滑块或点选完成验证；点中输入框会弹出键盘。</p>
     <div class="screen-box">
       <div class="screen-wrap" ...${handlers}>
-        <img ref=${image} class="screen" alt="登录页画面" draggable="false"
+        <img ref=${image} class="screen" alt="验证码弹窗" draggable="false"
           src=${`data:image/jpeg;base64,${frame.jpeg}`} width=${frame.width} height=${frame.height}
           onContextMenu=${(event) => event.preventDefault()} />
       </div>
-      <div class="screen-tools">
-        <button type="button" class="tool" onClick=${toggleKeyboard}>键盘</button>
-        <button type="button" class="tool" onClick=${() => panzoom.current?.reset({ animate: false })}>复位</button>
-      </div>
-      <input class="ime" ...${keyboard.props} aria-label="向页面输入文字" autocomplete=${keyboard.numeric ? 'one-time-code' : 'off'}
+      <input class="ime" ...${keyboard.props} aria-label="向验证码输入文字" autocomplete=${keyboard.numeric ? 'one-time-code' : 'off'}
         inputmode=${keyboard.numeric ? 'numeric' : 'text'} autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="enter" />
     </div>`;
+}
+
+const SMS_RESULT_TEXT = {
+  submitted: '已提交，正在等待登录结果',
+  wrong_code: '验证码错误，请重新输入',
+  form_changed: '登录页上找不到短信输入框，请结束会话后改用扫码登录',
+};
+
+// 短信码由人在这里输入，daemon 填进登录页的短信弹窗并提交，画面不转播。
+function SmsPanel({ id }) {
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [message, setMessage] = useState(null);
+  const submit = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const { result } = await api(`/api/sessions/${encodeURIComponent(id)}/sms`, { code });
+      setMessage(SMS_RESULT_TEXT[result] ?? null);
+      if (result === 'wrong_code') setCode('');
+    } catch (failure) {
+      setError(failure);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return html`
+    <form class="panel" onSubmit=${submit} autocomplete="off">
+      <label>短信验证码
+        <input value=${code} onInput=${(event) => setCode(event.currentTarget.value.replace(/\D/g, '').slice(0, 8))}
+          inputmode="numeric" autocomplete="one-time-code" required />
+      </label>
+      <button type="submit" disabled=${busy || code.length < 4}>提交</button>
+      <${Notice} error=${error} message=${message} />
+    </form>`;
 }
 
 function Countdown({ seconds }) {
@@ -482,6 +426,7 @@ function SessionView({ id, slug }) {
       ${session?.message && html`<p class="muted">${session.message}</p>`}
       ${!finished && session && html`<${Countdown} seconds=${session.remaining_seconds} />`}
       ${state === 'takeover' && html`<${TakeoverScreen} id=${id} />`}
+      ${state === 'sms' && html`<${SmsPanel} id=${id} />`}
       ${state === 'qr' && html`<${QrPanel} id=${id} image=${session.qr_image} />`}
       ${!finished && session && html`<button class="danger" onClick=${cancel}>结束会话</button>`}
       ${finished && html`<a class="button" href=${back}>完成</a>`}

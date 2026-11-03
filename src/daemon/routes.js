@@ -4,7 +4,7 @@ import { listConsoleAccounts, saveConsolePassword, clearConsolePassword, unblock
 import { readConsoleCookie, requireJsonPost, readJson, send, sendHtml } from './http.js';
 import { serveStatic } from './static.js';
 import { startConsoleSession, getConsoleSession, consoleSessionFrames, consoleSessionPointer,
-  consoleSessionText, refreshConsoleQr, cancelConsoleSession, completeFixtureConsoleSession,
+  consoleSessionText, consoleSessionSms, refreshConsoleQr, cancelConsoleSession, completeFixtureConsoleSession,
   consoleFixtureEnabled } from '../services/console-login.js';
 import { streamFrames } from './sse.js';
 
@@ -31,6 +31,8 @@ export const CONSOLE_ROUTES = Object.freeze([
     run: ({ id, response }) => streamFrames(consoleSessionFrames(id), response) },
   { method: 'POST', template: '/api/sessions/:id/pointer', pattern: /^\/api\/sessions\/([^/]+)\/pointer$/,
     run: ({ id, body }) => consoleSessionPointer(id, body) },
+  { method: 'POST', template: '/api/sessions/:id/sms', pattern: /^\/api\/sessions\/([^/]+)\/sms$/,
+    run: ({ id, body }) => consoleSessionSms(id, body) },
   { method: 'POST', template: '/api/sessions/:id/text', pattern: /^\/api\/sessions\/([^/]+)\/text$/,
     run: ({ id, body }) => consoleSessionText(id, body) },
   { method: 'POST', template: '/api/sessions/:id/qr/refresh', pattern: /^\/api\/sessions\/([^/]+)\/qr\/refresh$/,

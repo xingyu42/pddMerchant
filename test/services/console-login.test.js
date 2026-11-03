@@ -47,6 +47,7 @@ vi.mock('../../src/adapter/password-login.js', () => ({
     if (control.outcome.outcome === 'success') page.context().state.cookies.push(passCookie());
     return control.outcome;
   }),
+  submitSmsCode: vi.fn(async () => control.sms),
 }));
 
 vi.mock('../../src/adapter/qr-login.js', () => ({
@@ -57,10 +58,11 @@ vi.mock('../../src/adapter/qr-login.js', () => ({
 }));
 
 import { launchBrowser, createSnapshotContext } from '../../src/adapter/browser.js';
-import { attemptPasswordLogin } from '../../src/adapter/password-login.js';
+import { attemptPasswordLogin, submitSmsCode } from '../../src/adapter/password-login.js';
 import { captureQrElement } from '../../src/adapter/qr-login.js';
 import { startConsoleSession, getConsoleSession, cancelConsoleSession, refreshConsoleQr,
-  closeAllConsoleSessions, completeFixtureConsoleSession } from '../../src/services/console-login.js';
+  closeAllConsoleSessions, completeFixtureConsoleSession, consoleSessionSms,
+  consoleSessionPointer } from '../../src/services/console-login.js';
 
 let account;
 let original;
@@ -72,6 +74,7 @@ beforeEach(() => {
   control.contexts = [];
   control.browser = { close: vi.fn(async () => {}) };
   control.outcome = { outcome: 'success' };
+  control.sms = { outcome: 'submitted' };
   control.failAt = null; control.held = null; control.mallId = 900001; control.login = true;
   account = insertAccount({ identity: '900001', displayName: 'Shop' });
   original = { cookies: [passCookie(), { name: 'device', value: 'trust', domain: '.pinduoduo.com', path: '/' }],
@@ -131,11 +134,12 @@ it.each(['wrong_password', 'account_locked'])('records %s and closes the browser
   assertReleased();
 });
 
-it.each(['challenge', 'form_changed', 'network_error'])('offers takeover for %s and waits for PASS_ID before verification', async (outcome) => {
-  control.outcome = { outcome, challenge: 'sms' };
+it.each(['unknown', 'slider'])('offers captcha takeover for %s challenges and waits for PASS_ID before verification', async (challenge) => {
+  control.outcome = { outcome: 'challenge', challenge };
   const id = start();
   const session = await stateIs(id, 'takeover');
   assert.ok(session.remaining_seconds > 590);
+  assert.equal(session.message, '请在下方验证码弹窗中完成验证');
   assert.equal(loadAuthState(account.id).revision, 1);
   assert.equal(isInTransaction(), false);
   assert.ok(get("SELECT owner_token FROM leases WHERE scope = 'account'"));
@@ -143,6 +147,45 @@ it.each(['challenge', 'form_changed', 'network_error'])('offers takeover for %s 
   await stateIs(id, 'succeeded');
   assert.equal(loadAuthState(account.id).revision, 2);
   assert.equal(listPendingActions(account.id).filter((action) => action.status === 'open').length, 0);
+  assertReleased();
+});
+
+it('asks for the SMS code without a takeover picture and fills it into the login page', async () => {
+  control.outcome = { outcome: 'challenge', challenge: 'sms' };
+  const id = start();
+  const session = await stateIs(id, 'sms');
+  assert.ok(session.remaining_seconds > 590);
+  assert.match(session.message, /短信验证码/);
+  assert.equal(getReloginState(account.id).status, 'awaiting_human');
+  await assert.rejects(consoleSessionPointer(id, { events: [] }), { code: 'E_CONSOLE_SESSION_STATE' });
+  for (const code of ['12', '12345a', 123456]) await assert.rejects(consoleSessionSms(id, { code }), { code: 'E_USAGE' });
+  assert.equal(submitSmsCode.mock.calls.length, 0);
+  control.sms = { outcome: 'wrong_code' };
+  assert.deepEqual(await consoleSessionSms(id, { code: '000000' }), { ok: true, result: 'wrong_code' });
+  control.sms = { outcome: 'submitted' };
+  assert.deepEqual(await consoleSessionSms(id, { code: '123456' }), { ok: true, result: 'submitted' });
+  const [page, code, task] = submitSmsCode.mock.calls.at(-1);
+  assert.equal(page, control.contexts[0].page);
+  assert.equal(code, '123456');
+  assert.ok(task.deadlineAt - Date.now() <= 15_000);
+  control.contexts[0].state.cookies.push(passCookie());
+  await stateIs(id, 'succeeded');
+  assert.equal(loadAuthState(account.id).revision, 2);
+  assert.equal(getReloginState(account.id).status, 'available');
+  assertReleased();
+});
+
+it.each([['form_changed', '登录页结构已变化，自动填写失败，请改用扫码登录'],
+  ['network_error', '登录过程中网络异常，请稍后重试或改用扫码登录']])('ends %s by its result code without takeover', async (outcome, message) => {
+  control.outcome = { outcome };
+  const id = start();
+  const session = await stateIs(id, 'failed');
+  assert.equal(session.message, message);
+  assert.equal(getReloginState(account.id).status, 'available');
+  assert.equal(getReloginState(account.id).reason, outcome);
+  assert.equal(listPendingActions(account.id).filter((action) => action.status === 'open').length, 0);
+  assert.equal(loadAuthState(account.id).revision, 1);
+  assert.equal(control.browser.close.mock.calls.length, 1);
   assertReleased();
 });
 
@@ -177,7 +220,7 @@ it.each(['launch', 'context', 'page'])('cleans up partial %s failures without ex
 });
 
 it('cancels takeover with no counter or commit and releases the lease', async () => {
-  control.outcome = { outcome: 'challenge', challenge: 'sms' };
+  control.outcome = { outcome: 'challenge', challenge: 'unknown' };
   const id = start();
   await stateIs(id, 'takeover');
   await cancelConsoleSession(id);
@@ -216,7 +259,7 @@ it('expires QR at three minutes without incrementing takeover timeouts', async (
 
 it('times out takeover at ten minutes, blocks the second timeout, and drops terminal sessions after five minutes', async () => {
   vi.useFakeTimers();
-  control.outcome = { outcome: 'challenge', challenge: 'sms' };
+  control.outcome = { outcome: 'challenge', challenge: 'unknown' };
   const first = start();
   await stateIs(first, 'takeover');
   await vi.advanceTimersByTimeAsync(600_001);
@@ -269,7 +312,7 @@ it('fixture success uses the shared marker commit with no browser, and fixture c
 });
 
 it('fixture-complete is rejected in live mode without changing session state', async () => {
-  control.outcome = { outcome: 'challenge', challenge: 'sms' };
+  control.outcome = { outcome: 'challenge', challenge: 'unknown' };
   const id = start();
   await stateIs(id, 'takeover');
   await assert.rejects(completeFixtureConsoleSession(id, { outcome: 'success' }), { httpStatus: 404 });
@@ -277,7 +320,7 @@ it('fixture-complete is rejected in live mode without changing session state', a
 });
 
 it('preserves saved state on CAS conflict after the browser login', async () => {
-  control.outcome = { outcome: 'challenge', challenge: 'sms' };
+  control.outcome = { outcome: 'challenge', challenge: 'unknown' };
   const id = start();
   await stateIs(id, 'takeover');
   run('UPDATE auth_states SET revision = revision + 1 WHERE account_id = ?', account.id);

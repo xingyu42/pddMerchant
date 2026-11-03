@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { withMerchantAuthUpdate, assertAuthTask } from '../adapter/merchant-auth-storage.js';
 import { isMockEnabled, mockPasswordLogin } from '../adapter/mock-dispatcher.js';
 import { FIXTURE_QR_IMAGE, openFixtureTakeover } from '../adapter/console-login-fixture.js';
-import { invalidTakeoverInput } from '../adapter/takeover.js';
+import { invalidTakeoverInput, validateSmsCode } from '../adapter/takeover.js';
 import { getCredential } from '../infra/account-store.js';
 import { transaction } from '../infra/db.js';
 import { abortableSleep } from '../infra/abort.js';
@@ -14,13 +14,14 @@ import { saveMerchantLogin } from './auth-account-storage.js';
 import { getReloginSummary, recordReloginAttempt, recordReloginOutcome, recordTakeoverTimeout,
   markManualLoginSucceeded, commitFixtureRelogin } from './password-relogin.js';
 import { openConsoleBrowser, attemptConsolePassword, captureConsoleQr, openConsoleTakeover,
-  consoleHasPassId, verifyConsoleLogin, closeConsoleBrowser } from './console-login-browser.js';
+  consoleHasPassId, verifyConsoleLogin, closeConsoleBrowser, submitConsoleSms } from './console-login-browser.js';
 
 const sessions = new Map();
 const terminal = new Set(['succeeded', 'failed', 'timed_out', 'cancelled']);
 const TAKEOVER_MS = 600_000;
 const SESSION_MS = 720_000;
 const RETENTION_MS = 300_000;
+const AWAITING_HUMAN = new Set(['takeover', 'sms']);
 
 export const consoleFixtureEnabled = isMockEnabled;
 
@@ -57,7 +58,8 @@ function setWindow(session, state, duration) {
   assertAuthTask({ signal: session.controller.signal });
   session.state = state;
   session.expiresAt = Math.min(session.deadlineAt, Date.now() + duration);
-  if (state === 'takeover') session.message = '请在画面中完成验证；如页面提示已发送，请查看绑定手机短信';
+  if (state === 'takeover') session.message = '请在下方验证码弹窗中完成验证';
+  if (state === 'sms') session.message = '登录页已向绑定手机发送短信验证码，请在下方输入';
 }
 
 async function beginPassword(session, tx) {
@@ -67,14 +69,18 @@ async function beginPassword(session, tx) {
     : await attemptConsolePassword(session, tx);
   assertAuthTask(tx);
   if (outcome.outcome === 'success') return true;
-  if (['wrong_password', 'account_locked', 'challenge'].includes(outcome.outcome)) {
-    const error = recordReloginOutcome(tx, outcome, session);
-    if (outcome.outcome !== 'challenge') throw error;
-  }
+  // 只有挑战需要人：短信走输入框，其余挑战转播验证码弹窗；表单变化、网络错误等按结果码结束。
+  const error = recordReloginOutcome(tx, outcome, session);
+  if (outcome.outcome !== 'challenge') throw error;
+  if (outcome.challenge === 'sms') setWindow(session, 'sms', TAKEOVER_MS);
+  else await beginTakeover(session);
+  return false;
+}
+
+async function beginTakeover(session) {
   if (session.fixture) session.takeover = openFixtureTakeover();
   else await openConsoleTakeover(session);
   setWindow(session, 'takeover', TAKEOVER_MS);
-  return false;
 }
 
 async function beginQr(session) {
@@ -94,7 +100,7 @@ async function waitForLogin(session, tx) {
 }
 
 function finishTimeout(session) {
-  if (session.state === 'takeover') recordTakeoverTimeout(session.accountId);
+  if (AWAITING_HUMAN.has(session.state)) recordTakeoverTimeout(session.accountId);
   session.state = 'timed_out';
   session.message = '登录等待超时，请重新开始';
 }
@@ -140,7 +146,9 @@ function sessionFailure(session, error) {
   session.state = 'failed';
   const messages = { E_ACCOUNT_IDENTITY_MISMATCH: 'E_ACCOUNT_IDENTITY_MISMATCH：登录店铺与账号绑定不一致，未保存',
     E_AUTH_RELOGIN_BLOCKED: '账号自动重登已熔断，请解除熔断或重设密码',
-    E_AUTH_EXPIRED: '登录核验未通过，请重新登录' };
+    E_AUTH_EXPIRED: '登录核验未通过，请重新登录',
+    E_PASSWORD_LOGIN_FORM_CHANGED: '登录页结构已变化，自动填写失败，请改用扫码登录',
+    E_AUTH_RELOGIN_FAILED: '登录过程中网络异常，请稍后重试或改用扫码登录' };
   session.message = messages[error?.code] ?? '登录未完成，请重新开始';
 }
 
@@ -207,6 +215,18 @@ export async function consoleSessionPointer(id, body) {
   return { ok: true, editable, numeric };
 }
 
+// result: submitted | wrong_code | form_changed；登录是否完成由会话轮询 PASS_ID 决定。
+export async function consoleSessionSms(id, body) {
+  const session = interactiveSession(id, 'sms');
+  const code = validateSmsCode(body?.code);
+  if (session.submitting) throw consoleRequestError(409, 'E_CONSOLE_SESSION_STATE', '验证码正在提交，请稍候');
+  session.submitting = true;
+  try {
+    const result = session.fixture ? { outcome: 'submitted' } : await submitConsoleSms(session, code);
+    return { ok: true, result: result.outcome };
+  } finally { session.submitting = false; }
+}
+
 export async function consoleSessionText(id, body) {
   const session = interactiveSession(id, 'takeover');
   const text = body && Object.hasOwn(body, 'text');
@@ -242,7 +262,7 @@ export async function cancelConsoleSession(id) {
 export async function completeFixtureConsoleSession(id, body) {
   if (!isMockEnabled()) throw consoleRequestError(404, 'E_NOT_FOUND', '接口不存在');
   const session = findSession(id);
-  if (!session.fixture || !['takeover', 'qr'].includes(session.state)) throw consoleRequestError(409, 'E_CONSOLE_SESSION_STATE', '会话状态已变化');
+  if (!session.fixture || !['takeover', 'sms', 'qr'].includes(session.state)) throw consoleRequestError(409, 'E_CONSOLE_SESSION_STATE', '会话状态已变化');
   if (!['success', 'timeout'].includes(body?.outcome)) throw invalidTakeoverInput();
   session.completion = body.outcome;
   await session.done;

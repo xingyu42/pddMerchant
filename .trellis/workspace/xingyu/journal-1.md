@@ -1313,3 +1313,38 @@ Codex 实现 diagnose traffic（全店逐日流量）与 goods traffic（全店�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 44: 账密登录移除 DOM 兜底；否决控制台挂官方验证码组件
+<!-- trellis-session: v=2 fp=ccce3be5830590ac -->
+
+**Date**: 2026-11-03
+**Task**: 账密登录移除 DOM 兜底；否决控制台挂官方验证码组件
+**Branch**: `main`
+
+### Summary
+
+账密登录只按 /janus/api/auth 的 error_code 与 PASS_ID 判定，DOM 选择器和文案兜底已删除并合入 main（7475638），契约见 auth-mall-context。静态调研加 CORS 预检确认：官方验证码组件的接口写死为 apiv2.pinduoduo.net，CORS 只放行拼多多域名，挂到控制台域名不可行，继续用整页接管；详见 research/captcha-console-mount.md。
+Topics: [.trellis/spec/adapter/auth-mall-context.md](../../spec/adapter/auth-mall-context.md), [.trellis/research/captcha-console-mount.md](../../research/captcha-console-mount.md)
+
+### Main Changes
+
+- 删除 PASSWORD_LOGIN_TEXTS、挑战选择器和 inspectPasswordLoginPage；未收录的码轮询到截止时间，记为 unknown
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b421e81` | ♻️ refactor: 账密登录移除 DOM 兜底，只按接口响应和 PASS_ID 判定 |
+
+### Testing
+
+- [OK] npm test: 96 files, 1303 passed, 1 skipped
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 可将 2000017/8000037/2000018 等码补进 AUTH_RESPONSE_OUTCOMES，缩短 70s 等待
