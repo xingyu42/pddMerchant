@@ -71,15 +71,64 @@ it('uses screencast only as a repaint signal, acks every frame and publishes the
   await vi.advanceTimersByTimeAsync(199);
   assert.equal(received.length, 0);
   await vi.advanceTimersByTimeAsync(1);
-  assert.deepEqual((await pending).value, { jpeg: 'new', width: 400, height: 300 });
+  assert.deepEqual((await pending).value, { jpeg: 'old', width: 400, height: 300 });
+  // 第二帧的补刷要等满 200ms 间隔，随后的发布节拍送出新画面。
+  await vi.advanceTimersByTimeAsync(200);
+  assert.deepEqual(received.at(-1), { jpeg: 'new', width: 400, height: 300 });
   await vi.advanceTimersByTimeAsync(1000);
-  assert.equal(received.length, 1);
+  assert.equal(captures(cdp).length, 2);
+  assert.equal(received.length, 2);
   assert.equal(JSON.stringify(received).includes('screencast'), false);
   await channel.close();
   assert.equal((await iterator.next()).done, true);
   assert.equal(received.at(-1), null);
   assert.equal(cdp.listenerCount('Page.screencastFrame'), 0);
   assert.equal(cdp.detach.mock.calls.length, 1);
+});
+
+// 截图本身会让页面重绘出新帧；帧持续到达时也只按 200ms 间隔截图，不形成自激循环。
+it('captures at most once per 200 ms while screencast frames keep arriving', async () => {
+  vi.useFakeTimers();
+  const { cdp, frame } = await setup();
+  for (let i = 0; i < 100; i++) { frame(); await vi.advanceTimersByTimeAsync(10); }
+  const count = captures(cdp).length;
+  assert.ok(count >= 5 && count <= 6, `captures: ${count}`);
+});
+
+it('publishes a dialog crop only when the picture or its size changes', async () => {
+  vi.useFakeTimers();
+  const { cdp, channel, frame } = await setup();
+  const received = [];
+  channel.frames.subscribe((value) => received.push(value));
+  for (let i = 0; i < 50; i++) { frame(); await vi.advanceTimersByTimeAsync(20); }
+  assert.ok(captures(cdp).length > 1);
+  assert.deepEqual(received, [{ jpeg: 'crop', width: 400, height: 300 }]);
+  cdp.page.data = 'moved';
+  frame();
+  await vi.advanceTimersByTimeAsync(400);
+  assert.deepEqual(received, [{ jpeg: 'crop', width: 400, height: 300 }, { jpeg: 'moved', width: 400, height: 300 }]);
+});
+
+it('keeps replaying an accepted gesture on its locked dialog when the dialog is momentarily lost', async () => {
+  vi.useFakeTimers();
+  const { cdp, channel, show } = await setup();
+  await show();
+  let open;
+  const gate = new Promise((resolve) => { open = resolve; });
+  const send = cdp.send.getMockImplementation();
+  cdp.send.mockImplementation((method, body) => (method === 'Input.insertText' ? gate : send(method, body)));
+  const typing = channel.insertText('1');
+  const down = channel.dispatchPointer([{ t: 0, type: 'down', x: 0, y: 0 }]);
+  cdp.page.dialog = null;
+  await show();
+  await vi.advanceTimersByTimeAsync(200);
+  const up = channel.dispatchPointer([{ t: 50, type: 'up', x: 1, y: 1 }]);
+  assert.throws(() => channel.dispatchPointer([{ t: 0, type: 'down', x: 0, y: 0 }], { gesture_id: 'fresh', seq: 0 }),
+    { code: 'E_USAGE' });
+  open();
+  await vi.advanceTimersByTimeAsync(300);
+  await Promise.all([typing, down, up]);
+  assert.deepEqual(mouse(cdp).map(({ type, x, y }) => [type, x, y]), [['mousePressed', 100, 50], ['mouseReleased', 500, 350]]);
 });
 
 it('maps normalized coordinates into the dialog and preserves timestamp gaps across serialized batches', async () => {
@@ -402,12 +451,14 @@ it('keeps the dialog area locked while the pointer is pressed', async () => {
   await channel.dispatchPointer([{ t: 0, type: 'down', x: 0, y: 0 }]);
   cdp.page.dialog = { ...DIALOG, x: 0 };
   await show();
+  await vi.advanceTimersByTimeAsync(200);
   assert.deepEqual(captures(cdp).map((body) => body.clip.x), [100, 100]);
   const released = channel.dispatchPointer([{ t: 10, type: 'up', x: 1, y: 1 }]);
   await vi.advanceTimersByTimeAsync(160);
   await released;
   assert.deepEqual([mouse(cdp).at(-1).x, mouse(cdp).at(-1).y], [500, 350]);
   await show();
+  await vi.advanceTimersByTimeAsync(200);
   assert.equal(captures(cdp).at(-1).clip.x, 0);
 });
 
@@ -441,7 +492,9 @@ it('clears the dialog when it disappears and keeps the last picture on a failed 
   await show();
   await vi.advanceTimersByTimeAsync(200);
   assert.deepEqual((await iterator.next()).value, { jpeg: null, width: null, height: null });
-  assert.throws(() => channel.dispatchPointer([{ t: 0, type: 'move', x: 0, y: 0 }]), { code: 'E_USAGE' });
+  // 弹窗消失后不再接受新手势；已接受手势的后续批次沿用锁定区域，见上方用例。
+  assert.throws(() => channel.dispatchPointer([{ t: 0, type: 'down', x: 0, y: 0 }], { gesture_id: 'after-clear', seq: 0 }),
+    { code: 'E_USAGE' });
 });
 
 it('accepts only 4-8 digit SMS codes', () => {

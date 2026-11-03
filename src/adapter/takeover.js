@@ -10,6 +10,7 @@ const POINTER_WAIT_MS = 5000;
 const POINTER_IDLE_MS = 3000;
 const POINTER_LAG_MS = 1000;
 const POINTER_TIME_MS = 720_000;
+const REFRESH_GAP_MS = 200;
 const INTERRUPTED = Object.freeze({ editable: null, numeric: null, result: 'interrupted' });
 const FOCUS_EXPRESSION = `(() => {
   let element = document.activeElement;
@@ -200,31 +201,46 @@ function receiveFrame(channel, event) {
 }
 
 // 页面每重绘一次就刷新一次弹窗画面；刷新进行中到达的帧合并为一次补刷。
+// 截图本身也会让页面重绘出新帧，两次截图至少间隔 REFRESH_GAP_MS（与画面发布节拍一致），避免自激循环。
 async function refresh(channel) {
   const { state, controller } = channel;
   if (state.refreshing) { state.dirty = true; return; }
   state.refreshing = true;
   try {
     do {
+      const wait = state.refreshedAt + REFRESH_GAP_MS - Date.now();
+      if (wait > 0) await abortableSleep(wait, controller.signal);
       state.dirty = false;
       await refreshOnce(channel);
+      state.refreshedAt = Date.now();
     } while (state.dirty && !controller.signal.aborted);
+  } catch (error) {
+    if (!controller.signal.aborted) throw error;
   } finally { state.refreshing = false; }
 }
 
+// 画面与上次发布相同时不再发布，弹窗静止时不向手机重复推送。
+function publishFrame({ frames, state }, frame) {
+  const last = state.published;
+  if (last && last.jpeg === frame.jpeg && last.width === frame.width && last.height === frame.height) return;
+  state.published = frame;
+  frames.publish(frame);
+}
+
 // 按住期间锁定弹窗区域，保证一次拖动内坐标映射不变；截图偶发失败时保留上一张画面。
-async function refreshOnce({ cdp, frames, state }) {
+async function refreshOnce(channel) {
+  const { cdp, state } = channel;
   if (!state.pressed) state.dialog = await readDialog(cdp);
   const dialog = state.dialog;
   if (!dialog) {
     state.shown = null;
-    frames.publish(NO_DIALOG);
+    publishFrame(channel, NO_DIALOG);
     return;
   }
   const jpeg = await captureDialog(cdp, dialog);
   if (!jpeg) return;
   state.shown = dialog;
-  frames.publish({ jpeg, width: dialog.width, height: dialog.height });
+  publishFrame(channel, { jpeg, width: dialog.width, height: dialog.height });
 }
 
 export async function openTakeover(page) {
@@ -232,7 +248,7 @@ export async function openTakeover(page) {
   const frames = createLatestFrames();
   const controller = new AbortController();
   const enqueue = inputQueue(controller.signal);
-  const state = { pressed: false, dialog: null, shown: null };
+  const state = { pressed: false, dialog: null, shown: null, published: null, refreshedAt: -Infinity };
   const channel = { cdp, frames, state, controller };
   const onFrame = (event) => receiveFrame(channel, event);
   const close = async () => {
@@ -253,12 +269,17 @@ function takeoverControls(channel) {
   const { cdp, frames, enqueue, state, controller, close } = channel;
   const replay = createPointerReplay({ state, enqueue, signal: controller.signal,
     dispatch: (event, area, pressed) => dispatchMouse(cdp, event, area, pressed) });
+  let accepted = null;
   return {
     frames, close,
     dispatchPointer(input, metadata) {
       const batch = validatePointerBatch(input, metadata);
       const area = state.shown;
-      if (!area && !batch.cancel) throw invalidTakeoverInput();
+      // 只有新手势要求当前定位到弹窗；已接受手势的后续批次沿用按下时锁定的区域。
+      if (!batch.cancel && batch.gesture_id !== accepted) {
+        if (!area) throw invalidTakeoverInput();
+        accepted = batch.gesture_id;
+      }
       return enqueue(async () => {
         const interrupted = await replay(batch, area);
         if (interrupted) return interrupted;
