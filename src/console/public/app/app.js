@@ -8,6 +8,7 @@ const POINTER_FLUSH_MS = 50;
 const SESSION_POLL_MS = 1000;
 const IME_SENTINEL = '\u200b';
 const TERMINAL_STATES = new Set(['succeeded', 'failed', 'timed_out', 'cancelled']);
+const BUSY_STATES = new Set(['filling', 'verifying']);
 const STATE_TEXT = {
   filling: '正在准备登录…',
   takeover: '完成验证码',
@@ -617,6 +618,20 @@ function QrPanel({ id, image }) {
     </div>`;
 }
 
+// 状态块居中：进行中的状态带转圈，倒计时紧贴在状态下方。
+function SessionStatus({ session, loading }) {
+  const state = session?.state ?? null;
+  const busy = loading || BUSY_STATES.has(state);
+  return html`
+    <div class="session-status">
+      ${busy && html`<span class="spinner" aria-hidden="true"></span>`}
+      ${state ? html`<p class=${`state state-${state}`}>${STATE_TEXT[state] ?? state}</p>` : loading && html`<p class="state">加载中…</p>`}
+      ${session?.message && html`<p class="muted">${session.message}</p>`}
+      ${session && !TERMINAL_STATES.has(state) && html`<${Countdown} seconds=${session.remaining_seconds} />`}
+    </div>`;
+}
+
+// 状态、验证面板和取消/返回按钮收在同一张卡片里。
 function SessionView({ id, slug }) {
   const { session, error } = useSession(id);
   const state = session?.state ?? null;
@@ -628,14 +643,15 @@ function SessionView({ id, slug }) {
       <a class="back" href=${back}>← 返回</a>
       <h1>店铺登录</h1>
       <${Notice} error=${error} />
-      ${state && html`<p class=${`state state-${state}`}>${STATE_TEXT[state] ?? state}</p>`}
-      ${session?.message && html`<p class="muted">${session.message}</p>`}
-      ${!finished && session && html`<${Countdown} seconds=${session.remaining_seconds} />`}
-      ${state === 'takeover' && html`<${TakeoverScreen} id=${id} />`}
-      ${state === 'sms' && html`<${SmsPanel} id=${id} />`}
-      ${state === 'qr' && html`<${QrPanel} id=${id} image=${session.qr_image} />`}
-      ${!finished && session && html`<button class="danger" onClick=${cancel}>取消登录</button>`}
-      ${finished && html`<a class="button" href=${back}>返回</a>`}
+      ${(session || !error) && html`
+        <div class="session-card">
+          <${SessionStatus} session=${session} loading=${!session} />
+          ${state === 'takeover' && html`<${TakeoverScreen} id=${id} />`}
+          ${state === 'sms' && html`<${SmsPanel} id=${id} />`}
+          ${state === 'qr' && html`<${QrPanel} id=${id} image=${session.qr_image} />`}
+          ${!finished && session && html`<button class="danger session-action" onClick=${cancel}>取消登录</button>`}
+          ${finished && html`<a class="button session-action" href=${back}>返回</a>`}
+        </div>`}
     </section>`;
 }
 
