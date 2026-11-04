@@ -29,7 +29,7 @@ it('redeems in the browser with a JSON POST and console header, then navigates t
 
 it.each([410, 500])('shows fixed Chinese text on redemption HTTP %s without leaking the token', async (status) => {
   const { message, location } = await run(status);
-  assert.match(message.textContent, status === 410 ? /链接已失效.*重新获取/ : /进入控制台失败/);
+  assert.match(message.textContent, status === 410 ? /链接已失效，请让助手重新发送/ : /打开失败，请稍后重试/);
   assert.equal(message.textContent.includes('synthetic-token'), false);
   assert.equal(location.replace.mock.calls.length, 0);
 });

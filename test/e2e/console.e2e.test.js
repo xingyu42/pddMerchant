@@ -58,6 +58,9 @@ it('fixture daemon links, authenticates, writes encrypted credentials without di
     assert.equal(initial.status, 200);
     assert.equal(JSON.parse(initial.body).items[0].has_password, false);
     assert.equal(JSON.parse(initial.body).items[0].session_status, null);
+    assert.equal(JSON.parse(initial.body).items[0].status_kind, 'unknown');
+    assert.equal(JSON.parse(initial.body).items[0].status, '未知');
+    assert.equal(JSON.parse(initial.body).items[0].status_detail, '暂无核验记录');
     const saved = await consoleRequest(port, `/api/accounts/${DEFAULT_ACCOUNT.slug}/password`, { method: 'POST',
       headers: { ...headers, 'X-PDD-Console': '1', 'Content-Type': 'application/json' },
       body: JSON.stringify({ login_name: secrets[1], password: secrets[0] }) });

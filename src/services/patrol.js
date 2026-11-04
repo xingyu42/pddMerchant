@@ -3,7 +3,7 @@ import { assertMerchantVerified } from '../adapter/merchant-auth.js';
 import { probeCheckLogin, selectCheckCookiesFromState } from '../adapter/merchant-auth-probe.js';
 import { withMerchantAuthUpdate, verifyStoredMerchant, recordMerchantCheck, assertAuthTask } from '../adapter/merchant-auth-storage.js';
 import { isMockEnabled, mockIsAuthValid, mockIsAuthIndeterminate } from '../adapter/mock-dispatcher.js';
-import { listAccounts, getAccountById } from '../infra/account-store.js';
+import { listAccounts } from '../infra/account-store.js';
 import { armDeadline, abortableSleep } from '../infra/abort.js';
 import { setDaemonMeta } from '../infra/daemon-state.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
@@ -76,7 +76,6 @@ async function checkAccount(account, context) {
     get deadlineAt() { return deadline.deadlineAt; } };
   try {
     await withMerchantAuthUpdate(account.id, async (tx) => {
-      if (getAccountById(account.id)?.disabled) return;
       if (isMockEnabled()) await checkFixture(account, runtime, tx);
       else await checkLive(runtime, tx, context.ownerTag);
       assertAuthTask(runtime);
@@ -108,20 +107,42 @@ async function patrolLoop(context, clock, random) {
   }
 }
 
-export function createPatrol({ random = Math.random, clock = defaultClock } = {}) {
+// persist 先落盘再切换运行态；落盘失败时运行态保持原样。
+export function createPatrol({ random = Math.random, clock = defaultClock, persist = async () => {} } = {}) {
+  let context;
   let controller;
   let running;
+  let stopped = false;
+  let switching = Promise.resolve();
+  const begin = () => {
+    if (running || stopped || !context) return;
+    controller = new AbortController();
+    const signal = AbortSignal.any([controller.signal, context.signal].filter(Boolean));
+    running = patrolLoop({ ...context, signal }, clock, random);
+  };
+  const halt = async () => {
+    controller?.abort();
+    await running;
+    running = null;
+  };
   return {
-    async start(context) {
-      if (running || context.runtimeConfig?.patrolEnabled !== true) return;
-      controller = new AbortController();
-      const signal = AbortSignal.any([controller.signal, context.signal].filter(Boolean));
-      running = patrolLoop({ ...context, signal }, clock, random);
+    async start(nextContext) {
+      context = nextContext;
+      if (nextContext.runtimeConfig?.patrolEnabled === true) begin();
     },
+    setEnabled(enabled) {
+      switching = switching.catch(() => {}).then(async () => {
+        await persist(enabled);
+        if (enabled) begin();
+        else await halt();
+      });
+      return switching;
+    },
+    isEnabled: () => Boolean(running),
     async stop() {
-      controller?.abort();
-      await running;
-      running = null;
+      stopped = true;
+      await switching.catch(() => {});
+      await halt();
     },
   };
 }

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, it, vi } from 'vitest';
-import { insertAccount, getAccountById, putReloginState, getReloginState, listPendingActions, listAccounts } from '../../src/infra/account-store.js';
+import { insertAccount, getAccountById, putReloginState, getReloginState, listPendingActions, listAccounts,
+  insertPendingAction } from '../../src/infra/account-store.js';
 import { get, run, isInTransaction } from '../../src/infra/db.js';
 import { saveAuthStateSnapshot, loadAuthState } from '../../src/adapter/auth-state.js';
-import { setAccountPassword } from '../../src/services/password-relogin.js';
+import { setAccountPassword, clearAccountPassword } from '../../src/services/password-relogin.js';
 import { mockMerchantProbeTransport } from '../helpers/merchant-probe-transport.js';
 
 const control = vi.hoisted(() => ({ contexts: [], browser: null, outcome: { outcome: 'success' }, failAt: null,
@@ -129,6 +130,7 @@ it.each(['wrong_password', 'account_locked'])('records %s and closes the browser
   const id = start();
   await stateIs(id, 'failed');
   assert.equal(getReloginState(account.id).status, 'blocked');
+  assert.equal(getConsoleSession(id).message, '自动登录已暂停，请修改密码或扫码登录');
   assert.equal(getReloginState(account.id).reason, outcome);
   assert.equal(listPendingActions(account.id).filter((action) => action.status === 'open').length, 1);
   assert.equal(loadAuthState(account.id).revision, 1);
@@ -141,7 +143,7 @@ it.each(['unknown', 'slider'])('offers captcha takeover for %s challenges and wa
   const id = start();
   const session = await stateIs(id, 'takeover');
   assert.ok(session.remaining_seconds > 590);
-  assert.equal(session.message, '请在下方验证码弹窗中完成验证');
+  assert.equal(session.message, null);
   assert.equal(loadAuthState(account.id).revision, 1);
   assert.equal(isInTransaction(), false);
   assert.ok(get("SELECT owner_token FROM leases WHERE scope = 'account'"));
@@ -157,7 +159,7 @@ it('asks for the SMS code without a takeover picture and fills it into the login
   const id = start();
   const session = await stateIs(id, 'sms');
   assert.ok(session.remaining_seconds > 590);
-  assert.match(session.message, /短信验证码/);
+  assert.equal(session.message, '短信验证码已发送到绑定手机');
   assert.equal(getReloginState(account.id).status, 'awaiting_human');
   await assert.rejects(consoleSessionPointer(id, { events: [] }), { code: 'E_CONSOLE_SESSION_STATE' });
   for (const code of ['12', '12345a', 123456]) await assert.rejects(consoleSessionSms(id, { code }), { code: 'E_USAGE' });
@@ -193,8 +195,29 @@ it('preserves pointer focus fields and forwards interruption and cancellation in
     events: [...events, { ...events[0], type: 'up' }] }), { ok: true, editable: false, numeric: false });
 });
 
-it.each([['form_changed', '登录页结构已变化，自动填写失败，请改用扫码登录'],
-  ['network_error', '登录过程中网络异常，请稍后重试或改用扫码登录']])('ends %s by its result code without takeover', async (outcome, message) => {
+it.each(['existing', 'add'])('clears the SMS message while verifying an %s shop', async (mode) => {
+  control.outcome = { outcome: 'challenge', challenge: 'sms' };
+  if (mode === 'add') control.mallId = 900099;
+  const id = mode === 'add' ? startAdd() : start();
+  const sms = await stateIs(id, 'sms');
+  assert.equal(sms.message, '短信验证码已发送到绑定手机');
+  let release;
+  const closing = new Promise((resolve) => { release = resolve; });
+  control.contexts[0].page.close.mockImplementation(async () => { await closing; });
+  try {
+    control.contexts[0].state.cookies.push(passCookie());
+    const verifying = await stateIs(id, 'verifying');
+    assert.equal(verifying.message, null);
+    assert.equal(loadAuthState(account.id).revision, 1);
+    assert.equal(listAccounts().length, 1);
+  } finally { release(); }
+  const succeeded = await stateIs(id, 'succeeded');
+  assert.equal(succeeded.message, mode === 'add' ? '店铺已添加，密码已保存' : null);
+  assertReleased();
+});
+
+it.each([['form_changed', '自动填写失败，请扫码登录'],
+  ['network_error', '登录未完成，请重试或扫码登录']])('ends %s by its result code without takeover', async (outcome, message) => {
   control.outcome = { outcome };
   const id = start();
   const session = await stateIs(id, 'failed');
@@ -207,12 +230,12 @@ it.each([['form_changed', '登录页结构已变化，自动填写失败，请�
   assertReleased();
 });
 
-it('fails identity mismatch with an explicit safe code and preserves every stored auth byte', async () => {
+it('fails identity mismatch with a safe message and preserves every stored auth byte', async () => {
   control.mallId = 900002;
   const before = get('SELECT * FROM auth_states WHERE account_id = ?', account.id);
   const id = start();
   const status = await stateIs(id, 'failed');
-  assert.match(status.message, /E_ACCOUNT_IDENTITY_MISMATCH/);
+  assert.equal(status.message, '登录店铺与所选店铺不一致，未保存');
   assert.deepEqual(get('SELECT * FROM auth_states WHERE account_id = ?', account.id), before);
   assert.equal(control.browser.close.mock.calls.length, 1);
   assertReleased();
@@ -221,7 +244,7 @@ it('fails identity mismatch with an explicit safe code and preserves every store
 it('treats PASS_ID only as an acquisition signal and preserves auth after rejected verification', async () => {
   control.login = false;
   const id = start();
-  await stateIs(id, 'failed');
+  assert.equal((await stateIs(id, 'failed')).message, '核验未通过，请重新登录');
   assert.equal(loadAuthState(account.id).revision, 1);
   assert.equal(control.browser.close.mock.calls.length, 1);
   assertReleased();
@@ -231,6 +254,7 @@ it.each(['launch', 'context', 'page'])('cleans up partial %s failures without ex
   control.failAt = failAt;
   const id = start();
   const status = await stateIs(id, 'failed');
+  assert.equal(status.message, '登录未完成，请重试');
   assert.equal(JSON.stringify(status).includes('private'), false);
   if (failAt !== 'launch') assert.equal(control.browser.close.mock.calls.length, 1);
   assert.equal(loadAuthState(account.id).revision, 1);
@@ -270,6 +294,7 @@ it('expires QR at three minutes without incrementing takeover timeouts', async (
   await stateIs(id, 'qr');
   await vi.advanceTimersByTimeAsync(180_001);
   assert.equal(getConsoleSession(id).state, 'timed_out');
+  assert.equal(getConsoleSession(id).message, null);
   assert.equal(getReloginState(account.id).consecutive_takeover_timeouts, 0);
   assert.equal(loadAuthState(account.id).revision, 1);
   assertReleased();
@@ -282,6 +307,7 @@ it('times out takeover at ten minutes, blocks the second timeout, and drops term
   await stateIs(first, 'takeover');
   await vi.advanceTimersByTimeAsync(600_001);
   assert.equal(getConsoleSession(first).state, 'timed_out');
+  assert.equal(getConsoleSession(first).message, null);
   assert.equal(getReloginState(account.id).consecutive_takeover_timeouts, 1);
   assertReleased();
   const second = start();
@@ -289,8 +315,10 @@ it('times out takeover at ten minutes, blocks the second timeout, and drops term
   await vi.advanceTimersByTimeAsync(600_001);
   assert.throws(() => getConsoleSession(first), { code: 'E_CONSOLE_SESSION_NOT_FOUND' });
   assert.equal(getConsoleSession(second).state, 'timed_out');
+  assert.equal(getConsoleSession(second).message, null);
   assert.equal(getReloginState(account.id).status, 'blocked');
-  assert.throws(() => start(), { code: 'E_AUTH_RELOGIN_BLOCKED', httpStatus: 409 });
+  assert.throws(() => start(), { code: 'E_AUTH_RELOGIN_BLOCKED', httpStatus: 409,
+    message: '自动登录已暂停，请修改密码或扫码登录' });
   await vi.advanceTimersByTimeAsync(300_001);
   assert.throws(() => getConsoleSession(second), { code: 'E_CONSOLE_SESSION_NOT_FOUND' });
 });
@@ -312,8 +340,38 @@ it('cancels a filling session on daemon abort, even when launch work settles lat
 it('re-checks a block after acquiring the lease and never launches the browser', async () => {
   const id = start();
   putReloginState(account.id, { status: 'blocked', reason: 'wrong_password' });
-  await stateIs(id, 'failed');
+  assert.equal((await stateIs(id, 'failed')).message, '自动登录已暂停，请修改密码或扫码登录');
   assert.equal(launchBrowser.mock.calls.length, 0);
+  assertReleased();
+});
+
+it.each([
+  ['wrong_password', true], ['wrong_password', false], ['account_locked', true],
+  ['account_locked', false], ['takeover_timeout', true], ['takeover_timeout', false],
+])('allows QR while blocked for %s with has_password=%s and preserves the pause', async (reason, hasPassword) => {
+  if (!hasPassword) clearAccountPassword(account.id);
+  const lastAttemptAt = '2026-01-01T00:00:00.000Z';
+  putReloginState(account.id, { status: 'blocked', reason, consecutiveTakeoverTimeouts: 2, lastAttemptAt });
+  insertPendingAction(account.id, { kind: 'relogin_blocked', reason });
+  const actions = listPendingActions(account.id);
+  assert.throws(() => start(), { code: 'E_AUTH_RELOGIN_BLOCKED', httpStatus: 409,
+    message: '自动登录已暂停，请修改密码或扫码登录' });
+  const id = start('qr');
+  assert.equal((await stateIs(id, 'qr')).message, null);
+  control.contexts[0].state.cookies.push(passCookie());
+  assert.equal((await stateIs(id, 'succeeded')).message, null);
+  const saved = loadAuthState(account.id);
+  assert.equal(saved.revision, 2);
+  assert.equal(saved.metadata.check_verdict, 'verified');
+  const state = getReloginState(account.id);
+  assert.equal(state.status, 'blocked');
+  assert.equal(state.reason, reason);
+  assert.equal(state.last_attempt_at, lastAttemptAt);
+  assert.equal(state.consecutive_takeover_timeouts, 0);
+  assert.deepEqual(listPendingActions(account.id), actions);
+  assert.equal(attemptPasswordLogin.mock.calls.length, 0);
+  assert.throws(() => start(), { code: 'E_AUTH_RELOGIN_BLOCKED', httpStatus: 409,
+    message: '自动登录已暂停，请修改密码或扫码登录' });
   assertReleased();
 });
 
@@ -364,7 +422,7 @@ it('adds a new shop from a blank browser state, saves its password and clears th
   const id = startAdd(body);
   assert.deepEqual(body, {});
   const status = await stateIs(id, 'succeeded');
-  assert.equal(status.message, '账号已添加，密码已保存');
+  assert.equal(status.message, '店铺已添加，密码已保存');
   assert.deepEqual(createSnapshotContext.mock.calls[0][1], { cookies: [], origins: [] });
   assert.deepEqual(attemptPasswordLogin.mock.calls[0][1], { loginName: 'private-login', password: 'private-password' });
   const added = listAccounts().find((item) => item.identity === '900099');
@@ -381,7 +439,7 @@ it('updates an already registered shop instead of adding a duplicate', async () 
   const before = credentialOf(account.id);
   const id = startAdd();
   const status = await stateIs(id, 'succeeded');
-  assert.equal(status.message, '该店铺已在账号列表中，已更新登录状态和密码');
+  assert.equal(status.message, '店铺已存在，登录信息和密码已更新');
   assert.equal(listAccounts().length, 1);
   assert.equal(loadAuthState(account.id).revision, 2);
   assert.notEqual(credentialOf(account.id), before);
@@ -401,8 +459,8 @@ it('waits for the SMS code before adding the shop', async () => {
   assertReleased();
 });
 
-it.each([['wrong_password', '登录名或密码错误，账号未添加'], ['account_locked', '登录失败次数过多，账号已被暂时锁定，请稍后再试'],
-  ['form_changed', '登录页结构已变化，自动填写失败，账号未添加'], ['network_error', '登录过程中网络异常，账号未添加，请稍后重试']])(
+it.each([['wrong_password', '登录名或密码错误，店铺未添加'], ['account_locked', '账号已锁定，请稍后重试'],
+  ['form_changed', '自动填写失败，店铺未添加'], ['network_error', '网络异常，店铺未添加，请重试']])(
   'ends an add session on %s without registering anything', async (outcome, message) => {
     control.mallId = 900099;
     control.outcome = { outcome };

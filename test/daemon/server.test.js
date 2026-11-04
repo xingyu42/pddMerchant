@@ -15,9 +15,9 @@ import { CONSOLE_ACCOUNT_VIEW_FIELDS } from '../../src/services/views/console.js
 const servers = [];
 afterEach(async () => { for (const server of servers.splice(0)) await server.stop(); });
 
-async function setup(config = {}) {
+async function setup(config = {}, serverOptions = {}) {
   await acquireDaemonLease();
-  const server = createConsoleServer();
+  const server = createConsoleServer(serverOptions);
   servers.push(server);
   const log = { info: vi.fn(), warn: vi.fn() };
   const runtimeConfig = { consoleHost: '127.0.0.1', consolePort: 0, consolePublicUrl: '', ...config };
@@ -252,10 +252,29 @@ it('projects metadata without decrypting auth state and exposes only labeled acc
   assert.equal(accounts[0].session_status, '无法判定');
   assert.equal(accounts[0].has_password, false);
   assert.equal(accounts[0].password_relogin_status, null);
+  assert.equal(accounts[0].status_kind, 'action_required');
+  assert.equal(accounts[0].status, '需验证');
+  assert.equal(accounts[0].status_detail, '需要完成短信验证');
   assert.deepEqual(accounts[0].pending_actions[0], { kind: '人工接管', reason: '短信验证',
     created_at: accounts[0].pending_actions[0].created_at });
   assert.match(accounts[0].pending_actions[0].created_at, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
   assert.equal(response.body.includes('undecryptable'), false);
+});
+
+it('projects an internal block without a saved password as paused', async () => {
+  const { port, headers } = await setup();
+  const account = insertAccount({ identity: '900001', displayName: 'Shop' });
+  putReloginState(account.id, { status: 'blocked', reason: 'wrong_password' });
+  insertPendingAction(account.id, { kind: 'human_takeover', reason: 'sms' });
+  const response = await consoleRequest(port, '/api/accounts', { headers });
+  assert.equal(response.status, 200);
+  const { items: [view] } = JSON.parse(response.body);
+  assert.deepEqual(Object.keys(view), CONSOLE_ACCOUNT_VIEW_FIELDS);
+  assert.equal(view.has_password, false);
+  assert.equal(view.password_relogin_status, null);
+  assert.equal(view.status_kind, 'relogin_paused');
+  assert.equal(view.status, '暂停');
+  assert.equal(view.status_detail, '自动登录暂停：密码错误');
 });
 
 it('writes and clears passwords, unblocks accounts and logs templates without secrets', async () => {
@@ -281,6 +300,37 @@ it('writes and clears passwords, unblocks accounts and logs templates without se
   }
   for (const [entry] of log.info.mock.calls) assert.deepEqual(Object.keys(entry), ['method', 'route', 'status', 'duration_ms']);
   assert.ok(access.includes('/api/accounts/:slug/password'));
+});
+
+it('removes an account only after the shop name is typed back', async () => {
+  const { port, headers } = await setup();
+  const account = insertAccount({ identity: '900001', displayName: 'Shop' });
+  const json = { ...headers, 'X-PDD-Console': '1', 'Content-Type': 'application/json; charset=utf-8' };
+  const remove = (body) => consoleRequest(port, `/api/accounts/${account.slug}/remove`, { method: 'POST', headers: json,
+    body: JSON.stringify(body) });
+  for (const body of [{}, { confirm_name: 'Other' }, { confirm_name: 1 }]) {
+    const rejected = await remove(body);
+    assert.equal(rejected.status, 400);
+    assert.equal(JSON.parse(rejected.body).error.message, '店铺名不一致，未删除');
+  }
+  assert.equal(JSON.parse((await consoleRequest(port, '/api/accounts', { headers })).body).items.length, 1);
+  assert.deepEqual(JSON.parse((await remove({ confirm_name: ' Shop ' })).body), { ok: true, removed: true });
+  assert.equal(JSON.parse((await consoleRequest(port, '/api/accounts', { headers })).body).items.length, 0);
+  assert.equal((await remove({ confirm_name: 'Shop' })).status, 404);
+});
+
+it('reads and switches the live patrol through GET and POST on one path', async () => {
+  let enabled = false;
+  const patrol = { isEnabled: () => enabled, setEnabled: vi.fn(async (next) => { enabled = next; }) };
+  const { port, headers } = await setup({ patrolIntervalMs: 1_800_000 }, { patrol });
+  const json = { ...headers, 'X-PDD-Console': '1', 'Content-Type': 'application/json; charset=utf-8' };
+  const read = await consoleRequest(port, '/api/patrol', { headers });
+  assert.deepEqual(JSON.parse(read.body), { enabled: false, interval_minutes: 30, last_patrol_at: null });
+  const switched = await consoleRequest(port, '/api/patrol', { method: 'POST', headers: json, body: '{"enabled":true}' });
+  assert.deepEqual([switched.status, JSON.parse(switched.body).enabled], [200, true]);
+  assert.deepEqual(patrol.setEnabled.mock.calls, [[true]]);
+  assert.equal((await consoleRequest(port, '/api/patrol', { method: 'POST', headers: json, body: '{"enabled":1}' })).status, 400);
+  assert.equal((await consoleRequest(port, '/api/patrol')).status, 401);
 });
 
 it('maps occupied ports to the typed error and releases the daemon lease', async () => {

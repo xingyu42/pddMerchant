@@ -9,14 +9,14 @@ const SESSION_POLL_MS = 1000;
 const IME_SENTINEL = '\u200b';
 const TERMINAL_STATES = new Set(['succeeded', 'failed', 'timed_out', 'cancelled']);
 const STATE_TEXT = {
-  filling: '正在自动填写账号密码…',
-  takeover: '需要你完成下方的验证码',
-  sms: '需要输入短信验证码',
-  qr: '请用商家版 App 扫码，或长按保存二维码后从相册识别',
-  verifying: '登录成功，正在核验并保存…',
-  succeeded: '登录完成，已保存',
-  failed: '登录未完成',
-  timed_out: '接管超时，已结束',
+  filling: '正在准备登录…',
+  takeover: '完成验证码',
+  sms: '输入短信验证码',
+  qr: '扫码登录',
+  verifying: '正在核验并保存…',
+  succeeded: '登录成功',
+  failed: '登录失败',
+  timed_out: '登录超时',
   cancelled: '已取消',
 };
 
@@ -45,7 +45,7 @@ async function api(path, body) {
 }
 
 function errorText(error) {
-  if (error?.status === 401) return '访问已过期，请让助手重新发送控制台链接';
+  if (error?.status === 401) return '链接已失效，请让助手重新发送';
   return error?.message ?? '请求失败';
 }
 
@@ -90,41 +90,127 @@ function Notice({ error, message }) {
   return null;
 }
 
-function StatusChips({ account }) {
-  const pending = account.pending_actions ?? [];
+function StatusBadge({ account }) {
+  return html`<span class=${`badge badge-${account.status_kind ?? 'unknown'}`}>
+    <span class="badge-dot"></span>${account.status ?? '未知'}
+  </span>`;
+}
+
+function AccountCard({ account, busy, run }) {
+  const paused = account.status_kind === 'relogin_paused';
+  const actionable = paused || ['action_required', 'relogin_required'].includes(account.status_kind);
+  const passwordLogin = !paused && account.has_password;
   return html`
-    <ul class="chips">
-      <li class="chip">会话：${account.session_status ?? '未知'}</li>
-      <li class="chip">${account.has_password ? '已保存密码' : '未保存密码'}</li>
-      ${account.password_relogin_status && html`<li class="chip">重登：${account.password_relogin_status}</li>`}
-      ${pending.length > 0 && html`<li class="chip chip-alert">待处理 ${pending.length} 项</li>`}
-    </ul>`;
+    <li class="card">
+      <a class="card-link" href=${`#/accounts/${encodeURIComponent(account.slug)}`}>
+        <div class="card-header">
+          <strong class="card-title">${account.display_name ?? account.slug}</strong>
+          <${StatusBadge} account=${account} />
+        </div>
+        ${account.status_detail && html`<div class="card-detail muted">${account.status_detail}</div>`}
+      </a>
+      ${actionable && html`<div class="card-action">
+        <button class="secondary button-sm" disabled=${busy}
+          onClick=${() => run(account.slug, passwordLogin ? 'relogin' : 'qr')}>
+          ${passwordLogin ? '重新登录' : '扫码登录'}
+        </button>
+      </div>`}
+    </li>`;
+}
+
+function patrolHint(patrol) {
+  const every = patrol.interval_minutes ? `每 ${patrol.interval_minutes} 分钟` : '定期';
+  return `开启后${every}检查登录，失效时用已存密码自动登录`;
+}
+
+// 开关失败时重绘会把复选框复位到服务端状态。
+function usePatrol() {
+  const [patrol, setPatrol] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try { const payload = await api('/api/patrol'); if (active) setPatrol(payload); }
+      catch (failure) { if (active) setError(failure); }
+    };
+    void load();
+    return () => { active = false; };
+  }, []);
+  const toggle = async (event) => {
+    const enabled = event.currentTarget.checked;
+    setBusy(true);
+    setError(null);
+    try { setPatrol(await api('/api/patrol', { enabled })); }
+    catch (failure) { setError(failure); }
+    finally { setBusy(false); }
+  };
+  return { patrol, busy, error, toggle };
+}
+
+// 弹出面板：点面板外或按 Esc 收起。
+function usePopover() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (event) => {
+      if (event.type === 'keydown' ? event.key === 'Escape' : !ref.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', close);
+    return () => {
+      document.removeEventListener('pointerdown', close);
+      document.removeEventListener('keydown', close);
+    };
+  }, [open]);
+  return { open, ref, toggleOpen: () => setOpen(!open) };
+}
+
+// 标题行右侧的胶囊显示巡航状态，点开面板里切换。
+function PatrolSwitch({ patrol, busy, toggle }) {
+  const { open, ref, toggleOpen } = usePopover();
+  if (!patrol) return null;
+  return html`
+    <div class="patrol" ref=${ref}>
+      <button type="button" class=${`patrol-pill${patrol.enabled ? ' is-on' : ''}`}
+        aria-expanded=${String(open)} aria-controls="patrol-panel" onClick=${toggleOpen}>
+        <span class="patrol-dot"></span>${patrol.enabled ? '巡航中' : '自动巡航'}
+      </button>
+      ${open && html`
+        <div id="patrol-panel" class="patrol-panel">
+          <label class="switch">自动巡航
+            <input type="checkbox" role="switch" checked=${patrol.enabled} disabled=${busy} onChange=${toggle} />
+          </label>
+          <p>${patrolHint(patrol)}</p>
+          ${patrol.last_patrol_at && html`<p class="muted">上次 ${patrol.last_patrol_at}</p>`}
+        </div>`}
+    </div>`;
 }
 
 function AccountList() {
   const { loading, items, error } = useAccounts();
+  const [actionError, setActionError] = useState(null);
+  const { busy, run } = useAccountAction({ onError: setActionError });
+  const patrol = usePatrol();
   return html`
     <section>
-      <h1>商家账号</h1>
-      <${Notice} error=${error} />
+      <div class="page-header">
+        <h1>店铺</h1>
+        <${PatrolSwitch} ...${patrol} />
+      </div>
+      <${Notice} error=${error ?? actionError ?? patrol.error} />
       ${loading && html`<p class="muted">加载中…</p>`}
-      ${!loading && items.length === 0 && !error && html`<p class="muted">尚未添加账号，可在下方用登录名和密码新增</p>`}
+      ${!loading && items.length === 0 && !error && html`<p class="muted">还没有店铺</p>`}
       <ul class="cards">
-        ${items.map((account) => html`
-          <li key=${account.slug}>
-            <a class="card" href=${`#/accounts/${encodeURIComponent(account.slug)}`}>
-              <strong>${account.display_name ?? account.slug}</strong>
-              <span class="muted">${account.slug}</span>
-              <${StatusChips} account=${account} />
-            </a>
-          </li>`)}
+        ${items.map((account) => html`<${AccountCard} key=${account.slug} account=${account} busy=${busy} run=${run} />`)}
       </ul>
-      <${AddAccountForm} />
+      ${!loading && html`<${AddAccountForm} openByDefault=${items.length === 0} />`}
     </section>`;
 }
 
 // 登录名 + 密码表单，只写不读。
-function CredentialForm({ title, hint, submitText, busyText, submitCredential }) {
+function CredentialForm({ hint, submitText, busyText, submitCredential }) {
   const [loginName, setLoginName] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -145,10 +231,10 @@ function CredentialForm({ title, hint, submitText, busyText, submitCredential })
     }
   };
   return html`
-    <form class="panel" onSubmit=${submit} autocomplete="off">
-      <h2>${title}</h2>
+    <form onSubmit=${submit} autocomplete="off">
       <p class="muted">${hint}</p>
-      <label>登录名（手机号或账号名，子账号须用账号名）
+      <label>登录名
+        <small class="muted">手机号或账号名；子账号填账号名</small>
         <input name="pdd-login-name" value=${loginName} onInput=${(e) => setLoginName(e.currentTarget.value)}
           autocomplete="off" autocapitalize="off" spellcheck="false" required maxlength="128" />
       </label>
@@ -161,38 +247,50 @@ function CredentialForm({ title, hint, submitText, busyText, submitCredential })
     </form>`;
 }
 
-function PasswordForm({ slug, onSaved }) {
+function PasswordForm({ slug, hasPassword, paused, onSaved }) {
   const save = async (body) => {
     await api(`/api/accounts/${encodeURIComponent(slug)}/password`, body);
     onSaved('密码已保存');
   };
-  return html`<${CredentialForm} title="录入或重设密码" hint="只能写入，保存后不会再显示。"
-    submitText="保存" busyText="保存中…" submitCredential=${save} />`;
+  return html`
+    <details class="panel accordion" open=${paused}>
+      <summary>${hasPassword ? '修改密码' : '设置密码'}</summary>
+      <div class="accordion-body">
+        <${CredentialForm} hint="仅用于自动登录，保存后不再显示"
+          submitText="保存" busyText="保存中…" submitCredential=${save} />
+      </div>
+    </details>`;
 }
 
 // 新增账号：用登录名和密码登录，核验通过后按店铺登记账号并保存密码；短信、验证码在会话页完成。
-function AddAccountForm() {
+function AddAccountForm({ openByDefault = false }) {
   const add = async (body) => {
     const { session_id: id } = await api('/api/accounts/add', body);
     navigate(`/sessions/${encodeURIComponent(id)}`);
   };
-  return html`<${CredentialForm} title="新增账号" hint="用店铺的登录名和密码登录，核验通过后添加账号并保存密码。"
-    submitText="登录并添加" busyText="提交中…" submitCredential=${add} />`;
+  return html`
+    <details class="panel accordion" open=${openByDefault}>
+      <summary>+ 添加店铺</summary>
+      <div class="accordion-body">
+        <${CredentialForm} hint="登录验证通过后添加，并保存密码"
+          submitText="登录并添加" busyText="提交中…" submitCredential=${add} />
+      </div>
+    </details>`;
 }
 
-function AccountActions({ account, onDone, onError }) {
+function useAccountAction({ onDone, onError }) {
   const [busy, setBusy] = useState(false);
   const running = useRef(false);
-  const slug = encodeURIComponent(account.slug);
-  const blocked = account.password_relogin_status?.startsWith('已熔断') ?? false;
-  const run = async (path, message) => {
+  const run = async (accountSlug, path, message, body = {}) => {
     if (running.current) return;
     running.current = true;
     setBusy(true);
+    const slug = encodeURIComponent(accountSlug);
     try {
-      const payload = await api(`/api/accounts/${slug}/${path}`, {});
+      const payload = await api(`/api/accounts/${slug}/${path}`, body);
       if (payload.session_id) navigate(`/sessions/${encodeURIComponent(payload.session_id)}/${slug}`);
-      else onDone(message);
+      else if (payload.removed) navigate('/');
+      else onDone?.(message);
     } catch (error) {
       onError(error);
     } finally {
@@ -200,15 +298,35 @@ function AccountActions({ account, onDone, onError }) {
       setBusy(false);
     }
   };
+  return { busy, running, run };
+}
+
+function AccountActions({ account, onDone, onError }) {
+  const { busy, running, run: runAction } = useAccountAction({ onDone, onError });
+  const run = (path, message, body) => runAction(account.slug, path, message, body);
+  const paused = account.status_kind === 'relogin_paused';
+  const passwordLogin = !paused && account.has_password;
+  const clear = () => {
+    if (running.current) return;
+    if (window.confirm('清除已存密码？清除后不再自动登录。')) return run('password/clear', '密码已清除');
+  };
+  const remove = () => {
+    if (running.current) return;
+    const name = account.display_name ?? account.slug;
+    const typed = window.prompt(`删除后登录态、密码和商品成本都会清除，无法恢复。输入店铺名「${name}」确认：`);
+    if (typed != null) return run('remove', null, { confirm_name: typed.trim() });
+  };
   return html`
     <div class="panel actions">
-      <h2>操作</h2>
-      ${blocked && html`<button disabled=${busy} onClick=${() => run('unblock', '已解除熔断')}>解除熔断</button>`}
-      ${account.has_password && !blocked && html`<button disabled=${busy} onClick=${() => run('relogin')}>开始重登</button>`}
-      ${!blocked && html`<button class="secondary" disabled=${busy} onClick=${() => run('qr')}>改用扫码登录</button>`}
-      ${blocked && html`<p class="muted">已熔断：先解除熔断或重设密码，再开始重登或扫码。</p>`}
-      ${account.has_password && html`
-        <button class="danger" disabled=${busy} onClick=${() => !running.current && window.confirm('确定清除已保存的密码？') && run('password/clear', '密码已清除')}>清除密码</button>`}
+      <button disabled=${busy} onClick=${() => run(passwordLogin ? 'relogin' : 'qr')}>${passwordLogin ? '重新登录' : '扫码登录'}</button>
+      ${passwordLogin && html`<button class="secondary" disabled=${busy} onClick=${() => run('qr')}>扫码登录</button>`}
+      ${paused && html`
+        <button class="secondary" disabled=${busy} onClick=${() => run('unblock', '已恢复自动登录')}>恢复自动登录</button>
+        <p class="muted">可扫码登录；修改密码后自动恢复</p>`}
+      <div class="action-danger">
+        ${account.has_password && html`<button class="danger" disabled=${busy} onClick=${clear}>清除已存密码</button>`}
+        <button class="danger" disabled=${busy} onClick=${remove}>删除店铺</button>
+      </div>
     </div>`;
 }
 
@@ -220,19 +338,19 @@ function AccountDetail({ slug }) {
   const done = (text) => { setMessage(text); setActionError(null); reload(); };
   return html`
     <section>
-      <a class="back" href="#/">← 账号列表</a>
+      <a class="back" href="#/">← 店铺</a>
       <${Notice} error=${error ?? actionError} message=${message} />
       ${loading && html`<p class="muted">加载中…</p>`}
-      ${!loading && !account && !error && html`<p class="muted">找不到账号 ${slug}</p>`}
+      ${!loading && !account && !error && html`<p class="muted">未找到店铺（${slug}）</p>`}
       ${account && html`
-        <h1>${account.display_name ?? account.slug}</h1>
-        <${StatusChips} account=${account} />
-        ${(account.pending_actions ?? []).map((action) => html`
-          <p class="notice notice-alert" key=${`${action.kind}-${action.created_at}`}>
-            ${action.kind}：${action.reason}（${action.created_at}）
-          </p>`)}
+        <div class="detail-header">
+          <h1>${account.display_name ?? account.slug}</h1>
+          <${StatusBadge} account=${account} />
+        </div>
+        ${account.status_detail && html`<p class="muted">${account.status_detail}</p>`}
         <${AccountActions} account=${account} onDone=${done} onError=${setActionError} />
-        <${PasswordForm} slug=${account.slug} onSaved=${done} />`}
+        <${PasswordForm} slug=${account.slug} hasPassword=${account.has_password}
+          paused=${account.status_kind === 'relogin_paused'} onSaved=${done} />`}
     </section>`;
 }
 
@@ -416,17 +534,17 @@ function TakeoverScreen({ id }) {
   const onFocus = useRef(keyboard.onFocus);
   const { sample, send, error } = usePointerBatches(id, image, onFocus);
   const handlers = usePointerGesture(sample, send);
-  if (!frame?.jpeg) return html`<${Notice} error=${error} /><div class="screen-wrap screen-empty">等待验证码弹窗…</div>`;
+  if (!frame?.jpeg) return html`<${Notice} error=${error} /><div class="screen-wrap screen-empty">等待验证码…</div>`;
   return html`
-    <p class="muted">拖动滑块或点选完成验证；点中输入框会弹出键盘。</p>
+    <p class="muted">拖动滑块或点选；点到输入框会弹出键盘</p>
     <${Notice} error=${error} />
     <div class="screen-box">
       <div class="screen-wrap" ...${handlers}>
-        <img ref=${image} class="screen" alt="验证码弹窗" draggable="false"
+        <img ref=${image} class="screen" alt="安全验证" draggable="false"
           src=${`data:image/jpeg;base64,${frame.jpeg}`} width=${frame.width} height=${frame.height}
           onContextMenu=${(event) => event.preventDefault()} />
       </div>
-      <input class="ime" ...${keyboard.props} aria-label="向验证码输入文字" autocomplete=${keyboard.numeric ? 'one-time-code' : 'off'}
+      <input class="ime" ...${keyboard.props} aria-label="输入验证码文字" autocomplete=${keyboard.numeric ? 'one-time-code' : 'off'}
         inputmode=${keyboard.numeric ? 'numeric' : 'text'} autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="enter" />
     </div>`;
 }
@@ -434,7 +552,7 @@ function TakeoverScreen({ id }) {
 const SMS_RESULT_TEXT = {
   submitted: '已提交，正在等待登录结果',
   wrong_code: '验证码错误，请重新输入',
-  form_changed: '登录页上找不到短信输入框，请结束会话后改用扫码登录',
+  form_changed: '找不到短信输入框，请改用扫码登录',
 };
 
 // 短信码由人在这里输入，daemon 填进登录页的短信弹窗并提交，画面不转播。
@@ -478,7 +596,7 @@ function Countdown({ seconds }) {
   }, []);
   if (!Number.isFinite(left)) return null;
   const minutes = Math.floor(left / 60);
-  return html`<span class="muted">剩余 ${minutes}:${String(left % 60).padStart(2, '0')}</span>`;
+  return html`<span class=${`muted${left <= 60 ? ' countdown-urgent' : ''}`}>剩余 ${minutes}:${String(left % 60).padStart(2, '0')}</span>`;
 }
 
 function QrPanel({ id, image }) {
@@ -487,7 +605,7 @@ function QrPanel({ id, image }) {
   return html`
     <div class="panel qr">
       ${image ? html`<img class="qr-image" src=${image} alt="登录二维码，长按保存" />` : html`<p class="muted">正在获取二维码…</p>`}
-      <p class="muted">长按图片保存到相册，在商家版 App 扫一扫中选择相册识别。</p>
+      <p class="muted">长按保存二维码，在商家版 App 扫一扫里从相册识别</p>
       <button class="secondary" onClick=${refresh}>刷新二维码</button>
       <${Notice} error=${error} />
     </div>`;
@@ -502,7 +620,7 @@ function SessionView({ id, slug }) {
   return html`
     <section>
       <a class="back" href=${back}>← 返回</a>
-      <h1>登录会话</h1>
+      <h1>店铺登录</h1>
       <${Notice} error=${error} />
       ${state && html`<p class=${`state state-${state}`}>${STATE_TEXT[state] ?? state}</p>`}
       ${session?.message && html`<p class="muted">${session.message}</p>`}
@@ -510,8 +628,8 @@ function SessionView({ id, slug }) {
       ${state === 'takeover' && html`<${TakeoverScreen} id=${id} />`}
       ${state === 'sms' && html`<${SmsPanel} id=${id} />`}
       ${state === 'qr' && html`<${QrPanel} id=${id} image=${session.qr_image} />`}
-      ${!finished && session && html`<button class="danger" onClick=${cancel}>结束会话</button>`}
-      ${finished && html`<a class="button" href=${back}>完成</a>`}
+      ${!finished && session && html`<button class="danger" onClick=${cancel}>取消登录</button>`}
+      ${finished && html`<a class="button" href=${back}>返回</a>`}
     </section>`;
 }
 

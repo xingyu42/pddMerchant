@@ -5,8 +5,9 @@ import { readConsoleCookie, requireJsonPost, readJson, send, sendHtml } from './
 import { serveStatic } from './static.js';
 import { startConsoleSession, startConsoleAddSession, getConsoleSession, consoleSessionFrames, consoleSessionPointer,
   consoleSessionText, consoleSessionSms, refreshConsoleQr, cancelConsoleSession, completeFixtureConsoleSession,
-  consoleFixtureEnabled } from '../services/console-login.js';
+  consoleFixtureEnabled, removeConsoleAccount } from '../services/console-login.js';
 import { streamFrames } from './sse.js';
+import { getConsolePatrol, setConsolePatrol } from '../services/console-patrol.js';
 
 export const CONSOLE_ROUTES = Object.freeze([
   { method: 'GET', template: '/healthz', pattern: /^\/healthz$/, public: true, run: () => consoleHealth() },
@@ -17,6 +18,10 @@ export const CONSOLE_ROUTES = Object.freeze([
     run: ({ response }) => serveStatic('/app/styles.css', response) },
   { method: 'POST', template: '/api/redeem', pattern: /^\/api\/redeem$/, public: true, run: redeem },
   { method: 'GET', template: '/api/accounts', pattern: /^\/api\/accounts$/, run: () => listConsoleAccounts() },
+  { method: 'GET', template: '/api/patrol', pattern: /^\/api\/patrol$/,
+    run: ({ patrol, runtimeConfig }) => getConsolePatrol(patrol, runtimeConfig) },
+  { method: 'POST', template: '/api/patrol', pattern: /^\/api\/patrol$/,
+    run: ({ patrol, body, runtimeConfig }) => setConsolePatrol(patrol, body, runtimeConfig) },
   { method: 'POST', template: '/api/accounts/add', pattern: /^\/api\/accounts\/add$/,
     run: ({ body, ownerTag, signal }) => startConsoleAddSession(body, { ownerTag, signal }) },
   { method: 'POST', template: '/api/accounts/:slug/password', pattern: /^\/api\/accounts\/([^/]+)\/password$/,
@@ -25,6 +30,8 @@ export const CONSOLE_ROUTES = Object.freeze([
     run: ({ slug }) => clearConsolePassword(slug) },
   { method: 'POST', template: '/api/accounts/:slug/unblock', pattern: /^\/api\/accounts\/([^/]+)\/unblock$/,
     run: ({ slug }) => unblockConsoleAccount(slug) },
+  { method: 'POST', template: '/api/accounts/:slug/remove', pattern: /^\/api\/accounts\/([^/]+)\/remove$/,
+    run: ({ slug, body }) => removeConsoleAccount(slug, body) },
   { method: 'POST', template: '/api/accounts/:slug/relogin', pattern: /^\/api\/accounts\/([^/]+)\/relogin$/,
     run: ({ slug, ownerTag, signal }) => startConsoleSession(slug, { mode: 'password', ownerTag, signal }) },
   { method: 'POST', template: '/api/accounts/:slug/qr', pattern: /^\/api\/accounts\/([^/]+)\/qr$/,
@@ -75,7 +82,8 @@ function authenticated(request, response, path) {
 }
 
 export async function dispatchRoute(request, response, path, runtimeConfig, access, context = {}) {
-  const route = CONSOLE_ROUTES.find((entry) => (!entry.fixtureOnly || consoleFixtureEnabled()) && entry.pattern.test(path));
+  const matches = CONSOLE_ROUTES.filter((entry) => (!entry.fixtureOnly || consoleFixtureEnabled()) && entry.pattern.test(path));
+  const route = matches.find((entry) => entry.method === request.method) ?? matches[0];
   access.route = route?.template ?? (path.startsWith('/api/') ? '/api/*' : '/*');
   if (!route?.public && !authenticated(request, response, path)) return;
   if (route?.method === 'POST' || !['GET', 'HEAD'].includes(request.method)) requireJsonPost(request);
@@ -88,7 +96,7 @@ export async function dispatchRoute(request, response, path, runtimeConfig, acce
   try {
     const result = await route.run({ slug: route.template.startsWith('/api/accounts/') ? path.match(route.pattern)[1] : null,
       id: route.template.startsWith('/api/sessions/') ? path.match(route.pattern)[1] : null,
-      body, request, response, runtimeConfig, ownerTag: context.ownerTag, signal: context.signal });
+      body, request, response, runtimeConfig, ownerTag: context.ownerTag, signal: context.signal, patrol: context.patrol });
     if (!response.writableEnded && !response.headersSent) send(response, 200, result);
   } finally { body = null; }
 }
