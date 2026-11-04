@@ -247,19 +247,13 @@ function CredentialForm({ hint, submitText, busyText, submitCredential }) {
     </form>`;
 }
 
-function PasswordForm({ slug, hasPassword, paused, onSaved }) {
+function PasswordForm({ slug, onSaved }) {
   const save = async (body) => {
     await api(`/api/accounts/${encodeURIComponent(slug)}/password`, body);
     onSaved('密码已保存');
   };
-  return html`
-    <details class="panel accordion" open=${paused}>
-      <summary>${hasPassword ? '修改密码' : '设置密码'}</summary>
-      <div class="accordion-body">
-        <${CredentialForm} hint="仅用于自动登录，保存后不再显示"
-          submitText="保存" busyText="保存中…" submitCredential=${save} />
-      </div>
-    </details>`;
+  return html`<${CredentialForm} hint="仅用于自动登录，保存后不再显示"
+    submitText="保存" busyText="保存中…" submitCredential=${save} />`;
 }
 
 // 新增账号：用登录名和密码登录，核验通过后按店铺登记账号并保存密码；短信、验证码在会话页完成。
@@ -301,11 +295,14 @@ function useAccountAction({ onDone, onError }) {
   return { busy, running, run };
 }
 
+// 分组列表：登录、密码各占一行，说明在左、操作在右；删除店铺单独放在底部。
 function AccountActions({ account, onDone, onError }) {
   const { busy, running, run: runAction } = useAccountAction({ onDone, onError });
   const run = (path, message, body) => runAction(account.slug, path, message, body);
   const paused = account.status_kind === 'relogin_paused';
+  const [editing, setEditing] = useState(paused);
   const passwordLogin = !paused && account.has_password;
+  const saved = (text) => { setEditing(false); onDone?.(text); };
   const clear = () => {
     if (running.current) return;
     if (window.confirm('清除已存密码？清除后不再自动登录。')) return run('password/clear', '密码已清除');
@@ -317,16 +314,27 @@ function AccountActions({ account, onDone, onError }) {
     if (typed != null) return run('remove', null, { confirm_name: typed.trim() });
   };
   return html`
-    <div class="panel actions">
-      <button disabled=${busy} onClick=${() => run(passwordLogin ? 'relogin' : 'qr')}>${passwordLogin ? '重新登录' : '扫码登录'}</button>
-      ${passwordLogin && html`<button class="secondary" disabled=${busy} onClick=${() => run('qr')}>扫码登录</button>`}
-      ${paused && html`
-        <button class="secondary" disabled=${busy} onClick=${() => run('unblock', '已恢复自动登录')}>恢复自动登录</button>
-        <p class="muted">可扫码登录；修改密码后自动恢复</p>`}
-      <div class="action-danger">
-        ${account.has_password && html`<button class="danger" disabled=${busy} onClick=${clear}>清除已存密码</button>`}
-        <button class="danger" disabled=${busy} onClick=${remove}>删除店铺</button>
+    <div class="detail-actions">
+      <div class="group">
+        <div class=${`group-row${paused ? ' stacked' : ''}`}>
+          <div class="row-label">登录${paused && html`<small class="muted">可扫码登录；修改密码后自动恢复</small>`}</div>
+          <div class="row-actions">
+            ${paused && html`<button class="secondary" disabled=${busy} onClick=${() => run('unblock', '已恢复自动登录')}>恢复自动登录</button>`}
+            ${passwordLogin && html`<button class="secondary" disabled=${busy} onClick=${() => run('qr')}>扫码登录</button>`}
+            <button disabled=${busy} onClick=${() => run(passwordLogin ? 'relogin' : 'qr')}>${passwordLogin ? '重新登录' : '扫码登录'}</button>
+          </div>
+        </div>
+        <div class="group-row">
+          <div class="row-label">密码<small class="muted">${account.has_password ? '已保存' : '未保存'}</small></div>
+          <div class="row-actions">
+            ${account.has_password && html`<button class="plain" disabled=${busy} onClick=${clear}>清除密码</button>`}
+            <button class="secondary disclosure" disabled=${busy} aria-expanded=${String(editing)} aria-controls="password-form"
+              onClick=${() => setEditing(!editing)}>${account.has_password ? '修改密码' : '设置密码'}</button>
+          </div>
+        </div>
+        ${editing && html`<div id="password-form" class="group-expand"><${PasswordForm} slug=${account.slug} onSaved=${saved} /></div>`}
       </div>
+      <div class="danger-zone"><button class="danger" disabled=${busy} onClick=${remove}>删除店铺</button></div>
     </div>`;
 }
 
@@ -347,10 +355,8 @@ function AccountDetail({ slug }) {
           <h1>${account.display_name ?? account.slug}</h1>
           <${StatusBadge} account=${account} />
         </div>
-        ${account.status_detail && html`<p class="muted">${account.status_detail}</p>`}
-        <${AccountActions} account=${account} onDone=${done} onError=${setActionError} />
-        <${PasswordForm} slug=${account.slug} hasPassword=${account.has_password}
-          paused=${account.status_kind === 'relogin_paused'} onSaved=${done} />`}
+        ${account.status_detail && html`<p class="detail-meta muted">${account.status_detail}</p>`}
+        <${AccountActions} key=${account.slug} account=${account} onDone=${done} onError=${setActionError} />`}
     </section>`;
 }
 
