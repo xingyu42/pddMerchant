@@ -7,6 +7,11 @@
   --border: #d9dde3;
   --accent: #e02e24;
   --accent-fg: #ffffff;
+  --primary: #1d1d1f;
+  --primary-fg: #ffffff;
+  --fill: #eef0f3;
+  --danger: #d70015;
+  --danger-tint: rgba(255, 59, 48, 0.1);
   --alert-bg: #fff4e5;
   --alert-fg: #8a4b00;
   --error-bg: #fdecec;
@@ -28,6 +33,11 @@
     --muted: #9aa1ad;
     --card: #1e2127;
     --border: #343944;
+    --primary: #e7e9ee;
+    --primary-fg: #14161a;
+    --fill: #2b2f37;
+    --danger: #ff6961;
+    --danger-tint: rgba(255, 69, 58, 0.16);
     --alert-bg: #3a2a12;
     --alert-fg: #ffd48a;
     --error-bg: #3d1717;
@@ -78,9 +88,28 @@ h2 { font-size: 1.05rem; margin: 0 0 8px; }
 .card strong { display: block; font-size: 1.05rem; }
 
 .card { display: flex; flex-direction: column; gap: 8px; }
-.card-link { display: block; min-height: 44px; color: inherit; text-decoration: none; }
+.card-link { display: flex; flex-direction: column; justify-content: center; min-height: 44px; color: inherit; text-decoration: none; }
 .card-header, .detail-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .card-title, .detail-header h1 { min-width: 0; overflow-wrap: anywhere; }
+.detail-header { margin-top: 8px; }
+.detail-header h1 { margin: 0; }
+.detail-meta { margin: 4px 0 0; font-size: 0.85rem; }
+.detail-actions { margin-top: 16px; }
+
+/* 详情页分组列表：说明在左、操作在右，窄屏时操作换到下一行。 */
+.group { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); }
+.group-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 10px 14px; }
+.group-row + .group-row, .group-expand { border-top: 1px solid var(--border); }
+.row-label { flex: 1 1 96px; min-width: 0; font-weight: 600; }
+.row-label small { display: block; font-weight: 400; font-size: 0.82rem; }
+.group-row.stacked .row-label { flex-basis: 100%; }
+.row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.row-actions button { margin: 0; padding: 8px 14px; font-size: 0.92rem; }
+.row-actions button.plain { padding-inline: 8px; }
+.disclosure::after { content: "\25be"; display: inline-block; margin-left: 6px; transition: transform 0.2s ease; }
+.disclosure[aria-expanded="true"]::after { transform: rotate(180deg); }
+.group-expand { padding: 0 14px 14px; }
+.danger-zone { margin-top: 24px; text-align: center; }
 .card-detail { margin-top: 6px; font-size: 0.85rem; overflow-wrap: anywhere; }
 .card-action { display: flex; justify-content: flex-end; padding-top: 6px; border-top: 1px dashed var(--border); }
 
@@ -153,18 +182,19 @@ button, .button {
   font-size: 1rem;
   border: 0;
   border-radius: 8px;
-  background: var(--accent);
-  color: var(--accent-fg);
+  background: var(--primary);
+  color: var(--primary-fg);
   text-decoration: none;
   cursor: pointer;
 }
 
 button:disabled { opacity: 0.6; cursor: default; }
-button.secondary { background: transparent; color: inherit; border: 1px solid var(--border); }
-button.danger { background: transparent; color: var(--error-fg); border: 1px solid var(--error-fg); }
+button.secondary { background: var(--fill); color: inherit; }
+button.danger { background: var(--danger-tint); color: var(--danger); }
+button.plain { background: transparent; color: var(--muted); }
+@media (hover: hover) { button.plain:hover:not(:disabled) { color: var(--danger); } }
 
 .button-sm { min-height: 44px; padding: 8px 14px; font-size: 0.92rem; }
-.action-danger { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
 .page-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 0 12px; }
 .page-header h1 { margin: 0; }
 .patrol { position: relative; flex-shrink: 0; }

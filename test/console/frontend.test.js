@@ -149,17 +149,18 @@ it('guards synchronous repeated account actions and disables every button until 
   assert.ok(buttons(app.render(props)).every((button) => button.props.disabled === false));
 });
 
+// 按渲染顺序：登录行（次要在左、主按钮在右）、密码行、删除店铺。
 const actionCases = [
-  ['relogin_paused', true, ['扫码登录', '恢复自动登录', '清除已存密码', '删除店铺'], '扫码登录'],
-  ['relogin_paused', false, ['扫码登录', '恢复自动登录', '删除店铺'], '扫码登录'],
-  ['action_required', true, ['重新登录', '扫码登录', '清除已存密码', '删除店铺'], '重新登录'],
-  ['action_required', false, ['扫码登录', '删除店铺'], '扫码登录'],
-  ['relogin_required', true, ['重新登录', '扫码登录', '清除已存密码', '删除店铺'], '重新登录'],
-  ['relogin_required', false, ['扫码登录', '删除店铺'], '扫码登录'],
-  ['verified', true, ['重新登录', '扫码登录', '清除已存密码', '删除店铺'], null],
-  ['verified', false, ['扫码登录', '删除店铺'], null],
-  ['unknown', true, ['重新登录', '扫码登录', '清除已存密码', '删除店铺'], null],
-  ['unknown', false, ['扫码登录', '删除店铺'], null],
+  ['relogin_paused', true, ['恢复自动登录', '扫码登录', '清除密码', '修改密码', '删除店铺'], '扫码登录'],
+  ['relogin_paused', false, ['恢复自动登录', '扫码登录', '设置密码', '删除店铺'], '扫码登录'],
+  ['action_required', true, ['扫码登录', '重新登录', '清除密码', '修改密码', '删除店铺'], '重新登录'],
+  ['action_required', false, ['扫码登录', '设置密码', '删除店铺'], '扫码登录'],
+  ['relogin_required', true, ['扫码登录', '重新登录', '清除密码', '修改密码', '删除店铺'], '重新登录'],
+  ['relogin_required', false, ['扫码登录', '设置密码', '删除店铺'], '扫码登录'],
+  ['verified', true, ['扫码登录', '重新登录', '清除密码', '修改密码', '删除店铺'], null],
+  ['verified', false, ['扫码登录', '设置密码', '删除店铺'], null],
+  ['unknown', true, ['扫码登录', '重新登录', '清除密码', '修改密码', '删除店铺'], null],
+  ['unknown', false, ['扫码登录', '设置密码', '删除店铺'], null],
 ];
 
 it.each(actionCases)('maps detail actions for %s with password=%s', async (kind, hasPassword, expected) => {
@@ -168,12 +169,13 @@ it.each(actionCases)('maps detail actions for %s with password=%s', async (kind,
   const onDone = vi.fn();
   const tree = app.render({ account: { slug: 'shop', status_kind: kind, has_password: hasPassword }, onDone, onError: vi.fn() });
   assert.deepEqual(buttons(tree).map((button) => button.props.children.join('')), expected);
-  assert.ok(!buttonNamed(tree, expected[0]).props.class);
-  const paths = { 扫码登录: 'qr', 重新登录: 'relogin', 恢复自动登录: 'unblock', 清除已存密码: 'password/clear', 删除店铺: 'remove' };
-  const danger = new Set(['清除已存密码', '删除店铺']);
+  const primary = kind !== 'relogin_paused' && hasPassword ? '重新登录' : '扫码登录';
+  const classes = { 清除密码: 'plain', 修改密码: 'secondary disclosure', 设置密码: 'secondary disclosure', 删除店铺: 'danger' };
+  const paths = { 扫码登录: 'qr', 重新登录: 'relogin', 恢复自动登录: 'unblock', 清除密码: 'password/clear', 删除店铺: 'remove' };
   for (const text of expected) {
     const button = buttonNamed(tree, text);
-    if (text !== expected[0]) assert.equal(button.props.class, danger.has(text) ? 'danger' : 'secondary');
+    assert.equal(button.props.class, text === primary ? undefined : classes[text] ?? 'secondary');
+    if (!paths[text]) continue;
     await button.props.onClick();
     assert.equal(api.mock.calls.at(-1)[0], `/api/accounts/shop/${paths[text]}`);
   }
@@ -206,7 +208,7 @@ it('keeps paused qr available, guards every action and navigates after success',
   assert.ok(!buttons(tree).some((button) => button.props.children.join('') === '重新登录'));
   const first = buttonNamed(tree, '扫码登录').props.onClick();
   await buttonNamed(tree, '恢复自动登录').props.onClick();
-  await buttonNamed(tree, '清除已存密码').props.onClick();
+  await buttonNamed(tree, '清除密码').props.onClick();
   assert.equal(api.mock.calls.length, 1);
   assert.equal(app.confirm.mock.calls.length, 0);
   assert.ok(buttons(app.render(props)).every((button) => button.props.disabled === true));
@@ -282,23 +284,37 @@ it('leaves passwords unchanged when clearing is declined', async () => {
   const app = frontend(api);
   app.confirm.mockReturnValue(false);
   const tree = app.render({ account: { slug: 'shop', has_password: true }, onError: vi.fn() });
-  await buttonNamed(tree, '清除已存密码').props.onClick();
+  await buttonNamed(tree, '清除密码').props.onClick();
   assert.equal(api.mock.calls.length, 0);
 });
 
-it.each([true, false])('sets accordion defaults for empty or paused=%s', (open) => {
-  const app = frontend(vi.fn());
-  const add = app.AddAccountForm({ openByDefault: open });
+it.each([true, false])('opens the add-shop accordion only for an empty list (%s)', (open) => {
+  const add = frontend(vi.fn()).AddAccountForm({ openByDefault: open });
   assert.equal(add.type, 'details');
   assert.equal(add.props.open, open);
-  for (const hasPassword of [true, false]) {
-    const password = app.PasswordForm({ slug: 'shop', hasPassword, paused: open });
-    assert.equal(password.type, 'details');
-    assert.equal(password.props.open, open);
-    const summary = password.props.children.find((node) => node?.type === 'summary');
-    assert.equal(summary.props.children.join(''), hasPassword ? '修改密码' : '设置密码');
-  }
 });
+
+function passwordForm(node) {
+  if (!node || typeof node !== 'object') return null;
+  if (node.props?.id === 'password-form') return node;
+  return [node.props?.children].flat(Infinity).map(passwordForm).find(Boolean) ?? null;
+}
+
+it.each([[true, true], [true, false], [false, true], [false, false]])(
+  'expands the password row by default only when paused (paused=%s, password=%s)', (paused, hasPassword) => {
+    const app = frontend(vi.fn());
+    const onDone = vi.fn();
+    const props = { account: { slug: 'shop', has_password: hasPassword, status_kind: paused ? 'relogin_paused' : 'verified' }, onDone, onError: vi.fn() };
+    const toggle = buttonNamed(app.render(props), hasPassword ? '修改密码' : '设置密码');
+    assert.deepEqual([toggle.props['aria-expanded'], toggle.props['aria-controls']], [String(paused), 'password-form']);
+    assert.equal(Boolean(passwordForm(app.render(props))), paused);
+    if (!paused) toggle.props.onClick();
+    const form = passwordForm(app.render(props)).props.children.flat(Infinity).find((node) => node?.props?.slug);
+    assert.equal(form.props.slug, 'shop');
+    form.props.onSaved('密码已保存');
+    assert.equal(passwordForm(app.render(props)), null);
+    assert.deepEqual(onDone.mock.calls, [['密码已保存']]);
+  });
 
 it.each([0, 60, 61])('marks the countdown urgent at %s seconds', (seconds) => {
   const node = frontend(vi.fn()).render({ seconds }, 'Countdown');

@@ -106,11 +106,12 @@ describe('console account status view', () => {
   });
 
   it.each([true, false])('projects verified with has_password=%s', (hasPassword) => {
-    assertConsoleStatus({ verdict: 'verified', summary: { has_password: hasPassword } }, ['verified', '正常', '上次核验通过']);
+    assertConsoleStatus({ verdict: 'verified', summary: { has_password: hasPassword } }, ['verified', '正常', null]);
   });
 
   it.each([
-    ['rejected', 'relogin_required', '失效', '上次核验未通过'],
+    ['rejected', 'relogin_required', '失效', null],
+    ['verified', 'verified', '正常', null],
     ['indeterminate', 'unknown', '未知', '上次核验无法判定'],
     [null, 'unknown', '未知', '暂无核验记录'],
     [undefined, 'unknown', '未知', '暂无核验记录'],
@@ -119,7 +120,7 @@ describe('console account status view', () => {
     ['not_configured', 'unknown', '未知', '尚未配置登录信息'],
     ['private-verdict', 'unknown', '未知', '上次核验结果未知'],
     ['constructor', 'unknown', '未知', '上次核验结果未知'],
-  ])('projects verdict %s with a fixed detail', (verdict, kind, status, detail) => {
+  ])('projects verdict %s with a fixed detail or none', (verdict, kind, status, detail) => {
     assertConsoleStatus({ verdict }, [kind, status, detail]);
   });
 
@@ -152,7 +153,7 @@ describe('console account status view', () => {
 
   it('ignores resolved actions when selecting the overall status', () => {
     const view = assertConsoleStatus({ verdict: 'verified', actions: [consoleAction('sms', 'human_takeover', 'resolved')] },
-      ['verified', '正常', '上次核验通过']);
+      ['verified', '正常', null]);
     assert.deepEqual(view.pending_actions, []);
   });
 
@@ -169,8 +170,8 @@ describe('console account status view', () => {
   });
 
   it.each([
-    ['rejected', '已失效', 'relogin_required', '失效', '上次核验未通过'],
-    [null, '已验证', 'verified', '正常', '上次核验通过'],
+    ['rejected', '已失效', 'relogin_required', '失效', null],
+    [null, '已验证', 'verified', '正常', null],
     ['', null, 'unknown', '未知', '暂无核验记录'],
   ])('shares the verdict precedence with session_status for last_check=%s', (verdict, sessionStatus, kind, status, detail) => {
     const view = assertConsoleStatus({ metadata: { last_check: { verdict }, check_verdict: 'verified' } }, [kind, status, detail]);
