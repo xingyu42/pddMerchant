@@ -15,10 +15,10 @@ export function seedDb(dbPath, { accounts = [], authStates = [], passwordCredent
       const ids = new Map();
       for (const account of accounts) {
         const now = new Date().toISOString();
-        const result = run(`INSERT INTO accounts(kind, slug, display_name, identity, is_default, disabled,
-          created_at, updated_at, last_login_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        const result = run(`INSERT INTO accounts(kind, slug, display_name, identity, is_default,
+          created_at, updated_at, last_login_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         account.kind ?? 'merchant', account.slug, account.display_name ?? account.slug, String(account.identity),
-        Number(account.is_default ?? false), Number(account.disabled ?? false), account.created_at ?? now,
+        Number(account.is_default ?? false), account.created_at ?? now,
         account.updated_at ?? now, account.last_login_at ?? null, account.last_used_at ?? null);
         ids.set(account.slug, Number(result.lastInsertRowid));
       }

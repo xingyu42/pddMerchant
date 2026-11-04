@@ -4,11 +4,14 @@ import { text } from './_shared.js';
 import { formatPasswordReloginStatus } from './labels.js';
 
 export const ACCOUNT_VIEW_FIELDS = Object.freeze([
-  'slug', 'display_name', 'mall_id', 'is_default', 'disabled', 'last_login_at',
+  'slug', 'display_name', 'mall_id', 'is_default', 'last_login_at',
   'has_password', 'password_relogin_status',
 ]);
 
-export const ACCOUNT_REMOVED_VIEW_FIELDS = Object.freeze(['headline', 'slug', 'removed']);
+export const ACCOUNT_REMOVED_VIEW_FIELDS = Object.freeze([
+  'headline', 'slug', 'display_name', 'was_default', 'has_password', 'has_login_state', 'goods_entry_count',
+  'removed', 'dry_run',
+]);
 
 export function toPasswordReloginView(summary) {
   return {
@@ -23,7 +26,6 @@ export function toAccountView(account, defaultSlug) {
     display_name: text(account.display_name),
     mall_id: text(account.identity),
     is_default: defaultSlug != null && defaultSlug === account.slug,
-    disabled: Boolean(account.disabled),
     last_login_at: isoToLocalDateTime(account.last_login_at),
     ...toPasswordReloginView(account.relogin),
   };
@@ -31,10 +33,9 @@ export function toAccountView(account, defaultSlug) {
 
 export function toAccountListView(accounts, defaultSlug) {
   const items = accounts.map((account) => toAccountView(account, defaultSlug ?? null));
-  const disabled = items.filter((item) => item.disabled).length;
   const headline = items.length === 0
     ? ['尚未注册账号']
-    : [`共 ${items.length} 个账号（停用 ${disabled} 个），默认账号：${defaultSlug ?? '未设置'}`];
+    : [`共 ${items.length} 个账号，默认账号：${defaultSlug ?? '未设置'}`];
   return { headline, items, total: items.length, default_slug: defaultSlug ?? null };
 }
 
@@ -47,11 +48,28 @@ export function toAccountAddedView({ slug, display_name: displayName, identity: 
   };
 }
 
-export function toAccountRemovedView(slug) {
+function removedHeadline(account, footprint, confirm) {
+  const parts = [footprint.hasLoginState && '登录态', footprint.hasPassword && '已存密码',
+    footprint.goodsCostCount > 0 && `商品成本 ${footprint.goodsCostCount} 条`].filter(Boolean);
+  const name = text(account.display_name);
+  const target = name ? `账号 ${name}（${account.slug}）` : `账号 ${account.slug}`;
+  const scope = parts.length ? `，连同${parts.join('、')}` : '';
+  const headline = [confirm ? `已删除${target}${scope}` : `预演删除${target}${scope}，未执行删除`];
+  if (account.is_default) headline.push(confirm ? '删除的是默认账号，当前没有默认账号' : '该账号是默认账号，删除后没有默认账号');
+  return headline;
+}
+
+export function toAccountRemovedView(account, footprint, { confirm }) {
   return {
-    headline: [`已移除账号 ${slug} 及其认证数据`],
-    slug,
-    removed: true,
+    headline: removedHeadline(account, footprint, confirm),
+    slug: account.slug,
+    display_name: text(account.display_name),
+    was_default: Boolean(account.is_default),
+    has_password: footprint.hasPassword,
+    has_login_state: footprint.hasLoginState,
+    goods_entry_count: footprint.goodsCostCount,
+    removed: confirm,
+    dry_run: !confirm,
   };
 }
 

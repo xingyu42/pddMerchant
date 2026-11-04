@@ -12,12 +12,11 @@ export async function resolveAccountContext({ account, accountId, needsAuth = tr
     if (!found || found.kind !== 'merchant') throw accountNotFound(account ?? String(accountId));
     return contextOf(found, 'flag', warnings);
   }
-  const accounts = listAccounts({ includeDisabled: true });
+  const accounts = listAccounts();
   const selected = accounts.find((entry) => entry.is_default);
   if (selected) return contextOf(selected, 'default', warnings);
-  const enabled = accounts.filter((entry) => !entry.disabled);
-  if (enabled.length === 1) return contextOf(enabled[0], 'auto-single', warnings);
-  if (enabled.length > 1) throw accountRequired();
+  if (accounts.length === 1) return contextOf(accounts[0], 'auto-single', warnings);
+  if (accounts.length > 1) throw accountRequired();
   if (needsAuth) {
     throw new PddCliError({ code: 'E_AUTH_EXPIRED', message: '尚未登录商家账号', hint: '执行 pdd login 完成授权', exitCode: ExitCodes.AUTH });
   }

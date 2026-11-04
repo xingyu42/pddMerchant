@@ -292,7 +292,7 @@ export function createAccounts(slugs = ['shop-a', 'shop-b']) {
   return slugs.map((slug, index) => ({
     slug, display_name: `Synthetic ${slug}`, identity: String(900001 + index),
     created_at: '2026-10-01T00:00:00.000Z', updated_at: '2026-10-01T00:00:00.000Z',
-    last_login_at: '2026-10-06T16:30:05.000Z', disabled: false, is_default: index === 0,
+    last_login_at: '2026-10-06T16:30:05.000Z', is_default: index === 0,
   }));
 }
 

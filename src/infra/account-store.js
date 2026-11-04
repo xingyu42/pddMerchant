@@ -22,8 +22,8 @@ function write(callback) {
   return storageOperation(() => isInTransaction() ? callback() : transaction(callback));
 }
 
-export function listAccounts({ kind = 'merchant', includeDisabled = false } = {}) {
-  return all(`SELECT * FROM accounts WHERE kind = ? ${includeDisabled ? '' : 'AND disabled = 0'} ORDER BY id`, kind);
+export function listAccounts({ kind = 'merchant' } = {}) {
+  return all('SELECT * FROM accounts WHERE kind = ? ORDER BY id', kind);
 }
 
 export function getAccount(slug, { kind = 'merchant', allowDisplayName = false } = {}) {
@@ -44,7 +44,7 @@ export function findAccountByIdentity(kind, identity) {
 
 export function insertAccount({ kind = 'merchant', identity, displayName, lastLoginAt = null, lastUsedAt = null }, { setDefault = false } = {}) {
   return write(() => {
-    const accounts = listAccounts({ kind, includeDisabled: true });
+    const accounts = listAccounts({ kind });
     const slug = slugifyStorageName(displayName, { existingSlugs: new Set(accounts.map((account) => account.slug)), stableId: identity });
     const now = new Date().toISOString();
     // 删除后重新登录也不会复用旧候选的账号 ID 和 AAD。
@@ -58,13 +58,13 @@ export function insertAccount({ kind = 'merchant', identity, displayName, lastLo
   });
 }
 
-export function updateAccount(accountId, { displayName, lastLoginAt, lastUsedAt, disabled } = {}) {
+export function updateAccount(accountId, { displayName, lastLoginAt, lastUsedAt } = {}) {
   return write(() => {
     const existing = getAccountById(accountId);
     if (!existing) throw accountNotFound(String(accountId));
-    run('UPDATE accounts SET display_name = ?, last_login_at = ?, last_used_at = ?, disabled = ?, updated_at = ? WHERE id = ?',
+    run('UPDATE accounts SET display_name = ?, last_login_at = ?, last_used_at = ?, updated_at = ? WHERE id = ?',
       displayName ?? existing.display_name, lastLoginAt ?? existing.last_login_at, lastUsedAt ?? existing.last_used_at,
-      disabled == null ? existing.disabled : Number(disabled), new Date().toISOString(), accountId);
+      new Date().toISOString(), accountId);
     return getAccountById(accountId);
   });
 }
@@ -86,6 +86,12 @@ export function removeAccount(slug, { kind = 'merchant' } = {}) {
     run('DELETE FROM accounts WHERE id = ?', account.id);
     return account;
   });
+}
+
+export function getAccountFootprint(accountId) {
+  const count = (table) => get(`SELECT count(*) AS total FROM ${table} WHERE account_id = ?`, accountId).total;
+  return { hasPassword: count('credentials') > 0, hasLoginState: count('auth_states') > 0,
+    goodsCostCount: count('goods_cost_entries') };
 }
 
 export function getCredential(accountId) {

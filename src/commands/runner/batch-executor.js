@@ -41,9 +41,9 @@ export function applyCooldownAttribution(result, slug, sourcesByEndpoint) {
   return sourcesByEndpoint;
 }
 
-async function listEnabledAccounts() {
-  const allAccounts = listAccounts({ kind: 'merchant', includeDisabled: true });
-  if (allAccounts.length === 0) {
+function listMerchantAccounts() {
+  const accounts = listAccounts({ kind: 'merchant' });
+  if (accounts.length === 0) {
     throw new PddCliError({
       code: 'E_USAGE',
       message: 'No registered accounts found',
@@ -51,7 +51,7 @@ async function listEnabledAccounts() {
       exitCode: ExitCodes.USAGE,
     });
   }
-  return allAccounts.filter((a) => !a.disabled);
+  return accounts;
 }
 
 function validateBatchOptions(opts) {
@@ -181,17 +181,7 @@ async function executeBatch(spec, opts, runtimeConfig) {
 
   const warnings = validateBatchOptions(opts);
 
-  const accounts = await listEnabledAccounts();
-  if (accounts.length === 0) {
-    const emptyEnvelope = buildBatchEnvelope(spec.name, {}, {
-      latency_ms: Date.now() - startedAt,
-      correlation_id: correlationId,
-      exit_code: ExitCodes.OK,
-      warnings: [...new Set(warnings)],
-    });
-    emit(emptyEnvelope, { json: opts.json, noColor: opts.noColor });
-    return emptyEnvelope;
-  }
+  const accounts = listMerchantAccounts();
 
   const abortController = new AbortController();
   const onSigint = () => abortController.abort();
