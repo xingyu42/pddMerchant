@@ -7,7 +7,7 @@ import { transaction } from '../infra/db.js';
 import { abortableSleep } from '../infra/abort.js';
 import { daemonStartTimeout, daemonStopTimeout } from '../infra/errors.js';
 import { spawnDaemonProcess, killDaemonProcess } from '../adapter/daemon-process.js';
-import { toDaemonStatusView, toDaemonStartView, toDaemonStopView } from './views/daemon.js';
+import { toDaemonStatusView, toDaemonStartView, toDaemonStopView, toDaemonRestartView } from './views/daemon.js';
 
 export function daemonIsRunning() {
   return readDaemonLease()?.running === true;
@@ -69,4 +69,10 @@ export async function stopDaemon({ signal } = {}) {
   const result = forceStop(token);
   if (!result) throw daemonStopTimeout({ reason: 'lease_active' });
   return result;
+}
+
+// 停止后再启动，让常驻进程加载磁盘上的新代码；未运行时等同 start。
+export async function restartDaemon(options = {}) {
+  const stopped = await stopDaemon(options);
+  return toDaemonRestartView(await startDaemon(options), stopped);
 }

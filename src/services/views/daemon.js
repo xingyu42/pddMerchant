@@ -28,6 +28,11 @@ export function toDaemonStopView(stopped, forced = false) {
   };
 }
 
+export function toDaemonRestartView(status, stopped) {
+  return { ...status, headline: [stopped.stopped ? 'daemon 已重启' : 'daemon 已启动'], restarted: stopped.stopped,
+    ...(stopped.forced ? { forced: true } : {}) };
+}
+
 export function toDaemonRunView(result) {
   return { headline: [result.status === 'already_running' ? 'daemon 已在运行' : 'daemon 前台运行已结束'],
     stopped_reason: result.status === 'already_running' ? result.status : result.stopped_reason };
