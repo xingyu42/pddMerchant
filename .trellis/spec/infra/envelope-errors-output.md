@@ -119,7 +119,7 @@ daemon 与控制台错误（`src/infra/errors.js` / `services/console-runtime.js
 
 控制台 API 错误体为 `{ error: { code, message } }`，message 中文，不含密码、登录名、token、路径。
 
-Warning `daemon_not_running`：`{ code: 'daemon_not_running' }`，仅当 needsAuth 命令的当前账号有 open 待办且 daemon 租约无效时附加，每个 envelope（含批量）最多一条。`daemon start` 在非回环监听地址时附 `{ code: 'console_plaintext_http' }`。
+Warning `daemon_not_running`：`{ code: 'daemon_not_running' }`，仅当 needsAuth 命令的当前账号有 open 待办且 daemon 租约无效时附加，每个 envelope（含批量）最多一条。`daemon start` / `daemon restart` 在非回环监听地址时附 `{ code: 'console_plaintext_http' }`。
 
 Warning `account_action_required`：`{ code: 'account_action_required', account: <slug>, reason }`，仅 needsAuth 命令附加，覆盖成功与失败两条路径，只针对本次实际使用的账号；批量模式按账号汇总。doctor、`account list` 等 needsAuth:false 命令从不附加。
 

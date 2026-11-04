@@ -2,7 +2,6 @@ import { emit } from '../infra/output.js';
 import { getLogger } from '../infra/logger.js';
 import { PddCliError, ExitCodes, errorToEnvelope } from '../infra/errors.js';
 import {
-  removeAccount as removeAccountFromStore,
   listAccounts as listAccountsFromStore,
   setDefaultAccount as setDefaultInStore,
 } from '../infra/account-store.js';
@@ -10,9 +9,8 @@ import { performHeadedLogin } from '../services/auth.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 import { provisionMerchantLogin } from '../services/auth-account-storage.js';
 import { getReloginSummary } from '../services/password-relogin.js';
-import {
-  toAccountAddedView, toAccountDefaultView, toAccountListView, toAccountRemovedView,
-} from '../services/views/account.js';
+import { removeAccountView } from '../services/account-removal.js';
+import { toAccountAddedView, toAccountDefaultView, toAccountListView } from '../services/views/account.js';
 
 export async function add(opts = {}) {
   const startedAt = Date.now();
@@ -51,12 +49,10 @@ export async function remove(opts = {}) {
     if (!slug) {
       throw new PddCliError({ code: 'E_USAGE', message: '请指定要移除的账号 slug', exitCode: ExitCodes.USAGE });
     }
-    await removeAccountFromStore(slug);
-
     const envelope = {
       ok: true,
       command: 'account.remove',
-      data: toAccountRemovedView(slug),
+      data: removeAccountView(slug, { confirm: opts.confirm === true }),
       meta: { latency_ms: Date.now() - startedAt, exit_code: ExitCodes.OK, warnings: [] },
     };
     emit(envelope, { json: opts.json, noColor: opts.noColor });
@@ -71,7 +67,7 @@ export async function remove(opts = {}) {
 export async function list(opts = {}) {
   const startedAt = Date.now();
   try {
-    const accounts = await listAccountsFromStore({ includeDisabled: true });
+    const accounts = await listAccountsFromStore();
     const data = toAccountListView(accounts.map((account) => ({
       ...account, relogin: getReloginSummary(account.id),
     })), accounts.find((account) => account.is_default)?.slug ?? null);

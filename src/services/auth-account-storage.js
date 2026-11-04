@@ -41,7 +41,7 @@ export function saveMerchantLogin(result, initial, task) {
     }
     if (!account) {
       account = insertAccount({ identity: identity.mallId, displayName: identity.displayName },
-        { setDefault: listAccounts({ includeDisabled: true }).length === 0 });
+        { setDefault: listAccounts().length === 0 });
     }
     const loaded = initial ?? loadAuthState(account.id, { allowCorrupt: true });
     merchantCandidateState(candidate, { state: loaded.state, recoveryMallId: account.identity });

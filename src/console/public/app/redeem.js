@@ -7,11 +7,11 @@ async function redeem() {
       headers: { 'Content-Type': 'application/json', 'X-PDD-Console': '1' },
       body: JSON.stringify({ token }),
     });
-    if (response.status === 410) { message.textContent = '链接已失效，请重新获取控制台链接'; return; }
+    if (response.status === 410) { message.textContent = '链接已失效，请让助手重新发送'; return; }
     if (!response.ok) throw new Error();
     const { location: destination } = await response.json();
     location.replace(destination);
-  } catch { message.textContent = '进入控制台失败，请稍后重新打开链接'; }
+  } catch { message.textContent = '打开失败，请稍后重试'; }
 }
 
 void redeem();

@@ -30,11 +30,10 @@ describe('database account store', () => {
 
   it('keeps slugs stable across display name and timestamp changes', () => {
     const account = insertAccount({ identity: '1', displayName: 'First' });
-    const updated = updateAccount(account.id, { displayName: 'Renamed', lastLoginAt: '2026-01-01T00:00:00.000Z', disabled: true });
+    const updated = updateAccount(account.id, { displayName: 'Renamed', lastLoginAt: '2026-01-01T00:00:00.000Z' });
     assert.equal(updated.slug, account.slug);
     assert.equal(updated.display_name, 'Renamed');
-    assert.equal(listAccounts().length, 0);
-    assert.equal(listAccounts({ includeDisabled: true }).length, 1);
+    assert.equal(listAccounts().length, 1);
   });
 
   it('cascades deletion through all reserved account data', () => {

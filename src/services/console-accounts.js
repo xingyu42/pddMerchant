@@ -12,7 +12,7 @@ export function consoleAccount(slug) {
 }
 
 export function listConsoleAccounts() {
-  return { items: listAccounts({ includeDisabled: true }).map((account) => toConsoleAccountView(account,
+  return { items: listAccounts().map((account) => toConsoleAccountView(account,
     getAuthStateMetadata(account.id), getReloginSummary(account.id), listPendingActions(account.id))) };
 }
 

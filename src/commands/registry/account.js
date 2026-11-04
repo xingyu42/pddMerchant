@@ -10,8 +10,9 @@ export function register(program, wireAction) {
   );
   wireAction(
     account.command('remove')
-      .description('移除账号')
-      .requiredOption('--slug <slug>', '账号 slug'),
+      .description('删除账号及其登录态、密码和商品成本（需 --confirm）')
+      .requiredOption('--slug <slug>', '账号 slug')
+      .option('--confirm', '确认删除，默认预演'),
     'account.remove',
     accountCmd.remove
   );

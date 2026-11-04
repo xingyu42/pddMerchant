@@ -12,12 +12,11 @@ export async function resolveConsumerAccountContext({ account, needsAuth = true,
     if (!found) throw missingAccount();
     return contextOf(found, 'flag', warnings);
   }
-  const accounts = listAccounts({ kind: 'consumer', includeDisabled: true });
+  const accounts = listAccounts({ kind: 'consumer' });
   const selected = accounts.find((entry) => entry.is_default);
   if (selected) return contextOf(selected, 'default', warnings);
-  const enabled = accounts.filter((entry) => !entry.disabled);
-  if (enabled.length === 1) return contextOf(enabled[0], 'auto-single', warnings);
-  if (enabled.length > 1) {
+  if (accounts.length === 1) return contextOf(accounts[0], 'auto-single', warnings);
+  if (accounts.length > 1) {
     throw new PddCliError({ code: 'E_CONSUMER_ACCOUNT_REQUIRED',
       message: 'Multiple consumer accounts are registered but none was selected',
       hint: 'Use --consumer-account <nickname-or-phone>', exitCode: ExitCodes.USAGE });

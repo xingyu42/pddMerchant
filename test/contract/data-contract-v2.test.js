@@ -108,6 +108,7 @@ const V2_CASES = [
     entityFields: { '': ['headline', 'url', 'expires_at'] } },
   { command: 'daemon.start', args: ['daemon', 'start'], execute: () => runDaemonContract('start') },
   { command: 'daemon.stop', args: ['daemon', 'stop'], execute: () => runDaemonContract('stop') },
+  { command: 'daemon.restart', args: ['daemon', 'restart'], execute: () => runDaemonContract('restart') },
   { command: 'daemon.status', args: ['daemon', 'status'], execute: () => runDaemonContract('status'),
     entityFields: { '': DAEMON_STATUS_VIEW_FIELDS } },
   { command: 'daemon.run', args: ['daemon', 'run'], execute: () => runDaemonContract('run') },

@@ -41,7 +41,7 @@ describe('secret box', () => {
     assert.equal(error.code, 'E_SECRET_DECRYPT_FAILED');
     assert.equal(error.exitCode, 3);
     assert.match(error.hint, /恢复原主密钥文件/);
-    assert.match(error.hint, /先执行 pdd account remove --slug <slug> 再重新登录/);
+    assert.match(error.hint, /先执行 pdd account remove --slug <slug> --confirm 再重新登录/);
     assert.deepEqual(error.detail, detail);
     assert.equal(secretDecryptFailed().detail, null);
   });

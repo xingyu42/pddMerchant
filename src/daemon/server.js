@@ -48,7 +48,7 @@ function listen(server, runtimeConfig) {
   });
 }
 
-export function createConsoleServer() {
+export function createConsoleServer({ patrol } = {}) {
   let server;
   let context;
   let starting;
@@ -56,7 +56,7 @@ export function createConsoleServer() {
   return {
     async start(nextContext) {
       controller = new AbortController();
-      context = { ...nextContext, signal: nextContext.signal
+      context = { ...nextContext, patrol, signal: nextContext.signal
         ? AbortSignal.any([nextContext.signal, controller.signal]) : controller.signal };
       server = createServer((request, response) => { void handleRequest(request, response, context, server.address()?.port); });
       server.on('clientError', (_error, socket) => rejectHttpClient(socket));

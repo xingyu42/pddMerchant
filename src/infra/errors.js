@@ -105,7 +105,7 @@ export function secretDecryptFailed(detail) {
   return new PddCliError({
     code: 'E_SECRET_DECRYPT_FAILED',
     message: '认证数据解密失败',
-    hint: '请恢复原主密钥文件；若只有个别账号无法解密，先执行 pdd account remove --slug <slug> 再重新登录',
+    hint: '请恢复原主密钥文件；若只有个别账号无法解密，先执行 pdd account remove --slug <slug> --confirm 再重新登录',
     detail,
     exitCode: ExitCodes.AUTH,
   });

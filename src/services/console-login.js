@@ -10,6 +10,7 @@ import { abortableSleep } from '../infra/abort.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 import { getMasterKey } from '../infra/master-key.js';
 import { consoleAccount } from './console-accounts.js';
+import { removeAccountView } from './account-removal.js';
 import { consoleRequestError } from './console-runtime.js';
 import { saveMerchantLogin, provisionMerchantLogin } from './auth-account-storage.js';
 import { getReloginSummary, recordReloginAttempt, recordReloginOutcome, recordTakeoverTimeout,
@@ -25,23 +26,39 @@ const RETENTION_MS = 300_000;
 const AWAITING_HUMAN = new Set(['takeover', 'sms']);
 const EMPTY_STATE = Object.freeze({ cookies: [], origins: [] });
 const ADD_FAILURES = Object.freeze({
-  wrong_password: '登录名或密码错误，账号未添加',
-  account_locked: '登录失败次数过多，账号已被暂时锁定，请稍后再试',
-  form_changed: '登录页结构已变化，自动填写失败，账号未添加',
-  network_error: '登录过程中网络异常，账号未添加，请稍后重试',
+  wrong_password: '登录名或密码错误，店铺未添加',
+  account_locked: '账号已锁定，请稍后重试',
+  form_changed: '自动填写失败，店铺未添加',
+  network_error: '网络异常，店铺未添加，请重试',
 });
 
 export const consoleFixtureEnabled = isMockEnabled;
 
 function assertStart(account, mode) {
-  const summary = getReloginSummary(account.id);
-  if (summary.status === 'blocked') throw consoleRequestError(409, 'E_AUTH_RELOGIN_BLOCKED', '账号自动重登已熔断，请先解除熔断或重设密码');
   if (!['password', 'qr'].includes(mode)) throw invalidTakeoverInput();
+  const summary = getReloginSummary(account.id);
+  if (mode === 'password' && summary.status === 'blocked') {
+    throw consoleRequestError(409, 'E_AUTH_RELOGIN_BLOCKED', '自动登录已暂停，请修改密码或扫码登录');
+  }
   if (mode === 'password' && !summary.has_password) throw consoleRequestError(409, 'E_AUTH_PASSWORD_REQUIRED', '请先保存账号密码');
 }
 
 function activeSessions() {
   return [...sessions.values()].filter((session) => !session.finished);
+}
+
+// 输入店铺名才删除；正在登录的店铺先取消登录，避免会话写回已删除的账号。
+export function removeConsoleAccount(slug, body) {
+  const account = consoleAccount(slug);
+  const expected = account.display_name ?? account.slug;
+  if (typeof body?.confirm_name !== 'string' || body.confirm_name.trim() !== expected) {
+    throw consoleRequestError(400, 'E_USAGE', '店铺名不一致，未删除');
+  }
+  if (activeSessions().some((session) => session.accountId === account.id)) {
+    throw consoleRequestError(409, 'E_CONSOLE_SESSION_STATE', '该店铺正在登录，请先取消登录');
+  }
+  removeAccountView(account.slug, { confirm: true });
+  return { ok: true, removed: true };
 }
 
 function assertRunning(signal) {
@@ -53,7 +70,7 @@ function registerSession(fields, { ownerTag, signal }, operation) {
   const active = activeSessions();
   const old = active.filter((session) => session.key === fields.key).at(-1);
   if (new Set(active.filter((session) => session.key !== fields.key).map((session) => session.key)).size >= 2) {
-    throw consoleRequestError(429, 'E_CONSOLE_BUSY', '已有两个登录会话，请稍后再试');
+    throw consoleRequestError(429, 'E_CONSOLE_BUSY', '已有两个登录正在进行，请稍后再试');
   }
   old?.controller.abort();
   const session = { id: randomBytes(16).toString('base64url'), ...fields, ownerTag,
@@ -89,8 +106,7 @@ function setWindow(session, state, duration) {
   assertAuthTask({ signal: session.controller.signal });
   session.state = state;
   session.expiresAt = Math.min(session.deadlineAt, Date.now() + duration);
-  if (state === 'takeover') session.message = '请在下方验证码弹窗中完成验证';
-  if (state === 'sms') session.message = '登录页已向绑定手机发送短信验证码，请在下方输入';
+  session.message = state === 'sms' ? '短信验证码已发送到绑定手机' : null;
 }
 
 async function beginPassword(session, tx) {
@@ -133,11 +149,12 @@ async function waitForLogin(session, tx) {
 function finishTimeout(session) {
   if (AWAITING_HUMAN.has(session.state) && session.accountId != null) recordTakeoverTimeout(session.accountId);
   session.state = 'timed_out';
-  session.message = '登录等待超时，请重新开始';
+  session.message = null;
 }
 
 async function commitLogin(session, tx) {
   session.state = 'verifying';
+  session.message = null;
   session.qrImage = null;
   if (session.fixture) {
     getMasterKey();
@@ -177,7 +194,7 @@ async function executeAddSession(session) {
   assertAuthTask(task);
   if (!['success', 'challenge'].includes(attempt.outcome)) {
     session.state = 'failed';
-    session.message = ADD_FAILURES[attempt.outcome] ?? '登录未完成，请重新开始';
+    session.message = ADD_FAILURES[attempt.outcome] ?? '登录未完成，请重试';
     return;
   }
   if (attempt.outcome === 'challenge') await awaitHuman(session, attempt.challenge);
@@ -190,12 +207,13 @@ async function executeAddSession(session) {
 // 店铺已登记时更新其登录状态（短租约），否则新建账号；两种情况都保存这次验证过的密码。
 async function commitAddedAccount(session, task) {
   session.state = 'verifying';
+  session.message = null;
   const result = await verifyConsoleLogin(session, task);
   const existed = findAccountByIdentity('merchant', result.identity.mallId) !== null;
   const { account } = await provisionMerchantLogin(async () => result, task);
   setAccountPassword(account.id, session.credential);
   session.state = 'succeeded';
-  session.message = existed ? '该店铺已在账号列表中，已更新登录状态和密码' : '账号已添加，密码已保存';
+  session.message = existed ? '店铺已存在，登录信息和密码已更新' : '店铺已添加，密码已保存';
 }
 
 function sessionFailure(session, error) {
@@ -205,12 +223,12 @@ function sessionFailure(session, error) {
     return;
   }
   session.state = 'failed';
-  const messages = { E_ACCOUNT_IDENTITY_MISMATCH: 'E_ACCOUNT_IDENTITY_MISMATCH：登录店铺与账号绑定不一致，未保存',
-    E_AUTH_RELOGIN_BLOCKED: '账号自动重登已熔断，请解除熔断或重设密码',
-    E_AUTH_EXPIRED: '登录核验未通过，请重新登录',
-    E_PASSWORD_LOGIN_FORM_CHANGED: '登录页结构已变化，自动填写失败，请改用扫码登录',
-    E_AUTH_RELOGIN_FAILED: '登录过程中网络异常，请稍后重试或改用扫码登录' };
-  session.message = messages[error?.code] ?? '登录未完成，请重新开始';
+  const messages = { E_ACCOUNT_IDENTITY_MISMATCH: '登录店铺与所选店铺不一致，未保存',
+    E_AUTH_RELOGIN_BLOCKED: '自动登录已暂停，请修改密码或扫码登录',
+    E_AUTH_EXPIRED: '核验未通过，请重新登录',
+    E_PASSWORD_LOGIN_FORM_CHANGED: '自动填写失败，请扫码登录',
+    E_AUTH_RELOGIN_FAILED: '登录未完成，请重试或扫码登录' };
+  session.message = messages[error?.code] ?? '登录未完成，请重试';
 }
 
 async function runSession(session, previous, parentSignal, operation) {
@@ -226,7 +244,7 @@ async function runSession(session, previous, parentSignal, operation) {
     await operation();
   } catch (error) {
     try { sessionFailure(session, error); }
-    catch { session.state = 'failed'; session.message = '登录状态保存失败，请重新开始'; }
+    catch { session.state = 'failed'; session.message = '登录信息保存失败，请重试'; }
   }
   finally {
     clearTimeout(timer);
@@ -244,14 +262,14 @@ async function runSession(session, previous, parentSignal, operation) {
 
 function findSession(id) {
   const session = sessions.get(id);
-  if (!session) throw consoleRequestError(404, 'E_CONSOLE_SESSION_NOT_FOUND', '登录会话已结束或不存在');
+  if (!session) throw consoleRequestError(404, 'E_CONSOLE_SESSION_NOT_FOUND', '登录已结束或不存在');
   return session;
 }
 
 function interactiveSession(id, state) {
   const session = findSession(id);
   if (session.state !== state || session.controller.signal.aborted) {
-    throw consoleRequestError(409, 'E_CONSOLE_SESSION_STATE', '当前会话状态已变化，请刷新页面');
+    throw consoleRequestError(409, 'E_CONSOLE_SESSION_STATE', '登录状态已变化，请刷新页面');
   }
   return session;
 }
@@ -265,7 +283,7 @@ export function getConsoleSession(id) {
 
 export function consoleSessionFrames(id) {
   const session = interactiveSession(id, 'takeover');
-  if (!session.takeover) throw consoleRequestError(409, 'E_CONSOLE_SESSION_STATE', '接管画面正在准备，请稍后重试');
+  if (!session.takeover) throw consoleRequestError(409, 'E_CONSOLE_SESSION_STATE', '验证码画面正在准备，请稍后重试');
   return session.takeover.frames;
 }
 
@@ -322,7 +340,7 @@ export async function cancelConsoleSession(id) {
 export async function completeFixtureConsoleSession(id, body) {
   if (!isMockEnabled()) throw consoleRequestError(404, 'E_NOT_FOUND', '接口不存在');
   const session = findSession(id);
-  if (!session.fixture || !['takeover', 'sms', 'qr'].includes(session.state)) throw consoleRequestError(409, 'E_CONSOLE_SESSION_STATE', '会话状态已变化');
+  if (!session.fixture || !['takeover', 'sms', 'qr'].includes(session.state)) throw consoleRequestError(409, 'E_CONSOLE_SESSION_STATE', '登录状态已变化');
   if (!['success', 'timeout'].includes(body?.outcome)) throw invalidTakeoverInput();
   session.completion = body.outcome;
   await session.done;

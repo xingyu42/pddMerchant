@@ -157,7 +157,7 @@ node bin/pdd.js shops list|current
 node bin/pdd.js account add                    # 有头浏览器登录并登记
 node bin/pdd.js account list
 node bin/pdd.js account default --slug <slug>
-node bin/pdd.js account remove --slug <slug>   # 级联删除该账号的登录态与成本等数据
+node bin/pdd.js account remove --slug <slug> [--confirm]   # 默认预演；--confirm 才级联删除登录态、密码与成本等数据
 ```
 
 ## 登录失效与人工处理
@@ -180,6 +180,7 @@ node bin/pdd.js daemon start                      # 后台启动；已运行则�
 node bin/pdd.js daemon status
 node bin/pdd.js console link [--account <slug>]   # 一次性链接，10 分钟有效
 node bin/pdd.js daemon stop
+node bin/pdd.js daemon restart                    # 更新代码后加载新代码；中断进行中的登录
 ```
 
 - 密码和验证码只由用户本人在控制台输入；聊天中绝不索要密码、登录名或验证码。

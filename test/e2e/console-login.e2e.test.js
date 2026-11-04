@@ -121,6 +121,7 @@ it('recovers awaiting-human through SSE takeover, clears actions, and ordinary c
     const id = await start(test);
     const session = await api(test, `/api/sessions/${id}`);
     assert.deepEqual(Object.keys(session), ['state', 'message', 'remaining_seconds', 'expires_at', 'qr_image']);
+    assert.equal(session.message, null);
     assert.ok(session.remaining_seconds > 590 && session.remaining_seconds <= 600);
     stream = frames(test, id);
     const event = await stream.first;
@@ -170,7 +171,7 @@ it('asks for the SMS code in the console without a takeover picture', async () =
   try {
     const id = await start(test, DEFAULT_ACCOUNT.slug, 'relogin', 'sms');
     const session = await api(test, `/api/sessions/${id}`);
-    assert.match(session.message, /短信验证码/);
+    assert.equal(session.message, '短信验证码已发送到绑定手机');
     await api(test, `/api/sessions/${id}/frames`, undefined, 409);
     await api(test, `/api/sessions/${id}/pointer`, { events: [{ t: 0, type: 'up', x: 0, y: 0 }] }, 409);
     for (const code of ['12', '1234567890', 'abcdef']) await api(test, `/api/sessions/${id}/sms`, { code }, 400);
@@ -194,27 +195,63 @@ it('adds a shop from the console with login name and password, then lists it wit
     for (let index = 0; index < 60 && (await api(test, `/api/sessions/${id}`)).state !== 'succeeded'; index++) await sleep(50);
     const session = await api(test, `/api/sessions/${id}`);
     assert.equal(session.state, 'succeeded');
-    assert.equal(session.message, '账号已添加，密码已保存');
+    assert.equal(session.message, '店铺已添加，密码已保存');
     const { items } = await api(test, '/api/accounts');
     assert.equal(items.length, 1);
     assert.equal(items[0].has_password, true);
   } finally { await dispose(test); }
 });
 
-it('blocks after two takeover timeouts, rejects both modes until unblock, and QR success resets the counter', async () => {
+async function blockAfterTimeouts(test) {
+  for (let count = 1; count <= 2; count++) {
+    const id = await start(test);
+    await api(test, `/api/sessions/${id}/fixture-complete`, { outcome: 'timeout' });
+    const session = await api(test, `/api/sessions/${id}`);
+    assert.equal(session.state, 'timed_out');
+    assert.equal(session.message, null);
+    assert.equal(readState(test).state.consecutive_takeover_timeouts, count);
+  }
+  assert.equal(readState(test).state.status, 'blocked');
+}
+
+it('allows QR success while paused, retains the pause, and ordinary commands reuse the saved marker', async () => {
   const test = await setup();
   try {
-    for (let count = 1; count <= 2; count++) {
-      const id = await start(test);
-      await api(test, `/api/sessions/${id}/fixture-complete`, { outcome: 'timeout' });
-      assert.equal((await api(test, `/api/sessions/${id}`)).state, 'timed_out');
-      assert.equal(readState(test).state.consecutive_takeover_timeouts, count);
-    }
-    assert.equal(readState(test).state.status, 'blocked');
-    for (const mode of ['relogin', 'qr']) {
-      const failure = await api(test, `/api/accounts/${DEFAULT_ACCOUNT.slug}/${mode}`, {}, 409);
-      assert.equal(failure.error.code, 'E_AUTH_RELOGIN_BLOCKED');
-    }
+    await blockAfterTimeouts(test);
+    const before = readState(test);
+    const trace = readFileSync(test.sandbox.env.PDD_TEST_PASSWORD_LOGIN_TRACE, 'utf8');
+    const failure = await api(test, `/api/accounts/${DEFAULT_ACCOUNT.slug}/relogin`, {}, 409);
+    assert.equal(failure.error.code, 'E_AUTH_RELOGIN_BLOCKED');
+    assert.equal(failure.error.message, '自动登录已暂停，请修改密码或扫码登录');
+    const qr = await start(test, DEFAULT_ACCOUNT.slug, 'qr', 'qr');
+    await api(test, `/api/sessions/${qr}/fixture-complete`, { outcome: 'success' });
+    const session = await api(test, `/api/sessions/${qr}`);
+    assert.equal(session.state, 'succeeded');
+    assert.equal(session.message, null);
+    const after = readState(test);
+    assert.equal(after.state.status, 'blocked');
+    assert.equal(after.state.reason, 'takeover_timeout');
+    assert.equal(after.state.last_attempt_at, before.state.last_attempt_at);
+    assert.equal(after.state.consecutive_takeover_timeouts, 0);
+    assert.deepEqual(after.actions, before.actions);
+    const { items: [view] } = await api(test, '/api/accounts');
+    assert.equal(view.session_status, '已验证');
+    assert.equal(view.status_kind, 'relogin_paused');
+    assert.equal(view.status, '暂停');
+    assert.equal(view.status_detail, '自动登录暂停：验证超时');
+    const result = ordinary(test.sandbox);
+    test.output.push(result.stdout, result.stderr);
+    assert.equal(result.status, 0);
+    const blocked = await api(test, `/api/accounts/${DEFAULT_ACCOUNT.slug}/relogin`, {}, 409);
+    assert.equal(blocked.error.code, 'E_AUTH_RELOGIN_BLOCKED');
+    assert.equal(readFileSync(test.sandbox.env.PDD_TEST_PASSWORD_LOGIN_TRACE, 'utf8'), trace);
+  } finally { await dispose(test); }
+});
+
+it('restores normal status after unblocking and completing login', async () => {
+  const test = await setup();
+  try {
+    await blockAfterTimeouts(test);
     await api(test, `/api/accounts/${DEFAULT_ACCOUNT.slug}/unblock`, {});
     const cancelled = await start(test);
     await api(test, `/api/sessions/${cancelled}/cancel`, {});
@@ -228,6 +265,12 @@ it('blocks after two takeover timeouts, rejects both modes until unblock, and QR
     await api(test, `/api/sessions/${qr}/fixture-complete`, { outcome: 'success' });
     assert.equal(readState(test).state.consecutive_takeover_timeouts, 0);
     assert.equal(readState(test).state.status, 'available');
+    assert.deepEqual(readState(test).actions, []);
+    const { items: [view] } = await api(test, '/api/accounts');
+    assert.equal(view.session_status, '已验证');
+    assert.equal(view.status_kind, 'verified');
+    assert.equal(view.status, '正常');
+    assert.equal(view.status_detail, '上次核验通过');
   } finally { await dispose(test); }
 });
 

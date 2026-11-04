@@ -1,5 +1,6 @@
 import { createDaemonRuntime } from '../services/daemon-runtime.js';
 import { createPatrol } from '../services/patrol.js';
+import { savePatrolEnabled } from '../services/console-patrol.js';
 import { createConsoleServer } from './server.js';
 
 function watchStop(signal, stop) {
@@ -92,7 +93,13 @@ async function runOwned(runtime, lease, { signal, components, exit, runtimeConfi
   return { stopped_reason: reason };
 }
 
-export async function runDaemon({ signal, components = [createConsoleServer(), createPatrol()], exit = (code) => process.exit(code),
+// 控制台持有巡航组件，开关即时生效。
+function defaultComponents() {
+  const patrol = createPatrol({ persist: (enabled) => savePatrolEnabled(enabled) });
+  return [createConsoleServer({ patrol }), patrol];
+}
+
+export async function runDaemon({ signal, components = defaultComponents(), exit = (code) => process.exit(code),
   foreground = true, runtimeConfig } = {}) {
   const runtime = createDaemonRuntime({ foreground, runtimeConfig });
   try {

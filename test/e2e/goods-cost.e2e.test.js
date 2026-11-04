@@ -14,7 +14,7 @@ it('previews, sets, lists, imports, removes and cascades local costs', () => {
     assert.equal(invoke('remove', '--goods-id', '101').data.removed_count, 0);
     assert.equal(invoke('remove', '--goods-id', '101', '--confirm').data.removed_count, 1);
     invoke('import', cli.file, '--confirm');
-    assert.equal(cli.execute(['account', 'remove', '--slug', 'synthetic-shop']).envelope.ok, true);
+    assert.equal(cli.execute(['account', 'remove', '--slug', 'synthetic-shop', '--confirm']).envelope.ok, true);
     assert.equal(invoke('list').error.code, 'E_ACCOUNT_REQUIRED');
   } finally { cli.dispose(); }
 });

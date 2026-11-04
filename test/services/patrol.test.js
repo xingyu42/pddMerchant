@@ -6,7 +6,7 @@ import * as authProbe from '../../src/adapter/merchant-auth-probe.js';
 import * as mocks from '../../src/adapter/mock-dispatcher.js';
 import * as relogin from '../../src/services/password-relogin.js';
 import { createPatrol, patrolDelayMs, patrolIntervalMs, runPatrolRound } from '../../src/services/patrol.js';
-import { insertAccount, updateAccount, getReloginState } from '../../src/infra/account-store.js';
+import { insertAccount, getReloginState } from '../../src/infra/account-store.js';
 import { saveAuthStateSnapshot, loadAuthState } from '../../src/adapter/auth-state.js';
 import { acquireLease, releaseLease, assertLeaseOwner } from '../../src/infra/leases.js';
 import { getDaemonMeta } from '../../src/infra/daemon-state.js';
@@ -115,15 +115,14 @@ it('skips an occupied account immediately, logs only its slug and fixed code, an
   } finally { releaseLease('account', occupied.id, lock.token); }
 });
 
-it('excludes disabled merchants and consumer accounts, and never opens a fixture browser', async () => {
-  account();
-  const disabled = account('900002');
-  updateAccount(disabled.id, { disabled: true });
+it('checks every merchant but no consumer account, and never opens a fixture browser', async () => {
+  const first = account();
+  const second = account('900002');
   account('900003', 'consumer');
   const update = vi.spyOn(authStorage, 'withMerchantAuthUpdate');
   const launch = vi.spyOn(browser, 'withBrowser');
   await runPatrolRound(context());
-  assert.deepEqual(update.mock.calls.map((call) => call[0]), [1]);
+  assert.deepEqual(update.mock.calls.map((call) => call[0]), [first.id, second.id]);
   assert.equal(launch.mock.calls.length, 0);
 });
 

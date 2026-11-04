@@ -145,8 +145,13 @@ it('account removal cascades to all stored account data', () => {
     putCredential(1, 'synthetic-sealed-placeholder');
     putReloginState(1, { status: 'available' });
     insertPendingAction(1, { kind: 'human_verification', reason: 'synthetic' });
-    const result = spawnSync(process.execPath, [join(projectRoot, 'bin/pdd.js'), 'account', 'remove',
-      '--slug', DEFAULT_ACCOUNT.slug, '--json'], { cwd: projectRoot, env: sandbox.env, encoding: 'utf8', timeout: 15000 });
+    const remove = (...flags) => spawnSync(process.execPath, [join(projectRoot, 'bin/pdd.js'), 'account', 'remove',
+      '--slug', DEFAULT_ACCOUNT.slug, ...flags, '--json'], { cwd: projectRoot, env: sandbox.env, encoding: 'utf8', timeout: 15000 });
+    const preview = JSON.parse(remove().stdout).data;
+    assert.deepEqual([preview.dry_run, preview.removed, preview.has_password, preview.has_login_state, preview.was_default],
+      [true, false, true, true, true]);
+    assert.equal(get('SELECT count(*) AS total FROM accounts').total, 1);
+    const result = remove('--confirm');
     assert.equal(result.status, 0);
     assert.equal(result.stdout.trim().split(/\r?\n/).length, 1);
     assert.equal(JSON.parse(result.stdout).ok, true);
@@ -198,6 +203,7 @@ it('account remove help lists the slug option without --remove-files', () => {
     assert.equal(result.stderr, '');
     assert.match(result.stdout, /Usage: pdd account remove \[options\]/);
     assert.match(result.stdout, /--slug <slug>/);
+    assert.match(result.stdout, /--confirm/);
     assert.equal(result.stdout.includes('--remove-files'), false);
   } finally { sandbox.dispose(); }
 });
@@ -251,7 +257,7 @@ it.each(['merchant', 'consumer'])('doctor identifies the selected undecryptable 
     const error = JSON.parse(result.stdout).error;
     assert.equal(error.code, 'E_SECRET_DECRYPT_FAILED');
     assert.deepEqual(error.detail, { slug: selected.slug, kind });
-    assert.match(error.hint, /先执行 pdd account remove --slug <slug> 再重新登录/);
+    assert.match(error.hint, /先执行 pdd account remove --slug <slug> --confirm 再重新登录/);
     for (const fragment of [sandbox.root, 'master.key', 'pdd.db', 'synthetic-damaged']) {
       assert.equal((result.stdout + result.stderr).includes(fragment), false);
     }

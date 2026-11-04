@@ -7,13 +7,16 @@ import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-sta
 import { toAccountView, toAccountListView, toAccountRemovedView, ACCOUNT_VIEW_FIELDS, ACCOUNT_REMOVED_VIEW_FIELDS } from '../../src/services/views/account.js';
 import {
   PASSWORD_RELOGIN_STATUS_LABEL, PASSWORD_RELOGIN_REASON_LABEL, formatPasswordReloginStatus,
+  CONSOLE_STATUS_LABEL, CONSOLE_LOGIN_REASON_LABEL, CONSOLE_CHALLENGE_DETAIL, CONSOLE_VERDICT_DETAIL,
 } from '../../src/services/views/labels.js';
+import { toConsoleAccountView, CONSOLE_ACCOUNT_VIEW_FIELDS } from '../../src/services/views/console.js';
 import { renderDoctor } from '../../src/commands/doctor.js';
 
 describe('management headlines state only known facts', () => {
   it('separates the removed account slug from the following Chinese text', () => {
-    const view = toAccountRemovedView('synthetic-shop');
-    assert.deepEqual(view, { headline: ['已移除账号 synthetic-shop 及其认证数据'], slug: 'synthetic-shop', removed: true });
+    const footprint = { hasPassword: false, hasLoginState: true, goodsCostCount: 0 };
+    const view = toAccountRemovedView({ slug: 'synthetic-shop', display_name: null, is_default: 0 }, footprint, { confirm: true });
+    assert.deepEqual(view.headline, ['已删除账号 synthetic-shop，连同登录态']);
     assert.deepEqual(Object.keys(view).sort(), [...ACCOUNT_REMOVED_VIEW_FIELDS].sort());
   });
 
@@ -63,14 +66,115 @@ describe('management headlines state only known facts', () => {
 
   it('projects account status and timestamps from database rows without retired fields', () => {
     const first = insertAccount({ identity: '900001', displayName: 'A' }, { setDefault: true });
-    updateAccount(first.id, { disabled: true, lastLoginAt: '2026-01-01T00:00:00.000Z' });
-    const view = toAccountListView(listAccounts({ includeDisabled: true }), first.slug);
+    updateAccount(first.id, { lastLoginAt: '2026-01-01T00:00:00.000Z' });
+    const view = toAccountListView(listAccounts(), first.slug);
     assert.deepEqual(Object.keys(view.items[0]).sort(), [...ACCOUNT_VIEW_FIELDS].sort());
-    assert.equal(view.items[0].disabled, true);
+    assert.deepEqual(view.headline, [`共 1 个账号，默认账号：${first.slug}`]);
     assert.equal(view.items[0].is_default, true);
     assert.equal(view.items[0].last_login_at, '2026-01-01 08:00:00');
     assert.equal(Object.hasOwn(view.items[0], 'has_credential'), false);
     assert.equal(Object.hasOwn(view.items[0], 'last_refresh_at'), false);
+  });
+});
+
+function assertConsoleStatus(input, expected) {
+  const account = { slug: 'synthetic-shop', display_name: 'Shop', identity: '900001' };
+  const metadata = input.metadata ?? { check_verdict: input.verdict };
+  const summary = { has_password: true, status: 'available', ...input.summary };
+  const actions = input.actions ?? [];
+  const before = structuredClone({ account, metadata, summary, actions });
+  const view = toConsoleAccountView(account, metadata, summary, actions);
+  assert.deepEqual([view.status_kind, view.status, view.status_detail], expected);
+  assert.deepEqual(Object.keys(view), [...CONSOLE_ACCOUNT_VIEW_FIELDS]);
+  assert.doesNotMatch(`${view.status} ${view.status_detail}`, /熔断|接管|会话|重登/);
+  assert.deepEqual({ account, metadata, summary, actions }, before);
+  const privateFields = { password: 'private-password', login_name: 'private-login', unrelated: 'private-field' };
+  assert.deepEqual(toConsoleAccountView({ ...account, ...privateFields }, { ...metadata, ...privateFields },
+    { ...summary, ...privateFields }, actions.map((action) => ({ ...action, ...privateFields }))), view);
+  return view;
+}
+
+function consoleAction(reason, kind = 'human_takeover', status = 'open') {
+  return { reason, kind, status, created_at: '2026-01-01T00:00:00.000Z' };
+}
+
+describe('console account status view', () => {
+  it('freezes the four console-only label tables', () => {
+    for (const table of [CONSOLE_STATUS_LABEL, CONSOLE_LOGIN_REASON_LABEL, CONSOLE_CHALLENGE_DETAIL, CONSOLE_VERDICT_DETAIL]) {
+      assert.equal(Object.isFrozen(table), true);
+    }
+  });
+
+  it.each([true, false])('projects verified with has_password=%s', (hasPassword) => {
+    assertConsoleStatus({ verdict: 'verified', summary: { has_password: hasPassword } }, ['verified', '正常', '上次核验通过']);
+  });
+
+  it.each([
+    ['rejected', 'relogin_required', '失效', '上次核验未通过'],
+    ['indeterminate', 'unknown', '未知', '上次核验无法判定'],
+    [null, 'unknown', '未知', '暂无核验记录'],
+    [undefined, 'unknown', '未知', '暂无核验记录'],
+    ['', 'unknown', '未知', '暂无核验记录'],
+    ['failed', 'unknown', '未知', '上次核验未通过'],
+    ['not_configured', 'unknown', '未知', '尚未配置登录信息'],
+    ['private-verdict', 'unknown', '未知', '上次核验结果未知'],
+    ['constructor', 'unknown', '未知', '上次核验结果未知'],
+  ])('projects verdict %s with a fixed detail', (verdict, kind, status, detail) => {
+    assertConsoleStatus({ verdict }, [kind, status, detail]);
+  });
+
+  it.each([true, false])('prioritizes blocked over verified and pending actions with has_password=%s', (hasPassword) => {
+    const view = assertConsoleStatus({ verdict: 'verified', summary: { has_password: hasPassword,
+      status: 'blocked', reason: 'wrong_password' }, actions: [consoleAction('sms')] },
+    ['relogin_paused', '暂停', '自动登录暂停：密码错误']);
+    assert.equal(view.password_relogin_status, hasPassword ? '已熔断：密码错误' : null);
+  });
+
+  it.each([
+    ['sms', '短信验证'], ['slider', '滑块验证'], ['click', '点选验证'],
+    ['risk_confirm', '安全确认'], ['unknown', '安全验证'],
+  ])('uses the current challenge %s before an older SMS action', (reason, detail) => {
+    for (const actions of [[], [consoleAction('sms')]]) {
+      assertConsoleStatus({ verdict: 'rejected', summary: { status: 'awaiting_human', reason }, actions },
+        ['action_required', '需验证', `需要完成${detail}`]);
+    }
+  });
+
+  it.each([
+    [[consoleAction('sms')], '待处理：短信验证'],
+    [[consoleAction('wrong_password', 'relogin_blocked'), consoleAction('slider'), consoleAction('sms')], '待处理：滑块验证'],
+    [[consoleAction('slider', 'human_takeover', 'resolved'), consoleAction('sms')], '待处理：短信验证'],
+    [[consoleAction('wrong_password', 'relogin_blocked')], '待处理：密码错误'],
+    [[consoleAction('click', 'other_action'), consoleAction('sms', 'other_action')], '待处理：点选验证'],
+  ])('uses the first open human action, falling back to the first open action: %j', (actions, detail) => {
+    assertConsoleStatus({ verdict: 'verified', actions }, ['action_required', '需验证', detail]);
+  });
+
+  it('ignores resolved actions when selecting the overall status', () => {
+    const view = assertConsoleStatus({ verdict: 'verified', actions: [consoleAction('sms', 'human_takeover', 'resolved')] },
+      ['verified', '正常', '上次核验通过']);
+    assert.deepEqual(view.pending_actions, []);
+  });
+
+  it.each([undefined, null, '', 'private-reason', 'constructor', '__proto__'])('uses fixed fallbacks for reason %s', (reason) => {
+    assertConsoleStatus({ summary: { status: 'blocked', reason } }, ['relogin_paused', '暂停', '自动登录已暂停']);
+    assertConsoleStatus({ summary: { status: 'awaiting_human', reason } }, ['action_required', '需验证', '需要完成安全验证']);
+    assertConsoleStatus({ actions: [consoleAction(reason)] }, ['action_required', '需验证', '有待处理事项']);
+  });
+
+  it.each([
+    ['wrong_password', '密码错误'], ['account_locked', '账号被锁'], ['takeover_timeout', '验证超时'],
+  ])('labels blocked reason %s', (reason, detail) => {
+    assertConsoleStatus({ summary: { status: 'blocked', reason } }, ['relogin_paused', '暂停', `自动登录暂停：${detail}`]);
+  });
+
+  it.each([
+    ['rejected', '已失效', 'relogin_required', '失效', '上次核验未通过'],
+    [null, '已验证', 'verified', '正常', '上次核验通过'],
+    ['', null, 'unknown', '未知', '暂无核验记录'],
+  ])('shares the verdict precedence with session_status for last_check=%s', (verdict, sessionStatus, kind, status, detail) => {
+    const view = assertConsoleStatus({ metadata: { last_check: { verdict }, check_verdict: 'verified' } }, [kind, status, detail]);
+    assert.equal(view.session_status, sessionStatus);
   });
 });
 

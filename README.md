@@ -42,8 +42,8 @@ pdd orders list --json      # AI 消费加 --json
 | **diagnose** | `shop` / `orders` / `inventory` / `promo` / `after-sales` / `experience` / `customer-service` / `reviews` / `traffic` |
 | **shops** | `list` / `current` |
 | **config** | `show` / `set <key> <value>` / `unset <key>` / `validate` |
-| **account** | `add` / `list` / `default` / `remove` |
-| **daemon / console** | `daemon start` / `stop` / `status` / `run`，`console link` |
+| **account** | `add` / `list` / `default` / `remove`（需 `--confirm`，否则仅预演） |
+| **daemon / console** | `daemon start` / `stop` / `restart` / `status` / `run`，`console link` |
 | **utility** | `init` / `login` / `doctor` |
 
 全局选项：`--json` / `--no-color` / `--timeout <ms>` / `--mall <id>` / `--headed` / `--verbose` / `--account <slug>` / `--consumer-account <ref>`（昵称、手机号或 slug）/ `--all-accounts`。
@@ -155,13 +155,15 @@ pdd daemon start                      # 后台启动（已运行则返回状态�
 pdd daemon status                     # 心跳、控制台地址、最近巡航时间
 pdd console link [--account <slug>]   # 生成 10 分钟有效的一次性控制台链接
 pdd daemon stop                       # 请求停止，15 秒未退出则强杀本机进程
+pdd daemon restart                    # 停止后再启动；更新代码后用它加载新代码
 pdd daemon run                        # 前台运行（调试）
 ```
 
-- 控制台用于用登录名和密码新增账号（核验通过后登记并保存密码）、录入/清除密码（只写不回显）、解除熔断、输入短信验证码、在转播的验证码弹窗中完成滑块等验证、改用扫码登录。密码与验证码只在控制台输入，不经过聊天。
+- 控制台用于用登录名和密码新增账号（核验通过后登记并保存密码）、删除店铺（需输入店铺名确认）、录入/清除密码（只写不回显）、解除熔断、输入短信验证码、在转播的验证码弹窗中完成滑块等验证、改用扫码登录。密码与验证码只在控制台输入，不经过聊天。
 - 一次性链接打开后兑换为 8 小时会话，聊天应用的链接预览不会消耗链接。
 - 默认只监听 `127.0.0.1:47821`（`consoleHost` / `consolePort`）。局域网地址为 http 明文；外网或 HTTPS 请用 nginx/Caddy 在站点根路径反代，设置 `consolePublicUrl`，并对 `/api/sessions/*/frames`（SSE）关闭缓冲（nginx `proxy_buffering off;`）。`consoleHost` 填 `0.0.0.0` 时必须设置 `consolePublicUrl`，否则请求返回 421。
-- 巡航默认关闭（`patrolEnabled`）；开启后按 `patrolIntervalMs`（默认 30 分钟 ±20%）逐账号检查，失效时自动重登。
+- 巡航默认关闭（`patrolEnabled`）；开启后按 `patrolIntervalMs`（默认 30 分钟 ±20%）逐账号检查，失效时自动重登。控制台店铺列表标题右侧的巡航胶囊（「巡航中 / 自动巡航」）点开后可即时启停并写入本地配置（等同 `pdd config set patrolEnabled`），被环境变量固定时拒绝修改。
+- daemon 启动时加载代码；控制台页面每次从磁盘读取。更新代码后执行 `pdd daemon restart`，否则新页面会配上旧接口。重启会中断进行中的登录。
 - 不做开机自启，重启机器后需重新 `pdd daemon start`。普通命令、`login` 和 `doctor` 从不拉起 daemon。
 
 ## 故障排查

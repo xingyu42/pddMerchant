@@ -120,13 +120,14 @@ Applies to `src/daemon/run.js`, daemon commands/services, process adapters and d
 ### 2. Signatures
 
 ```js
-runDaemon({ signal, components = [createConsoleServer(), createPatrol()], exit, foreground = true, runtimeConfig })
+runDaemon({ signal, components = defaultComponents(), exit, foreground = true, runtimeConfig })
+// defaultComponents(): patrol = createPatrol({ persist: savePatrolEnabled }); [createConsoleServer({ patrol }), patrol]
 // -> { stopped_reason } | { status: 'already_running' }
 // component.start({ signal, ownerTag, log, runtimeConfig }); component.stop();
 withCommand({ needsAuth: false, needsMall: 'none', needsBrowser: false, ... })
 ```
 
-`pdd daemon start|stop|status|run` uses the ordinary runner finalizer. `needsBrowser:false` with `needsAuth:false` skips browser and account resolution in both live and fixture mode. Existing commands keep the default `needsBrowser:true`.
+`pdd daemon start|stop|restart|status|run` uses the ordinary runner finalizer. `needsBrowser:false` with `needsAuth:false` skips browser and account resolution in both live and fixture mode. Existing commands keep the default `needsBrowser:true`. `restart` is `stop` (cooperative, 15 s then same-host force kill) followed by `start`; data is the start view plus `restarted` (whether a daemon was stopped), optional `forced`, headline `daemon 已重启` / `daemon 已启动`. The daemon loads code at startup while console static files are read from disk per request, so code updates need a restart.
 
 ### 3. Contracts
 
@@ -183,7 +184,7 @@ Applies to `services/patrol.js`, daemon component wiring, shared deadlines and f
 ### 2. Signatures
 
 ```js
-createPatrol({ random = Math.random, clock = { now, sleep } }) // -> { start(context), stop() }
+createPatrol({ random = Math.random, clock = { now, sleep }, persist }) // -> { start(context), stop(), setEnabled(enabled), isEnabled() }
 runPatrolRound({ signal, ownerTag, log, runtimeConfig }, clock)
 armDeadline(opts, parentSignal, startedAt) // infra/abort.js; single-lifecycle.js keeps its re-export
 withMerchantAuthUpdate(accountId, callback, { timeoutMs: 0, signal, deadlineAt })
@@ -192,7 +193,7 @@ reloginForFixture(accountId, runtime, { tx }) // optional existing account trans
 
 ### 3. Contracts
 
-- Start only when `runtimeConfig.patrolEnabled === true`. Wait a jittered interval before the first round and after each completed round; no overlapping rounds. Delay is `round(patrolIntervalMs * (0.8 + random() * 0.4))`.
+- Start only when `runtimeConfig.patrolEnabled === true`. `setEnabled(enabled)` (console switch) serialises changes: it awaits `persist(enabled)` first and only then starts or aborts the loop, so a failed write leaves the running state untouched; after `stop()` it never restarts. Aborting mid-round follows the stop rules below. Wait a jittered interval before the first round and after each completed round; no overlapping rounds. Delay is `round(patrolIntervalMs * (0.8 + random() * 0.4))`.
 - Enumerate enabled merchant accounts in ID order and check sequentially. Acquire each account lease once with `timeoutMs:0`; contention logs info `{ account: slug, code:'patrol_account_busy' }` and skips. Re-check disabled status after acquiring the lease. Account failures log only slug and a fixed error code, then continue.
 - Live flow, stage 1 (no browser): unless `tx.state.merchant_auth.last_check.verdict === 'rejected'`, `selectCheckCookiesFromState(tx.state)` -> `probeCheckLogin(cookies, { signal, deadlineAt })`. `verified` ends the account with no browser and no write; `indeterminate` -> `recordMerchantCheck` + `assertMerchantVerified` (fixed-code `E_AUTH_CHECK_INDETERMINATE` warning, no browser, no relogin); `rejected` -> `recordMerchantCheck` then stage 2. `E_AUTH_CANDIDATE_INVALID` from cookie selection/header building (e.g. missing PASS_ID) and a known-rejected state also go to stage 2.
 - Live flow, stage 2 (browser): `withBrowser({ storageState:tx.state, ownerTag })` -> `verifyStoredMerchant` with the bound account identity (a just-recorded rejection short-circuits as `known_rejected`, so rejected materials are not re-sent) -> `recordMerchantCheck` for non-verified results -> `reloginInCommand` for rejected results; other results use `assertMerchantVerified`. No homepage navigation or business endpoints.
