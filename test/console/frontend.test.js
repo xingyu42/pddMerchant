@@ -23,7 +23,7 @@ function frontend(api) {
     return [slot.current, (next) => { slot.current = next; }];
   };
   const app = runInNewContext(`${source}\napi = request;
-    ({ AccountActions, AccountCard, AddAccountForm, PasswordForm, Countdown, useAccountAction, usePatrol, patrolHint, PatrolSwitch,
+    ({ AccountActions, AccountCard, AddAccountForm, PasswordForm, Countdown, SessionStatus, useAccountAction, usePatrol, patrolHint, PatrolSwitch,
       createPointerBatches });`, {
     h, htm, useRef, useState, request: api, crypto: webcrypto, Uint32Array,
     useEffect: () => {}, setInterval, clearInterval, window: { location, confirm, prompt },
@@ -315,6 +315,23 @@ it.each([[true, true], [true, false], [false, true], [false, false]])(
     assert.equal(passwordForm(app.render(props)), null);
     assert.deepEqual(onDone.mock.calls, [['密码已保存']]);
   });
+
+it.each([
+  ['loading', null, true, true, false],
+  ['filling', { state: 'filling', message: null, remaining_seconds: 712 }, false, true, true],
+  ['sms', { state: 'sms', message: '验证码已发送', remaining_seconds: 300 }, false, false, true],
+  ['failed', { state: 'failed', message: '密码错误', remaining_seconds: 0 }, false, false, false],
+])('centres the session status block for %s', (_, session, loading, spinner, countdown) => {
+  const app = frontend(vi.fn());
+  const tree = app.render({ session, loading }, 'SessionStatus');
+  const nodes = tree.props.children.flat(Infinity).filter((node) => node && typeof node === 'object');
+  assert.equal(tree.props.class, 'session-status');
+  assert.equal(nodes.some((node) => node.props.class === 'spinner'), spinner);
+  assert.equal(nodes.some((node) => node.type === app.Countdown), countdown);
+  const state = nodes.find((node) => node.type === 'p' && node.props.class.startsWith('state'));
+  assert.equal(state.props.children.join(''), { loading: '加载中…', filling: '正在准备登录…', sms: '输入短信验证码', failed: '登录失败' }[_]);
+  if (session?.message) assert.ok(nodes.some((node) => node.props.children?.join('') === session.message));
+});
 
 it.each([0, 60, 61])('marks the countdown urgent at %s seconds', (seconds) => {
   const node = frontend(vi.fn()).render({ seconds }, 'Countdown');
