@@ -122,8 +122,7 @@ export const CONSOLE_CHALLENGE_DETAIL = Object.freeze({
 });
 
 export const CONSOLE_VERDICT_DETAIL = Object.freeze({
-  verified: '上次核验通过', rejected: '上次核验未通过', indeterminate: '上次核验无法判定',
-  failed: '上次核验未通过', not_configured: '尚未配置登录信息',
+  indeterminate: '上次核验无法判定', failed: '上次核验未通过', not_configured: '尚未配置登录信息',
 });
 
 export const PASSWORD_RELOGIN_STATUS_LABEL = Object.freeze({

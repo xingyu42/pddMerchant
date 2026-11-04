@@ -270,7 +270,7 @@ it('restores normal status after unblocking and completing login', async () => {
     assert.equal(view.session_status, '已验证');
     assert.equal(view.status_kind, 'verified');
     assert.equal(view.status, '正常');
-    assert.equal(view.status_detail, '上次核验通过');
+    assert.equal(view.status_detail, null);
   } finally { await dispose(test); }
 });
 

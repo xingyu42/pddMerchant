@@ -32,10 +32,10 @@ function toConsoleStatusView(verdict, summary, openActions) {
   } else if (summary.status === 'awaiting_human' || openActions.length > 0) {
     kind = 'action_required';
     detail = consoleActionDetail(summary, openActions);
-  } else if (verdict === 'rejected') {
-    kind = 'relogin_required';
-  } else if (verdict === 'verified') {
-    kind = 'verified';
+  } else if (verdict === 'rejected' || verdict === 'verified') {
+    // 徽标「失效 / 正常」已说明核验结果，不再重复一行。
+    kind = verdict === 'rejected' ? 'relogin_required' : 'verified';
+    detail = null;
   }
   return { status_kind: kind, status: CONSOLE_STATUS_LABEL[kind], status_detail: detail };
 }
