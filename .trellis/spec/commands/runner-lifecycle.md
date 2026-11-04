@@ -98,8 +98,7 @@ These invariants are covered by runner contract tests and should stay stable dur
 These invariants are covered by batch orchestration tests and should remain stable before any `batch-executor.js` policy extraction:
 
 - `withCommand({ needsAuth: true })` with `opts.allAccounts === true` MUST route through batch execution; `needsAuth: false` commands MUST remain on the single-command path.
-- `--all-accounts` combined with `--account` MUST fail with `E_USAGE` before account iteration, jitter, or envelope emit. Accounts are enumerated with `listAccounts({ kind: 'merchant', includeDisabled: true })`; an empty database fails with `E_USAGE` (`No registered accounts found`).
-- When all accounts in the database are disabled, batch execution MUST emit and return an OK empty batch envelope and skip per-account execution and jitter.
+- `--all-accounts` combined with `--account` MUST fail with `E_USAGE` before account iteration, jitter, or envelope emit. Accounts are enumerated with `listAccounts({ kind: 'merchant' })` (every registered merchant; there is no disabled state); an empty database fails with `E_USAGE` (`No registered accounts found`).
 - Single and batch commands MUST NOT launch background auth processes; merchant checks and verified persistence happen within the current command.
 - Per-account execution MUST call `executeSingle()` with `emitResult: false`, `allAccounts: false`, no `mall` override, `account: undefined`, and the account-specific `accountId`.
 - Inter-account jitter MUST run only between accounts, never after the last account, and MUST receive the batch abort signal.

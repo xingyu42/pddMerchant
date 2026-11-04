@@ -35,10 +35,10 @@ acquireLease(scope, key, { timeoutMs = 30000, retryMs = 200, ttlMs = timeoutMs +
 renewLease(scope, key, token, { ttlMs }) / releaseLease(scope, key, token) / assertLeaseOwner(scope, key, token)
 
 // src/infra/account-store.js
-listAccounts({ kind = 'merchant', includeDisabled = false })
+listAccounts({ kind = 'merchant' })        // 不区分停用：schema 保留 accounts.disabled 列（默认 0）以兼容旧库，代码不读不写
 getAccount(slug, { kind, allowDisplayName }) / getAccountById(id) / findAccountByIdentity(kind, identity)
 insertAccount({ kind, identity, displayName, lastLoginAt, lastUsedAt }, { setDefault })
-updateAccount(id, { displayName, lastLoginAt, lastUsedAt, disabled }) / setDefaultAccount(slug, { kind }) / removeAccount(slug, { kind })
+updateAccount(id, { displayName, lastLoginAt, lastUsedAt }) / setDefaultAccount(slug, { kind }) / removeAccount(slug, { kind })
 getCredential / putCredential(accountId, passwordSealed) / deleteCredential  // putCredential 的 updated_at 严格单调递增
 getReloginState / putReloginState(accountId, { status, reason, consecutiveTakeoverTimeouts, lastAttemptAt })
 listPendingActions / insertPendingAction / resolvePendingAction
