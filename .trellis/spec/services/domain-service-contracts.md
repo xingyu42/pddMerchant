@@ -221,7 +221,7 @@ CLI：`pdd diagnose experience [--days 7]`，`needsAuth:true`、`needsMall:'swit
 
 ### 6. Tests Required
 
-`experience-contract.test.js` 校验 payload、严格成功码和上游白名单；`experience-view.test.js` 校验十项映射、null、达标标签、headline 和字段集合；`experience.test.js` 校验窗口、days 边界和错误传播。`experience.e2e.test.js` 验证单行 JSON、明文 ctx.mall_id、上游键及店铺名剔除；`data-contract-v2.test.js` 用 `entityFields` 覆盖 `snapshot`、`indicators[]`、`trend.items[]`。fixture builder 使用侦察样本和真实 normalize，自动化验证仅用 fixture。
+`experience-contract.test.js` 校验 payload、成功码（success 与 0/1000000）和上游白名单；`experience-view.test.js` 校验十项映射、null、达标标签、headline 和字段集合；`experience.test.js` 校验窗口、days 边界和错误传播。`experience.e2e.test.js` 验证单行 JSON、明文 ctx.mall_id、上游键及店铺名剔除；`data-contract-v2.test.js` 用 `entityFields` 覆盖 `snapshot`、`indicators[]`、`trend.items[]`。fixture builder 使用侦察样本和真实 normalize，自动化验证仅用 fixture。
 
 ### 7. Wrong vs Correct
 
@@ -245,7 +245,7 @@ CLI：`pdd diagnose customer-service [--days 30]`、`pdd diagnose reviews [--day
 
 ### 3. Contracts
 
-- 客服 days 为 1-63 的整数，窗口按上海日期取 `[今天-days, 昨天]`。`cs.overview` 使用 page-api POST `/desert/stat/mallServiceOverviewData`，请求 `{ startDate, endDate }`；`cs.monthTrend` 使用 legacy 导航与 `/desert\/stat\/mallMonthServiceData/` 被动捕获 GET，返回固定最近 31 天，按 `statDate` 过滤。导航页为 `/mms-chat/overview/service`；两者成功条件为 `success === true && errorCode === 1000000`。
+- 客服 days 为 1-63 的整数，窗口按上海日期取 `[今天-days, 昨天]`。`cs.overview` 使用 page-api POST `/desert/stat/mallServiceOverviewData`，请求 `{ startDate, endDate }`；`cs.monthTrend` 使用 legacy 导航与 `/desert\/stat\/mallMonthServiceData/` 被动捕获 GET，返回固定最近 31 天，按 `statDate` 过滤。导航页为 `/mms-chat/overview/service`；两者成功条件为 `success === true` 且 errorCode ∈ `SUCCESS_BUSINESS_CODES`（0/1000000）。
 - 客服 data：`{ headline, window, caliber, summary, trend, hints, mall_id }`，口径固定「多多客服-客服数据（人工回复）」。summary 与 trend 指标映射以 `views/customer-service.js` 的 `METRICS` 为准；比率乘 100，时长单位秒、保留 2 位小数，null 保留。trend 为 null 或 `{ items:[{ date, ...summary字段, category_top10_avg_response_seconds, category_avg_response_seconds }] }`，日期升序；客服账号名及比较字段由白名单过滤。
 - 评价 days 映射 `{30:1, 60:5, 90:4, 180:3}` 为 rangeType。endTime 为当前 Unix 秒，startTime=endTime-days*86400。标签和类型聚合的请求为 `{ startTime, endTime, rangeType }`；列表为 `{ startTime, endTime, pageNo, pageSize:10, descScore:['1','2','3'] }`，三个端点均为 page-api POST `/saturn/reviews/*`，导航页 `/goods/evaluation/index`。成功判定为 `success === true || errorCode === 1000000`。
 - 列表每页 10 条，最多 30 页；满 30 页标记 truncated 并提示。service 调用同时携带内部 `page` 和上游 `pageNo`，fixture 分页器使用前者，`buildPayload` 仅投影后者；fixture 使用 `totalRows` 和 `data`。

@@ -20,11 +20,12 @@ describe('experience page-api contracts', () => {
       { beginDate: '2026-10-24', endDate: '2026-10-30' });
   });
 
-  it('requires both success and the camelCase success code', () => {
+  it('requires both success and a camelCase success code', () => {
     for (const spec of specs) {
       assert.equal(spec.isSuccess({ success: true, errorCode: 1000000 }), true);
+      assert.equal(spec.isSuccess({ success: true, errorCode: 0 }), true);
       for (const raw of [null, {}, { success: true }, { success: false, errorCode: 1000000 },
-        { success: true, errorCode: 0 }, { success: true, error_code: 1000000 }]) {
+        { success: false, errorCode: 0 }, { success: true, errorCode: 1 }, { success: true, error_code: 1000000 }]) {
         assert.equal(spec.isSuccess(raw), false);
       }
       const error = spec.errorMapper({ success: false, errorCode: 40002, errorMsg: '请求失败' });
