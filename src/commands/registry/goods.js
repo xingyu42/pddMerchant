@@ -15,6 +15,7 @@ import * as costRemove from '../goods/cost/remove.js';
 import * as costImport from '../goods/cost/import.js';
 import * as profit from '../goods/profit.js';
 import * as traffic from '../goods/traffic.js';
+import { integerArg } from '../option-parsers.js';
 
 function registerCosts(goods, wireAction) {
   const costs = goods.command('cost').description('本地商品成本（写入需 --confirm）');
@@ -39,8 +40,8 @@ function registerReads(goods, wireAction) {
     goods
       .command('list')
       .description('商品列表')
-      .option('--page <n>', '页码', (value) => Number(value), 1)
-      .option('--size <n>', '每页数量', (value) => Number(value), 10)
+      .option('--page <n>', '页码', integerArg(1), 1)
+      .option('--size <n>', '每页数量', integerArg(1), 10)
       .option('--status <s>', '状态筛选：onsale | offline', 'onsale'),
     'goods.list',
     list.run
@@ -49,9 +50,9 @@ function registerReads(goods, wireAction) {
     goods
       .command('stock')
       .description('库存告警（按阈值筛低库存/缺货）')
-      .option('--page <n>', '页码', (value) => Number(value), 1)
-      .option('--size <n>', '每页数量', (value) => Number(value), 50)
-      .option('--threshold <n>', '低库存阈值', (value) => Number(value), 10),
+      .option('--page <n>', '页码', integerArg(1), 1)
+      .option('--size <n>', '每页数量', integerArg(1), 50)
+      .option('--threshold <n>', '低库存阈值', integerArg(0), 10),
     'goods.stock',
     stock.run
   );
@@ -60,8 +61,8 @@ function registerReads(goods, wireAction) {
       .command('segment')
       .description('商品销量与库存统计')
       .option('--days <n>', '销量统计窗口天数', (value) => Number(value), 30)
-      .option('--size <n>', '商品分页大小', (value) => Number(value), 50)
-      .option('--max-pages <n>', '最大商品页数', (value) => Number(value), 10)
+      .option('--size <n>', '商品分页大小', integerArg(1), 50)
+      .option('--max-pages <n>', '最大商品页数', integerArg(1), 10)
       .option('--no-promo', '跳过推广 ROI 数据'),
     'goods.segment',
     segment.run

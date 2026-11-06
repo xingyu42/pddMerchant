@@ -13,6 +13,7 @@ it('uses page-api for the interval and passive legacy capture for the month', ()
   for (const spec of [CS_OVERVIEW, CS_MONTH_TREND]) {
     assert.equal(spec.nav.url, 'https://mms.pinduoduo.com/mms-chat/overview/service');
     assert.equal(spec.isSuccess({ success: true, errorCode: 1000000 }), true);
+    assert.equal(spec.isSuccess({ success: true, errorCode: 0 }), true);
     assert.equal(spec.isSuccess({ success: true }), false);
     assert.equal(spec.isSuccess({ success: false, errorCode: 1000000 }), false);
     assert.equal(spec.errorMapper({ errorCode: 40002, errorMsg: '失败' }).code, 'E_BUSINESS');

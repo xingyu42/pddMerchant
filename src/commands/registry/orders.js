@@ -2,6 +2,7 @@
 import * as list from '../orders/list.js';
 import * as detail from '../orders/detail.js';
 import * as stats from '../orders/stats.js';
+import { integerArg } from '../option-parsers.js';
 
 export function register(program, wireAction) {
   const orders = program.command('orders').description('📦 订单管理');
@@ -9,10 +10,10 @@ export function register(program, wireAction) {
     orders
       .command('list')
       .description('订单列表')
-      .option('--page <n>', '页码', (v) => Number(v), 1)
-      .option('--size <n>', '每页数量', (v) => Number(v), 20)
-      .option('--since <unix>', '起始时间（Unix 秒）', (v) => Number(v))
-      .option('--until <unix>', '结束时间（Unix 秒）', (v) => Number(v))
+      .option('--page <n>', '页码', integerArg(1), 1)
+      .option('--size <n>', '每页数量', integerArg(1), 20)
+      .option('--since <unix>', '起始时间（Unix 秒）', integerArg(0))
+      .option('--until <unix>', '结束时间（Unix 秒）', integerArg(0))
       .option('--status <scope>', '订单范围：all|pending_ship|shipped|received|after_sales', 'all'),
     'orders.list',
     list.run
@@ -29,7 +30,7 @@ export function register(program, wireAction) {
     orders
       .command('stats')
       .description('订单统计（远程 + 本地聚合 P50/P95）')
-      .option('--size <n>', '本地聚合样本数', (v) => Number(v), 50),
+      .option('--size <n>', '本地聚合样本数', integerArg(1), 50),
     'orders.stats',
     stats.run
   );

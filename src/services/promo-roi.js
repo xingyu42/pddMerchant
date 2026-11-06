@@ -119,8 +119,9 @@ export async function getPromoRoi(page, params = {}, ctx = {}) {
     type: 'entity',
     page: params.page,
     size: params.size,
-    since: params.since,
-    until: params.until,
+    // CLI 传入 YYYY-MM-DD 字符串，走显式日期校验；since/until 仅接受 Date
+    startDate: params.since,
+    endDate: params.until,
   }, ctx);
 
   const analysis = analyzePromoRoi(

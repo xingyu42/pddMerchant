@@ -4,7 +4,10 @@ import { PddCliError } from '../../src/infra/errors.js';
 
 const mock = vi.hoisted(() => ({ calls: [], handler: null }));
 vi.mock('../../src/adapter/run-endpoint.js', async (original) => ({ ...(await original()),
-  async runEndpoint(_page, spec, params) { mock.calls.push({ name: spec.name, params }); return mock.handler(spec.name, params); },
+  async runEndpoint(_page, spec, params) {
+    mock.calls.push({ name: spec.name, params });
+    return spec.name === 'traffic.readyTime' ? '2024-03-01' : mock.handler(spec.name, params);
+  },
 }));
 const { getTrafficView } = await import('../../src/services/traffic.js');
 const { getGoodsTrafficView } = await import('../../src/services/goods-traffic.js');
@@ -17,7 +20,6 @@ beforeEach(() => {
   mock.calls = [];
   vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-31T17:00:00Z'));
   mock.handler = (name) => {
-    if (name === 'traffic.readyTime') return '2024-03-01';
     if (name === 'traffic.overviewList') return [{ statDate: '2024-03-01', uv: 1 }];
     if (name === 'traffic.goodsDetailList') return { total: 1, items: [goods] };
     return { items: [promo] };
@@ -41,11 +43,11 @@ it.each([14, 0, 31, '7', null])('rejects goods days %s before requests', async (
   assert.equal(mock.calls.length, 0);
 });
 
-it.each([[1, 0, '2026-10-31'], [7, 1, '2026-10-25'], [30, 2, '2026-10-02']])('uses native %s day query and Shanghai yesterday', async (days, type, start) => {
+it.each([[1, 0, '2024-03-01'], [7, 1, '2024-02-24'], [30, 2, '2024-02-01']])('uses native %s day query ending at platform ready date', async (days, type, start) => {
   const view = await getGoodsTrafficView(ctx, { days, goodsId: '101' });
-  assert.deepEqual(view.window, { start_date: start, end_date: '2026-10-31', days });
-  assert.equal(mock.calls[0].params.queryType, type);
-  assert.equal(mock.calls[0].params.goodsId, '101');
+  assert.deepEqual(view.window, { start_date: start, end_date: '2024-03-01', days });
+  assert.equal(mock.calls[0].name, 'traffic.readyTime');
+  assert.deepEqual(mock.calls[1].params, { startDate: start, endDate: '2024-03-01', queryType: type, page: 1, goodsId: '101' });
   assert.deepEqual(mock.calls.filter((call) => call.name === 'promo.goodsPromotionList').map((call) => call.params.scenesMode), [1, 3]);
   assert.equal(view.items[0].promo_direct_order_count, 4);
   assert.equal(view.items[0].non_promo_order_count, 6);
@@ -104,6 +106,14 @@ it('only attributes promotion to the requested batch even if upstream ignores it
   const view = await getGoodsTrafficView(ctx);
   assert.equal(view.items[0].promo_direct_order_count, 4);
   assert.equal(view.items[50].promo_direct_order_count, 4);
+  assert.equal(view.data_quality.goods_truncated, false);
+});
+
+it('treats a successful empty goods list as complete', async () => {
+  mock.handler = () => ({ total: 0, items: [] });
+  const view = await getGoodsTrafficView(ctx);
+  assert.equal(view.total, 0);
+  assert.deepEqual(view.items, []);
   assert.equal(view.data_quality.goods_truncated, false);
 });
 
