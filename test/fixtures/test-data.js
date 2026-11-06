@@ -24,7 +24,7 @@ export function createTrafficFixtures() {
 }
 
 export function createGoodsTrafficFixtures({ promo = true, count = 3 } = {}) {
-  const fixtures = {};
+  const fixtures = { 'endpoints/traffic.readyTime.json': '2026-10-30' };
   for (let page = 1; page <= Math.max(1, Math.ceil(count / 50)); page += 1) {
     const items = Array.from({ length: Math.min(50, count - (page - 1) * 50) }, (_unused, index) => ({
       goodsId: String(101 + (page - 1) * 50 + index), goodsName: '合成商品', goodsUv: 100, goodsPv: 200,

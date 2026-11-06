@@ -1,4 +1,4 @@
-import { readBusinessError } from '../run-endpoint.js';
+import { readBusinessError, SUCCESS_BUSINESS_CODES } from '../run-endpoint.js';
 import { ExitCodes, PddCliError, responseShapeError } from '../../infra/errors.js';
 import { toFiniteNumber } from '../../infra/units.js';
 
@@ -30,7 +30,7 @@ function project(row, fields, numericFields, endpoint) {
 function endpoint(name, apiUrl, nav, normalize, buildPayload) {
   return { name, apiUrl, nav: { url: `https://mms.pinduoduo.com${nav}` }, strategy: 'page-api',
     fixtureIsServiceFacing: true, normalize, buildPayload,
-    isSuccess: (raw) => raw?.success === true && raw?.errorCode === 1000000,
+    isSuccess: (raw) => raw?.success === true && SUCCESS_BUSINESS_CODES.has(raw?.errorCode),
     errorMapper(raw) {
       const error = readBusinessError(raw);
       return error ? { code: 'E_BUSINESS', message: error.message, exitCode: ExitCodes.BUSINESS } : null;

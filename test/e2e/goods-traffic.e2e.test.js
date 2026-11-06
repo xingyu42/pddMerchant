@@ -7,6 +7,7 @@ it('splits direct/indirect promotion, keeps absent campaigns at zero and negativ
   const result = runCli(['goods', 'traffic'], { fixtures: createGoodsTrafficFixtures() });
   assert.equal(result.status, 0);
   const view = result.envelope.data;
+  assert.deepEqual(view.window, { start_date: '2026-10-01', end_date: '2026-10-30', days: 30 });
   assert.equal(view.items[0].promo_direct_amount_yuan, 2.46);
   assert.equal(view.items[0].promo_indirect_amount_yuan, 4);
   assert.equal(view.items[0].promo_spend_yuan, 2.46);
