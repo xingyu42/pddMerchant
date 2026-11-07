@@ -15,6 +15,7 @@ import * as costRemove from '../goods/cost/remove.js';
 import * as costImport from '../goods/cost/import.js';
 import * as profit from '../goods/profit.js';
 import * as traffic from '../goods/traffic.js';
+import * as receipt from '../goods/receipt.js';
 import { integerArg, withReportDays } from '../option-parsers.js';
 import { GOODS_TRAFFIC_REPORT } from '../../services/goods-traffic.js';
 import { GOODS_PROFIT_REPORT } from '../../services/goods-profit.js';
@@ -37,6 +38,10 @@ function registerCosts(goods, wireAction) {
 function registerReads(goods, wireAction) {
   wireAction(withReportDays(goods.command('traffic').description('商品区间流量与推广直接成交拆分'), GOODS_TRAFFIC_REPORT)
     .option('--goods-id <id>', '商品 ID'), 'goods.traffic', traffic.run);
+  wireAction(goods.command('receipt').description('SKU 预估实收（平台报告值，商家出资常规优惠口径）')
+    .option('--goods-id <id>', '商品 ID，可重复或逗号分隔', (value, previous = []) => [...previous, value])
+    .option('--page <n>', '页码', integerArg(1), 1)
+    .option('--size <n>', '每页商品数（1–10）', integerArg(1), 10), 'goods.receipt', receipt.run);
   wireAction(
     goods
       .command('list')

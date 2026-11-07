@@ -297,3 +297,60 @@ export function createProfitFixtures({ orders = createProfitOrders(),
     }),
   };
 }
+
+// 商品价格管理列表：结构参照抓包（分、场景 7/8），数值与 ID 全部合成；噪声字段用于断言白名单。
+export function receiptDiscount(name, desc, fen) {
+  return { promotion_sn: 'SYN-PRIVATE-SN', source_type: 659, source_type_str: name, promo_desc: desc, number: 1,
+    discount_amount: fen, mms_link_url: 'https://mms.pinduoduo.com/SYN-PRIVATE' };
+}
+
+export function receiptScene(scene, { avg, receipt, number = 1, discounts = [] }) {
+  return { consult_price_scene: scene, consult_price_scene_desc: '多件件实收最低场景', merge_promo_detail_list: discounts,
+    promo_detail_list: [{ promotion_sn: 'SYN-PRIVATE-SN', discount_amount: avg }], discount_amount_desc: 'SYN-PRIVATE-DESC',
+    avg_discount_amount: avg, promo_price_list: [receipt], number, same_promo_price_any_number: number === 1 };
+}
+
+export function receiptSku(skuId, { spec = '合成规格', group = 2130, activity, scenes }) {
+  return { sku_id: skuId, sku_spec: spec, thumb_url: 'https://img.pddpic.com/SYN-PRIVATE.jpeg', group_price: group,
+    ...(activity === undefined ? {} : { activity_price_info: activity }), calculate_price_detail_list: scenes };
+}
+
+export function receiptGoods(goodsId, skus, { remain = 0, name = '合成商品' } = {}) {
+  return { goods_id: goodsId, goods_name: name, thumb_url: 'https://img.pddpic.com/SYN-PRIVATE.jpeg',
+    sold_quantity_for_thirty_days: 37, created_at: 1746347634, sku_promo_list: skus, remain_sku_num: remain,
+    low_price_warn_sku_count: 0, red_line_price_warn_sku_count: 0, has_red_line_price: false,
+    effect_promotion: { promotion_id: 'SYN-PRIVATE' } };
+}
+
+export const receiptSuccess = (total, goods) =>
+  ({ success: true, error_code: 1000000, result: { total, goods_price_info_list: goods } });
+
+function defaultReceiptGoods() {
+  const fullReduce = receiptDiscount('全店满减活动', '满50减4', 170);
+  const multiDiscounts = [receiptDiscount('全店满减活动', '满100减11', 1100), receiptDiscount('多件优惠', '2件9.5折', 400)];
+  return [
+    receiptGoods(101, [
+      receiptSku(1001, { spec: '黑色-90', activity: {}, scenes: [
+        receiptScene(7, { avg: 170, receipt: 1960, discounts: [fullReduce] }),
+        receiptScene(8, { avg: 300, receipt: 1830, number: 5, discounts: multiDiscounts }),
+      ] }),
+      receiptSku(1002, { spec: '黑色-100', activity: { activity_price: 1790, activity_type: 43,
+        activity_type_desc: '限量折扣', mms_link_url: 'https://mms.pinduoduo.com/SYN-PRIVATE' },
+      scenes: [receiptScene(7, { avg: 0, receipt: 1790 })] }),
+    ], { remain: 3 }),
+    receiptGoods(102, [
+      receiptSku(2001, { spec: '均码', group: 990, scenes: [
+        receiptScene(8, { avg: 50, receipt: 940, number: 2, discounts: [receiptDiscount('多件优惠', '2件减1元', 100)] }),
+        receiptScene(10, { avg: 99, receipt: 891, discounts: [receiptDiscount('非公开优惠', '合成文案', 99)] }),
+      ] }),
+    ]),
+  ];
+}
+
+export function createGoodsReceiptFixtures({ total = 2, goods = defaultReceiptGoods(), pages = {} } = {}) {
+  const fixtures = { 'endpoints/goodsPrice.list.json': receiptSuccess(total, goods) };
+  for (const [page, list] of Object.entries(pages)) {
+    fixtures[`endpoints/goodsPrice.list.page${page}.json`] = receiptSuccess(total, list);
+  }
+  return fixtures;
+}
