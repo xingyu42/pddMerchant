@@ -356,12 +356,25 @@ export function allCaliberReceiptGoods() {
   ] })])];
 }
 
-// allCaliberGoods 写入按请求场景值 [10,11] 选择的变体 fixture，只有 --caliber all 的请求会读到它。
+export const receiptExpandSuccess = (goodsId, skus, name = '合成商品') =>
+  ({ success: true, error_code: 1000000, result: { goods_id: goodsId, goods_name: name, sku_promo_list: skus } });
+
+// 默认商品 101 的 remain_sku_num = 3，对应补全接口按 goods_id 变体返回其余 3 个 SKU。
+function defaultReceiptExpansions() {
+  return { 101: [1003, 1004, 1005].map((skuId) => receiptSku(skuId, { spec: `白色-${skuId}`,
+    scenes: [receiptScene(7, { avg: 0, receipt: 2130 })] })) };
+}
+
+// allCaliberGoods 写入按请求场景值 [10,11] 选择的变体 fixture，只有 --caliber all 的列表请求会读到它。
 export function createGoodsReceiptFixtures({ total = 2, goods = defaultReceiptGoods(), pages = {},
-  allCaliberGoods } = {}) {
+  expansions = defaultReceiptExpansions(), allCaliberGoods } = {}) {
   const fixtures = { 'endpoints/goodsPrice.list.json': receiptSuccess(total, goods) };
   for (const [page, list] of Object.entries(pages)) {
     fixtures[`endpoints/goodsPrice.list.page${page}.json`] = receiptSuccess(total, list);
+  }
+  for (const [goodsId, skus] of Object.entries(expansions)) {
+    fixtures[`endpoints/goodsPrice.expand.${goodsId}.json`] = Array.isArray(skus)
+      ? receiptExpandSuccess(Number(goodsId), skus) : skus;
   }
   if (allCaliberGoods) {
     fixtures['endpoints/goodsPrice.list.10,11.json'] = receiptSuccess(allCaliberGoods.length, allCaliberGoods);

@@ -1,6 +1,6 @@
 // 预估实收服务：调用价格管理列表、按口径选取单件 / 多件场景并收集警告；投影与换算在视图层。
 import { runEndpoint } from '../adapter/run-endpoint.js';
-import { GOODS_PRICE_LIST, GOODS_PRICE_MAX_PAGE_SIZE } from '../adapter/endpoints/goods-price.js';
+import { GOODS_PRICE_EXPAND, GOODS_PRICE_LIST, GOODS_PRICE_MAX_PAGE_SIZE } from '../adapter/endpoints/goods-price.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { toGoodsReceiptView } from './views/goods-receipt.js';
 
@@ -57,15 +57,32 @@ function selectScenes(goodsId, sku, caliber, warnings) {
   return { ...sku, single, multi: find(caliber.multi) };
 }
 
+// 列表每个商品只带回前几个 SKU；remain_sku_num > 0 的商品按顺序补全，补全结果按 sku_id 去重后追加。
+async function expandSkus(ctx, item, scenes) {
+  if (!(item.remain_sku_num > 0)) return { skus: item.sku_promo_list, calls: 0 };
+  const exposedSkuIds = item.sku_promo_list.map((sku) => sku.sku_id);
+  const expanded = await runEndpoint(ctx.page, GOODS_PRICE_EXPAND,
+    { goods_id: item.goods_id, scenes, exposedSkuIds }, ctx);
+  const seen = new Set(exposedSkuIds);
+  const extra = expanded.sku_promo_list.filter((sku) => !seen.has(sku.sku_id) && seen.add(sku.sku_id));
+  return { skus: [...item.sku_promo_list, ...extra], calls: 1 };
+}
+
 export async function getGoodsReceiptView(ctx, options = {}) {
   const query = parseReceiptQuery(options);
   const caliber = RECEIPT_CALIBERS[query.caliber];
+  const scenes = [caliber.single, caliber.multi];
   const result = await runEndpoint(ctx.page, GOODS_PRICE_LIST, { page: query.page, size: query.size,
-    goodsIds: query.goodsIds, scenes: [caliber.single, caliber.multi] }, ctx);
+    goodsIds: query.goodsIds, scenes }, ctx);
   const warnings = [];
-  const goods = result.goods.map((item) => ({ ...item,
-    skus: item.sku_promo_list.map((sku) => selectScenes(item.goods_id, sku, caliber, warnings)) }));
+  const goods = [];
+  let xhrCount = 1;
+  for (const item of result.goods) {
+    const { skus, calls } = await expandSkus(ctx, item, scenes);
+    xhrCount += calls;
+    goods.push({ ...item, skus: skus.map((sku) => selectScenes(item.goods_id, sku, caliber, warnings)) });
+  }
   const data = toGoodsReceiptView(goods, { total: result.total, page: query.page, size: query.size,
     caliberLabel: caliber.label, goodsIds: query.goodsIds });
-  return { data, meta: { xhr_count: 1 }, warnings };
+  return { data, meta: { xhr_count: xhrCount }, warnings };
 }

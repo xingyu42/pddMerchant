@@ -101,3 +101,25 @@ export const GOODS_PRICE_LIST = {
   // fixture 可按请求场景值提供口径变体（goodsPrice.list.10,11.json），缺失时回落分页 / 基础 fixture。
   fixtureVariantKey: 'scenes',
 };
+
+function normalizeExpand(raw) {
+  const result = raw?.result;
+  if (!result || typeof result !== 'object' || !Array.isArray(result.sku_promo_list)) {
+    throw responseShapeError('goodsPrice.expand', 'result.sku_promo_list');
+  }
+  return { sku_promo_list: result.sku_promo_list.map((sku) => normalizePriceSku(sku, 'goodsPrice.expand')) };
+}
+
+function buildExpandPayload({ goods_id: goodsId, scenes, exposedSkuIds = [] }) {
+  return { goods_id: Number(goodsId), consult_price_scene_list: [...scenes],
+    exposed_sku_id_list: exposedSkuIds.map(Number) };
+}
+
+// 补全接口：与列表同一页面；声明 fixtureVariantKey，fixture 模式下按 goods_id 读取各商品的补全结果。
+export const GOODS_PRICE_EXPAND = {
+  name: 'goodsPrice.expand', strategy: 'page-api', nav: { url: GOODS_PRICE_PAGE },
+  apiUrl: '/madrid/price_manage/expand_all_sku',
+  buildPayload: buildExpandPayload,
+  successRule: { mode: 'flag-or-code', codeField: 'error_code', codes: [1000000] },
+  errorMap: 'upstream', normalize: normalizeExpand, fixtureVariantKey: 'goods_id',
+};

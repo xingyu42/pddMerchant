@@ -1,7 +1,8 @@
 import { it } from 'vitest';
 import assert from 'node:assert/strict';
 import { runCli } from '../helpers/isolated-cli.js';
-import { allCaliberReceiptGoods, createGoodsReceiptFixtures, receiptGoods, receiptScene, receiptSku }
+import { allCaliberReceiptGoods, createGoodsReceiptFixtures, receiptDiscount, receiptGoods, receiptScene,
+  receiptSku }
   from '../fixtures/test-data.js';
 
 it('reports platform estimated receipt per sku in yuan with single and multi scenes', () => {
@@ -15,7 +16,7 @@ it('reports platform estimated receipt per sku in yuan with single and multi sce
   const [first] = view.items;
   assert.equal(first.goods_id, '101');
   assert.equal(first.goods_name, '合成商品');
-  assert.equal(first.sku_count, 2);
+  assert.equal(first.sku_count, 5);
   assert.deepEqual(first.skus[0], {
     sku_id: '1001', spec: '黑色-90', group_price_yuan: 21.3, pre_coupon_price_yuan: 21.3,
     pre_coupon_price_source: '拼单价',
@@ -44,7 +45,7 @@ it('keeps explicit no-discount at zero, missing scenes null, and warns on missin
   const codes = result.envelope.meta.warnings.map((warning) => [warning.code, warning.goods_id, warning.sku_id]);
   assert.deepEqual(codes.sort(), [['receipt_scene_ignored', '102', '2001'], ['receipt_single_missing', '102', '2001']]);
   assert.deepEqual(result.envelope.meta.warnings.find((warning) => warning.code === 'receipt_scene_ignored').scenes, [10]);
-  assert.deepEqual(result.envelope.data.headline, ['商家出资常规优惠口径：共 2 个商品，本页 2 个商品、3 个 SKU']);
+  assert.deepEqual(result.envelope.data.headline, ['商家出资常规优惠口径：共 2 个商品，本页 2 个商品、6 个 SKU']);
   const text = JSON.stringify(result.envelope.data);
   for (const forbidden of ['http', 'SYN-PRIVATE', 'thumb', 'sold_quantity', 'effect_promotion', 'red_line',
     'promotion_sn', 'remain_sku_num', '非公开优惠']) {
@@ -110,4 +111,61 @@ it('maps upstream business errors to exit six with the upstream message', () => 
   assert.equal(result.status, 6);
   assert.equal(result.envelope.error.code, 'E_BUSINESS');
   assert.equal(result.envelope.error.message, '当前店铺暂未开放商品价格管理');
+});
+
+it('expands every goods with remaining skus into its full sku list without duplicates', () => {
+  const listed = (skuId) => receiptSku(skuId, { scenes: [receiptScene(7, { avg: 0, receipt: 1000 })] });
+  const extra = (skuId, receipt, discounts = []) => receiptSku(skuId, { spec: `扩展-${skuId}`, scenes: [
+    receiptScene(7, { avg: 2130 - receipt, receipt, discounts }), receiptScene(9, { avg: 0, receipt: 2130 })] });
+  const fixtures = createGoodsReceiptFixtures({ total: 3, goods: [
+    receiptGoods(201, [listed(20101), listed(20102)], { remain: 1 }),
+    receiptGoods(202, [listed(20201)]),
+    receiptGoods(203, [listed(20301), listed(20302)], { remain: 2 }),
+  ], expansions: {
+    201: [extra(20103, 1930, [receiptDiscount('全店满减活动', '满50减4', 200)])],
+    203: [listed(20302), extra(20303, 2000), extra(20304, 1800)],
+  } });
+  const result = runCli(['goods', 'receipt'], { fixtures });
+  assert.equal(result.status, 0, result.stderr);
+  const items = result.envelope.data.items;
+  assert.deepEqual(items.map((item) => [item.goods_id, item.sku_count, item.skus.map((sku) => sku.sku_id)]), [
+    ['201', 3, ['20101', '20102', '20103']],
+    ['202', 1, ['20201']],
+    ['203', 4, ['20301', '20302', '20303', '20304']],
+  ]);
+  assert.deepEqual(items[0].skus[2], { sku_id: '20103', spec: '扩展-20103', group_price_yuan: 21.3,
+    pre_coupon_price_yuan: 21.3, pre_coupon_price_source: '拼单价',
+    single: { merchant_discount_yuan: 2, receipt_yuan: 19.3,
+      discounts: [{ name: '全店满减活动', desc: '满50减4', discount_yuan: 2 }] }, multi: null });
+  assert.equal(items[2].skus[3].single.receipt_yuan, 18);
+  const ignored = result.envelope.meta.warnings.filter((warning) => warning.code === 'receipt_scene_ignored');
+  assert.deepEqual(ignored.map((warning) => warning.sku_id), ['20103', '20303', '20304']);
+  assert.deepEqual(result.envelope.data.headline, ['商家出资常规优惠口径：共 3 个商品，本页 3 个商品、8 个 SKU']);
+});
+
+it('adopts the all-discounts scenes for expanded skus under --caliber all', () => {
+  const [listed] = allCaliberReceiptGoods();
+  const expanded = receiptSku(1002, { spec: '扩展-1002', scenes: [receiptScene(8, { avg: 0, receipt: 2130 }),
+    receiptScene(10, { avg: 330, receipt: 1800, discounts: [receiptDiscount('商家出资平台券', '合成券', 330)] })] });
+  const fixtures = createGoodsReceiptFixtures({ allCaliberGoods: [{ ...listed, remain_sku_num: 1 }],
+    expansions: { 101: [expanded] } });
+  const result = runCli(['goods', 'receipt', '--caliber', 'all'], { fixtures });
+  assert.equal(result.status, 0, result.stderr);
+  const [, extra] = result.envelope.data.items[0].skus;
+  assert.equal(extra.sku_id, '1002');
+  assert.deepEqual(extra.single, { merchant_discount_yuan: 3.3, receipt_yuan: 18,
+    discounts: [{ name: '商家出资平台券', desc: '合成券', discount_yuan: 3.3 }] });
+  assert.equal(extra.multi, null);
+  const ignored = result.envelope.meta.warnings.filter((warning) => warning.code === 'receipt_scene_ignored');
+  assert.deepEqual(ignored.map((warning) => [warning.sku_id, warning.scenes]), [['1001', [7]], ['1002', [8]]]);
+});
+
+it('fails with exit six and no partial sku list when expansion returns a business error', () => {
+  const fixtures = createGoodsReceiptFixtures({ expansions: { 101: { success: false, error_code: 40002,
+    error_msg: '补全规格失败' } } });
+  const result = runCli(['goods', 'receipt'], { fixtures });
+  assert.equal(result.status, 6);
+  assert.equal(result.envelope.error.code, 'E_BUSINESS');
+  assert.equal(result.envelope.error.message, '补全规格失败');
+  assert.equal(result.envelope.data, null);
 });
