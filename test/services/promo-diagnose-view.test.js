@@ -6,6 +6,7 @@ import { toDimensionView, toShopView } from '../../src/services/views/diagnose.j
 import { diagnoseShop, summarizeAfterSales, summarizeInventory, summarizePromo } from '../../src/services/diagnose/index.js';
 import { renderSingleDashboard, renderShopDashboard } from '../../src/commands/diagnose/_render.js';
 import { SAMPLE_PROMO_ENTITIES, SAMPLE_GOODS, SAMPLE_LIST_STATS } from '../fixtures/test-data.js';
+import { toGoodsSegmentView } from '../../src/services/views/goods-segmentation.js';
 
 describe('promo ROI view', () => {
   it('projects rows onto the whitelist with yuan, percentages and labels', () => {
@@ -99,6 +100,26 @@ describe('diagnose views', () => {
     }));
     assert.equal(ambiguous.detail.matched_by, '按商品名匹配');
     assert.deepEqual(Object.keys(ambiguous.detail.ambiguous_groups[0]), ['normalized_name', 'sku_count', 'sample_quantities']);
+  });
+
+  it('translates the shared mixed matching code in inventory and segmentation views', () => {
+    const label = '按商品名匹配（一侧缺少商品 ID）';
+    const inventory = toDimensionView('inventory', { status: 'full', issues: [], hints: [],
+      detail: { matched_by: 'mixed' } });
+    const segment = toGoodsSegmentView({ summary: { matched_by: 'mixed', data_completeness: 'no_promo' } }, {});
+    assert.equal(inventory.detail.matched_by, label);
+    assert.equal(segment.summary.matched_by, label);
+    assert.equal(segment.summary.data_completeness, '数据完整（无推广数据）');
+  });
+
+  it('describes unknown inventory and click counts without literal nulls in headlines', () => {
+    const inventory = toDimensionView('inventory', summarizeInventory({ goods: [
+      { goods_id: '101', goods_name: 'Tea', quantity: null },
+    ], orders30d: [] }));
+    assert.equal(inventory.headline[0], '统计商品 1 件：库存数量数据缺失，缺货与低库存数量未计算');
+    const promo = toDimensionView('promo', summarizePromo({ totals: { impression: 10, spend: 1, gmv: 2 } }));
+    assert.ok(promo.headline[1].includes('点击数据未获取'));
+    assert.equal(promo.headline.join('').includes('null'), false);
   });
 
   it('labels shop dimensions in issues and hints', () => {

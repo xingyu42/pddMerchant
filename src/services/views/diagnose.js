@@ -3,8 +3,10 @@
 import { labelOf, toLocalDate } from '../../infra/units.js';
 import { yuanText } from './_shared.js';
 import {
-  COMPARE_NOTE_LABEL, DATA_STATUS_LABEL, DIMENSION_LABEL, MATCHED_BY_LABEL,
+  DATA_STATUS_LABEL, DIMENSION_LABEL, MATCHED_BY_LABEL,
 } from './labels.js';
+
+const COMPARE_NOTE_LABEL = Object.freeze({ current_snapshot_only: '仅有当前快照，无上期数据' });
 
 export const DIAGNOSE_DIMENSIONS = Object.freeze(['orders', 'inventory', 'promo', 'after_sales']);
 
@@ -38,7 +40,10 @@ function ordersHeadline({ detail, refund_unknown_reason: reason }) {
 
 function inventoryHeadline({ detail }) {
   if (detail.total == null) return ['商品数据缺失'];
-  const lines = [`统计商品 ${detail.total} 件：缺货 ${detail.out_of_stock_count} 件，库存低于 ${detail.low_stock_threshold} 的 ${detail.low_stock_count} 件`];
+  const inventory = detail.out_of_stock_count === null || detail.low_stock_count === null
+    ? '库存数量数据缺失，缺货与低库存数量未计算'
+    : `缺货 ${detail.out_of_stock_count} 件，库存低于 ${detail.low_stock_threshold} 的 ${detail.low_stock_count} 件`;
+  const lines = [`统计商品 ${detail.total} 件：${inventory}`];
   lines.push(detail.stale_count == null ? '零销量统计未计算（订单数据不完整）' : `近 30 天零销量且有库存的商品 ${detail.stale_count} 件`);
   return lines;
 }
@@ -46,9 +51,10 @@ function inventoryHeadline({ detail }) {
 function promoHeadline({ detail }) {
   if (detail.impression == null) return ['推广数据缺失'];
   const roi = detail.roi == null ? 'ROI 无法计算' : `ROI ${detail.roi}`;
+  const click = detail.click == null ? '点击数据未获取' : `点击 ${detail.click} 次`;
   return [
     `推广花费 ${yuanText(detail.spend_yuan, '未记录')}，成交 ${yuanText(detail.gmv_yuan, '未记录')}，${roi}`,
-    `曝光 ${detail.impression} 次，点击 ${detail.click} 次，点击率 ${pct(detail.ctr_pct)}`,
+    `曝光 ${detail.impression} 次，${click}，点击率 ${pct(detail.ctr_pct)}`,
   ];
 }
 

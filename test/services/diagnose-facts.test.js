@@ -60,6 +60,16 @@ describe('diagnostic source availability and facts', () => {
     assert.equal(empty.detail.out_of_stock_rate_pct, null);
   });
 
+  it.each([null, undefined, '', 'invalid'])('keeps inventory metrics unknown when a quantity is missing (%s)', (quantity) => {
+    const result = summarizeInventory({ goods: [{ goods_id: '101', goods_name: 'Tea', quantity },
+      { goods_id: '202', goods_name: 'Cup', quantity: 0 }], orders30d: [] });
+    assert.equal(result.detail.total, 2);
+    for (const key of ['out_of_stock_count', 'low_stock_count', 'out_of_stock_rate_pct', 'low_or_out_rate_pct']) {
+      assert.equal(result.detail[key], null, key);
+    }
+    assert.deepEqual(result.detail.stale_sample, []);
+  });
+
   it.each([
     ['missing', { orders30d: undefined }],
     ['truncated', { orders30d: [], truncated: true }],
@@ -107,6 +117,14 @@ describe('diagnostic source availability and facts', () => {
     assert.equal(zero.detail.ctr_pct, null);
     assert.equal(summarizePromo().status, 'partial');
   });
+
+  it.each([{ impression: null, click: 1 }, { click: 1 }, { impression: 10, click: null }, { impression: 10 }])(
+    'propagates missing promotion counters to CTR %#', (counters) => {
+      const result = summarizePromo({ totals: { spend: 1, gmv: 2, ...counters } });
+      assert.equal(result.detail.ctr_pct, null);
+      if (counters.impression == null) assert.equal(result.detail.impression, null);
+      if (counters.click == null) assert.equal(result.detail.click, null);
+    });
 
   it.each([{ spend: 100 }, { cost: 100 }, { goodsFavSpend: 30, mallFavSpend: 20, inquirySpend: 50 }])('calculates promo metrics from the supported spend source %#', (spend) => {
     const result = summarizePromo({ totals: { impression: 3, click: 1, gmv: 125, ...spend } });

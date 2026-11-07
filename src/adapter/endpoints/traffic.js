@@ -1,4 +1,3 @@
-import { readBusinessError, SUCCESS_BUSINESS_CODES } from '../run-endpoint.js';
 import { ExitCodes, PddCliError, responseShapeError } from '../../infra/errors.js';
 import { toFiniteNumber } from '../../infra/units.js';
 
@@ -29,12 +28,8 @@ function project(row, fields, numericFields, endpoint) {
 
 function endpoint(name, apiUrl, nav, normalize, buildPayload) {
   return { name, apiUrl, nav: { url: `https://mms.pinduoduo.com${nav}` }, strategy: 'page-api',
-    fixtureIsServiceFacing: true, normalize, buildPayload,
-    isSuccess: (raw) => raw?.success === true && SUCCESS_BUSINESS_CODES.has(raw?.errorCode),
-    errorMapper(raw) {
-      const error = readBusinessError(raw);
-      return error ? { code: 'E_BUSINESS', message: error.message, exitCode: ExitCodes.BUSINESS } : null;
-    } };
+    normalize, buildPayload,
+    errorMap: 'upstream' };
 }
 
 export const TRAFFIC_READY_TIME = endpoint('traffic.readyTime', '/sydney/api/mallFlow/queryMallFlowOverViewReadyTime',
@@ -67,5 +62,5 @@ export const GOODS_TRAFFIC_LIST = {
   }, ({ startDate, endDate, queryType, page = 1, goodsId }) => ({
     startDate, endDate, queryType, sortCol: 0, sortType: 1, pageNum: page, pageSize: 50,
     ...(goodsId == null ? {} : { goodsId }),
-  })), fixtureListKey: 'items',
+  })), fixtureListKey: 'result.goodsDetailList',
 };

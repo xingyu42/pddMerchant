@@ -1,4 +1,5 @@
-import { toFiniteNumber, round } from '../infra/units.js';
+import { toFiniteNumber } from '../infra/units.js';
+import { sumKnown, ratioPct } from '../infra/metrics.js';
 import { COST_NAMES } from './goods-cost-input.js';
 
 export const PROFIT_COST_FIELDS = Object.freeze(COST_NAMES.map((name) => `${name}_fen`));
@@ -7,10 +8,6 @@ const SUM_FIELDS = [...ORDER_MONEY_FIELDS, ...PROFIT_COST_FIELDS, 'observed_orde
   'refunded_order_count', 'after_sales_order_count', 'default_fallback_order_count', 'missing_entry_order_count'];
 const WINDOW_MONEY_FIELDS = [...ORDER_MONEY_FIELDS.filter((key) => key !== 'observed_revenue_fen'),
   ...PROFIT_COST_FIELDS, 'merchant_cost_fen', 'gross_profit_fen', 'net_profit_fen'];
-
-export function sumKnown(values) {
-  return values.some((value) => value == null) ? null : values.reduce((sum, value) => sum + value, 0);
-}
 
 function fen(value) {
   const number = toFiniteNumber(value);
@@ -82,10 +79,6 @@ function mergeTotals(target, source) {
   target.missing_entry ||= source.missing_entry;
 }
 
-function percent(numerator, denominator) {
-  return numerator == null || denominator == null || denominator === 0 ? null : round(numerator / denominator * 100, 2);
-}
-
 function finishTotals(totals, ordersComplete, spend) {
   const result = { ...totals, order_count: totals.observed_order_count, promo_spend_fen: spend };
   result.merchant_cost_fen = totals.missing_entry ? null : sumKnown(PROFIT_COST_FIELDS.map((field) => totals[field]));
@@ -97,8 +90,8 @@ function finishTotals(totals, ordersComplete, spend) {
     result.order_count = null;
     result.quantity = null;
   }
-  result.gross_margin_pct = percent(result.gross_profit_fen, result.revenue_fen);
-  result.net_margin_pct = percent(result.net_profit_fen, result.revenue_fen);
+  result.gross_margin_pct = ratioPct(result.gross_profit_fen, result.revenue_fen);
+  result.net_margin_pct = ratioPct(result.net_profit_fen, result.revenue_fen);
   result.data_status = ordersComplete && result.net_profit_fen !== null ? 'full' : 'partial';
   return result;
 }

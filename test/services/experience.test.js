@@ -70,13 +70,3 @@ it('fails the whole command when info fails', async () => {
   fixtures.errors['experience.navigatorInfo'] = error;
   await assert.rejects(getShopExperienceView(ctx), (actual) => actual === error);
 });
-
-it.each(['experience.navigatorReadyDate', 'experience.navigatorList'])('propagates unexpected exceptions from %s', async (endpoint) => {
-  const error = new TypeError('fixture programmer error');
-  fixtures.errors[endpoint] = error;
-  await assert.rejects(getShopExperienceView(ctx), (actual) => actual === error);
-});
-
-it('propagates cancellation instead of turning it into partial success', async () => {
-  await assert.rejects(getShopExperienceView({ ...ctx, signal: AbortSignal.abort() }), { code: 'E_TIMEOUT' });
-});

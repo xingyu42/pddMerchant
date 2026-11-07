@@ -9,10 +9,6 @@ it('sends exact signed POST payloads including string score filters and page siz
     assert.equal(spec.strategy, 'page-api');
     assert.equal(spec.nav.url, 'https://mms.pinduoduo.com/goods/evaluation/index');
     assert.equal(spec.apiUrl, `/saturn/reviews/${path}`);
-    assert.equal(spec.isSuccess({ success: true }), true);
-    assert.equal(spec.isSuccess({ errorCode: 1000000 }), true);
-    assert.equal(spec.isSuccess({ success: false, errorCode: 40002 }), false);
-    assert.equal(spec.errorMapper({ errorCode: 40002, errorMsg: '失败' }).code, 'E_BUSINESS');
   }
   assert.deepEqual(REVIEWS_LIST.buildPayload(params), { startTime: 100, endTime: 200,
     pageNo: 2, pageSize: 10, descScore: ['1', '2', '3'] });

@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 import { runCli } from '../helpers/isolated-cli.js';
 import { assertRedacted } from '../helpers/envelope-assertions.js';
-import { GOODS_LIST } from '../../src/adapter/endpoints/goods.js';
 import { ORDER_DETAIL_VIEW_FIELDS } from '../../src/services/views/order.js';
 import {
   createFactFixtures, createUpstreamGoods, createUpstreamOrder, createUpstreamOrderDetail, SYNTHETIC_PII_VALUES,
@@ -24,8 +23,8 @@ function collectKeys(value, keys = []) {
 describe('offline CLI envelopes and process exits', () => {
   it('routes the requested order page and emits one successful JSON envelope', () => {
     const { status, envelope } = runCli(['orders', 'list', '--page', '2'], { fixtures: {
-      'endpoints/orders.list.json': { total: 2, orders: [createUpstreamOrder({ order_sn: 'SYN-PAGE-1' })] },
-      'endpoints/orders.list.page2.json': { total: 2, orders: [createUpstreamOrder({ order_sn: 'SYN-PAGE-2' })] },
+      'endpoints/orders.list.json': { success: true, result: { totalItemNum: 2, pageItems: [createUpstreamOrder({ order_sn: 'SYN-PAGE-1' })] } },
+      'endpoints/orders.list.page2.json': { success: true, result: { totalItemNum: 2, pageItems: [createUpstreamOrder({ order_sn: 'SYN-PAGE-2' })] } },
     } });
     assert.equal(status, 0);
     assert.equal(envelope.ok, true);
@@ -39,7 +38,7 @@ describe('offline CLI envelopes and process exits', () => {
 
   it('filters orders by --status and labels the scope in the headline', () => {
     const { status, envelope } = runCli(['orders', 'list', '--status', 'pending_ship'], { fixtures: {
-      'endpoints/orders.list.json': { total: 1, orders: [createUpstreamOrder({ order_status_str: '待发货', shipping_time: 0 })] },
+      'endpoints/orders.list.json': { success: true, result: { totalItemNum: 1, pageItems: [createUpstreamOrder({ order_status_str: '待发货', shipping_time: 0 })] } },
     } });
     assert.equal(status, 0);
     assert.equal(envelope.ok, true);
@@ -48,10 +47,10 @@ describe('offline CLI envelopes and process exits', () => {
 
   it('labels refunded and in-progress after-sales orders in the default list', () => {
     const { status, envelope } = runCli(['orders', 'list'], { fixtures: {
-      'endpoints/orders.list.json': { total: 2, orders: [
+      'endpoints/orders.list.json': { success: true, result: { totalItemNum: 2, pageItems: [
         createUpstreamOrder({ order_sn: 'SYN-REFUND', order_status_str: '已发货，退款成功', after_sales_status: 5 }),
         createUpstreamOrder({ order_sn: 'SYN-AS', after_sales_status: 10 }),
-      ] },
+      ] } },
     } });
     assert.equal(status, 0);
     assert.deepEqual(envelope.data.items.map((order) => order.after_sales_status), ['退款成功', '售后处理中']);
@@ -67,7 +66,7 @@ describe('offline CLI envelopes and process exits', () => {
 
   it('preserves an actual empty order result', () => {
     const { status, envelope } = runCli(['orders', 'list'], { fixtures: {
-      'endpoints/orders.list.json': { total: 0, orders: [] },
+      'endpoints/orders.list.json': { success: true, result: { totalItemNum: 0, pageItems: [] } },
     } });
     assert.equal(status, 0);
     assert.equal(envelope.data.total, 0);
@@ -127,7 +126,7 @@ describe('offline CLI envelopes and process exits', () => {
 
   it('projects order detail onto the view whitelist, dropping PII, secrets and raw data', () => {
     const { status, stdout, envelope } = runCli(['orders', 'detail', '--sn', 'SYN-DETAIL'], { fixtures: {
-      'endpoints/orders.detail.json': { order: {
+      'endpoints/orders.detail.json': { success: true, result: {
         ...createUpstreamOrderDetail(), receiver_phone: 'SYNTHETIC-PHONE', authorization: 'SYNTHETIC-AUTH',
         raw: { hidden: 'SYNTHETIC-RAW' },
       } },
@@ -159,10 +158,9 @@ describe('offline CLI envelopes and process exits', () => {
   });
 
   it('emits upstream goods id and yuan price ranges in the list envelope data', () => {
-    // Fixture mode returns normalized data, so explicitly exercise the real normalizer first.
-    const goods = GOODS_LIST.normalize({ success: true, result: {
+    const goods = { success: true, result: {
       total: 1, goods_list: [{ ...createUpstreamGoods({ goods_id: undefined }), id: 673183509913 }],
-    } });
+    } };
     const { status, stdout, envelope } = runCli(['goods', 'list'], { fixtures: {
       'endpoints/goods.list.json': goods,
     } });
@@ -211,7 +209,7 @@ describe('offline CLI envelopes and process exits', () => {
 
   it('routes --confirm through the write service and normalizes its receipt', () => {
     const { status, envelope } = runCli(['goods', 'update', 'price', '--goods-id', '101', '--price-yuan', '29.9', '--confirm'], { fixtures: {
-      'endpoints/goods.update.price.json': { success: true, fail_goods_num: 0, raw: { receipt: 'SYN-PRICE' } },
+      'endpoints/goods.update.price.json': { success: true, fail_goods_num: 0 },
     } });
     assert.equal(status, 0);
     assert.equal(envelope.data.dry_run, false);

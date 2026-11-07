@@ -15,7 +15,9 @@ import * as costRemove from '../goods/cost/remove.js';
 import * as costImport from '../goods/cost/import.js';
 import * as profit from '../goods/profit.js';
 import * as traffic from '../goods/traffic.js';
-import { integerArg } from '../option-parsers.js';
+import { integerArg, withReportDays } from '../option-parsers.js';
+import { GOODS_TRAFFIC_REPORT } from '../../services/goods-traffic.js';
+import { GOODS_PROFIT_REPORT } from '../../services/goods-profit.js';
 
 function registerCosts(goods, wireAction) {
   const costs = goods.command('cost').description('本地商品成本（写入需 --confirm）');
@@ -33,8 +35,7 @@ function registerCosts(goods, wireAction) {
 }
 
 function registerReads(goods, wireAction) {
-  wireAction(goods.command('traffic').description('商品区间流量与推广直接成交拆分')
-    .option('--days <n>', '平台原生区间（1、7、30 天）', Number, 30)
+  wireAction(withReportDays(goods.command('traffic').description('商品区间流量与推广直接成交拆分'), GOODS_TRAFFIC_REPORT)
     .option('--goods-id <id>', '商品 ID'), 'goods.traffic', traffic.run);
   wireAction(
     goods
@@ -150,8 +151,7 @@ function registerPublishing(goods, wireAction) {
 export function register(program, wireAction) {
   const goods = program.command('goods').description('🛍️ 商品管理');
   registerCosts(goods, wireAction);
-  wireAction(goods.command('profit').description('商品净利润（商品推广报表口径）')
-    .option('--days <n>', '成团时间窗口，1–90 个完整上海自然日', (value) => Number(value), 30)
+  wireAction(withReportDays(goods.command('profit').description('商品净利润（商品推广报表口径）'), GOODS_PROFIT_REPORT)
     .option('--goods-id <id>', '只筛商品列表，全店合计保持原样'), 'goods.profit', profit.run);
   registerReads(goods, wireAction);
   const goodsUpdate = goods.command('update').description('商品编辑（写操作，需 --confirm 确认）');

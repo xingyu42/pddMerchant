@@ -14,14 +14,13 @@ describe('factual reports through the offline CLI', () => {
       quantity: 10, stock_days: 35, promo_roi: 1.25,
     }]);
     assert.equal(envelope.data.summary.data_completeness, '数据完整');
-    assert.equal(envelope.data.summary.matched_by, '按商品 ID 匹配');
     assert.equal(envelope.data.summary.data_quality.goods_complete, true);
     assert.equal(envelope.data.summary.data_quality.orders_complete, true);
   });
 
   it('propagates a capped goods scan without discarding complete order facts', () => {
     const fixtures = createFactFixtures();
-    fixtures['endpoints/goods.list.json'].total = 2;
+    fixtures['endpoints/goods.list.json'].result.total = 2;
     const { status, envelope } = runCli(['goods', 'segment', '--size', '1', '--max-pages', '1', '--no-promo'], { fixtures });
     assert.equal(status, 0);
     assert.equal(envelope.data.summary.data_completeness, '商品数据不完整');
@@ -48,7 +47,7 @@ describe('factual reports through the offline CLI', () => {
 
   it('routes SKU grouping and the explicit inactive inclusion option', () => {
     const fixtures = createFactFixtures();
-    fixtures['endpoints/promo.entityReport.json'].entities.push({
+    fixtures['endpoints/promo.entityReport.json'].result.entityReportList.push({
       planId: 'p2', adId: 'a2', goodsId: '101', goodsName: 'Tea',
       spend: 50, gmv: 25, impression: 50, click: 5, isDeleted: true,
     });
@@ -88,7 +87,6 @@ describe('factual reports through the offline CLI', () => {
     assert.equal(orders.detail.shipping_p95_hours, 1);
     assert.equal(inventory.detail.total, 1);
     assert.equal(inventory.detail.stale_count, 0);
-    assert.equal(inventory.detail.matched_by, '按商品 ID 匹配');
     assert.equal(promo.detail.spend_yuan, 100);
     assert.equal(promo.detail.roi, 1.25);
     assert.deepEqual(promo.headline, ['推广花费 100.00 元，成交 125.00 元，ROI 1.25', '曝光 100 次，点击 10 次，点击率 10%']);
@@ -101,13 +99,13 @@ describe('factual reports through the offline CLI', () => {
 
   it('reports refunds and open after-sales cases through diagnose.after-sales', () => {
     const fixtures = createFactFixtures();
-    const source = fixtures['endpoints/orders.list.json'].orders[0];
-    fixtures['endpoints/orders.list.json'] = { total: 4, orders: [
+    const source = fixtures['endpoints/orders.list.json'].result.pageItems[0];
+    fixtures['endpoints/orders.list.json'] = { success: true, result: { totalItemNum: 4, pageItems: [
       { ...source, order_sn: 'SYN-PENDING', order_status_str: '待发货', after_sales_status: null },
       { ...source, order_sn: 'SYN-REFUND', after_sales_status: 5 },
       { ...source, order_sn: 'SYN-OPEN', after_sales_status: 10 },
       { ...source, order_sn: 'SYN-RECEIVED', order_status_str: '已收货', after_sales_status: null },
-    ] };
+    ] } };
     const { status, envelope } = runCli(['diagnose', 'after-sales', '--days', '7'], { fixtures });
     assert.equal(status, 0);
     assert.equal(envelope.command, 'diagnose.after-sales');

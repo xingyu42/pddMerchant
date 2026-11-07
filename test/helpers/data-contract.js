@@ -49,6 +49,20 @@ function checkEntity(value, path, ctx) {
   if (missing.length > 0) ctx.violations.push(`${path}: missing entity keys ${missing.join(',')}`);
 }
 
+function checkHints(hints, path, violations) {
+  if (!Array.isArray(hints)) {
+    violations.push(`${path}: hints must be an array`);
+    return;
+  }
+  for (const hint of hints) {
+    // 店铺汇总保留 { dimension, message } 形状，检查其中的中文提示正文。
+    const message = isPlainObject(hint) && typeof hint.dimension === 'string' ? hint.message : hint;
+    if (typeof message !== 'string' || !message.trim() || !/[\u3400-\u9fff]/u.test(message)) {
+      violations.push(`${path}[]: hint must be a non-empty Chinese string`);
+    }
+  }
+}
+
 function walk(value, path, ctx) {
   if (Array.isArray(value)) {
     for (const item of value) walk(item, `${path}[]`, ctx);
@@ -60,6 +74,7 @@ function walk(value, path, ctx) {
   for (const [key, child] of Object.entries(value)) {
     const childPath = freeForm ? joinPath(path, '*') : joinPath(path, key);
     if (!freeForm) checkKey(key, child, childPath, ctx.violations);
+    if (!freeForm && key === 'hints') checkHints(child, childPath, ctx.violations);
     walk(child, childPath, ctx);
   }
 }

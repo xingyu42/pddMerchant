@@ -8,6 +8,8 @@ import {
 } from './image-handler.js';
 import { parseSkuText } from './source-scraper.js';
 import { evaluateInMainWorld } from '../browser.js';
+import { isSuccessfulResponse } from '../response-interpreter.js';
+import { SAVE_DRAFT_SUCCESS_RULE } from '../endpoints/goods-publish.js';
 
 const CATEGORY_URL = 'https://mms.pinduoduo.com/goods/category?msfrom=mms_sidenav';
 const SIZE_CHART_DISABLE_SELECTOR = 'a[data-tracking-click-viewid="disable_size_chart"]';
@@ -1060,7 +1062,7 @@ export async function clickSaveDraft(page, goodsCommitId, options = {}) {
   const [response] = routed.result;
 
   const result = await response.json();
-  const ok = result.success === true || result.error_code === 1000000;
+  const ok = isSuccessfulResponse(result, SAVE_DRAFT_SUCCESS_RULE);
 
   if (!ok) {
     throw new PddCliError({

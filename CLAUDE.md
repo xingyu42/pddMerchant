@@ -22,7 +22,7 @@ src/commands/            Command handlers — thin wrappers around withCommand()
 src/commands/registry/   Domain registrars `register(program, wireAction)` — adding a command touches only the command file + its registrar
 src/commands/runner/     withCommand internals (envelope-finalizer / fixture-runtime / single-lifecycle / batch-executor); _runner.js is a facade
 src/services/            Domain logic (orders, goods, promo, diagnose, promo-roi, goods-segmentation); factual reporting without operating advice or scores
-src/services/views/      Domain views (anti-corruption layer): whitelist projection of upstream payloads, unit/label conversion, headline; labels.js owns all enum→Chinese tables
+src/services/views/      Domain views (anti-corruption layer): whitelist projection, unit/label conversion, headline; view-local tables own report vocabulary, labels.js owns shared vocabulary
 src/adapter/             Playwright integration, XHR interception, auth, mall context
 src/adapter/fixtures/    Mock-mode providers (core.js owns the single fixture cache); mock-dispatcher.js is a facade
 src/infra/               Cross-cutting: envelope, errors, logger, timeouts, abort
@@ -45,7 +45,7 @@ Layering (`commands → services → adapter → infra`) is enforced by review o
 ## Testing
 
 - `vitest` + `assert/strict`; test data in `test/fixtures/`
-- `PDD_TEST_ADAPTER=fixture` short-circuits adapter entry points (modules guard on `isMockEnabled()`) via `mock-dispatcher.js` (no DI); `PDD_TEST_FIXTURE_DIR=<path>` points to alternate fixtures
+- `PDD_TEST_ADAPTER=fixture` selects raw endpoint fixture transport inside the shared endpoint client; verdict/normalize still run with `page: null`. Other adapter guards use `mock-dispatcher.js`; `PDD_TEST_FIXTURE_DIR=<path>` points to alternate fixtures
 - E2E tests spawn child processes with the fixture adapter
 - `PDD_DEBUG_RAW=1` emits pre-strip raw payloads to stderr as redacted JSONL; stdout envelope unaffected
 - Other runtime env vars (SQLite path, scrape/publish tuning): see the `pdd-local-development` skill, or grep `process.env.PDD_` under `src/`

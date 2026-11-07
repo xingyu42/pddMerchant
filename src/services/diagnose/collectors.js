@@ -3,18 +3,17 @@ import { getPromoReport } from '../promo.js';
 import { getLogger } from '../../infra/logger.js';
 import { collectAllGoods } from './goods-collector.js';
 import { collectOrdersForStaleAnalysis } from './orders-collector.js';
+import { withEndpointPages } from '../../adapter/endpoint-pages.js';
 
 function collectorLog(ctx) {
   return ctx?.log ?? getLogger();
 }
 
 export async function collectOrdersInput(page, ctx, { since, until, windowDays = 7 } = {}) {
-  const hasContext = typeof page?.context === 'function';
-  const statsPage = hasContext ? await page.context().newPage() : page;
   const nowSec = until ?? Math.floor(Date.now() / 1000);
   const sinceSec = since ?? (nowSec - windowDays * 86400);
   const log = collectorLog(ctx);
-  try {
+  return withEndpointPages(page, 1, async ([statsPage]) => {
     const [statsResult, listResult] = await Promise.allSettled([
       getOrderStats(statsPage, ctx),
       // 退款统计需要包含售后订单 → 全部范围
@@ -36,9 +35,7 @@ export async function collectOrdersInput(page, ctx, { since, until, windowDays =
       return undefined;
     }
     return { stats, listStats, windowDays };
-  } finally {
-    if (hasContext && statsPage !== page) await statsPage.close().catch(() => {});
-  }
+  });
 }
 
 export async function collectGoodsInput(page, ctx) {

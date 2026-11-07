@@ -1,44 +1,15 @@
-import { normalizeGoodsName, extractItems, buildGoodsKey } from './diagnose/inventory-health.js';
+import { matchSales, normalizeGoodsName } from './goods-sales-matcher.js';
 import { collectAllGoods } from './diagnose/goods-collector.js';
 import { collectOrdersForStaleAnalysis } from './diagnose/orders-collector.js';
 import { analyzePromoRoi } from './promo-roi.js';
 import { getPromoReport } from './promo.js';
 import { getLogger } from '../infra/logger.js';
-import { mallIdOf } from './views/_shared.js';
-import { DATA_COMPLETENESS_LABEL, MATCHED_BY_LABEL } from './views/labels.js';
-import { labelOf } from '../infra/units.js';
+import { toGoodsSegmentView } from './views/goods-segmentation.js';
+import { withEndpointPages } from '../adapter/endpoint-pages.js';
 
 const EPSILON = 0.001;
 
-export const GOODS_SEGMENT_ITEM_FIELDS = Object.freeze([
-  'goods_id', 'goods_name', 'units_sold', 'observed_units_sold', 'quantity', 'stock_days', 'promo_roi',
-]);
-
-function readGoodsId(raw) {
-  const id = raw?.goods_id ?? raw?.goodsId;
-  if (typeof id === 'number' && Number.isFinite(id) && id > 0) return String(id);
-  if (typeof id === 'string') {
-    const trimmed = id.trim();
-    if (trimmed.length > 0 && trimmed !== '0') return trimmed;
-  }
-  return null;
-}
-
-function detectStrategy(orderItems, goodsItems) {
-  if (goodsItems.length === 0) return 'goods_name';
-  const goodsAllHaveId = goodsItems.every((g) => g.goods_id != null);
-  if (!goodsAllHaveId) return 'goods_name';
-  if (orderItems.length === 0) return 'goods_id';
-  return orderItems.every((it) => it.goods_id != null) ? 'goods_id' : 'goods_name';
-}
-
-function detectMatchedBy(strategy, orderItems, goodsItems) {
-  if (strategy === 'goods_id') return 'goods_id';
-  const ordersHaveAnyId = orderItems.some((it) => it.goods_id != null);
-  const goodsHaveAnyId = goodsItems.some((g) => g.goods_id != null);
-  if (ordersHaveAnyId !== goodsHaveAnyId) return 'mixed';
-  return 'goods_name';
-}
+export { GOODS_SEGMENT_ITEM_FIELDS } from './views/goods-segmentation.js';
 
 // 事实性 headline：数量与数据完整性，不做好坏判断
 function segmentHeadline(windowDays, items, summary) {
@@ -55,52 +26,20 @@ function segmentHeadline(windowDays, items, summary) {
   return headline;
 }
 
-export function segmentGoods(input, options = {}) {
-  const { goods = [], orders30d = [], promoRoi = null, truncated = false, ratelimited = false } = input;
+function segmentQuality(input) {
+  const { goods = [], truncated = false, ratelimited = false } = input;
   const { goodsScanTruncated = false, goodsScanRateLimited = false, goodsTotal } = input;
-  const { windowDays = 30 } = options;
   const goodsIncomplete = goodsScanTruncated || goodsScanRateLimited
     || (Number.isFinite(goodsTotal) && goodsTotal > goods.length);
   const ordersIncomplete = truncated || ratelimited || !Array.isArray(input.orders30d);
-  const incomplete = goodsIncomplete || ordersIncomplete;
-  const dataQuality = {
+  return {
     goods_complete: !goodsIncomplete, orders_complete: !ordersIncomplete,
     goods_truncated: goodsScanTruncated, goods_ratelimited: goodsScanRateLimited,
     orders_truncated: truncated, orders_ratelimited: ratelimited,
   };
+}
 
-  const warnings = [];
-  if (incomplete) warnings.push('采集不完整，统计仅反映已采集数据');
-  if (goods.length === 0) {
-    const summary = { matched_by: null, ambiguous_groups: 0, data_completeness: incomplete ? 'partial' : 'empty', data_quality: dataQuality };
-    return {
-      headline: segmentHeadline(windowDays, [], summary),
-      window_days: windowDays,
-      items: [],
-      total: 0,
-      summary,
-      warnings,
-    };
-  }
-
-  const goodsItems = goods.map((g) => ({
-    goods_id: readGoodsId(g),
-    goods_name: normalizeGoodsName(g?.goods_name ?? g?.goodsName),
-    raw_name: String(g?.goods_name ?? g?.goodsName ?? ''),
-    quantity: Number(g?.quantity ?? 0),
-    sku_group_price: g?.sku_group_price ?? g?.skuGroupPrice ?? null,
-  }));
-
-  const orderItems = (Array.isArray(orders30d) ? orders30d : []).flatMap(extractItems);
-  const strategy = detectStrategy(orderItems, goodsItems);
-  const matchedBy = detectMatchedBy(strategy, orderItems, goodsItems);
-
-  const soldMap = new Map();
-  for (const item of orderItems) {
-    const key = buildGoodsKey(item, strategy);
-    soldMap.set(key, (soldMap.get(key) ?? 0) + item.quantity);
-  }
-
+function promoRoiByGoods(promoRoi) {
   const promoRoiMap = new Map();
   if (promoRoi && Array.isArray(promoRoi.rows)) {
     for (const row of promoRoi.rows) {
@@ -110,62 +49,43 @@ export function segmentGoods(input, options = {}) {
       if (gname) promoRoiMap.set(`name:${gname}`, row.roi);
     }
   }
+  return promoRoiMap;
+}
 
-  const nameBuckets = new Map();
-  for (const g of goodsItems) {
-    const key = buildGoodsKey(g, strategy);
-    const arr = nameBuckets.get(key) ?? [];
-    arr.push(g);
-    nameBuckets.set(key, arr);
-  }
+function segmentItem(goods, unitsSold, promoMap, windowDays, ordersComplete) {
+  const dailyAvg = unitsSold / Math.max(windowDays, 1);
+  const stockDays = goods.quantity === null ? null
+    : dailyAvg > EPSILON ? goods.quantity / dailyAvg : (goods.quantity > 0 ? null : 0);
+  const promoRoi = promoMap.get(`id:${goods.goods_id}`) ?? promoMap.get(`name:${goods.goods_name}`) ?? null;
+  return { goods_id: goods.goods_id, goods_name: goods.raw_name || goods.goods_name,
+    units_sold: ordersComplete ? unitsSold : null, observed_units_sold: unitsSold, quantity: goods.quantity,
+    stock_days: !ordersComplete || stockDays === null ? null : Math.round(stockDays), promo_roi: promoRoi };
+}
 
-  const eligibleGoods = [];
-  let ambiguousCount = 0;
-  for (const [key, bucket] of nameBuckets) {
-    if (bucket.length > 1 && key.startsWith('name:')) {
-      ambiguousCount += 1;
-      warnings.push(`重名商品 "${key.slice(5)}" (${bucket.length} 个) 无法唯一匹配，已排除统计`);
-      continue;
-    }
-    for (const g of bucket) {
-      const gKey = buildGoodsKey(g, strategy);
-      const unitsSold = soldMap.get(gKey) ?? 0;
-      const dailyAvg = unitsSold / Math.max(windowDays, 1);
-      const sDays = dailyAvg > EPSILON ? g.quantity / dailyAvg : (g.quantity > 0 ? Infinity : 0);
+function segmentCompleteness(quality, goods, orders, promoRoi) {
+  const incomplete = !quality.goods_complete || !quality.orders_complete;
+  if (goods.length === 0) return incomplete ? 'partial' : 'empty';
+  if (!quality.goods_complete && !quality.orders_complete) return 'partial_goods_orders';
+  if (!quality.goods_complete) return 'partial_goods';
+  if (!quality.orders_complete) return 'partial_orders';
+  if (orders.length === 0) return 'no_orders';
+  return promoRoi ? 'full' : 'no_promo';
+}
 
-      let pRoi = null;
-      if (g.goods_id) pRoi = promoRoiMap.get(`id:${g.goods_id}`) ?? null;
-      if (pRoi == null && g.goods_name) pRoi = promoRoiMap.get(`name:${g.goods_name}`) ?? null;
-
-      eligibleGoods.push({ ...g, units_sold: unitsSold, daily_avg: dailyAvg, stock_days: sDays, promo_roi: pRoi });
-    }
-  }
-
-  const items = [];
-
-  for (const g of eligibleGoods) {
-    items.push({
-      goods_id: g.goods_id,
-      goods_name: g.raw_name || g.goods_name,
-      units_sold: ordersIncomplete ? null : g.units_sold,
-      observed_units_sold: g.units_sold,
-      quantity: g.quantity,
-      stock_days: ordersIncomplete || g.stock_days === Infinity ? null : Math.round(g.stock_days),
-      promo_roi: g.promo_roi,
-    });
-  }
-
-  let completeness = 'full';
-  if (goodsIncomplete && ordersIncomplete) completeness = 'partial_goods_orders';
-  else if (goodsIncomplete) completeness = 'partial_goods';
-  else if (ordersIncomplete) completeness = 'partial_orders';
-  else if (orders30d.length === 0) completeness = 'no_orders';
-  if (!promoRoi) completeness = completeness === 'full' ? 'no_promo' : completeness;
-
+export function segmentGoods(input, { windowDays = 30 } = {}) {
+  const { goods = [], orders30d = [], promoRoi = null } = input;
+  const dataQuality = segmentQuality(input);
+  const warnings = [];
+  if (!dataQuality.goods_complete || !dataQuality.orders_complete) warnings.push('采集不完整，统计仅反映已采集数据');
+  const matched = matchSales(goods, orders30d);
+  warnings.push(...matched.warnings);
+  const promoMap = promoRoiByGoods(promoRoi);
+  const items = [...matched.byGoods.values()].flatMap(({ goods: bucket, unitsSold }) =>
+    bucket.map((item) => segmentItem(item, unitsSold, promoMap, windowDays, dataQuality.orders_complete)));
   const summary = {
-    matched_by: matchedBy,
-    ambiguous_groups: ambiguousCount,
-    data_completeness: completeness,
+    matched_by: goods.length === 0 ? null : matched.matchedBy,
+    ambiguous_groups: matched.ambiguous.length,
+    data_completeness: segmentCompleteness(dataQuality, goods, orders30d, promoRoi),
     data_quality: dataQuality,
   };
   return {
@@ -175,15 +95,6 @@ export function segmentGoods(input, options = {}) {
     total: items.length,
     summary,
     warnings,
-  };
-}
-
-// 输出层把内部代码（spec 定义的 matched_by / data_completeness 值）翻译为中文标签
-function toSegmentSummaryView(summary) {
-  return {
-    ...summary,
-    matched_by: labelOf(MATCHED_BY_LABEL, summary.matched_by),
-    data_completeness: labelOf(DATA_COMPLETENESS_LABEL, summary.data_completeness),
   };
 }
 
@@ -204,10 +115,7 @@ async function collectPromoRoi(page, ctx) {
 // goods.segment 命令级结果：{ data: v2 视图, warnings }
 export async function getGoodsSegmentView(ctx, { days = 30, size = 50, maxPages = 10, usePromo = true } = {}) {
   const page = ctx.page;
-  const hasContext = typeof page?.context === 'function';
-  const ordersPage = hasContext ? await page.context().newPage() : page;
-  const promoPage = hasContext ? await page.context().newPage() : page;
-  try {
+  return withEndpointPages(page, 2, async ([ordersPage, promoPage]) => {
     const [goodsResult, ordersResult] = await Promise.all([
       collectAllGoods(page, ctx, { pageSize: size, maxPages }),
       collectOrdersForStaleAnalysis(ordersPage, ctx, { scanDays: days }),
@@ -225,13 +133,8 @@ export async function getGoodsSegmentView(ctx, { days = 30, size = 50, maxPages 
       ratelimited: ordersResult.ratelimited,
     }, { windowDays: days });
     return {
-      data: { ...data, summary: toSegmentSummaryView(data.summary), mall_id: mallIdOf(ctx) },
+      data: toGoodsSegmentView(data, ctx),
       warnings: [...warnings, ...promo.warnings],
     };
-  } finally {
-    if (hasContext) {
-      await ordersPage.close().catch(() => {});
-      await promoPage.close().catch(() => {});
-    }
-  }
+  });
 }

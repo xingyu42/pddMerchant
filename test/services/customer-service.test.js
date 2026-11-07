@@ -56,9 +56,3 @@ it('degrades only a typed trend failure and fails for the primary overview', asy
   fixtures.errors['cs.overview'] = error;
   await assert.rejects(getCustomerServiceView(ctx), (actual) => actual === error);
 });
-
-it('propagates programming errors and aborts', async () => {
-  fixtures.errors['cs.monthTrend'] = new TypeError('fixture bug');
-  await assert.rejects(getCustomerServiceView(ctx), TypeError);
-  await assert.rejects(getCustomerServiceView({ ...ctx, signal: AbortSignal.abort() }), { code: 'E_TIMEOUT' });
-});

@@ -1,5 +1,7 @@
 import { evaluateInMainWorld } from '../browser.js';
 import { responseShapeError } from '../../infra/errors.js';
+import { isSuccessfulResponse, mapWriteBusinessError } from '../response-interpreter.js';
+export { mapWriteBusinessError } from '../response-interpreter.js';
 
 function isCount(value) {
   return (typeof value === 'number' || (typeof value === 'string' && value.trim() !== ''))
@@ -8,6 +10,7 @@ function isCount(value) {
 
 export const GOODS_LIST = {
   name: 'goods.list',
+  fixtureListKey: 'result.goods_list',
   urlPattern: /vodka\/v2\/mms\/query\/display\/mall\/goodsList/,
   apiUrl: '/vodka/v2/mms/query/display/mall/goodsList',
   nav: {
@@ -50,37 +53,12 @@ export const GOODS_LIST = {
       raw,
     };
   },
-  isSuccess: (raw) => raw?.success === true,
+  successRule: { mode: 'flag' },
 };
 
 // --- Write endpoints (recon 2026-05-07, goods_id=673182058048) ---
 
-export function mapWriteBusinessError(raw) {
-  const code = raw?.error_code ?? raw?.errorCode;
-  const msg = raw?.error_msg ?? raw?.errorMsg ?? '';
-  if (code === 54001) {
-    return { code: 'E_RATE_LIMIT', message: msg || '操作太过频繁', exitCode: 4 };
-  }
-  if (code === 1000) {
-    return { code: 'E_USAGE', message: msg || '参数错误', exitCode: 2 };
-  }
-  const notFoundHints = ['不存在', 'not found', '找不到', '已删除'];
-  if (msg && notFoundHints.some((h) => msg.toLowerCase().includes(h))) {
-    return { code: 'E_NOT_FOUND', message: msg, exitCode: 6 };
-  }
-  if (code != null && code !== 0 && code !== 1000000) {
-    return { code: 'E_BUSINESS', message: msg || `业务错误 (${code})`, exitCode: 6 };
-  }
-  return null;
-}
-
-function writeIsSuccess(raw) {
-  if (!raw || typeof raw !== 'object') return false;
-  if (raw.success === true) return true;
-  const code = raw.error_code ?? raw.errorCode;
-  if (code === 0 || code === 1000000) return true;
-  return false;
-}
+const WRITE_SUCCESS_RULE = { mode: 'flag-or-code' };
 
 export const GOODS_UPDATE_STATUS = {
   name: 'goods.update.status',
@@ -111,10 +89,10 @@ export const GOODS_UPDATE_STATUS = {
   },
   requiredTrigger: true,
   normalize: (raw) => ({
-    success: writeIsSuccess(raw),
+    success: isSuccessfulResponse(raw, WRITE_SUCCESS_RULE),
     raw,
   }),
-  isSuccess: writeIsSuccess,
+  successRule: WRITE_SUCCESS_RULE,
   errorMapper: mapWriteBusinessError,
 };
 
@@ -146,11 +124,11 @@ export const GOODS_UPDATE_PRICE = {
   },
   requiredTrigger: true,
   normalize: (raw) => ({
-    success: writeIsSuccess(raw),
+    success: isSuccessfulResponse(raw, WRITE_SUCCESS_RULE),
     fail_goods_num: raw?.fail_goods_num ?? 0,
     raw,
   }),
-  isSuccess: writeIsSuccess,
+  successRule: WRITE_SUCCESS_RULE,
   errorMapper: mapWriteBusinessError,
 };
 
@@ -182,11 +160,11 @@ export const GOODS_UPDATE_STOCK = {
   },
   requiredTrigger: true,
   normalize: (raw) => ({
-    success: writeIsSuccess(raw),
+    success: isSuccessfulResponse(raw, WRITE_SUCCESS_RULE),
     fail_goods_num: raw?.fail_goods_num ?? 0,
     raw,
   }),
-  isSuccess: writeIsSuccess,
+  successRule: WRITE_SUCCESS_RULE,
   errorMapper: mapWriteBusinessError,
 };
 
@@ -211,10 +189,10 @@ export const GOODS_UPDATE_TITLE = {
   },
   requiredTrigger: true,
   normalize: (raw) => ({
-    success: writeIsSuccess(raw),
+    success: isSuccessfulResponse(raw, WRITE_SUCCESS_RULE),
     raw,
   }),
-  isSuccess: writeIsSuccess,
+  successRule: WRITE_SUCCESS_RULE,
   errorMapper: mapWriteBusinessError,
 };
 
@@ -237,5 +215,5 @@ export const GOODS_AD_STRATEGY = {
     strategies: raw?.result ?? raw?.data ?? [],
     raw,
   }),
-  isSuccess: (raw) => raw?.success === true,
+  successRule: { mode: 'flag' },
 };

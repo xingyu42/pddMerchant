@@ -1,5 +1,4 @@
-import { readBusinessError } from '../run-endpoint.js';
-import { ExitCodes, responseShapeError } from '../../infra/errors.js';
+import { responseShapeError } from '../../infra/errors.js';
 
 function project(item, fields) {
   return Object.fromEntries(fields.filter((field) => Object.hasOwn(item, field))
@@ -32,15 +31,12 @@ function review(item) {
 
 function endpoint(name, suffix, normalize) {
   return {
-    name: `reviews.${name}`, fixtureIsServiceFacing: true, strategy: 'page-api',
+    name: `reviews.${name}`, strategy: 'page-api',
     nav: { url: 'https://mms.pinduoduo.com/goods/evaluation/index' },
     apiUrl: `/saturn/reviews/${suffix}`,
     buildPayload: ({ startTime, endTime, rangeType }) => ({ startTime, endTime, rangeType }),
-    isSuccess: (raw) => raw?.success === true || raw?.errorCode === 1000000,
-    errorMapper(raw) {
-      const error = readBusinessError(raw);
-      return error ? { code: 'E_BUSINESS', message: error.message, exitCode: ExitCodes.BUSINESS } : null;
-    },
+    successRule: { mode: 'flag-or-code', codeField: 'errorCode', codes: [1000000] },
+    errorMap: 'upstream',
     normalize,
   };
 }
@@ -62,7 +58,7 @@ export const REVIEWS_LIST = {
     }
     return { totalRows: Number(total), data: collection(raw.result, 'data', 'reviews.list').map(review) };
   }),
-  fixtureListKey: 'data',
+  fixtureListKey: 'result.data',
   buildPayload: ({ startTime, endTime, pageNo = 1 }) =>
     ({ startTime, endTime, pageNo, pageSize: 10, descScore: ['1', '2', '3'] }),
 };

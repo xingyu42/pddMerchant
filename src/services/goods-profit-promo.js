@@ -1,8 +1,10 @@
 import { getPromoReport } from './promo.js';
 import { parseYuanToFen, round } from '../infra/units.js';
 import { throwIfAborted, abortableSleep } from '../infra/abort.js';
-import { PddCliError, responseShapeError } from '../infra/errors.js';
-import { sumKnown } from './goods-profit-calculation.js';
+import { responseShapeError } from '../infra/errors.js';
+import { sumKnown } from '../infra/metrics.js';
+import { createReport } from './operating-report.js';
+import { GOODS_PROFIT_REPORT } from './views/goods-profit.js';
 
 function spendFen(value) {
   return value == null ? null : parseYuanToFen(round(value, 2));
@@ -41,9 +43,10 @@ function finishPromo(result) {
   const total = result.complete ? result.total_fen : null;
   const difference = total === null || attributed === null ? null : total - attributed;
   const hints = [...result.hints];
-  if (!result.complete) hints.push('promo_incomplete');
-  if (difference !== null && difference < 0) hints.push('negative_promo_difference');
-  if (attributed === null || total === null) hints.push('promo_amount_unknown');
+  const report = createReport({}, GOODS_PROFIT_REPORT, { hints });
+  if (!result.complete) report.hint('promo_incomplete');
+  if (difference !== null && difference < 0) report.hint('negative_promo_difference');
+  if (attributed === null || total === null) report.hint('promo_amount_unknown');
   return { ...result, total_fen: total, attributed_fen: result.complete ? attributed : null,
     shop_fen: difference === null || difference < 0 ? null : difference, hints };
 }
@@ -51,15 +54,9 @@ function finishPromo(result) {
 export async function collectProfitPromo(page, ctx, { window, maxPages = 100, delayMs = 200 }) {
   const result = { byGoods: new Map(), total_fen: null, complete: true, truncated: false,
     ratelimited: false, warnings: [], hints: [], request_count: 0 };
-  try {
-    await scanPromo(page, ctx, { window, maxPages, delayMs }, result);
-    throwIfAborted(ctx.signal);
-    return finishPromo(result);
-  } catch (error) {
-    throwIfAborted(ctx.signal);
-    if (error?.code === 'E_TIMEOUT' || error?.name === 'AbortError') throw error;
-    if (!(error instanceof PddCliError)) throw error;
-    return finishPromo({ ...result, complete: false,
-      ratelimited: error?.code === 'E_RATE_LIMIT', hints: ['promo_unavailable'] });
-  }
+  const report = createReport(ctx, GOODS_PROFIT_REPORT, { window, hints: result.hints });
+  const collected = await report.optional('promo_unavailable', async () =>
+    scanPromo(page, ctx, { window, maxPages, delayMs }, result),
+  (error) => ({ ...result, complete: false, ratelimited: error.code === 'E_RATE_LIMIT' }));
+  return finishPromo(collected);
 }

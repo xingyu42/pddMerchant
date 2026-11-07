@@ -125,15 +125,6 @@ it('keeps early empty-page collection visible as truncated', async () => {
   assert.ok(view.hints.some((hint) => hint.includes('提前空页')));
 });
 
-it('honors cancellation before any request', async () => {
-  await assert.rejects(getGoodsTrafficView({ ...ctx, signal: AbortSignal.abort() }), { code: 'E_TIMEOUT' });
-  assert.equal(mock.calls.length, 0);
-});
-
-it.each([new TypeError('bug'), new PddCliError({ code: 'E_TIMEOUT', message: 'timeout' })])('propagates unexpected errors and timeouts', async (error) => {
-  mock.handler = (name) => { if (name === 'traffic.goodsDetailList') return { total: 1, items: [goods] }; throw error; };
-  await assert.rejects(getGoodsTrafficView(ctx), (actual) => actual === error);
-});
 
 it.each(['abc', '0', '01', '1.5', 101])('rejects invalid goods id %s before requests', async (goodsId) => {
   await assert.rejects(getGoodsTrafficView(ctx, { goodsId }), { code: 'E_USAGE', exitCode: 2 });

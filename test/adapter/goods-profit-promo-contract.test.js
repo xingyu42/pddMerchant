@@ -10,8 +10,8 @@ it('uses explicit inclusive report dates aligned with the exclusive group-time e
   assert.equal(payload.startDate, '2026-10-01');
   assert.equal(payload.endDate, '2026-10-30');
   assert.equal(payload.reportPromotionType, 9);
-  assert.equal(ORDER_LIST.fixtureListKey, 'orders');
-  assert.equal(PROMO_ENTITY_REPORT.fixtureListKey, 'entities');
+  assert.equal(ORDER_LIST.fixtureListKey, 'result.pageItems');
+  assert.equal(PROMO_ENTITY_REPORT.fixtureListKey, 'result.entityReportList');
 });
 
 it('preserves legacy since/until date payloads and rejects invalid explicit dates', () => {

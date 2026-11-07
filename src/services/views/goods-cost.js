@@ -1,5 +1,6 @@
 import { isoToLocalDateTime, yuanFromFen } from '../../infra/units.js';
-import { COST_SCOPE_LABEL } from './labels.js';
+
+const COST_SCOPE_LABEL = Object.freeze({ default: '商品默认', spec: '指定规格' });
 
 export const GOODS_COST_ENTRY_FIELDS = Object.freeze([
   'goods_id', 'spec', 'purchase_yuan', 'packaging_yuan', 'courier_yuan',

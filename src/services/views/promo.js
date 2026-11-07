@@ -1,8 +1,12 @@
 // 推广 ROI 视图（输出契约 v2）：analyzePromoRoi 的内部结果 → 元 / 百分数 / 中文标签。
 // ROI 保持倍数（gmv / spend）；点击率由点击 / 曝光计算，曝光为 0 时为 null。
-import { labelOf, round, toPct } from '../../infra/units.js';
+import { labelOf, round } from '../../infra/units.js';
+import { ratioPct } from '../../infra/metrics.js';
 import { text, yuanText } from './_shared.js';
-import { PROMO_GROUP_BY_LABEL, SCENES_TYPE_LABEL } from './labels.js';
+
+const PROMO_GROUP_BY_LABEL = Object.freeze({ plan: '推广计划', sku: '商品', channel: '推广场景' });
+// archive/2026-07/07-05-promo-poseidon-adapt/prd.md：搜索/场景推广合并后 scenesType 恒为 9。
+const SCENES_TYPE_LABEL = Object.freeze({ 9: '商品推广' });
 
 export const PROMO_ROI_ITEM_FIELDS = Object.freeze([
   'label', 'plan_id', 'ad_id', 'ad_name', 'goods_id', 'goods_name', 'scenes_type', 'promotion_type',
@@ -15,7 +19,7 @@ export const PROMO_TOTALS_FIELDS = Object.freeze([
 ]);
 
 export function ctrPct(click, impression) {
-  return impression > 0 ? toPct(click / impression) : null;
+  return impression > 0 ? ratioPct(click, impression) : null;
 }
 
 function rowLabel(row, by) {

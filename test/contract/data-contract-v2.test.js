@@ -17,7 +17,6 @@ import {
 } from '../../src/services/views/goods.js';
 import { PUBLISH_VIEW_FIELDS } from '../../src/services/views/goods-publish.js';
 import { GOODS_SEGMENT_ITEM_FIELDS } from '../../src/services/goods-segmentation.js';
-import { GOODS_LIST } from '../../src/adapter/endpoints/goods.js';
 import { PROMO_ROI_ITEM_FIELDS, PROMO_TOTALS_FIELDS } from '../../src/services/views/promo.js';
 import { STALE_SAMPLE_FIELDS } from '../../src/services/views/diagnose.js';
 import { DAEMON_STATUS_VIEW_FIELDS } from '../../src/services/views/daemon.js';
@@ -36,10 +35,10 @@ import { GOODS_TRAFFIC_ITEM_FIELDS } from '../../src/services/views/goods-traffi
 function staleGoodsFixtures() {
   return {
     ...createFactFixtures(),
-    'endpoints/goods.list.json': GOODS_LIST.normalize({ success: true, result: { total: 2, goods_list: [
+    'endpoints/goods.list.json': { success: true, result: { total: 2, goods_list: [
       createUpstreamGoods(),
       createUpstreamGoods({ goods_id: 102, goods_name: 'Cup', quantity: 5 }),
-    ] } }),
+    ] } },
   };
 }
 
@@ -49,11 +48,11 @@ const GOODS_ENTITIES = { 'items[]': GOODS_VIEW_FIELDS, 'items[].promotion': GOOD
 
 function lowStockFixtures() {
   return {
-    'endpoints/goods.list.json': GOODS_LIST.normalize({ success: true, result: { total: 3, goods_list: [
+    'endpoints/goods.list.json': { success: true, result: { total: 3, goods_list: [
       createUpstreamGoods({ quantity: 0 }),
       createUpstreamGoods({ goods_id: 102, quantity: 5 }),
       createUpstreamGoods({ goods_id: 103, quantity: 20 }),
-    ] } }),
+    ] } },
   };
 }
 

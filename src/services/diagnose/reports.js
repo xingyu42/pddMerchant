@@ -7,6 +7,7 @@ import { collectGoodsInput, collectOrdersInput, collectPromoInput } from './coll
 import { diagnoseShop, summarizeAfterSales, summarizeInventory, summarizeOrders, summarizePromo } from './index.js';
 import { collectOrdersForStaleAnalysis, STALE_PAGE_SIZE } from './orders-collector.js';
 import { compareShopDiagnosis, resolveCompareWindows } from './trend-compare.js';
+import { withEndpointPages } from '../../adapter/endpoint-pages.js';
 
 const AFTER_SALES_DEFAULT_DAYS = 30;
 const AFTER_SALES_PAGES_PER_WEEK = 3;
@@ -58,11 +59,8 @@ async function settleDimension(label, promise, log) {
 // 单个时间窗的全维度诊断；同时返回推广金额单位警告
 async function collectDiagnosis(ctx, { since, until, windowDays } = {}) {
   const page = ctx.page;
-  const hasContext = typeof page?.context === 'function';
-  const goodsPage = hasContext ? await page.context().newPage() : page;
-  const promoPage = hasContext ? await page.context().newPage() : page;
   const log = ctx.log ?? getLogger();
-  try {
+  return withEndpointPages(page, 2, async ([goodsPage, promoPage]) => {
     const [orders, goods, promo] = await Promise.all([
       settleDimension('orders', collectOrdersInput(page, ctx, { since, until, windowDays }), log),
       settleDimension('goods', collectGoodsInput(goodsPage, ctx), log),
@@ -75,12 +73,7 @@ async function collectDiagnosis(ctx, { since, until, windowDays } = {}) {
       after_sales: orders?.listStats ? { orderStats: orders.listStats, windowDays: orders.windowDays ?? windowDays ?? 7 } : undefined,
     });
     return { result, warnings: promo?.warnings ?? [] };
-  } finally {
-    if (hasContext) {
-      await goodsPage.close().catch(() => {});
-      await promoPage.close().catch(() => {});
-    }
-  }
+  });
 }
 
 async function collectComparison(ctx, days) {

@@ -282,15 +282,16 @@ attemptPasswordLogin(page, { loginName, password }, { signal, deadlineAt }) ->
   | { outcome: 'wrong_password' | 'account_locked' | 'form_changed' | 'network_error' };
 
 // services/password-relogin.js
-decideRelogin(accountId, { now, minIntervalMs, authResult })
+decideRelogin(accountId, { now, minIntervalMs, authResult, manual = false, decrypt = true })
   -> { action: 'attempt', credential, credentialUpdatedAt } | { action: 'fail', error }; // sync, read-only
+beginReloginAttempt(tx, { manual = false, password = true, credentialUpdatedAt, commit })
+  -> { fail(outcome), succeed(candidate) }; // sync; fail records then throws; succeed is atomic
 recordReloginAttempt(tx);                                  // sync; last_attempt_at before browser work
 recordReloginOutcome(tx, outcome, { credentialUpdatedAt }) -> PddCliError | null; // sync
 reloginInCommand(runtime, tx, browser, authResult) -> { context, page }; // live; lease already held
 reloginForFixture(accountId, runtime);                     // fixture; takes its own lease
 markManualLoginSucceeded(accountId);                       // saveMerchantLogin, existing account only
 deviceState(tx);                                         // cloned cookies/origins, every PASS_ID removed
-commitFixtureRelogin(tx, task);                           // fixture marker, lease + revision CAS
 // reserved for task ④ (implemented and tested in ③)
 setAccountPassword(accountId, { loginName, password });
 clearAccountPassword(accountId);
@@ -303,7 +304,7 @@ getAccountActionWarnings(accountId, slug) -> [{ code: 'account_action_required',
 ### 3. Contracts
 
 - ③ has no CLI entry that accepts a password. Credentials reach the DB only through `setAccountPassword` (④ console) or test helpers.
-- Relogin runs only for `needsAuth` commands, only after `assertAuthValid` returns `rejected` (including `known_rejected`). `indeterminate` never triggers relogin. doctor, `account list` and other `needsAuth:false` commands never relogin and never append action warnings.
+- Implicit relogin runs only for `needsAuth` commands after the shared session check returns `rejected` (including `known_rejected`); opt-in patrol reuses that recovery flow. `indeterminate` never triggers relogin. doctor, `account list` and other `needsAuth:false` commands never relogin and never append action warnings.
 - Decision order is fixed:
   1. no credential → the original `E_AUTH_EXPIRED` (prompt `pdd login`);
   2. `blocked` → `E_AUTH_RELOGIN_BLOCKED`;
@@ -327,9 +328,11 @@ getAccountActionWarnings(accountId, slug) -> [{ code: 'account_action_required',
 
 - At most one open pending action per `(account, kind)`; a duplicate insert keeps the existing row.
 - Attempt/outcome writes (`recordReloginAttempt`, `recordReloginOutcome`, fixture commit) run in one short synchronous transaction after `assertLeaseOwner('account', accountId, tx.token)`. `markManualLoginSucceeded` runs inside `saveMerchantLogin`'s lease-checked transaction. The reserved ④ helpers (`setAccountPassword`, `clearAccountPassword`, `clearReloginBlock`, `recordTakeoverTimeout`) write in a short transaction without taking the lease; races with an in-flight attempt are resolved by the stale-outcome guard.
+- `beginReloginAttempt` owns attempt recording and finalization. `succeed(candidate)` requires a branded verified candidate and atomically saves the snapshot plus the password-success outcome; manual sessions also retain the existing manual reset/action-resolution rules. Console live sessions use `saveMerchantLogin` as the synchronous `commit(candidate, draftTx)` callback, preserving account display name and login timestamp updates. Only after commit does the held transaction advance; a failure leaves its revision/state/metadata/corrupt fields unchanged. QR manual sessions use `password:false` and retain blocked status/actions. Manual password preflight uses `decideRelogin({ manual:true, decrypt:false })`, retaining blocked-before-missing-password and allowing human retry without automatic throttle/awaiting-human guards.
+- Fixture recovery retains its marker and browser-free orchestration, but creates a branded candidate through `verifyMerchantContext` and commits through this same handle and `commitMerchantCandidate`; the former direct snapshot writer is removed. Marker creation/recognition lives in `adapter/fixtures/auth.js`.
 - Stale-outcome guard: when `credentials.updated_at` differs from `credentialUpdatedAt` captured at decision time, blocking outcomes (`awaiting_human` / `blocked`) are skipped and only the error is returned, so a password reset during an attempt wins.
 - The live relogin context is device-continuous: `tx.state` cookies/origins with every `PASS_ID` cookie removed. Only a corrupt or shape-invalid state falls back to an empty context.
-- On `success` the login page closes and `verifyMerchantContext(newContext, { expectedMallId: tx.recoveryMallId })` must return `verified`; then `commitMerchantCandidate` → outcome `success` → `renewLease`. Non-verified → `verify_failed` / `E_AUTH_RELOGIN_FAILED`; identity mismatch surfaces as `E_ACCOUNT_IDENTITY_MISMATCH`. The runner swaps to the returned `{ context, page }` and closes the old context; failure paths close the new context.
+- On `success` the login page closes and `verifyMerchantContext(newContext, { expectedMallId: tx.recoveryMallId })` must return `verified`; then the attempt handle atomically commits `commitMerchantCandidate` + outcome `success`, followed by `renewLease`. Non-verified → `verify_failed` / `E_AUTH_RELOGIN_FAILED`; identity mismatch surfaces as `E_ACCOUNT_IDENTITY_MISMATCH`. The runner swaps to the returned `{ context, page }` and closes the old context; failure paths close the new context.
 - Budget: relogin has its own `TIMEOUTS.LOGIN_PASSWORD` (90s) budget. The adapter uses a deadline shortened by `TIMEOUTS.LOGIN_PASSWORD_RESERVE` (20s), giving it `LOGIN_PASSWORD - LOGIN_PASSWORD_RESERVE` (70s); the reserve covers outcome recording and `verifyMerchantContext`, which keep the full task deadline. Both tasks share the same signal. The command deadline is paused with `armDeadline().pause()` and resumed in `finally`; SIGINT still aborts through the combined signal.
 - Lease wait: a waiter extends past its normal 15s wait only while the holder's `last_attempt_at` is within `LOGIN_PASSWORD`, up to `last_attempt_at + LOGIN_PASSWORD + 15s`, still bounded by its own `deadlineAt` and signal. After acquiring, it reads the new revision, verifies it and does not log in again.
 - Adapter: outcomes come only from the `/janus/api/auth` response `error_code` (`AUTH_RESPONSE_OUTCOMES`) and the scoped `PASS_ID` cookie; no DOM selector or page-text detection. Live login therefore yields only `sms` / `unknown` challenges; `slider` / `click` / `risk_confirm` stay valid for fixtures and stored state. No click, drag or "send code" after the single submit click. An unmapped code keeps polling; a state still unclassified at the deadline is `challenge: 'unknown'` (go to a human, never retry blindly). Raw Playwright errors map to fixed reasons; `err.message` never reaches logs or envelopes.

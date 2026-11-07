@@ -4,6 +4,7 @@ import { runCli } from '../helpers/isolated-cli.js';
 import { createExperienceFixtures } from '../fixtures/test-data.js';
 import { renderExperience } from '../../src/commands/diagnose/experience.js';
 import { toExperienceView } from '../../src/services/views/experience.js';
+import { NAVIGATOR_INFO } from '../../src/adapter/endpoints/experience.js';
 
 it('runs diagnose experience with a single JSON envelope', () => {
   const result = runCli(['diagnose', 'experience'], { fixtures: createExperienceFixtures() });
@@ -60,7 +61,7 @@ it('fails the command when snapshot collection fails', () => {
 
 it('renders human indicator values, thresholds and nulls in a table', () => {
   const fixtures = createExperienceFixtures();
-  const data = toExperienceView(fixtures['endpoints/experience.navigatorInfo.json']);
+  const data = toExperienceView(NAVIGATOR_INFO.normalize(fixtures['endpoints/experience.navigatorInfo.json']));
   const rendered = renderExperience({ command: 'diagnose.experience', data }, { useColor: false });
   for (const expected of ['店铺综合体验星级', '近30天3分钟人工回复率', '50', '80', '未达标', '--']) {
     assert.ok(rendered.includes(expected), expected);

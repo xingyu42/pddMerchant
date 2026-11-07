@@ -120,7 +120,9 @@ it('keeps unpaid cancelled amounts zero and empty windows explicit', () => {
 it('marks capped order scans incomplete instead of reporting a full-window profit', () => {
   const fixtures = createProfitFixtures({ orders: createProfitOrders(Array.from({ length: 50 }, () => ({}))) });
   for (let page = 2; page <= 15; page += 1) {
-    fixtures[`endpoints/orders.list.page${page}.json`] = { orders: createProfitOrders(Array.from({ length: 50 }, (unused, index) => ({ order_sn: `SYN-${page}-${index}` }))), total: 800 };
+    fixtures[`endpoints/orders.list.page${page}.json`] = { success: true, result: {
+      pageItems: createProfitOrders(Array.from({ length: 50 }, (unused, index) => ({ order_sn: `SYN-${page}-${index}` }))), totalItemNum: 800,
+    } };
   }
   const data = report(fixtures);
   assert.equal(data.summary.data_quality.orders_truncated, true);

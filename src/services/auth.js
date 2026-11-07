@@ -19,7 +19,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { verifyMerchantContext, assertMerchantVerified } from '../adapter/merchant-auth.js';
-import { boundMerchantMallId, recordMerchantCheck, assertAuthTask, verifyStoredMerchant } from '../adapter/merchant-auth-storage.js';
+import { boundMerchantMallId, assertAuthTask } from '../adapter/merchant-auth-storage.js';
+import { checkMerchantSession } from './merchant-session.js';
 import { MERCHANT_CHECK_URL, hasPassId } from '../adapter/merchant-auth-probe.js';
 import { abortableSleep, budgetMs } from '../infra/abort.js';
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
@@ -85,10 +86,9 @@ async function acquireMerchantLogin(options, transaction) {
 }
 
 async function prepareMerchantSession({ browser, context, page }, transaction, task, reuseState) {
-  const result = reuseState ? await verifyStoredMerchant(context, transaction.state, task) : null;
+  const { result } = reuseState
+    ? await checkMerchantSession(context, { tx: transaction, task, mode: 'login' }) : { result: null };
   if (!result || result.verdict === 'verified') return { context, page, result };
-  recordMerchantCheck(result, transaction);
-  if (result.verdict !== 'rejected') assertMerchantVerified(result);
   await context.close();
   const emptyContext = await createSnapshotContext(browser, { cookies: [], origins: [] });
   return { context: emptyContext, page: await emptyContext.newPage(), result };

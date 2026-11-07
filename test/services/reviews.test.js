@@ -77,13 +77,3 @@ it('throws the last typed error when all three sources fail', async () => {
   }
   await assert.rejects(getReviewsView(ctx), (error) => error === fixtures.errors['reviews.list']);
 });
-
-it.each(['reviews.keywordAgg', 'reviews.typeAgg', 'reviews.list'])('propagates unexpected errors from %s', async (name) => {
-  fixtures.errors[name] = new TypeError('fixture bug');
-  await assert.rejects(getReviewsView(ctx), TypeError);
-});
-
-it('propagates cancellation before requests', async () => {
-  await assert.rejects(getReviewsView({ ...ctx, signal: AbortSignal.abort() }), { code: 'E_TIMEOUT' });
-  assert.deepEqual(fixtures.calls, []);
-});

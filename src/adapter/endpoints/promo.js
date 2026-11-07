@@ -115,11 +115,6 @@ function flattenTotals(totals, money = moneyToNumber) {
   };
 }
 
-function hasSuccessfulResult(raw) {
-  if (raw?.success === false) return false;
-  return raw?.result !== undefined;
-}
-
 function isMetric(value) {
   const candidate = value && typeof value === 'object' ? value.value : value;
   return (typeof candidate === 'number' || (typeof candidate === 'string' && candidate.trim() !== ''))
@@ -146,7 +141,7 @@ function readReport(raw, endpoint, totalsField, listField) {
 
 export const PROMO_ENTITY_REPORT = {
   name: 'promo.entityReport',
-  fixtureListKey: 'entities',
+  fixtureListKey: 'result.entityReportList',
   urlPattern: /mms-gateway\/poseidon\/api\/report\/queryEntityReport/,
   apiUrl: '/mms-gateway/poseidon/api/report/queryEntityReport',
   nav: PROMO_NAV,
@@ -184,7 +179,7 @@ export const PROMO_ENTITY_REPORT = {
       .filter(Boolean);
     return { entities, totals, unitWarnings: money.warnings(), raw };
   },
-  isSuccess: hasSuccessfulResult,
+  successRule: { mode: 'result', allowNull: true },
 };
 
 export const PROMO_HOURLY_REPORT = {
@@ -218,5 +213,5 @@ export const PROMO_HOURLY_REPORT = {
       anchorPoints: result.anchorPoints ?? {}, unitWarnings: money.warnings(), raw,
     };
   },
-  isSuccess: hasSuccessfulResult,
+  successRule: { mode: 'result', allowNull: true },
 };

@@ -3,18 +3,17 @@ import { withMerchantAuthUpdate, assertAuthTask } from '../adapter/merchant-auth
 import { isMockEnabled, mockPasswordLogin } from '../adapter/mock-dispatcher.js';
 import { FIXTURE_QR_IMAGE, openFixtureTakeover } from '../adapter/console-login-fixture.js';
 import { invalidTakeoverInput, validateSmsCode } from '../adapter/takeover.js';
-import { getCredential, findAccountByIdentity } from '../infra/account-store.js';
+import { findAccountByIdentity } from '../infra/account-store.js';
 import { assertPasswordCredential } from '../adapter/password-credential.js';
-import { transaction } from '../infra/db.js';
 import { abortableSleep } from '../infra/abort.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
-import { getMasterKey } from '../infra/master-key.js';
 import { consoleAccount } from './console-accounts.js';
 import { removeAccountView } from './account-removal.js';
 import { consoleRequestError } from './console-runtime.js';
 import { saveMerchantLogin, provisionMerchantLogin } from './auth-account-storage.js';
-import { getReloginSummary, recordReloginAttempt, recordReloginOutcome, recordTakeoverTimeout,
-  markManualLoginSucceeded, commitFixtureRelogin, setAccountPassword } from './password-relogin.js';
+import { decideRelogin, beginReloginAttempt, recordTakeoverTimeout, setAccountPassword } from './password-relogin.js';
+import { createFixtureReloginContext } from '../adapter/fixtures/auth.js';
+import { verifyMerchantContext, assertMerchantVerified } from '../adapter/merchant-auth.js';
 import { openConsoleBrowser, attemptConsolePassword, captureConsoleQr, openConsoleTakeover,
   consoleHasPassId, verifyConsoleLogin, closeConsoleBrowser, submitConsoleSms } from './console-login-browser.js';
 
@@ -36,11 +35,13 @@ export const consoleFixtureEnabled = isMockEnabled;
 
 function assertStart(account, mode) {
   if (!['password', 'qr'].includes(mode)) throw invalidTakeoverInput();
-  const summary = getReloginSummary(account.id);
-  if (mode === 'password' && summary.status === 'blocked') {
+  if (mode !== 'password') return;
+  const decision = decideRelogin(account.id, { manual: true, decrypt: false });
+  if (decision.action !== 'fail') return;
+  if (decision.error.code === 'E_AUTH_RELOGIN_BLOCKED') {
     throw consoleRequestError(409, 'E_AUTH_RELOGIN_BLOCKED', '自动登录已暂停，请修改密码或扫码登录');
   }
-  if (mode === 'password' && !summary.has_password) throw consoleRequestError(409, 'E_AUTH_PASSWORD_REQUIRED', '请先保存账号密码');
+  throw consoleRequestError(409, 'E_AUTH_PASSWORD_REQUIRED', '请先保存账号密码');
 }
 
 function activeSessions() {
@@ -110,15 +111,18 @@ function setWindow(session, state, duration) {
 }
 
 async function beginPassword(session, tx) {
-  session.credentialUpdatedAt = getCredential(tx.accountId)?.updated_at;
-  recordReloginAttempt(tx);
+  const decision = decideRelogin(tx.accountId, { manual: true, decrypt: false });
+  if (decision.action === 'fail') throw decision.error;
+  session.attempt = consoleReloginAttempt(session, tx, decision);
   const outcome = session.fixture ? await mockPasswordLogin({ ...tx, deadlineAt: Date.now() + 70_000 })
     : await attemptConsolePassword(session, tx);
   assertAuthTask(tx);
   if (outcome.outcome === 'success') return true;
   // 只有挑战需要人：短信走输入框，其余挑战转播验证码弹窗；表单变化、网络错误等按结果码结束。
-  const error = recordReloginOutcome(tx, outcome, session);
-  if (outcome.outcome !== 'challenge') throw error;
+  try { session.attempt.fail(outcome); }
+  catch (error) {
+    if (outcome.outcome !== 'challenge' || error.code !== 'E_AUTH_HUMAN_REQUIRED') throw error;
+  }
   await awaitHuman(session, outcome.challenge);
   return false;
 }
@@ -152,22 +156,23 @@ function finishTimeout(session) {
   session.message = null;
 }
 
+function consoleReloginAttempt(session, tx, decision = {}) {
+  return beginReloginAttempt(tx, { ...decision, manual: true, password: session.mode === 'password',
+    ...(session.fixture ? {} : {
+      commit: (candidate, draft) => saveMerchantLogin({ candidate, identity: candidate.identity }, draft, draft),
+    }) });
+}
+
 async function commitLogin(session, tx) {
   session.state = 'verifying';
   session.message = null;
   session.qrImage = null;
-  if (session.fixture) {
-    getMasterKey();
-    transaction(() => {
-      commitFixtureRelogin(tx, tx);
-      markManualLoginSucceeded(tx.accountId);
-      if (session.mode === 'password') recordReloginOutcome(tx, 'success', session);
-    });
-  } else {
-    const result = await verifyConsoleLogin(session, tx);
-    saveMerchantLogin(result, tx, tx);
-    if (session.mode === 'password') recordReloginOutcome(tx, 'success', session);
-  }
+  const result = session.fixture
+    ? await verifyMerchantContext(createFixtureReloginContext(tx.recoveryMallId), { ...tx, expectedMallId: tx.recoveryMallId })
+    : await verifyConsoleLogin(session, tx);
+  assertMerchantVerified(result);
+  const attempt = session.attempt ?? consoleReloginAttempt(session, tx);
+  attempt.succeed(result.candidate);
   session.state = 'succeeded';
   session.message = null;
 }
@@ -253,6 +258,7 @@ async function runSession(session, previous, parentSignal, operation) {
     await closeConsoleBrowser(session);
     session.qrImage = null;
     session.credential = null;
+    session.attempt = null;
     session.browser = session.context = session.page = session.takeover = null;
     session.finished = true;
     session.retention = setTimeout(() => sessions.delete(session.id), RETENTION_MS);

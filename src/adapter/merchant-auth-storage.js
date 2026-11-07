@@ -1,5 +1,5 @@
 import { acquireLease, releaseLease, assertLeaseOwner } from '../infra/leases.js';
-import { transaction as databaseTransaction } from '../infra/db.js';
+import { transaction as databaseTransaction, isInTransaction } from '../infra/db.js';
 import { getAccountById, getReloginState } from '../infra/account-store.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 import { getMasterKey } from '../infra/master-key.js';
@@ -105,7 +105,8 @@ export function merchantCandidateState(candidate, transaction = {}) {
 function commitState(state, transaction) {
   assertAuthTask(transaction);
   getMasterKey();
-  const revision = databaseTransaction(() => {
+  const write = isInTransaction() ? (callback) => callback() : databaseTransaction;
+  const revision = write(() => {
     assertCurrent(transaction);
     return saveAuthStateSnapshot(state, transaction.accountId, { expectedRevision: transaction.revision });
   });

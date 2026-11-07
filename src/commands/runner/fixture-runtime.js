@@ -1,9 +1,9 @@
 // fixture 运行时（design D-2）：PDD_TEST_ADAPTER=fixture 短路路径。
-// fixture auth 失败、mock mall 解析、FixtureEndpointClient ctx 构造与 run 终结。
-import { FixtureEndpointClient, mockCurrentMall, mockListMalls, mockIsAuthValid, mockIsAuthIndeterminate } from '../../adapter/mock-dispatcher.js';
+// fixture auth 失败、mock mall 解析、ctx 构造与 run 终结。
+import { mockCurrentMall, mockListMalls } from '../../adapter/mock-dispatcher.js';
 import { buildMallContext } from '../../adapter/mall-reader.js';
-import { PddCliError, ExitCodes } from '../../infra/errors.js';
-import { fixtureSessionRecovered, reloginForFixture, getAccountActionWarnings } from '../../services/password-relogin.js';
+import { getAccountActionWarnings } from '../../services/password-relogin.js';
+import { checkFixtureMerchantSession } from '../../services/merchant-session.js';
 import { finalizeSuccess, finalizeError } from './envelope-finalizer.js';
 import { daemonIsRunning } from '../../services/daemon.js';
 
@@ -59,15 +59,9 @@ export function appendActionWarnings(spec, runtime) {
 
 export async function executeFixture(spec, runtime) {
   try {
-    if (spec.needsAuth && mockIsAuthIndeterminate()) throw new PddCliError({
-      code: 'E_AUTH_CHECK_INDETERMINATE', message: '无法确认登录状态', exitCode: ExitCodes.NETWORK,
-    });
-    if (spec.needsAuth && !mockIsAuthValid() && !fixtureSessionRecovered(runtime.accountCtx.accountId)) {
-      await reloginForFixture(runtime.accountCtx.accountId, runtime);
-    }
+    if (spec.needsAuth) await checkFixtureMerchantSession(runtime.accountCtx.accountId, runtime);
 
     const ctx = buildCommandCtx(runtime, {
-      client: new FixtureEndpointClient(),
       page: null,
       mallCtx: await resolveMockMall(spec.needsMall),
     });

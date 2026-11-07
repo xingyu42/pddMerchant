@@ -183,7 +183,7 @@ async function main() {
       }
       const envelope = {
         ok: false,
-        command: 'pdd',
+        command: err.commandName ?? 'pdd',
         data: null,
         error: {
           code: 'E_USAGE',

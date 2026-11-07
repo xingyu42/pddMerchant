@@ -20,20 +20,6 @@ describe('experience page-api contracts', () => {
       { beginDate: '2026-10-24', endDate: '2026-10-30' });
   });
 
-  it('requires both success and a camelCase success code', () => {
-    for (const spec of specs) {
-      assert.equal(spec.isSuccess({ success: true, errorCode: 1000000 }), true);
-      assert.equal(spec.isSuccess({ success: true, errorCode: 0 }), true);
-      for (const raw of [null, {}, { success: true }, { success: false, errorCode: 1000000 },
-        { success: false, errorCode: 0 }, { success: true, errorCode: 1 }, { success: true, error_code: 1000000 }]) {
-        assert.equal(spec.isSuccess(raw), false);
-      }
-      const error = spec.errorMapper({ success: false, errorCode: 40002, errorMsg: '请求失败' });
-      assert.equal(error.code, 'E_BUSINESS');
-      assert.equal(error.message, '请求失败');
-    }
-  });
-
   it('projects only confirmed fields for snapshot and trend', () => {
     const result = { mallId: 'SYN-MALL', mallName: 'SYN-NAME', imageUrl: 'https://example.invalid/x',
       mallStarToc: 4.5, avgDescRevScrRcatePct3m: 50, ptHelpRate1mRk: 52.92,

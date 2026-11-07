@@ -12,6 +12,16 @@ export function mockIsAuthIndeterminate() {
   return process.env[ENV_AUTH_INDETERMINATE] === '1';
 }
 
+export function hasFixtureRelogin(state) {
+  return state?.cookies?.some((cookie) => cookie.name === 'PDD_FIXTURE_RELOGIN' && cookie.value === '1') ?? false;
+}
+
+// 成功获取的模拟材料仍经 merchant-auth 的候选校验和正式提交路径。
+export function createFixtureReloginContext(mallId) {
+  const state = { cookies: [{ name: 'PDD_FIXTURE_RELOGIN', value: '1', domain: '.pinduoduo.com', path: '/' }], origins: [] };
+  return { fixtureMallId: mallId, storageState: async () => structuredClone(state) };
+}
+
 export function mockIsConsumerAuthValid() {
   return process.env[ENV_CONSUMER_AUTH_INVALID] !== '1';
 }

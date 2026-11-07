@@ -3,8 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import { withBrowser } from '../../adapter/browser.js';
 import { PDD_HOME } from '../../adapter/auth-state.js';
-import { verifyMerchantContext, assertMerchantVerified } from '../../adapter/merchant-auth.js';
-import { withMerchantAuthUpdate, commitMerchantCandidate, recordMerchantCheck, verifyStoredMerchant } from '../../adapter/merchant-auth-storage.js';
+import { withMerchantAuthUpdate, commitMerchantCandidate } from '../../adapter/merchant-auth-storage.js';
 import { resolveMallContext } from '../../adapter/mall-reader.js';
 import { switchTo } from '../../adapter/mall-writer.js';
 import { isMockEnabled } from '../../adapter/mock-dispatcher.js';
@@ -14,7 +13,7 @@ import { getLogger } from '../../infra/logger.js';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { resolveAccountContext } from '../../infra/account-resolver.js';
 import { armDeadline, budgetMs, remainingMs, throwIfAborted, timeoutError } from '../../infra/abort.js';
-import { reloginInCommand } from '../../services/password-relogin.js';
+import { checkMerchantSession } from '../../services/merchant-session.js';
 import { executeFixture, buildCommandCtx, appendActionWarnings } from './fixture-runtime.js';
 import { finalizeSuccess, finalizeError } from './envelope-finalizer.js';
 
@@ -34,20 +33,18 @@ async function resolveAccount(opts, needsAuth, warnings, needsAccount = false) {
   return resolved;
 }
 
-async function assertAuthValid(context, runtime, transaction) {
+async function assertAuthValid(context, runtime, transaction, browser) {
   const { signal, deadlineAt } = runtime;
   throwIfAborted(signal);
   if (deadlineAt && remainingMs({ deadlineAt }) === 0) {
     throw timeoutError();
   }
-  const result = await verifyStoredMerchant(context, transaction.state, {
-    signal, deadlineAt: deadlineAt ?? undefined, expectedMallId: runtime.accountCtx?.account?.identity,
+  const session = await checkMerchantSession(context, {
+    tx: transaction, runtime, browser,
+    task: { signal, deadlineAt: deadlineAt ?? undefined, expectedMallId: runtime.accountCtx?.account?.identity },
   });
-  if (result.verdict !== 'verified') await recordMerchantCheck(result, transaction);
-  if (result.verdict === 'rejected') return result;
-  assertMerchantVerified(result);
-  runtime.verifiedMallId = result.identity.mallId;
-  return result;
+  runtime.verifiedMallId = session.mallId;
+  return session;
 }
 
 async function resolveLiveMall(needsMall, page, opts, runtimeConfig) {
@@ -69,14 +66,14 @@ async function persistAuthStateAfterSuccess(spec, runtime, context, transaction,
 
   try {
     await page.close();
-    const result = await verifyMerchantContext(context, {
-      signal: runtime.signal, deadlineAt: runtime.deadlineAt ?? undefined, expectedMallId: runtime.verifiedMallId,
+    const { result } = await checkMerchantSession(context, { mode: 'snapshot',
+      task: { signal: runtime.signal, deadlineAt: runtime.deadlineAt ?? undefined, expectedMallId: runtime.verifiedMallId },
     });
     if (result.verdict !== 'verified') {
       runtime.warnings.push(result.reason === 'identity_mismatch' ? 'auth_state_identity_mismatch' : 'auth_state_persist_unverified');
       return;
     }
-    await commitMerchantCandidate(result.candidate, transaction);
+    commitMerchantCandidate(result.candidate, transaction);
   } catch (err) {
     runtime.log.warn({ code: err?.code ?? null }, 'auth-state: persist after command failed');
     runtime.warnings.push(err?.code === 'E_AUTH_STATE_CONFLICT' ? 'auth_state_persist_conflict' : 'auth_state_persist_failed');
@@ -92,12 +89,10 @@ async function executeLiveOperation(spec, runtime) {
     let context = initialContext;
     let page = initialPage;
     if (spec.needsAuth) {
-      const authResult = await assertAuthValid(context, runtime, transaction);
-      if (authResult.verdict === 'rejected') {
-        const replacement = await reloginInCommand(runtime, transaction, browser, authResult);
+      const { replacement } = await assertAuthValid(context, runtime, transaction, browser);
+      if (replacement) {
         await context.close();
         ({ context, page } = replacement);
-        runtime.verifiedMallId = transaction.state.merchant_auth.mall_id;
       }
       await page.goto(PDD_HOME, { waitUntil: 'domcontentloaded', timeout: budgetMs(runtime, 60000) });
     }

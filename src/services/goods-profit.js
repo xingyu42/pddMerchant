@@ -1,5 +1,5 @@
-import { PddCliError, ExitCodes, responseShapeError } from '../infra/errors.js';
-import { toLocalDate, toFiniteNumber } from '../infra/units.js';
+import { responseShapeError } from '../infra/errors.js';
+import { toFiniteNumber } from '../infra/units.js';
 import { throwIfAborted } from '../infra/abort.js';
 import { listOrders } from './orders.js';
 import { collectOrdersForStaleAnalysis } from './diagnose/orders-collector.js';
@@ -7,19 +7,18 @@ import { listGoodsCosts } from '../infra/goods-cost-store.js';
 import { computeGoodsProfit } from './goods-profit-calculation.js';
 import { collectProfitPromo } from './goods-profit-promo.js';
 import { costScope, validateCostGoodsId } from './goods-cost-input.js';
-import { toGoodsProfitView } from './views/goods-profit.js';
+import { toGoodsProfitView, GOODS_PROFIT_REPORT } from './views/goods-profit.js';
+import { runReport, createReport, validateReportDays } from './operating-report.js';
+import { completeShanghaiWindow } from './report-windows.js';
 
-const DAY_SECONDS = 86400;
+export { GOODS_PROFIT_REPORT };
+
 const ORDER_FACT_FIELDS = ['goods_id', 'spec', 'goods_number', 'order_amount', 'platform_discount',
   'after_sales_status', 'shipping_time', 'pay_status', 'group_time'];
 
-export function resolveProfitWindow(days = 30, now = Math.floor(Date.now() / 1000)) {
-  if (!Number.isInteger(days) || days < 1 || days > 90) {
-    throw new PddCliError({ code: 'E_USAGE', message: '--days 需要 1–90 的整数，默认 30', exitCode: ExitCodes.USAGE });
-  }
-  const end = Math.floor((now + 8 * 3600) / DAY_SECONDS) * DAY_SECONDS - 8 * 3600;
-  const start = end - days * DAY_SECONDS;
-  return { days, start, end, startDate: toLocalDate(start), endDate: toLocalDate(end - 1) };
+export function resolveProfitWindow(days = GOODS_PROFIT_REPORT.days.default, now = Math.floor(Date.now() / 1000)) {
+  validateReportDays(GOODS_PROFIT_REPORT, days);
+  return completeShanghaiWindow(days, now);
 }
 
 function filterOrders(orders, window) {
@@ -64,9 +63,10 @@ export async function collectProfitOrders(page, ctx, { window, maxPages, delayMs
   throwIfAborted(ctx.signal);
   const filtered = filterOrders(scan.orders, window);
   const hints = [];
-  if (scan.truncated) hints.push('orders_truncated');
-  if (scan.ratelimited) hints.push('orders_ratelimited');
-  if (filtered.invalid) hints.push('invalid_order_window');
+  const report = createReport(ctx, GOODS_PROFIT_REPORT, { window, hints });
+  if (scan.truncated) report.hint('orders_truncated');
+  if (scan.ratelimited) report.hint('orders_ratelimited');
+  if (filtered.invalid) report.hint('invalid_order_window');
   return { ...scan, orders: filtered.orders, complete: !scan.truncated && !scan.ratelimited && !filtered.invalid,
     request_count: requestCount, hints };
 }
@@ -80,18 +80,20 @@ function filterProfitItems(analysis, goodsId, input) {
   return { ...analysis, items: computeGoodsProfit({ ...input, orders: [], promo }).items };
 }
 
-export async function getGoodsProfitView(ctx, { days = 30, goodsId: filter } = {}) {
-  const window = resolveProfitWindow(days);
-  const goodsId = filter == null ? null : validateCostGoodsId(filter);
-  const scope = costScope({ ...ctx, config: { mall: ctx.mallId } });
-  const entries = listGoodsCosts(scope);
-  const orders = await collectProfitOrders(ctx.page, ctx, { window });
-  const promo = await collectProfitPromo(ctx.page, ctx, { window });
-  const quality = { orders_complete: orders.complete, orders_truncated: orders.truncated, orders_ratelimited: orders.ratelimited,
-    promo_complete: promo.complete, promo_truncated: promo.truncated, promo_ratelimited: promo.ratelimited };
-  const input = { orders: orders.orders, entries, promo, quality };
-  const analysis = filterProfitItems(computeGoodsProfit(input), goodsId, input);
-  return { data: toGoodsProfitView(analysis, { window, quality, mallId: scope.mallId, goodsId,
-    reasons: [...orders.hints, ...promo.hints] }), warnings: promo.warnings,
-  meta: { xhr_count: orders.request_count + promo.request_count } };
+export async function getGoodsProfitView(ctx, { days = GOODS_PROFIT_REPORT.days.default, goodsId: filter } = {}) {
+  return runReport(ctx, GOODS_PROFIT_REPORT, { days, window: completeShanghaiWindow }, async (report) => {
+    const { window } = report;
+    const goodsId = filter == null ? null : validateCostGoodsId(filter);
+    const scope = costScope({ ...ctx, config: { mall: ctx.mallId } });
+    const entries = listGoodsCosts(scope);
+    const orders = await collectProfitOrders(ctx.page, ctx, { window });
+    const promo = await collectProfitPromo(ctx.page, ctx, { window });
+    const quality = { orders_complete: orders.complete, orders_truncated: orders.truncated, orders_ratelimited: orders.ratelimited,
+      promo_complete: promo.complete, promo_truncated: promo.truncated, promo_ratelimited: promo.ratelimited };
+    const input = { orders: orders.orders, entries, promo, quality };
+    const analysis = filterProfitItems(computeGoodsProfit(input), goodsId, input);
+    return { data: toGoodsProfitView(analysis, { window, quality, mallId: scope.mallId, goodsId,
+      reasons: [...orders.hints, ...promo.hints] }), warnings: promo.warnings,
+    meta: { xhr_count: orders.request_count + promo.request_count } };
+  });
 }

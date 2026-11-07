@@ -83,6 +83,15 @@ it('distinguishes a zero denominator from a real zero ROI and rounds display rat
   assert.deepEqual(result.rows.map((row) => row.plan_id), ['fraction', 'zero', 'none']);
 });
 
+it.each(['impression', 'click'])('propagates a missing %s across a group without losing known money', (field) => {
+  const source = { planId: 'p1', adId: 'a1', spend: 10, gmv: 20, impression: 10, click: 1 };
+  const result = analyzePromoRoi({ entities: [source, { ...source, [field]: null }, source] });
+  assert.equal(result.rows[0][field], null);
+  assert.equal(result.rows[0].ctr, null);
+  assert.equal(result.rows[0].spend, 30);
+  assert.equal(result.rows[0].roi, 2);
+});
+
 it.each([{ items: [] }, { items: [{ spend: 0, gmv: 0 }] }])('returns null overall ROI when total spend is zero %#', ({ items }) => {
   const result = analyzePromoRoi({ entities: items });
   assert.equal(result.summary.total_spend, 0);

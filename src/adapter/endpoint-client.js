@@ -1,7 +1,9 @@
 import { parseBody } from './xhr-collector.js';
-import { PddCliError, ExitCodes, mapErrorToExit } from '../infra/errors.js';
+import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
-import { classifyRateLimit } from './classify-rate-limit.js';
+import { interpretResponse } from './response-interpreter.js';
+import { isMockEnabled, mockRunEndpoint } from './mock-dispatcher.js';
+export { readBusinessError, SUCCESS_BUSINESS_CODES } from './response-interpreter.js';
 import {
   throwIfAborted,
   abortableSleep,
@@ -14,54 +16,27 @@ import { executePageApiRequest } from './page-api-client.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 
 const RETRY_DELAYS_MS = [1000, 2000, 4000];
-export const SUCCESS_BUSINESS_CODES = new Set([0, 1000000]);
 
 function responseStatus(response) {
   if (!response) return null;
   try {
-    const s = typeof response.status === 'function' ? response.status() : response.status;
-    return typeof s === 'number' ? s : null;
+    const status = typeof response.status === 'function' ? response.status() : response.status;
+    return typeof status === 'number' ? status : null;
   } catch {
     return null;
   }
 }
 
 function resolveNavUrl(meta, params, ctx) {
-  const raw = meta?.nav?.url;
-  if (typeof raw === 'function') return raw(params, ctx);
-  return raw;
-}
-
-export function readBusinessError(raw) {
-  if (!raw || typeof raw !== 'object') return null;
-  const code = raw.error_code ?? raw.errorCode;
-  const msg = raw.error_msg ?? raw.errorMsg;
-  if (code == null) return null;
-  if (SUCCESS_BUSINESS_CODES.has(code)) return null;
-  return { code: String(code), message: msg == null ? '' : String(msg) };
-}
-
-function createBusinessFailure(meta, raw) {
-  const businessError = readBusinessError(raw);
-  const ambiguousRiskControl = businessError?.code === '40002';
-  const classification = ambiguousRiskControl ? 'high-frequency-or-risk-control' : undefined;
-  const message = businessError?.message
-    ? `${meta.name}: ${businessError.message}`
-    : `${meta.name}: business error`;
-  const hint = ambiguousRiskControl
-    ? '平台返回高频或风控拒绝；该错误也可能由请求签名异常引起，不能单凭此码认定真实限流'
-    : raw?.errorMsg || raw?.error_msg || '设 PDD_DEBUG_RAW=1 查看脱敏后的原始响应';
-  return new PddCliError({
-    code: 'E_BUSINESS',
-    message,
-    hint,
-    detail: {
-      errorCode: raw?.errorCode ?? raw?.error_code,
-      ...(classification ? { classification } : {}),
-      raw,
-    },
-    exitCode: ExitCodes.BUSINESS,
-  });
+  try {
+    const raw = meta?.nav?.url;
+    return typeof raw === 'function' ? raw(params, ctx) : raw;
+  } catch (error) {
+    throw new PddCliError({
+      code: 'E_USAGE', message: `${meta.name}: nav.url function threw: ${error?.message}`,
+      exitCode: ExitCodes.USAGE,
+    });
+  }
 }
 
 function isPlainObject(value) {
@@ -109,7 +84,7 @@ export class PlaywrightEndpointClient {
     const page = ctx.page;
     const log = ctx.log ?? getLogger();
 
-    if (!page || !meta) {
+    if ((!page && !isMockEnabled()) || !meta) {
       throw new PddCliError({
         code: 'E_USAGE',
         message: 'EndpointClient.execute: page and spec are required',
@@ -131,7 +106,7 @@ export class PlaywrightEndpointClient {
     }
 
     let limiterWaitMs = 0;
-    if (this._limiter) {
+    if (this._limiter && !isMockEnabled()) {
       const { waitMs } = await this._limiter.acquire(meta.name);
       limiterWaitMs = waitMs;
     }
@@ -191,113 +166,32 @@ export class PlaywrightEndpointClient {
     this._cooldownState.map.delete(name);
   }
 
-  async _executeWithRetry(page, meta, params, ctx, log, startedAt) {
-    let navUrl;
-    try {
-      navUrl = resolveNavUrl(meta, params, ctx);
-    } catch (err) {
-      throw new PddCliError({
-        code: 'E_USAGE',
-        message: `${meta.name}: nav.url function threw: ${err?.message}`,
-        exitCode: ExitCodes.USAGE,
-      });
+  // 传输只提供 HTTP 状态和上游响应体，fixture 与浏览器共用后续判定、归一化和冷却记账。
+  async send(spec, params, ctx) {
+    if (isMockEnabled()) {
+      const raw = await mockRunEndpoint(spec, params, ctx);
+      return { status: 200, raw, response: { status: () => 200 } };
     }
+    const response = await this._attemptOnce(ctx.page, spec, params, ctx, ctx.log, ctx.navUrl);
+    const status = responseStatus(response);
+    const raw = [401, 403, 429].includes(status) ? null : await parseBody(response);
+    return { status, raw, response };
+  }
 
+  async _executeWithRetry(page, meta, params, ctx, log, startedAt) {
+    const navUrl = resolveNavUrl(meta, params, ctx);
     let attempt = 0;
-
     while (true) {
       throwIfAborted(ctx.signal);
-      const response = await this._attemptOnce(page, meta, params, ctx, log, navUrl);
-      const status = responseStatus(response);
-
-      if (status === 429) {
-        if (attempt < RETRY_DELAYS_MS.length) {
-          const delay = RETRY_DELAYS_MS[attempt];
-          log.debug({ endpoint: meta.name, attempt: attempt + 1, delay }, 'HTTP 429, backing off');
-          attempt += 1;
-          await abortableSleep(delay, ctx.signal);
-          continue;
-        }
-        throw new PddCliError({
-          code: 'E_RATE_LIMIT',
-          message: `${meta.name}: rate limited after ${RETRY_DELAYS_MS.length} retries`,
-          hint: '请求过于频繁，请稍后重试',
-          detail: { endpoint: meta.name, url: navUrl, status },
-          exitCode: ExitCodes.RATE_LIMIT,
-        });
+      const { status, raw, response } = await this.send(meta, params, { ...ctx, page, log, navUrl });
+      if (status === 429 && attempt < RETRY_DELAYS_MS.length) {
+        const delay = RETRY_DELAYS_MS[attempt];
+        log.debug({ endpoint: meta.name, attempt: attempt + 1, delay }, 'HTTP 429, backing off');
+        attempt += 1;
+        await abortableSleep(delay, ctx.signal);
+        continue;
       }
-
-      if (status === 401 || status === 403) {
-        throw new PddCliError({
-          code: 'E_AUTH_EXPIRED',
-          message: `${meta.name}: auth expired (HTTP ${status})`,
-          hint: '登录态失效，请重新登录',
-          detail: { url: navUrl, status },
-          exitCode: ExitCodes.AUTH,
-        });
-      }
-
-      const raw = await parseBody(response);
-      const isHttpError = status != null && status >= 400;
-
-      if (isHttpError) {
-        if (typeof meta.errorMapper === 'function') {
-          const mapped = meta.errorMapper(raw, response);
-          if (mapped && mapped.code) {
-            throw new PddCliError({
-              code: mapped.code,
-              message: mapped.message || `${meta.name}: HTTP ${status}`,
-              detail: { url: navUrl, status, raw },
-              exitCode: mapped.exitCode ?? mapErrorToExit({ code: mapped.code }),
-            });
-          }
-        }
-        throw new PddCliError({
-          code: 'E_NETWORK',
-          message: `${meta.name}: HTTP ${status}`,
-          detail: { url: navUrl, status },
-          exitCode: ExitCodes.NETWORK,
-        });
-      }
-
-      if (raw == null) {
-        throw new PddCliError({
-          code: 'E_NETWORK',
-          message: `${meta.name}: empty or unparsable response body`,
-          hint: '可能被风控拦截，尝试重新登录',
-          exitCode: ExitCodes.NETWORK,
-        });
-      }
-
-      const rateLimitClass = classifyRateLimit(raw, response);
-      if (rateLimitClass) {
-        throw new PddCliError({
-          code: 'E_RATE_LIMIT',
-          message: `${meta.name}: rate limit detected (${rateLimitClass})`,
-          hint: '请求过于频繁，请稍后重试',
-          detail: { endpoint: meta.name, classification: rateLimitClass, raw },
-          exitCode: ExitCodes.RATE_LIMIT,
-        });
-      }
-
-      const ok = typeof meta.isSuccess === 'function' ? meta.isSuccess(raw) : true;
-      if (!ok) {
-        if (typeof meta.errorMapper === 'function') {
-          const mapped = meta.errorMapper(raw, response);
-          if (mapped && mapped.code) {
-            throw new PddCliError({
-              code: mapped.code,
-              message: mapped.message || `${meta.name}: business error`,
-              hint: raw?.errorMsg || raw?.error_msg || '',
-              detail: { errorCode: raw?.errorCode ?? raw?.error_code, raw },
-              exitCode: mapped.exitCode ?? mapErrorToExit({ code: mapped.code }),
-            });
-          }
-        }
-        throw createBusinessFailure(meta, raw);
-      }
-
-      const normalized = typeof meta.normalize === 'function' ? meta.normalize(raw) : { raw };
+      const normalized = interpretResponse(meta, { status, raw, response, url: navUrl, retries: attempt });
       log.debug({
         endpoint: meta.name,
         latency_ms: Date.now() - startedAt,

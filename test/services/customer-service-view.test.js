@@ -36,3 +36,12 @@ it('keeps no-consultation metrics null and category references available', () =>
   assert.equal(partial.trend, null);
   assert.deepEqual(partial.hints, ['客服逐日趋势拉取失败']);
 });
+
+it('coerces numeric count strings and preserves missing counts in summary and trend', () => {
+  const info = { consultUserCnt: '3', receiveUserCnt: '0', serveRefundCnt: '' };
+  const view = toCustomerServiceView(info, { window, trend: { items: [info] } });
+  assert.equal(view.summary.consult_user_count, 3);
+  assert.equal(view.summary.manual_receive_user_count, 0);
+  assert.equal(view.summary.service_refund_count, null);
+  assert.equal(view.trend.items[0].consult_user_count, 3);
+});
