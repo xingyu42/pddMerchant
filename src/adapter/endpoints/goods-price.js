@@ -35,17 +35,24 @@ function discountList(scene, avg, endpoint) {
   return list.map((item) => discount(item, endpoint));
 }
 
-function scene(item, endpoint) {
-  if (!item || typeof item !== 'object') throw responseShapeError(endpoint, 'calculate_price_detail_list[] object');
-  const sceneValue = toFiniteNumber(item.consult_price_scene);
-  const number = toFiniteNumber(item.number);
-  if (sceneValue === null) throw responseShapeError(endpoint, 'consult_price_scene');
-  if (number === null || !Number.isInteger(number) || number < 1) throw responseShapeError(endpoint, 'scene number');
+function sceneDetail(item, sceneValue, endpoint) {
   if (!Array.isArray(item.promo_price_list)) throw responseShapeError(endpoint, 'promo_price_list array');
   const avg = requireFen(item.avg_discount_amount, endpoint, 'avg_discount_amount');
-  return { consult_price_scene: sceneValue, number, avg_discount_amount: avg,
+  return { consult_price_scene: sceneValue, avg_discount_amount: avg,
     promo_price: requireFen(item.promo_price_list[0], endpoint, 'promo_price_list[0]'),
     merge_promo_detail_list: discountList(item, avg, endpoint) };
+}
+
+// 只严格校验请求口径的单件 / 多件场景（件数仅多件需要）；其他场景只保留场景值，交给 service 忽略并告警。
+function scene(item, endpoint, scenes) {
+  if (!item || typeof item !== 'object') throw responseShapeError(endpoint, 'calculate_price_detail_list[] object');
+  const sceneValue = toFiniteNumber(item.consult_price_scene);
+  if (sceneValue === null) throw responseShapeError(endpoint, 'consult_price_scene');
+  if (sceneValue === scenes?.single) return sceneDetail(item, sceneValue, endpoint);
+  if (sceneValue !== scenes?.multi) return { consult_price_scene: sceneValue };
+  const number = toFiniteNumber(item.number);
+  if (number === null || !Number.isInteger(number) || number < 1) throw responseShapeError(endpoint, 'scene number');
+  return { ...sceneDetail(item, sceneValue, endpoint), number };
 }
 
 function activity(info, endpoint) {
@@ -55,7 +62,7 @@ function activity(info, endpoint) {
 }
 
 // 列表与补全接口的 SKU 结构相同，补全端点复用此归一化。
-export function normalizePriceSku(item, endpoint) {
+export function normalizePriceSku(item, endpoint, scenes) {
   if (!item || typeof item !== 'object') throw responseShapeError(endpoint, 'sku_promo_list[] object');
   if (!Array.isArray(item.calculate_price_detail_list)) {
     throw responseShapeError(endpoint, 'calculate_price_detail_list array');
@@ -63,32 +70,33 @@ export function normalizePriceSku(item, endpoint) {
   return { sku_id: requireId(item.sku_id, endpoint, 'sku_id'), sku_spec: optionalText(item.sku_spec),
     group_price: requireFen(item.group_price, endpoint, 'group_price'),
     activity_price_info: activity(item.activity_price_info, endpoint),
-    calculate_price_detail_list: item.calculate_price_detail_list.map((entry) => scene(entry, endpoint)) };
+    calculate_price_detail_list: item.calculate_price_detail_list.map((entry) => scene(entry, endpoint, scenes)) };
 }
 
-function goods(item, endpoint) {
+function goods(item, endpoint, scenes) {
   if (!item || typeof item !== 'object') throw responseShapeError(endpoint, 'goods_price_info_list[] object');
   if (!Array.isArray(item.sku_promo_list)) throw responseShapeError(endpoint, 'sku_promo_list array');
   const remain = toFiniteNumber(item.remain_sku_num);
+  if (remain === null || !Number.isInteger(remain) || remain < 0) throw responseShapeError(endpoint, 'remain_sku_num');
   return { goods_id: requireId(item.goods_id, endpoint, 'goods_id'), goods_name: optionalText(item.goods_name),
-    remain_sku_num: remain !== null && Number.isInteger(remain) && remain >= 0 ? remain : null,
-    sku_promo_list: item.sku_promo_list.map((sku) => normalizePriceSku(sku, endpoint)) };
+    remain_sku_num: remain,
+    sku_promo_list: item.sku_promo_list.map((sku) => normalizePriceSku(sku, endpoint, scenes)) };
 }
 
-function normalizeList(raw) {
+function normalizeList(raw, { scenes } = {}) {
   const result = raw?.result;
   const total = toFiniteNumber(result?.total);
   if (total === null || !Number.isInteger(total) || total < 0 || !Array.isArray(result?.goods_price_info_list)) {
     throw responseShapeError('goodsPrice.list', 'result.total / goods_price_info_list');
   }
-  return { total, goods: result.goods_price_info_list.map((item) => goods(item, 'goodsPrice.list')) };
+  return { total, goods: result.goods_price_info_list.map((item) => goods(item, 'goodsPrice.list', scenes)) };
 }
 
 function buildListPayload({ page = 1, size = GOODS_PRICE_MAX_PAGE_SIZE, goodsIds = [], scenes }) {
   return {
     page_num: page, page_size: size, only_low_price_warn_goods: false, only_red_line_goods: false,
     ...(goodsIds.length > 0 ? { goods_search_condition: { goods_id_list: goodsIds.map(Number) } } : {}),
-    consult_price_scene_list: [...scenes], source_type: 'PriceManagent',
+    consult_price_scene_list: [scenes.single, scenes.multi], source_type: 'PriceManagent',
   };
 }
 
@@ -98,20 +106,18 @@ export const GOODS_PRICE_LIST = {
   buildPayload: buildListPayload,
   successRule: { mode: 'flag-or-code', codeField: 'error_code', codes: [1000000] },
   errorMap: 'upstream', normalize: normalizeList, fixtureListKey: 'result.goods_price_info_list',
-  // fixture 可按请求场景值提供口径变体（goodsPrice.list.10,11.json），缺失时回落分页 / 基础 fixture。
-  fixtureVariantKey: 'scenes',
 };
 
-function normalizeExpand(raw) {
+function normalizeExpand(raw, { scenes } = {}) {
   const result = raw?.result;
   if (!result || typeof result !== 'object' || !Array.isArray(result.sku_promo_list)) {
     throw responseShapeError('goodsPrice.expand', 'result.sku_promo_list');
   }
-  return { sku_promo_list: result.sku_promo_list.map((sku) => normalizePriceSku(sku, 'goodsPrice.expand')) };
+  return { sku_promo_list: result.sku_promo_list.map((sku) => normalizePriceSku(sku, 'goodsPrice.expand', scenes)) };
 }
 
 function buildExpandPayload({ goods_id: goodsId, scenes, exposedSkuIds = [] }) {
-  return { goods_id: Number(goodsId), consult_price_scene_list: [...scenes],
+  return { goods_id: Number(goodsId), consult_price_scene_list: [scenes.single, scenes.multi],
     exposed_sku_id_list: exposedSkuIds.map(Number) };
 }
 

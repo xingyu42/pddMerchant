@@ -119,10 +119,10 @@ const EXIT_CODES = { E_NETWORK: 5, E_AUTH_EXPIRED: 3, E_RATE_LIMIT: 4, E_BUSINES
 function assertVerdict(spec, entry) {
   const normalize = vi.fn(() => ({ normalized: true }));
   const actualSpec = { ...spec, normalize: entry.noNormalize ? undefined : normalize };
-  const context = { status: entry.status ?? 200, raw: entry.raw, retries: 3, url: '/synthetic' };
+  const context = { status: entry.status ?? 200, raw: entry.raw, retries: 3, url: '/synthetic', params: { page: 2 } };
   if (!entry.code) {
     assert.deepEqual(interpretResponse(actualSpec, context), entry.noNormalize ? { raw: entry.raw } : { normalized: true });
-    if (!entry.noNormalize) assert.deepEqual(normalize.mock.calls, [[entry.raw]]);
+    if (!entry.noNormalize) assert.deepEqual(normalize.mock.calls, [[entry.raw, { page: 2 }]]);
     return;
   }
   assert.throws(() => interpretResponse(actualSpec, context), (error) => {

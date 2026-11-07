@@ -143,7 +143,7 @@ export const ENV_CONSUMER_AUTH_INVALID = 'PDD_TEST_CONSUMER_AUTH_INVALID';
 - Specs without `normalize` return `{ raw }` through both transports。
 - `{ __throws: true, __error: { code, message, hint, detail, exitCode } }` remains available for transport failures and explicit injected errors。
 - Fixtures are named `endpoints/<spec.name>.json`; `<spec.name>.page<N>.json` takes precedence. Missing page 1 falls back to the base fixture。
-- A spec MAY declare `fixtureVariantKey: '<param>'`（例如 `'goods_id'`）。When the request param is present, `<spec.name>.<param value>.json` is loaded first; a missing variant file falls back to the normal page/base lookup. `__throws` in a variant fixture applies as usual. Specs without the key ignore variant files。
+- A spec MAY declare `fixtureVariantKey: '<param>'`（例如 `'goods_id'`）; the key MUST name a scalar request param (string / number), never an array or object. When the request param is present, `<spec.name>.<param value>.json` is loaded first; a missing variant file falls back to the normal page/base lookup. `__throws` in a variant fixture applies as usual. Specs without the key ignore variant files。
 - Missing later pages clone the base body and empty the array at the dotted upstream `spec.fixtureListKey` (for example `result.pageItems`), preserving envelope, totals and aggregates. Invalid list paths fail with `E_FIXTURE_SHAPE`。
 - `fixtures/core.js` owns the cache; endpoint fixture reads return isolated clones. Missing fixtures fail with `E_FIXTURE_MISSING` without browser fallback。
 - Regression coverage: `test/adapter/fixture-transport.test.js` compares raw 40002/54001 failures with live transport, proves normalization with a null page, raw-wrapper parity, pagination/cache isolation and cooldown accounting。

@@ -57,28 +57,37 @@ function selectScenes(goodsId, sku, caliber, warnings) {
   return { ...sku, single, multi: find(caliber.multi) };
 }
 
-// 列表每个商品只带回前几个 SKU；remain_sku_num > 0 的商品按顺序补全，补全结果按 sku_id 去重后追加。
-async function expandSkus(ctx, item, scenes) {
-  if (!(item.remain_sku_num > 0)) return { skus: item.sku_promo_list, calls: 0 };
+function warnIncomplete(item, skus, warnings) {
+  const expected = item.sku_promo_list.length + item.remain_sku_num;
+  if (skus.length >= expected) return;
+  warnings.push({ code: 'receipt_sku_incomplete', goods_id: item.goods_id, expected, actual: skus.length,
+    message: `补全后 SKU 数 ${skus.length} 少于平台报告的 ${expected} 个` });
+}
+
+// 列表每个商品只带回前几个 SKU；remain_sku_num > 0 的商品按顺序补全，补全结果按 sku_id 去重后追加，数量不足时告警。
+async function expandSkus(ctx, item, scenes, warnings) {
+  if (item.remain_sku_num === 0) return { skus: item.sku_promo_list, calls: 0 };
   const exposedSkuIds = item.sku_promo_list.map((sku) => sku.sku_id);
   const expanded = await runEndpoint(ctx.page, GOODS_PRICE_EXPAND,
     { goods_id: item.goods_id, scenes, exposedSkuIds }, ctx);
   const seen = new Set(exposedSkuIds);
   const extra = expanded.sku_promo_list.filter((sku) => !seen.has(sku.sku_id) && seen.add(sku.sku_id));
-  return { skus: [...item.sku_promo_list, ...extra], calls: 1 };
+  const skus = [...item.sku_promo_list, ...extra];
+  warnIncomplete(item, skus, warnings);
+  return { skus, calls: 1 };
 }
 
 export async function getGoodsReceiptView(ctx, options = {}) {
   const query = parseReceiptQuery(options);
   const caliber = RECEIPT_CALIBERS[query.caliber];
-  const scenes = [caliber.single, caliber.multi];
+  const scenes = { single: caliber.single, multi: caliber.multi };
   const result = await runEndpoint(ctx.page, GOODS_PRICE_LIST, { page: query.page, size: query.size,
     goodsIds: query.goodsIds, scenes }, ctx);
   const warnings = [];
   const goods = [];
   let xhrCount = 1;
   for (const item of result.goods) {
-    const { skus, calls } = await expandSkus(ctx, item, scenes);
+    const { skus, calls } = await expandSkus(ctx, item, scenes, warnings);
     xhrCount += calls;
     goods.push({ ...item, skus: skus.map((sku) => selectScenes(item.goods_id, sku, caliber, warnings)) });
   }

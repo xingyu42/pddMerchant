@@ -67,8 +67,8 @@ it('normalizes a successful raw fixture exactly once with page null', async () =
   const raw = { success: true, errorCode: 0, result: '2026-10-30' };
   useFixtures({ 'endpoints/traffic.readyTime.json': raw });
   const normalize = vi.fn(TRAFFIC_READY_TIME.normalize);
-  assert.equal(await runEndpoint(null, { ...TRAFFIC_READY_TIME, normalize }, {}, ctx), '2026-10-30');
-  assert.deepEqual(normalize.mock.calls, [[raw]]);
+  assert.equal(await runEndpoint(null, { ...TRAFFIC_READY_TIME, normalize }, { noise: 1 }, ctx), '2026-10-30');
+  assert.deepEqual(normalize.mock.calls, [[raw, { noise: 1 }]]);
   assert.equal(executePageApiRequest.mock.calls.length, 0);
 });
 

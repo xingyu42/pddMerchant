@@ -71,8 +71,7 @@ it('reads the requested page and size', () => {
 });
 
 it('requests and adopts the all-discounts scenes 10 and 11 under --caliber all, ignoring regular scenes', () => {
-  // 所有优惠口径样本只在请求场景值为 [10,11] 时被读取；请求错口径会落到常规口径的基础 fixture。
-  const fixtures = createGoodsReceiptFixtures({ allCaliberGoods: allCaliberReceiptGoods() });
+  const fixtures = createGoodsReceiptFixtures({ total: 1, goods: allCaliberReceiptGoods() });
   const result = runCli(['goods', 'receipt', '--caliber', 'all'], { fixtures });
   assert.equal(result.status, 0, result.stderr);
   const view = result.envelope.data;
@@ -87,6 +86,16 @@ it('requests and adopts the all-discounts scenes 10 and 11 under --caliber all, 
   assert.deepEqual(warnings.map((warning) => [warning.code, warning.goods_id, warning.sku_id, warning.scenes]),
     [['receipt_scene_ignored', '101', '1001', [7]]]);
   assert.match(warnings[0].message, /商家出资所有优惠/);
+});
+
+it('reads the page fixture under --caliber all', () => {
+  const fixtures = createGoodsReceiptFixtures({ total: 12, pages: { 2: [receiptGoods(111, [
+    receiptSku(11101, { scenes: [receiptScene(10, { avg: 0, receipt: 2130 })] })])] } });
+  const result = runCli(['goods', 'receipt', '--caliber', 'all', '--page', '2', '--size', '5'], { fixtures });
+  assert.equal(result.status, 0, result.stderr);
+  const view = result.envelope.data;
+  assert.deepEqual([view.total, view.page, view.items.length, view.items[0].goods_id], [12, 2, 1, '111']);
+  assert.equal(view.items[0].skus[0].single.receipt_yuan, 21.3);
 });
 
 it('accepts the regular caliber explicitly', () => {
@@ -147,7 +156,7 @@ it('adopts the all-discounts scenes for expanded skus under --caliber all', () =
   const [listed] = allCaliberReceiptGoods();
   const expanded = receiptSku(1002, { spec: '扩展-1002', scenes: [receiptScene(8, { avg: 0, receipt: 2130 }),
     receiptScene(10, { avg: 330, receipt: 1800, discounts: [receiptDiscount('商家出资平台券', '合成券', 330)] })] });
-  const fixtures = createGoodsReceiptFixtures({ allCaliberGoods: [{ ...listed, remain_sku_num: 1 }],
+  const fixtures = createGoodsReceiptFixtures({ total: 1, goods: [{ ...listed, remain_sku_num: 1 }],
     expansions: { 101: [expanded] } });
   const result = runCli(['goods', 'receipt', '--caliber', 'all'], { fixtures });
   assert.equal(result.status, 0, result.stderr);
@@ -160,6 +169,18 @@ it('adopts the all-discounts scenes for expanded skus under --caliber all', () =
   assert.deepEqual(ignored.map((warning) => [warning.sku_id, warning.scenes]), [['1001', [7]], ['1002', [8]]]);
 });
 
+it('warns when expansion returns fewer skus than the platform reported as remaining', () => {
+  const listed = (skuId) => receiptSku(skuId, { scenes: [receiptScene(7, { avg: 0, receipt: 1000 })] });
+  const fixtures = createGoodsReceiptFixtures({ total: 1, goods: [
+    receiptGoods(401, [listed(40101), listed(40102)], { remain: 3 })],
+  expansions: { 401: [listed(40102), listed(40103)] } });
+  const result = runCli(['goods', 'receipt'], { fixtures });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.envelope.data.items[0].sku_count, 3);
+  const incomplete = result.envelope.meta.warnings.filter((warning) => warning.code === 'receipt_sku_incomplete');
+  assert.deepEqual(incomplete.map((warning) => [warning.goods_id, warning.expected, warning.actual]), [['401', 5, 3]]);
+});
+
 it('fails with exit six and no partial sku list when expansion returns a business error', () => {
   const fixtures = createGoodsReceiptFixtures({ expansions: { 101: { success: false, error_code: 40002,
     error_msg: '补全规格失败' } } });
@@ -168,4 +189,18 @@ it('fails with exit six and no partial sku list when expansion returns a busines
   assert.equal(result.envelope.error.code, 'E_BUSINESS');
   assert.equal(result.envelope.error.message, '补全规格失败');
   assert.equal(result.envelope.data, null);
+});
+
+it('ignores foreign scenes of a different shape and accepts a single scene without quantity', () => {
+  const { number: _number, ...single } = receiptScene(7, { avg: 0, receipt: 2130 });
+  const foreign = { consult_price_scene: 9, consult_price_scene_desc: '合成走势', avg_discount_amount: 0 };
+  const fixtures = createGoodsReceiptFixtures({ total: 1, goods: [receiptGoods(301, [
+    receiptSku(30101, { scenes: [single, foreign] })])] });
+  const result = runCli(['goods', 'receipt'], { fixtures });
+  assert.equal(result.status, 0, result.stderr);
+  const [sku] = result.envelope.data.items[0].skus;
+  assert.deepEqual(sku.single, { merchant_discount_yuan: 0, receipt_yuan: 21.3, discounts: [] });
+  assert.equal(sku.multi, null);
+  assert.deepEqual(result.envelope.meta.warnings.map((warning) => [warning.code, warning.sku_id, warning.scenes]),
+    [['receipt_scene_ignored', '30101', [9]]]);
 });

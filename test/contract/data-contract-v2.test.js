@@ -96,7 +96,7 @@ const V2_CASES = [
   { command: 'goods.receipt', args: ['goods', 'receipt'], fixtures: createGoodsReceiptFixtures(),
     entityFields: GOODS_RECEIPT_ENTITY_FIELDS },
   { command: 'goods.receipt', args: ['goods', 'receipt', '--caliber', 'all'],
-    fixtures: createGoodsReceiptFixtures({ allCaliberGoods: allCaliberReceiptGoods() }),
+    fixtures: createGoodsReceiptFixtures({ total: 1, goods: allCaliberReceiptGoods() }),
     entityFields: GOODS_RECEIPT_ENTITY_FIELDS,
     checkData: (data) => assert.equal(data.caliber, '商家出资所有优惠') },
   { command: 'diagnose.customer-service', args: ['diagnose', 'customer-service'], fixtures: createCustomerServiceFixtures(),

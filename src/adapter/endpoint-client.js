@@ -181,7 +181,7 @@ export class PlaywrightEndpointClient {
         await abortableSleep(delay, ctx.signal);
         continue;
       }
-      const normalized = interpretResponse(meta, { status, raw, response, url: navUrl, retries: attempt });
+      const normalized = interpretResponse(meta, { status, raw, response, url: navUrl, retries: attempt, params });
       log.debug({
         endpoint: meta.name,
         latency_ms: Date.now() - startedAt,

@@ -365,9 +365,8 @@ function defaultReceiptExpansions() {
     scenes: [receiptScene(7, { avg: 0, receipt: 2130 })] })) };
 }
 
-// allCaliberGoods 写入按请求场景值 [10,11] 选择的变体 fixture，只有 --caliber all 的列表请求会读到它。
 export function createGoodsReceiptFixtures({ total = 2, goods = defaultReceiptGoods(), pages = {},
-  expansions = defaultReceiptExpansions(), allCaliberGoods } = {}) {
+  expansions = defaultReceiptExpansions() } = {}) {
   const fixtures = { 'endpoints/goodsPrice.list.json': receiptSuccess(total, goods) };
   for (const [page, list] of Object.entries(pages)) {
     fixtures[`endpoints/goodsPrice.list.page${page}.json`] = receiptSuccess(total, list);
@@ -375,9 +374,6 @@ export function createGoodsReceiptFixtures({ total = 2, goods = defaultReceiptGo
   for (const [goodsId, skus] of Object.entries(expansions)) {
     fixtures[`endpoints/goodsPrice.expand.${goodsId}.json`] = Array.isArray(skus)
       ? receiptExpandSuccess(Number(goodsId), skus) : skus;
-  }
-  if (allCaliberGoods) {
-    fixtures['endpoints/goodsPrice.list.10,11.json'] = receiptSuccess(allCaliberGoods.length, allCaliberGoods);
   }
   return fixtures;
 }
