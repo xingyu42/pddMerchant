@@ -347,10 +347,24 @@ function defaultReceiptGoods() {
   ];
 }
 
-export function createGoodsReceiptFixtures({ total = 2, goods = defaultReceiptGoods(), pages = {} } = {}) {
+export const receiptExpandSuccess = (goodsId, skus, name = '合成商品') =>
+  ({ success: true, error_code: 1000000, result: { goods_id: goodsId, goods_name: name, sku_promo_list: skus } });
+
+// 默认商品 101 的 remain_sku_num = 3，对应补全接口按 goods_id 变体返回其余 3 个 SKU。
+function defaultReceiptExpansions() {
+  return { 101: [1003, 1004, 1005].map((skuId) => receiptSku(skuId, { spec: `白色-${skuId}`,
+    scenes: [receiptScene(7, { avg: 0, receipt: 2130 })] })) };
+}
+
+export function createGoodsReceiptFixtures({ total = 2, goods = defaultReceiptGoods(), pages = {},
+  expansions = defaultReceiptExpansions() } = {}) {
   const fixtures = { 'endpoints/goodsPrice.list.json': receiptSuccess(total, goods) };
   for (const [page, list] of Object.entries(pages)) {
     fixtures[`endpoints/goodsPrice.list.page${page}.json`] = receiptSuccess(total, list);
+  }
+  for (const [goodsId, skus] of Object.entries(expansions)) {
+    fixtures[`endpoints/goodsPrice.expand.${goodsId}.json`] = Array.isArray(skus)
+      ? receiptExpandSuccess(Number(goodsId), skus) : skus;
   }
   return fixtures;
 }
