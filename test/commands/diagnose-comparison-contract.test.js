@@ -53,7 +53,7 @@ it('requests distinct comparison windows and computes their nonzero differences'
       raw.result.pageItems.push({ ...raw.result.pageItems[0], order_sn: 'SYN-PREVIOUS-2' });
       raw.result.totalItemNum = 2;
     }
-    return spec.normalize(raw);
+    return raw;
   });
 
   const envelope = await run({

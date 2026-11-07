@@ -1,7 +1,10 @@
 // 运行配置维护视图（输出契约 v2）：config show / validate / set / unset。
 // fields 以公开配置字段名（camelCase，如 rateLimitQps）为键，属自由键映射；其内部键与其余键均为 snake_case。
 import { labelOf } from '../../infra/units.js';
-import { CONFIG_SOURCE_LABEL } from './labels.js';
+
+const CONFIG_SOURCE_LABEL = Object.freeze({
+  baseline: '基线配置', local: '本地覆盖', env: '环境变量', cli: '命令行参数',
+});
 
 export const CONFIG_FIELD_VIEW_FIELDS = Object.freeze([
   'effective_value', 'source', 'has_local_override', 'local_override', 'overridden',

@@ -1,4 +1,4 @@
-import { readBusinessError } from '../run-endpoint.js';
+import { readBusinessError } from '../response-interpreter.js';
 import { ExitCodes, PddCliError, responseShapeError } from '../../infra/errors.js';
 import { PDD_HOME } from '../auth-state.js';
 
@@ -61,8 +61,7 @@ function resolveScope(scope = ORDER_LIST_DEFAULT_SCOPE) {
 
 export const ORDER_LIST = {
   name: 'orders.list',
-  fixtureListKey: 'orders',
-  fixtureIsServiceFacing: true,
+  fixtureListKey: 'result.pageItems',
   strategy: 'page-api',
   nav: { url: PDD_HOME },
   apiUrl: '/mangkhut/mms/recentOrderList',
@@ -82,7 +81,7 @@ export const ORDER_LIST = {
     const result = readListResult(raw);
     return { total: result.totalItemNum, orders: result.pageItems, raw };
   },
-  isSuccess: (raw) => raw?.success === true,
+  successRule: { mode: 'flag' },
 };
 
 const NOT_FOUND_HINTS = ['订单不存在', '未找到', '无此订单', 'not found', 'not_found'];
@@ -95,7 +94,6 @@ function matchesNotFound(message) {
 
 export const ORDER_DETAIL = {
   name: 'orders.detail',
-  fixtureIsServiceFacing: true,
   strategy: 'page-api',
   apiUrl: '/mangkhut/mms/orderDetail',
   buildPayload: (params = {}) => ({
@@ -117,18 +115,11 @@ export const ORDER_DETAIL = {
     return null;
   },
   normalize: (raw) => ({ order: readDetailResult(raw), raw }),
-  isSuccess: (raw) => {
-    if (!raw || typeof raw !== 'object') return false;
-    if (raw.success === true) return true;
-    const code = raw.error_code ?? raw.errorCode;
-    if (code === 0 || code === 1000000) return true;
-    return false;
-  },
+  successRule: { mode: 'flag-or-code' },
 };
 
 export const ORDER_STATS = {
   name: 'orders.stats',
-  fixtureIsServiceFacing: true,
   strategy: 'page-api',
   // diagnose 在新开的空白页上并发采集统计，必须先初始化商家运行时，否则 page API client 不可用
   nav: { url: PDD_HOME },
@@ -144,5 +135,5 @@ export const ORDER_STATS = {
       raw,
     };
   },
-  isSuccess: (raw) => raw?.success === true,
+  successRule: { mode: 'flag' },
 };

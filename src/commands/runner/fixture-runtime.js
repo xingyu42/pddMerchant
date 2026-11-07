@@ -1,6 +1,6 @@
 // fixture 运行时（design D-2）：PDD_TEST_ADAPTER=fixture 短路路径。
-// fixture auth 失败、mock mall 解析、FixtureEndpointClient ctx 构造与 run 终结。
-import { FixtureEndpointClient, mockCurrentMall, mockListMalls, mockIsAuthValid, mockIsAuthIndeterminate } from '../../adapter/mock-dispatcher.js';
+// fixture auth 失败、mock mall 解析、ctx 构造与 run 终结。
+import { mockCurrentMall, mockListMalls, mockIsAuthValid, mockIsAuthIndeterminate } from '../../adapter/mock-dispatcher.js';
 import { buildMallContext } from '../../adapter/mall-reader.js';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { fixtureSessionRecovered, reloginForFixture, getAccountActionWarnings } from '../../services/password-relogin.js';
@@ -67,7 +67,6 @@ export async function executeFixture(spec, runtime) {
     }
 
     const ctx = buildCommandCtx(runtime, {
-      client: new FixtureEndpointClient(),
       page: null,
       mallCtx: await resolveMockMall(spec.needsMall),
     });

@@ -1,24 +1,13 @@
 import { evaluateInMainWorld } from '../browser.js';
 import { normalizeGoodsPropertyTemplate } from '../goods-publish/property-mapper.js';
+import { isSuccessfulResponse, mapWriteBusinessError } from '../response-interpreter.js';
 
 export function mapPublishBusinessError(raw) {
-  const code = raw?.error_code ?? raw?.errorCode;
-  const msg = raw?.error_msg ?? raw?.errorMsg ?? '';
-  if (code === 54001) return { code: 'E_RATE_LIMIT', message: msg || '操作太过频繁', exitCode: 4 };
-  if (code === 1000) return { code: 'E_USAGE', message: msg || '参数错误', exitCode: 2 };
-  if (code != null && code !== 0 && code !== 1000000) {
-    return { code: 'E_BUSINESS', message: msg || `发布业务错误 (${code})`, exitCode: 6 };
-  }
-  return null;
+  return mapWriteBusinessError(raw, { notFound: false, businessLabel: '发布业务错误' });
 }
 
-function publishWriteIsSuccess(raw) {
-  if (!raw || typeof raw !== 'object') return false;
-  if (raw.success === true) return true;
-  const code = raw.error_code ?? raw.errorCode;
-  if (code === 0 || code === 1000000) return true;
-  return false;
-}
+const WRITE_SUCCESS_RULE = { mode: 'flag-or-code' };
+export const SAVE_DRAFT_SUCCESS_RULE = { mode: 'flag-or-code', codeField: 'error_code', codes: [1000000] };
 
 export const GOODS_PUBLISH_CREATE_DRAFT = {
   name: 'goods.publish.create_draft',
@@ -44,7 +33,7 @@ export const GOODS_PUBLISH_CREATE_DRAFT = {
     goods_id: raw?.goods_id ?? raw?.result?.goods_id ?? null,
     raw,
   }),
-  isSuccess: publishWriteIsSuccess,
+  successRule: WRITE_SUCCESS_RULE,
   errorMapper: mapPublishBusinessError,
 };
 
@@ -62,7 +51,7 @@ export const GOODS_PUBLISH_TEMPLATE = {
     // 页面导航到编辑页时自动加载属性模板
   },
   normalize: normalizeGoodsPropertyTemplate,
-  isSuccess: (raw) => normalizeGoodsPropertyTemplate(raw).ok,
+  successRule: (raw) => normalizeGoodsPropertyTemplate(raw).ok,
   errorMapper: mapPublishBusinessError,
 };
 
@@ -87,10 +76,10 @@ export const GOODS_PUBLISH_EDIT_DRAFT = {
   },
   requiredTrigger: true,
   normalize: (raw) => ({
-    success: publishWriteIsSuccess(raw),
+    success: isSuccessfulResponse(raw, WRITE_SUCCESS_RULE),
     raw,
   }),
-  isSuccess: publishWriteIsSuccess,
+  successRule: WRITE_SUCCESS_RULE,
   errorMapper: mapPublishBusinessError,
 };
 
@@ -118,10 +107,10 @@ export const GOODS_PUBLISH_SAVE_DECORATION = {
   },
   requiredTrigger: true,
   normalize: (raw) => ({
-    success: publishWriteIsSuccess(raw),
+    success: isSuccessfulResponse(raw, WRITE_SUCCESS_RULE),
     raw,
   }),
-  isSuccess: publishWriteIsSuccess,
+  successRule: WRITE_SUCCESS_RULE,
   errorMapper: mapPublishBusinessError,
 };
 
@@ -148,10 +137,10 @@ export const GOODS_PUBLISH_SUBMIT = {
   },
   requiredTrigger: true,
   normalize: (raw) => ({
-    success: publishWriteIsSuccess(raw),
+    success: isSuccessfulResponse(raw, WRITE_SUCCESS_RULE),
     raw,
   }),
-  isSuccess: publishWriteIsSuccess,
+  successRule: WRITE_SUCCESS_RULE,
   errorMapper: mapPublishBusinessError,
 };
 
@@ -177,6 +166,6 @@ export const GOODS_PUBLISH_COST_TEMPLATE_LIST = {
     templates: raw?.cost_template_list ?? raw?.result?.cost_template_list ?? raw?.result?.list ?? [],
     raw,
   }),
-  isSuccess: (raw) => Array.isArray(raw?.cost_template_list ?? raw?.result?.cost_template_list ?? raw?.result?.list),
+  successRule: (raw) => Array.isArray(raw?.cost_template_list ?? raw?.result?.cost_template_list ?? raw?.result?.list),
   errorMapper: mapPublishBusinessError,
 };

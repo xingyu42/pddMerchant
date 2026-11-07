@@ -1,6 +1,17 @@
 import { round, toPct } from '../../infra/units.js';
-import { DATA_STATUS_LABEL, EXPERIENCE_DIMENSION_LABEL, EXPERIENCE_UNIT_LABEL,
-  EXPERIENCE_STANDARD_LABEL, EXPERIENCE_HINT_LABEL } from './labels.js';
+import { DATA_STATUS_LABEL } from './labels.js';
+import { defineReport, reportHints } from '../operating-report.js';
+
+const EXPERIENCE_DIMENSION_LABEL = Object.freeze({
+  after_sales: '售后服务', quality: '商品品质', logistics: '物流服务', activity: '店铺活跃', special: '特色服务',
+});
+const EXPERIENCE_UNIT_LABEL = Object.freeze({ pct: '百分比', hours: '小时', days: '天', raw: '平台原值' });
+const EXPERIENCE_STANDARD_LABEL = Object.freeze({ 0: '已达标', 1: '未达标' });
+export const EXPERIENCE_REPORT = defineReport({
+  days: { min: 1, max: 30, default: 7, separator: '–', message: '--days 需为 {range} 的整数',
+    description: '趋势窗口天数（{range}）' },
+  hints: { ready_date_unavailable: '趋势就绪日期拉取失败', trend_unavailable: '趋势数据拉取失败', delayed: '平台标记数据延迟' },
+});
 
 // Field mapping is owned here; adapter projection independently limits the upstream surface.
 const INDICATORS = [
@@ -89,6 +100,6 @@ export function toExperienceView(info, { trend = null, mallId = null, hints = []
     snapshot, indicators,
     consumer_experience_plan: { enabled: info.isRps ?? null, required: info.isRequireRps ?? null,
       next_star_status: standardLabel(info.isRpsNextStarRkDesc) },
-    trend: trendView(trend), hints: [...new Set(hintKeys)].map((key) => EXPERIENCE_HINT_LABEL[key]), mall_id: mallId,
+    trend: trendView(trend), hints: reportHints(EXPERIENCE_REPORT, [...new Set(hintKeys)]), mall_id: mallId,
   };
 }

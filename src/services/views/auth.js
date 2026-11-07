@@ -4,9 +4,15 @@
 import { isoToLocalDateTime, labelOf } from '../../infra/units.js';
 import { text } from './_shared.js';
 import { toPasswordReloginView } from './account.js';
-import {
-  AUTH_FILE_ERROR_LABEL, AUTH_REASON_LABEL, AUTH_VERDICT_LABEL, LOGIN_MODE_LABEL, MALL_IDENTITY_SOURCE_LABEL,
-} from './labels.js';
+import { AUTH_REASON_LABEL, AUTH_VERDICT_LABEL } from './labels.js';
+
+const LOGIN_MODE_LABEL = Object.freeze({
+  qr: '扫码登录', headed: '有头浏览器登录', 'consumer-qr': '扫码登录', 'consumer-headed': '有头浏览器登录',
+});
+const MALL_IDENTITY_SOURCE_LABEL = Object.freeze({ verified_shop_endpoint: '店铺接口验证' });
+const AUTH_FILE_ERROR_LABEL = Object.freeze({
+  auth_state_unreadable: '登录态文件无法读取', auth_state_undecryptable: '登录态文件无法解密',
+});
 
 // 店铺名缺失时只陈述 ID，不拼接占位名
 function merchantLoginHeadline({ displayName, mallId }) {

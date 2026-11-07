@@ -37,7 +37,7 @@ function promotion(row, unknownUnits) {
 }
 
 export const GOODS_PROMOTION_LIST = {
-  name: 'promo.goodsPromotionList', fixtureIsServiceFacing: true, fixtureListKey: 'items',
+  name: 'promo.goodsPromotionList', fixtureListKey: 'result.adInfos',
   nav: { url: 'https://yingxiao.pinduoduo.com/goods/promotion/list', readyEl: '[class*="promotion"], [class*="Promotion"]' },
   apiUrl: '/mms-gateway/venus/api/goods/promotion/v3/list',
   urlPattern: /mms-gateway\/venus\/api\/goods\/promotion\/v3\/list/,
@@ -46,7 +46,7 @@ export const GOODS_PROMOTION_LIST = {
     beginDate, endDate, blockType: 3, clientType: 1, pageNumber: page, pageSize: 50,
     filter: { searchKeyV2: goodsIds.join(',') }, sortBy: 9999, orderBy: 9999, scenesMode, withTagsInfo: true,
   }),
-  isSuccess: (raw) => raw?.success !== false && raw?.result != null,
+  successRule: { mode: 'result' },
   normalize(raw) {
     const result = raw?.result;
     if (result?.adInfos === null && toFiniteNumber(result.totalAdNum) === 0) return { items: [], unknownUnits: [] };

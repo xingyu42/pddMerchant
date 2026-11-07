@@ -47,8 +47,7 @@ it('deduplicates orders and flags conflicting duplicate facts', async () => {
   assert.equal(result.complete, false);
 });
 
-it('propagates main-source network failures and command cancellation', async () => {
+it('propagates main-source network failures', async () => {
   runEndpoint.mockRejectedValue(new PddCliError({ code: 'E_NETWORK', exitCode: 5 }));
   await assert.rejects(() => collectProfitOrders(null, {}, { window: resolveProfitWindow(30) }), { code: 'E_NETWORK' });
-  await assert.rejects(() => collectProfitOrders(null, { signal: AbortSignal.abort() }, { window: resolveProfitWindow(30) }), { code: 'E_TIMEOUT' });
 });

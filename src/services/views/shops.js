@@ -1,7 +1,11 @@
 // 店铺视图（输出契约 v2）：mall-reader 归一后的店铺记录 → { mall_id, name, is_current }
 import { labelOf } from '../../infra/units.js';
 import { text } from './_shared.js';
-import { MALL_SOURCE_LABEL } from './labels.js';
+
+const MALL_SOURCE_LABEL = Object.freeze({
+  mock: '测试数据', state: '页面状态', url: '页面 URL', cookie: 'Cookie',
+  storage: '本地存储', xhr: '接口响应', dom: '页面元素',
+});
 
 export const SHOP_VIEW_FIELDS = Object.freeze(['mall_id', 'name', 'is_current']);
 

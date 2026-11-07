@@ -1,5 +1,4 @@
-import { readBusinessError, SUCCESS_BUSINESS_CODES } from '../run-endpoint.js';
-import { ExitCodes, responseShapeError } from '../../infra/errors.js';
+import { responseShapeError } from '../../infra/errors.js';
 
 const FIELDS = ['consultUserCnt', 'needManuReplyConsultUserCnt', 'receiveUserCnt',
   'manuReplyRate3Min', 'manuReplyRate30s', 'artificialResponseTime', 'unsatisfiedServeScoreCnt',
@@ -16,12 +15,8 @@ function project(result, fields, endpoint) {
 }
 
 const COMMON = {
-  fixtureIsServiceFacing: true, nav: NAV,
-  isSuccess: (raw) => raw?.success === true && SUCCESS_BUSINESS_CODES.has(raw?.errorCode),
-  errorMapper(raw) {
-    const error = readBusinessError(raw);
-    return error ? { code: 'E_BUSINESS', message: error.message, exitCode: ExitCodes.BUSINESS } : null;
-  },
+  nav: NAV,
+  errorMap: 'upstream',
 };
 
 export const CS_OVERVIEW = {

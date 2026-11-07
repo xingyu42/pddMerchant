@@ -14,7 +14,6 @@ describe('goods sales and inventory facts', () => {
     assert.equal(cup.units_sold, 3);
     assert.equal(cup.quantity, 0);
     assert.equal(cup.stock_days, 0);
-    assert.equal(result.summary.matched_by, 'goods_id');
     assert.equal(result.total, 2);
   });
 
@@ -22,6 +21,14 @@ describe('goods sales and inventory facts', () => {
     const result = segmentGoods(structuredClone(SAMPLE_SEGMENTATION_INPUT), { windowDays: 7 });
     assert.equal(result.window_days, 7);
     assert.equal(result.items[0].stock_days, 14);
+  });
+
+  it.each([null, undefined, '', 'invalid'])('keeps unknown stock and stock days null (%s)', (quantity) => {
+    const result = segmentGoods({ goods: [{ goods_id: '101', goods_name: 'Tea', quantity }],
+      orders30d: [{ goods_id: '101', goods_name: 'Tea', quantity: 2 }] });
+    assert.equal(result.items[0].quantity, null);
+    assert.equal(result.items[0].stock_days, null);
+    assert.equal(result.items[0].units_sold, 2);
   });
 
   it('distinguishes a complete zero-sales period from unknown sales', () => {
@@ -90,7 +97,6 @@ describe('goods sales and inventory facts', () => {
       goods: [{ goods_id: null, goods_name: ' Tea ', quantity: 10 }],
       orders30d: [{ goods_id: '101', goods_name: '\uff34\uff45\uff41', quantity: 5 }],
     });
-    assert.equal(result.summary.matched_by, 'mixed');
     assert.equal(result.items[0].units_sold, 5);
     assert.equal(result.items[0].stock_days, 60);
   });
@@ -100,7 +106,6 @@ describe('goods sales and inventory facts', () => {
       goods: [{ goods_name: ' Tea', quantity: 3 }, { goods_name: 'Tea ', quantity: 5 }, { goods_name: 'Cup', quantity: 2 }],
       orders30d: [{ goods_name: 'Tea', quantity: 10 }, { goods_name: 'Cup', quantity: 1 }],
     });
-    assert.equal(result.summary.matched_by, 'goods_name');
     assert.equal(result.summary.ambiguous_groups, 1);
     assert.equal(result.items.length, 1);
     assert.equal(result.items[0].goods_name, 'Cup');

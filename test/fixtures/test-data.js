@@ -1,30 +1,22 @@
-import { ORDER_DETAIL, ORDER_LIST, ORDER_STATS } from '../../src/adapter/endpoints/orders.js';
-import { GOODS_LIST } from '../../src/adapter/endpoints/goods.js';
-import { GOODS_PUBLISH_COST_TEMPLATE_LIST } from '../../src/adapter/endpoints/goods-publish.js';
-import { PROMO_ENTITY_REPORT } from '../../src/adapter/endpoints/promo.js';
-import { NAVIGATOR_INFO, NAVIGATOR_READY_DATE, NAVIGATOR_LIST } from '../../src/adapter/endpoints/experience.js';
-import { CS_OVERVIEW, CS_MONTH_TREND } from '../../src/adapter/endpoints/customer-service.js';
-import { REVIEWS_LIST, REVIEWS_KEYWORD_AGG, REVIEWS_TYPE_AGG } from '../../src/adapter/endpoints/reviews.js';
 import { toLocalDate } from '../../src/infra/units.js';
-import { TRAFFIC_READY_TIME, TRAFFIC_OVERVIEW, GOODS_TRAFFIC_LIST } from '../../src/adapter/endpoints/traffic.js';
-import { GOODS_PROMOTION_LIST } from '../../src/adapter/endpoints/promo-goods.js';
+
+const success = (result) => ({ success: true, errorCode: 1000000, result });
 
 export function createTrafficFixtures() {
-  const success = (result) => ({ success: true, errorCode: 1000000, result });
   const end = '2026-10-30';
   return {
-    'endpoints/traffic.readyTime.json': TRAFFIC_READY_TIME.normalize(success(end)),
-    'endpoints/traffic.overviewList.json': TRAFFIC_OVERVIEW.normalize(success([
+    'endpoints/traffic.readyTime.json': success(end),
+    'endpoints/traffic.overviewList.json': success([
       { statDate: '2026-10-29', uv: 10, pv: 20, guv: 8, gpv: 15, payOrdrUsrCnt: 2, payOrdrCnt: 3,
         payOrdrAmt: 12.34, payUvRto: 0.2, payOrdrAup: 4.11, uvCfmVal: 1.234, uv1dPln: 5, uv1dOst: 20 },
       { statDate: end, uv: 20, pv: 30, guv: 18, gpv: 25, payOrdrUsrCnt: 4, payOrdrCnt: 5,
         payOrdrAmt: 23.45, payUvRto: 0.2, payOrdrAup: 4.69, uvCfmVal: 1.1725, uv1dPln: 8, uv1dOst: 25 },
-    ])),
+    ]),
   };
 }
 
 export function createGoodsTrafficFixtures({ promo = true, count = 3 } = {}) {
-  const fixtures = { 'endpoints/traffic.readyTime.json': '2026-10-30' };
+  const fixtures = { 'endpoints/traffic.readyTime.json': success('2026-10-30') };
   for (let page = 1; page <= Math.max(1, Math.ceil(count / 50)); page += 1) {
     const items = Array.from({ length: Math.min(50, count - (page - 1) * 50) }, (_unused, index) => ({
       goodsId: String(101 + (page - 1) * 50 + index), goodsName: '合成商品', goodsUv: 100, goodsPv: 200,
@@ -33,15 +25,15 @@ export function createGoodsTrafficFixtures({ promo = true, count = 3 } = {}) {
       cate3Name: '合成类目', hdThumbUrl: 'SYN-PRIVATE', adStrategyJumpUrl: 'SYN-PRIVATE', peerPerfUv: 5,
     }));
     const suffix = page === 1 ? '' : `.page${page}`;
-    fixtures[`endpoints/traffic.goodsDetailList${suffix}.json`] = GOODS_TRAFFIC_LIST.normalize({ result: { goodsDetailList: items, totalNum: count } });
+    fixtures[`endpoints/traffic.goodsDetailList${suffix}.json`] = success({ goodsDetailList: items, totalNum: count });
   }
   // Same synthetic response for both scenes exercises cross-scene addition; 103 exceeds goods totals.
-  fixtures['endpoints/promo.goodsPromotionList.json'] = GOODS_PROMOTION_LIST.normalize({ result: promo ? { adInfos: [
+  fixtures['endpoints/promo.goodsPromotionList.json'] = success(promo ? { adInfos: [
     { goodsId: '101', reportInfo: { directOrderNum: 1, indirectOrderNum: 1, directGmv: 1230,
       indirectGmv: { value: 2 }, spend: { value: 123, unit: 'PERCENT', unitCode: 100 }, click: 3 } },
     { goodsId: '103', reportInfo2: { directOrderNum: 10, indirectOrderNum: 0, directGmv: 30000,
       indirectGmv: 0, spend: 1000, click: 20 } },
-  ] } : { adInfos: null, totalAdNum: 0 } });
+  ] } : { adInfos: null, totalAdNum: 0 });
   return fixtures;
 }
 
@@ -52,13 +44,12 @@ export function createCustomerServiceFixtures() {
   const empty = Object.fromEntries(Object.keys(summary).map((key) => [key, null]));
   const reference = { avgReplyTimeTop10: 5.555, avgReplyTimeTotal: 20,
     cs_name: 'SYN-CS-PRIVATE', consultUserCntCompare: 99, reply30sRateStapleRank: 5 };
-  const success = (result) => ({ success: true, errorCode: 1000000, result });
   return {
-    'endpoints/cs.overview.json': CS_OVERVIEW.normalize(success({ ...summary, ...reference })),
-    'endpoints/cs.monthTrend.json': CS_MONTH_TREND.normalize(success([
+    'endpoints/cs.overview.json': success({ ...summary, ...reference }),
+    'endpoints/cs.monthTrend.json': success([
       { ...empty, ...reference, statDate: toLocalDate(Date.now() - 2 * 86400000) },
       { ...summary, ...reference, statDate: toLocalDate(Date.now() - 86400000) },
-    ])),
+    ]),
   };
 }
 
@@ -74,21 +65,20 @@ function syntheticReview(index) {
 }
 
 export function createReviewFixtures({ count = 11 } = {}) {
-  const success = (result) => ({ success: true, errorCode: 1000000, result });
   const fixtures = {
-    'endpoints/reviews.keywordAgg.json': REVIEWS_KEYWORD_AGG.normalize(success({
+    'endpoints/reviews.keywordAgg.json': success({
       positiveKeywordList: [{ keywordName: '做工好', num: 4 }], negativeKeywordList: [{ keywordName: '描述不符', num: 2 }],
-    })),
-    'endpoints/reviews.typeAgg.json': REVIEWS_TYPE_AGG.normalize(success({ typeList:
+    }),
+    'endpoints/reviews.typeAgg.json': success({ typeList:
       ['商品质量', '商品描述', '商品价格', '商家服务', '物流问题'].map((typeName, index) =>
         ({ typeName, positive: index === 0 ? 4 : 0, negative: index === 1 ? 5 : 0, proportion: index === 0 ? 44 : 14 })),
-    })),
+    }),
   };
   for (let pageNo = 1; pageNo <= Math.max(1, Math.ceil(count / 10)); pageNo += 1) {
     const offset = (pageNo - 1) * 10;
     const data = Array.from({ length: Math.min(10, count - offset) }, (_unused, index) => syntheticReview(offset + index));
     const suffix = pageNo === 1 ? '' : `.page${pageNo}`;
-    fixtures[`endpoints/reviews.list${suffix}.json`] = REVIEWS_LIST.normalize(success({ totalRows: count, data }));
+    fixtures[`endpoints/reviews.list${suffix}.json`] = success({ totalRows: count, data });
   }
   return fixtures;
 }
@@ -234,12 +224,7 @@ export function createFactResponses() {
 }
 
 export function createFactFixtures() {
-  const responses = createFactResponses();
-  // The legacy subprocess adapter expects service-facing data; exercise real parsing first.
-  return Object.fromEntries([ORDER_LIST, ORDER_DETAIL, ORDER_STATS, GOODS_LIST, GOODS_PUBLISH_COST_TEMPLATE_LIST, PROMO_ENTITY_REPORT].map((spec) => {
-    const path = `endpoints/${spec.name}.json`;
-    return [path, spec.normalize(responses[path])];
-  }));
+  return createFactResponses();
 }
 
 // Recon metric values; shop identity, dates in the sparse series and noise are synthetic.
@@ -268,12 +253,11 @@ export function createUpstreamExperience(overrides = {}) {
 }
 
 export function createExperienceFixtures() {
-  const success = (result) => ({ success: true, errorCode: 1000000, result });
   const rows = ['2026-10-30', '2026-10-24'].map((date) => createUpstreamExperience({ pt: date }));
   return {
-    'endpoints/experience.navigatorInfo.json': NAVIGATOR_INFO.normalize(success(createUpstreamExperience())),
-    'endpoints/experience.navigatorReadyDate.json': NAVIGATOR_READY_DATE.normalize(success('2026-10-30')),
-    'endpoints/experience.navigatorList.json': NAVIGATOR_LIST.normalize(success(rows)),
+    'endpoints/experience.navigatorInfo.json': success(createUpstreamExperience()),
+    'endpoints/experience.navigatorReadyDate.json': success('2026-10-30'),
+    'endpoints/experience.navigatorList.json': success(rows),
   };
 }
 
@@ -307,9 +291,9 @@ export function createProfitOrders(overrides = [{}]) {
 export function createProfitFixtures({ orders = createProfitOrders(),
   entities = [{ goodsId: '101', goodsName: 'Tea', spend: 1, gmv: 24, impression: 10, click: 1 }], totalSpend = 1.5 } = {}) {
   return {
-    'endpoints/orders.list.json': ORDER_LIST.normalize({ success: true, result: { totalItemNum: orders.length, pageItems: orders } }),
-    'endpoints/promo.entityReport.json': PROMO_ENTITY_REPORT.normalize({ success: true, result: {
+    'endpoints/orders.list.json': success({ totalItemNum: orders.length, pageItems: orders }),
+    'endpoints/promo.entityReport.json': success({
       entityReportList: entities, totalSumReport: { spend: totalSpend, gmv: 24, impression: 10, click: 1 },
-    } }),
+    }),
   };
 }

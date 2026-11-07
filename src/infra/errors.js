@@ -274,15 +274,6 @@ export function batchExitCode(accountResults) {
   return failCodes[0];
 }
 
-export function isSuccessResponse(raw) {
-  if (!raw || typeof raw !== 'object') return false;
-  if (raw.success === true) return true;
-  if (raw.errorCode === 0) return true;
-  if (raw.errorCode === 1000000) return true;
-  if (raw.result !== undefined && raw.success !== false) return true;
-  return false;
-}
-
 export function errorToEnvelope(command, err, meta = {}) {
   const isPddErr = err instanceof PddCliError;
   const code = isPddErr ? err.code : (err?.code ?? 'E_GENERAL');

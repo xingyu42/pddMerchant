@@ -7,9 +7,10 @@ import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-sta
 import { toAccountView, toAccountListView, toAccountRemovedView, ACCOUNT_VIEW_FIELDS, ACCOUNT_REMOVED_VIEW_FIELDS } from '../../src/services/views/account.js';
 import {
   PASSWORD_RELOGIN_STATUS_LABEL, PASSWORD_RELOGIN_REASON_LABEL, formatPasswordReloginStatus,
-  CONSOLE_STATUS_LABEL, CONSOLE_LOGIN_REASON_LABEL, CONSOLE_CHALLENGE_DETAIL, CONSOLE_VERDICT_DETAIL,
 } from '../../src/services/views/labels.js';
-import { toConsoleAccountView, CONSOLE_ACCOUNT_VIEW_FIELDS } from '../../src/services/views/console.js';
+import { toConsoleAccountView, CONSOLE_ACCOUNT_VIEW_FIELDS,
+  CONSOLE_STATUS_LABEL, CONSOLE_LOGIN_REASON_LABEL, CONSOLE_CHALLENGE_DETAIL, CONSOLE_VERDICT_DETAIL,
+} from '../../src/services/views/console.js';
 import { renderDoctor } from '../../src/commands/doctor.js';
 
 describe('management headlines state only known facts', () => {

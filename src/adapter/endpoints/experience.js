@@ -1,5 +1,4 @@
-import { readBusinessError, SUCCESS_BUSINESS_CODES } from '../run-endpoint.js';
-import { ExitCodes, responseShapeError } from '../../infra/errors.js';
+import { responseShapeError } from '../../infra/errors.js';
 
 const VALUE_FIELDS = [
   'ptHelpRate1m', 'aprsIn3minRplyUsrRto1m', 'rfSignTime1m', 'rfProcTime1m', 'dsr3m',
@@ -31,15 +30,11 @@ function readyDate(raw) {
 
 function endpoint(name, suffix, normalize, buildPayload = () => ({})) {
   return {
-    name: `experience.${name}`, fixtureIsServiceFacing: true, strategy: 'page-api',
+    name: `experience.${name}`, strategy: 'page-api',
     nav: { url: 'https://mms.pinduoduo.com/sycm/goods_quality/pilot_mall' },
     apiUrl: `/sydney/api/mallNavigator/queryUpgradeMallNavigator${suffix}`,
     buildPayload, normalize,
-    isSuccess: (raw) => raw?.success === true && SUCCESS_BUSINESS_CODES.has(raw?.errorCode),
-    errorMapper(raw) {
-      const error = readBusinessError(raw);
-      return error ? { code: 'E_BUSINESS', message: error.message, exitCode: ExitCodes.BUSINESS } : null;
-    },
+    errorMap: 'upstream',
   };
 }
 

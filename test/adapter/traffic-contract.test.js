@@ -7,10 +7,6 @@ it('uses page-api with explicit navigation and exact plain goods payload', () =>
   for (const spec of [TRAFFIC_READY_TIME, TRAFFIC_OVERVIEW, GOODS_TRAFFIC_LIST]) {
     assert.equal(spec.strategy, 'page-api');
     assert.ok(spec.nav.url);
-    assert.equal(spec.isSuccess({ success: true, errorCode: 1000000 }), true);
-    assert.equal(spec.isSuccess({ success: true, errorCode: 0 }), true);
-    assert.equal(spec.isSuccess({ success: false, errorCode: 0 }), false);
-    assert.equal(spec.isSuccess({ success: true, errorCode: 1 }), false);
   }
   assert.deepEqual(GOODS_TRAFFIC_LIST.buildPayload({ startDate: '2026-10-01', endDate: '2026-10-30', queryType: 2, page: 2, goodsId: '101' }),
     { startDate: '2026-10-01', endDate: '2026-10-30', queryType: 2, pageNum: 2, pageSize: 50, sortCol: 0, sortType: 1, goodsId: '101' });

@@ -16,8 +16,6 @@ describe('order response contracts', () => {
   it('preserves real zero counts and a genuinely empty list', () => {
     const raw = { success: true, result: { totalItemNum: 0, pageItems: [] } };
     assert.deepEqual(ORDER_LIST.normalize(raw), { total: 0, orders: [], raw });
-    assert.equal(ORDER_LIST.isSuccess(raw), true);
-    assert.equal(ORDER_LIST.isSuccess({ success: 'true' }), false);
   });
 
   it.each([
@@ -127,11 +125,7 @@ describe('order request and business errors', () => {
     assert.equal(mapped.exitCode, exitCode);
   });
 
-  it('accepts documented success forms and leaves unknown failures to the shared mapper', () => {
-    for (const raw of [{ success: true }, { error_code: 0 }, { errorCode: 1000000 }]) {
-      assert.equal(ORDER_DETAIL.isSuccess(raw), true);
-    }
-    assert.equal(ORDER_DETAIL.isSuccess({ success: false, errorCode: 4001 }), false);
+  it('leaves unknown failures to the shared mapper', () => {
     assert.equal(ORDER_DETAIL.errorMapper({ errorCode: 9876, errorMsg: 'unknown failure' }), null);
   });
 });

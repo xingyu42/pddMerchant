@@ -21,6 +21,20 @@ describe('data contract v2 checker', () => {
     assertDataContractV2(GOOD);
   });
 
+  it.each([null, undefined, '', '  ', 'trend_unavailable', 0, {}])('rejects invalid emitted hint %s', (hint) => {
+    assert.deepEqual(collectDataContractViolations({ ...GOOD, hints: [hint] }), [
+      'hints[]: hint must be a non-empty Chinese string',
+    ]);
+  });
+
+  it('checks nested hints and keeps dimension-wrapped shop hints compatible', () => {
+    assertDataContractV2({ ...GOOD, hints: ['客服逐日趋势拉取失败', { dimension: '订单', message: '订单采集不完整' }] });
+    assert.deepEqual(collectDataContractViolations({ ...GOOD, detail: { hints: [undefined] } }), [
+      'detail.hints[]: hint must be a non-empty Chinese string',
+    ]);
+    assert.deepEqual(collectDataContractViolations({ ...GOOD, hints: null }), ['hints: hints must be an array']);
+  });
+
   it('rejects non-object data', () => {
     for (const data of [null, [], 'x', 3]) {
       assert.deepEqual(collectDataContractViolations(data), ['data: must be a plain object']);

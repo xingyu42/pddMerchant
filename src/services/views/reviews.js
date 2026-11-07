@@ -1,6 +1,15 @@
 import { toLocalDateTime, toFiniteNumber } from '../../infra/units.js';
 import { text } from './_shared.js';
-import { REVIEW_HINT_LABEL } from './labels.js';
+import { defineReport, reportHints } from '../operating-report.js';
+
+export const REVIEWS_REPORT = defineReport({
+  days: { choices: { 30: 1, 60: 5, 90: 4, 180: 3 }, default: 30,
+    message: '--days 需为 {choices_or}', description: '评价窗口天数（{range}）' },
+  hints: {
+    keywords_unavailable: '评价标签聚合拉取失败', types_unavailable: '评价问题类型拉取失败',
+    reviews_unavailable: '中差评列表拉取失败', list_truncated: '中差评列表已达 30 页采集上限，结果已截断',
+  },
+});
 
 export const REVIEW_TAG_FIELDS = Object.freeze(['name', 'count']);
 export const ISSUE_TYPE_FIELDS = Object.freeze(['name', 'positive_count', 'negative_count', 'share_pct']);
@@ -53,5 +62,5 @@ export function toReviewsView({ keywords = null, types = null, reviews = null },
     total: reviews.total, truncated: reviews.truncated };
   return { headline: headlines(days, keywordTags, issueTypes, negativeReviews), window_days: days,
     keyword_tags: keywordTags, issue_types: issueTypes, negative_reviews: negativeReviews,
-    hints: hints.map((key) => REVIEW_HINT_LABEL[key]), mall_id: mallId };
+    hints: reportHints(REVIEWS_REPORT, hints), mall_id: mallId };
 }

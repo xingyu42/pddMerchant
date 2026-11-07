@@ -28,7 +28,7 @@ beforeEach(() => {
     if (key.startsWith('PDD_')) vi.stubEnv(key, value);
   }
   clearFixtureCache();
-  dispatch.mockReset().mockImplementation(async () => ({ success: true, fail_goods_num: 0, raw: { receipt: 'SYN' } }));
+  dispatch.mockReset().mockImplementation(async () => ({ success: true, fail_goods_num: 0 }));
   emitSpy.mockClear();
 });
 afterEach(() => {
@@ -85,7 +85,7 @@ describe('single goods write commands', () => {
     assert.equal(envelope.data.value, value);
     assert.equal(envelope.data.dry_run, false);
     assert.deepEqual(envelope.data.headline, [doneHeadline]);
-    assert.deepEqual(envelope.data.result, { success: true, failed_count: 0 });
+    assert.deepEqual(envelope.data.result, { success: true, failed_count: ['price', 'stock'].includes(field) ? 0 : null });
     if ('skuId' in opts) assert.equal(envelope.data.sku_id, opts.skuId);
     assert.equal(envelope.meta.xhr_count, 1);
     assert.equal(envelope.meta.exit_code, 0);
@@ -200,7 +200,7 @@ describe('batch goods write command', () => {
         if (failures.includes(payload.goods_id)) {
           throw new PddCliError({ code: 'E_BUSINESS', message: 'Synthetic rejection', exitCode: 6 });
         }
-        return { accepted: true };
+        return { success: true };
       } finally {
         inFlight -= 1;
       }

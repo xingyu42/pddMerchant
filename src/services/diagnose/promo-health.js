@@ -1,4 +1,5 @@
-import { round, toFiniteNumber, toPct } from '../../infra/units.js';
+import { round, toFiniteNumber } from '../../infra/units.js';
+import { ratioPct } from '../../infra/metrics.js';
 
 function resolveSpend(totals) {
   if (totals == null) return null;
@@ -19,8 +20,8 @@ export function summarizePromo({ totals } = {}) {
     };
   }
 
-  const impression = Number(totals.impression ?? 0);
-  const click = Number(totals.click ?? 0);
+  const impression = toFiniteNumber(totals.impression);
+  const click = toFiniteNumber(totals.click);
   // 成交金额缺失（含 MoneyVO 单位未知）→ null，不补 0
   const gmv = toFiniteNumber(totals.gmv);
   const spend = resolveSpend(totals);
@@ -43,7 +44,7 @@ export function summarizePromo({ totals } = {}) {
       gmv_yuan: round(gmv, 2),
       spend_yuan: spend == null ? null : round(spend, 2),
       // 曝光为 0 时点击率无分母 → null
-      ctr_pct: impression > 0 ? toPct(click / impression) : null,
+      ctr_pct: impression > 0 ? ratioPct(click, impression) : null,
       roi: roi == null ? null : round(roi, 2),
     },
   };

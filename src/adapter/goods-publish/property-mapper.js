@@ -1,3 +1,5 @@
+import { isSuccessfulResponse } from '../response-interpreter.js';
+
 const MAX_SOURCE_PROPERTIES = 100;
 const MAX_VALUES_PER_PROPERTY = 20;
 const MAX_PROPERTY_TEXT_LENGTH = 200;
@@ -114,8 +116,7 @@ function unwrapTemplatePayload(rawTemplate) {
   if (!envelope) return null;
   const result = asObject(envelope.result);
   if (!result) return envelope;
-  const code = envelope.error_code ?? envelope.errorCode;
-  const succeeded = envelope.success === true || code === 0 || code === 1000000;
+  const succeeded = isSuccessfulResponse(envelope, { mode: 'flag-or-code' });
   return succeeded ? result : null;
 }
 

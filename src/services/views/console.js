@@ -1,7 +1,21 @@
 import { isoToLocalDateTime, labelOf } from '../../infra/units.js';
-import { AUTH_VERDICT_LABEL, PASSWORD_RELOGIN_REASON_LABEL, PENDING_ACTION_KIND_LABEL,
-  CONSOLE_STATUS_LABEL, CONSOLE_LOGIN_REASON_LABEL, CONSOLE_CHALLENGE_DETAIL, CONSOLE_VERDICT_DETAIL,
-  formatPasswordReloginStatus } from './labels.js';
+import { AUTH_VERDICT_LABEL, PASSWORD_RELOGIN_REASON_LABEL, formatPasswordReloginStatus } from './labels.js';
+
+export const CONSOLE_STATUS_LABEL = Object.freeze({
+  relogin_paused: '暂停', action_required: '需验证', relogin_required: '失效', verified: '正常', unknown: '未知',
+});
+export const CONSOLE_LOGIN_REASON_LABEL = Object.freeze({
+  sms: '短信验证', slider: '滑块验证', click: '点选验证', risk_confirm: '安全确认', unknown: '安全验证',
+  wrong_password: '密码错误', account_locked: '账号被锁', takeover_timeout: '验证超时',
+});
+export const CONSOLE_CHALLENGE_DETAIL = Object.freeze({
+  sms: '需要完成短信验证', slider: '需要完成滑块验证', click: '需要完成点选验证',
+  risk_confirm: '需要完成安全确认', unknown: '需要完成安全验证',
+});
+export const CONSOLE_VERDICT_DETAIL = Object.freeze({
+  indeterminate: '上次核验无法判定', failed: '上次核验未通过', not_configured: '尚未配置登录信息',
+});
+const PENDING_ACTION_KIND_LABEL = Object.freeze({ human_takeover: '人工接管', relogin_blocked: '重登熔断' });
 
 export const CONSOLE_ACCOUNT_VIEW_FIELDS = Object.freeze([
   'slug', 'display_name', 'mall_id', 'session_status', 'has_password', 'password_relogin_status', 'pending_actions',

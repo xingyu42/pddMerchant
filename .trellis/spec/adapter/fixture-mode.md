@@ -12,7 +12,7 @@ Fixture 相关路径与 env：
 PDD_TEST_ADAPTER=fixture                 enable fixture mode
 PDD_TEST_FIXTURE_DIR=<path>              override fixture root
 src/adapter/fixtures/core.js             owns single fixture cache
-src/adapter/fixtures/mock-dispatcher.js  facade for mock payload routing
+src/adapter/mock-dispatcher.js           facade for mock payload routing
 test/fixtures/test-data.js               synthetic fixture builders (no checked-in endpoint JSON)
 test/helpers/isolated-cli.js             createCliSandbox / runCli：写入临时 fixture 目录
 PDD_TEST_PASSWORD_LOGIN=<outcome>        mockPasswordLogin 结果，默认 success；可取 challenge:<sms|slider|click|risk_confirm|unknown>、
@@ -25,28 +25,29 @@ Fixture 数据来源：仓库内**没有** `test/fixtures/endpoints/*.json` 文�
 `{ 'endpoints/<spec.name>.json': payload, ... }` 写入临时目录（`PDD_TEST_FIXTURE_DIR`），默认附带
 `shops.current.json` / `shops.list.json`。`createFactResponses()` 按 research 记录的真实上游字段结构生成合成原始响应
 （`createUpstreamOrder` / `createUpstreamOrderDetail` / `createUpstreamGoods` 含噪声与 PII 字段），
-`createFactFixtures()` 先跑真实 `spec.normalize()` 再写入，因此 fixture 即 service-facing 形状。
+`createFactFixtures()` 直接保存原始响应体；执行命令时，共享 endpoint client 先判定响应，再调用 `spec.normalize()`。
 
-典型 fixture branch：
+Endpoint 执行链路：
 
-```js
-if (isMockEnabled()) {
-  return dispatchMockEndpoint(spec.name, params);
-}
-return runRealEndpoint(ctx, spec, params);
+```text
+runEndpoint(page, spec, params, ctx)
+  -> PlaywrightEndpointClient.execute(spec, params, ctx)
+  -> send(spec, params, ctx) -> { status, raw, response }
+  -> interpretResponse(spec, { status, raw, response, url, retries })
+  -> spec.normalize(raw) 或 { raw }
 ```
 
 ## 3. Contracts
 
-- Fixture mode MUST skip real browser, network, auth state and platform backend calls。
+- Endpoint fixture transport MUST work with `page: null` and skip browser/network/backend calls; existing merchant auth fixture branches retain their own lifecycle。
 - Fixture responses MUST preserve the same normalized output and envelope semantics as real mode。
 - `mock-dispatcher.js` is a facade; shared cache ownership stays in `fixtures/core.js`。
 - New endpoint fixtures MUST be named/aligned with `spec.name`。
 - Tests MUST NOT rely on fixture cache mutation leaking across test cases。
 - Fixture runtime resolves the mock shop context through the adapter's `buildMallContext` (`normalizeMallRecord`), so fixture and live shop records share one shape (`{ id, name, is_current }`)。
 - Fixture auth validity for needsAuth commands: invalid when `PDD_TEST_AUTH_INVALID=1` AND the account state lacks the `PDD_FIXTURE_RELOGIN=1` cookie. The read-only check needs no lease; `reloginForFixture` re-checks inside the lease and reuses a marker written by another process (one attempt for concurrent processes).
-- Fixture relogin runs the same decision, attempt record, outcome record and warnings as live; only the browser part is `mockPasswordLogin()`. Success writes `{ cookies: [PDD_FIXTURE_RELOGIN=1], origins: [], merchant_auth: { verified … } }` under lease + CAS, so fixture relogin needs a temporary `PDD_DB_PATH` with a seeded credential.
-- Console sessions use `mockPasswordLogin()` without opening a browser, sharing the account lease, registry limits and state machine. Takeover emits a fixed decodable 1x1 JPEG; QR emits a fixed PNG data URL. Only fixture dispatch registers `POST /api/sessions/:id/fixture-complete { outcome: 'success' | 'timeout' }`; live dispatch returns 404. Success reuses `commitFixtureRelogin` plus manual-login/outcome helpers in one short transaction. Cancel and QR timeout do not increment takeover counters. See `services/domain-service-contracts.md` P4 for the full route/state contract.
+- Fixture relogin runs the same decision, attempt record, outcome record and warnings as live; the browser part remains `mockPasswordLogin()`. Success creates a branded candidate through `verifyMerchantContext` and writes `{ cookies: [PDD_FIXTURE_RELOGIN=1], origins: [], merchant_auth: { verified … } }` through `beginReloginAttempt().succeed` + `commitMerchantCandidate` under lease + CAS. Snapshot, metadata, corrupt bookkeeping and outcome follow the shared commit path, so fixture relogin needs a temporary `PDD_DB_PATH` with a seeded credential. Runner/patrol preflight still uses the shared browser-free `checkFixtureMerchantSession`, retaining its original no-record policy and cross-process recovery marker.
+- Console sessions use `mockPasswordLogin()` without opening a browser, sharing the account lease, registry limits and state machine. Takeover emits a fixed decodable 1x1 JPEG; QR emits a fixed PNG data URL. Only fixture dispatch registers `POST /api/sessions/:id/fixture-complete { outcome: 'success' | 'timeout' }`; live dispatch returns 404. Success verifies a branded candidate and uses the shared attempt handle for the snapshot/manual reset/password outcome in one short transaction. Cancel and QR timeout do not increment takeover counters. See `services/domain-service-contracts.md` P4 for the full route/state contract.
 - Fixture payloads for orders / goods SHOULD use the real upstream field structure with synthetic values (money in fen, unix-second times) so service views are exercised exactly as in live mode。
 
 ## 4. Validation & Error Matrix
@@ -87,10 +88,9 @@ if (process.env.PDD_TEST_ADAPTER) {
 ### Correct
 
 ```js
-if (isMockEnabled()) {
-  return dispatchMockEndpoint(spec.name, params);
-}
-return runRealEndpoint(ctx, spec, params);
+// Fixture 与 live 在同一个 client 中执行响应判定和归一化。
+const { data } = await client.execute(spec, params, { ...ctx, page });
+return data;
 ```
 
 ## 8. Real Code Examples
@@ -135,88 +135,14 @@ export const ENV_AUTH_INVALID = 'PDD_TEST_AUTH_INVALID';
 export const ENV_CONSUMER_AUTH_INVALID = 'PDD_TEST_CONSUMER_AUTH_INVALID';
 ```
 
-## 9. Fixture/Live Parity Diagnostics
+## 9. Endpoint Transport Parity
 
-### 1. Scope / Trigger
-
-适用于新增或修改 endpoint spec、endpoint fixture、`runEndpoint()` fixture branch、`FixtureEndpointClient`，或任何会影响 fixture mode 与 live mode 数据形状一致性的改动。
-
-### 2. Signatures
-
-诊断入口：
-
-```js
-validateFixtureParity(spec, {
-  fixtureNames,    // Set<string> or string[]
-  fixturePayloads, // Map<spec.name, payload> or plain object
-});
-
-collectFixtureParityDiagnostics(specs, options);
-flattenFixtureParityWarnings(reports);
-```
-
-运行时 seam：
-
-```text
-runEndpoint(..., spec, ..., ctx) + PDD_TEST_ADAPTER=fixture
-  -> mockRunEndpoint(spec, params, ctx) directly
-
-FixtureEndpointClient.execute(spec, params, ctx)
-  -> mockRunEndpoint(spec, params)
-  -> spec.normalize(raw)
-  -> { data, meta }
-```
-
-### 3. Contracts
-
-- `runEndpoint()` 的 fixture branch MUST remain a direct `mockRunEndpoint()` short-circuit unless an OpenSpec-backed runtime change says otherwise.
-- `runEndpoint()` fixture branch MUST NOT acquire rate-limiter tokens, launch browser, read auth state, or call the platform backend.
-- `FixtureEndpointClient.execute()` is a separate client-contract seam and MAY return data after `spec.normalize()`.
-- A warning that direct fixture payload differs from client-normalized payload is not automatically a failure only when the endpoint spec explicitly declares `fixtureIsServiceFacing: true`; without that marker, a thrown live normalizer remains a parity error.
-- New endpoints SHOULD get a synthetic base fixture builder (written by tests as `endpoints/<spec.name>.json` into the sandbox fixture dir); if intentionally absent, document why in task/spec notes.
-- Page-specific endpoint fixtures such as `<spec.name>.page2.json` SHOULD declare `spec.fixtureListKey` when page synthesis beyond checked-in pages is expected.
-
-### 4. Validation & Error Matrix
-
-| 条件 | 诊断行为 |
-| --- | --- |
-| endpoint spec has hard validation errors | `ENDPOINT_SPEC_ERROR` as error |
-| base fixture missing | `MISSING_BASE_FIXTURE` as warning |
-| page fixture exists without `fixtureListKey` | `PAGINATED_FIXTURE_WITHOUT_LIST_KEY` as warning |
-| `spec.isSuccess()` throws for base fixture | `FIXTURE_IS_SUCCESS_THREW` as error |
-| base fixture is not accepted by live raw-response success check | `BASE_FIXTURE_NOT_LIVE_SUCCESS` as warning |
-| `spec.normalize()` throws or returns `undefined` | `FIXTURE_NORMALIZE_THREW` / `FIXTURE_NORMALIZE_UNDEFINED` as error |
-| direct fixture payload differs from client-normalized payload | `FIXTURE_CLIENT_DATA_DIFFERS` as warning |
-
-### 5. Good/Base/Bad Cases
-
-- Good：endpoint spec、base fixture、page fixture、`fixtureListKey` 与 service normalizer 一起更新，并有 parity diagnostic test。
-- Base：legacy fixture stores service-facing normalized data, the spec declares `fixtureIsServiceFacing: true`, diagnostics report warning and runtime behavior remains unchanged。
-- Bad：为了消除 warning 直接把 `runEndpoint()` fixture branch 改为走 `FixtureEndpointClient`，导致 limiter/client/browser 相关契约被无意改变。
-
-### 6. Tests Required
-
-- Unit test for `collectFixtureParityDiagnostics()` over all exported endpoint specs。
-- Contract test proving `runEndpoint()` fixture mode does not acquire limiter tokens。
-- Regression test for expected current drift warnings when intentionally tolerated。
-- Existing endpoint validator and strategy resolver tests must keep sharing the same endpoint spec collection list。
-
-### 7. Wrong vs Correct
-
-#### Wrong
-
-```js
-// Hides drift by changing runtime behavior inside a diagnostics-only task.
-if (isMockEnabled()) {
-  return new FixtureEndpointClient().execute(spec, params, ctx);
-}
-```
-
-#### Correct
-
-```js
-// Keep runtime branch stable; add diagnostics/tests around the known seam.
-if (isMockEnabled()) {
-  return mockRunEndpoint(spec, params, ctx);
-}
-```
+- `PlaywrightEndpointClient.send(spec, params, ctx)` selects fixture transport by `isMockEnabled()`; live transport keeps page-api/fetch/legacy attempts and body parsing。
+- Fixture transport returns HTTP status 200, a cloned upstream body and a minimal response object with `status()`; business failures should use raw error bodies to exercise `successRule`, `errorMap`/`errorMapper` and rate-limit classification。
+- Both transports share HTTP 429 retry handling, `interpretResponse()`, normalization and cooldown accounting. Fixture requests skip token waiting。
+- Specs without `normalize` return `{ raw }` through both transports。
+- `{ __throws: true, __error: { code, message, hint, detail, exitCode } }` remains available for transport failures and explicit injected errors。
+- Fixtures are named `endpoints/<spec.name>.json`; `<spec.name>.page<N>.json` takes precedence. Missing page 1 falls back to the base fixture。
+- Missing later pages clone the base body and empty the array at the dotted upstream `spec.fixtureListKey` (for example `result.pageItems`), preserving envelope, totals and aggregates. Invalid list paths fail with `E_FIXTURE_SHAPE`。
+- `fixtures/core.js` owns the cache; endpoint fixture reads return isolated clones. Missing fixtures fail with `E_FIXTURE_MISSING` without browser fallback。
+- Regression coverage: `test/adapter/fixture-transport.test.js` compares raw 40002/54001 failures with live transport, proves normalization with a null page, raw-wrapper parity, pagination/cache isolation and cooldown accounting。
