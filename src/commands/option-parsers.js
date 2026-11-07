@@ -13,11 +13,16 @@ export function withReportDays(command, definition) {
     reportDaysArg(definition), definition.days.default);
 }
 
+// 只接受十进制整数写法；小数、科学计数和十六进制返回 null。
+function parseIntegerText(value) {
+  const text = String(value).trim();
+  return /^-?\d+$/.test(text) ? Number(text) : null;
+}
+
 export function reportDaysArg(definition) {
   return (value) => {
-    const text = String(value).trim();
-    const parsed = Number(text);
-    if (!/^-?\d+$/.test(text) || !acceptsReportDays(definition, parsed)) {
+    const parsed = parseIntegerText(value);
+    if (parsed === null || !acceptsReportDays(definition, parsed)) {
       throw new InvalidArgumentError(definition.days.message);
     }
     return parsed;
@@ -26,9 +31,8 @@ export function reportDaysArg(definition) {
 
 export function integerArg(min = 1) {
   return (value) => {
-    const text = String(value).trim();
-    const parsed = Number(text);
-    if (!/^-?\d+$/.test(text) || !Number.isSafeInteger(parsed) || parsed < min) {
+    const parsed = parseIntegerText(value);
+    if (parsed === null || !Number.isSafeInteger(parsed) || parsed < min) {
       throw new InvalidArgumentError(`需为不小于 ${min} 的整数`);
     }
     return parsed;

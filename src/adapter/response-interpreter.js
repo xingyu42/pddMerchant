@@ -2,11 +2,16 @@ import { PddCliError, ExitCodes, mapErrorToExit } from '../infra/errors.js';
 import { classifyRateLimit } from './classify-rate-limit.js';
 
 export const SUCCESS_BUSINESS_CODES = new Set([0, 1000000]);
+// 写接口：success 标记或成功码任一成立即成功。
+export const WRITE_SUCCESS_RULE = Object.freeze({ mode: 'flag-or-code' });
+
+function businessFields(raw) {
+  return { code: raw?.error_code ?? raw?.errorCode, message: raw?.error_msg ?? raw?.errorMsg };
+}
 
 export function readBusinessError(raw) {
   if (!raw || typeof raw !== 'object') return null;
-  const code = raw.error_code ?? raw.errorCode;
-  const message = raw.error_msg ?? raw.errorMsg;
+  const { code, message } = businessFields(raw);
   if (code == null || SUCCESS_BUSINESS_CODES.has(code)) return null;
   return { code: String(code), message: message == null ? '' : String(message) };
 }
@@ -27,8 +32,7 @@ export function isSuccessfulResponse(raw, rule = {}) {
 }
 
 export function mapWriteBusinessError(raw, { notFound = true, businessLabel = '业务错误' } = {}) {
-  const code = raw?.error_code ?? raw?.errorCode;
-  const message = raw?.error_msg ?? raw?.errorMsg ?? '';
+  const { code, message = '' } = businessFields(raw);
   if (code === 54001) {
     return { code: 'E_RATE_LIMIT', message: message || '操作太过频繁', exitCode: ExitCodes.RATE_LIMIT };
   }
@@ -54,6 +58,10 @@ function mapBusinessError(spec, raw, response) {
   return null;
 }
 
+function mappedExitCode(mapped, fallback) {
+  return mapped?.code ? mapped.exitCode ?? mapErrorToExit(mapped) : fallback;
+}
+
 function httpFailure(spec, { status, raw, response, url, retries }) {
   if (status === 429) return new PddCliError({
     code: 'E_RATE_LIMIT', message: `${spec.name}: rate limited after ${retries} retries`,
@@ -69,7 +77,7 @@ function httpFailure(spec, { status, raw, response, url, retries }) {
     code: mapped?.code || 'E_NETWORK',
     message: (mapped?.code && mapped.message) || `${spec.name}: HTTP ${status}`,
     detail: mapped?.code ? { url, status, raw } : { url, status },
-    exitCode: mapped?.code ? mapped.exitCode ?? mapErrorToExit(mapped) : ExitCodes.NETWORK,
+    exitCode: mappedExitCode(mapped, ExitCodes.NETWORK),
   });
 }
 
@@ -89,7 +97,7 @@ function businessFailure(spec, raw, response) {
       errorCode: raw?.errorCode ?? raw?.error_code,
       ...(ambiguousRiskControl ? { classification: 'high-frequency-or-risk-control' } : {}), raw,
     },
-    exitCode: mapped?.code ? mapped.exitCode ?? mapErrorToExit(mapped) : ExitCodes.BUSINESS,
+    exitCode: mappedExitCode(mapped, ExitCodes.BUSINESS),
   });
 }
 

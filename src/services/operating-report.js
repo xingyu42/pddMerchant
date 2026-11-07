@@ -1,7 +1,19 @@
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { throwIfAborted } from '../infra/abort.js';
 
+function hintError(key) {
+  return new PddCliError({ code: 'E_INTERNAL', message: `报表提示未登记或文案无效：${key}`, exitCode: ExitCodes.GENERAL });
+}
+
+// 文案在声明时校验一次，运行期只做登记查找。
+function assertHintLabels(hints) {
+  for (const [key, label] of Object.entries(hints)) {
+    if (typeof label !== 'string' || !label.trim() || !/[\u3400-\u9fff]/u.test(label)) throw hintError(key);
+  }
+}
+
 export function defineReport({ days, hints }) {
+  assertHintLabels(hints);
   const choices = Object.keys(days.choices ?? {});
   const range = choices.length ? choices.join('、') : `${days.min}${days.separator ?? '-'}${days.max}`;
   const choicesOr = range.replace(/、([^、]+)$/, ' 或 $1');
@@ -29,11 +41,8 @@ export function validateReportDays(definition, days) {
 
 export function reportHints(definition, keys) {
   return Array.from(keys, (key) => {
-    const label = Object.hasOwn(definition.hints, key) ? definition.hints[key] : null;
-    if (typeof label !== 'string' || !label.trim() || !/[\u3400-\u9fff]/u.test(label)) {
-      throw new PddCliError({ code: 'E_INTERNAL', message: `报表提示未登记或文案无效：${key}`, exitCode: ExitCodes.GENERAL });
-    }
-    return label;
+    if (!Object.hasOwn(definition.hints, key)) throw hintError(key);
+    return definition.hints[key];
   });
 }
 

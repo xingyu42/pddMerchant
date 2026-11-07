@@ -20,8 +20,7 @@ export const CS_REFERENCE_METRICS = metricTable([
   ['category_avg_response_seconds', 'avgReplyTimeTotal', 'seconds'],
 ]);
 export const CS_SUMMARY_FIELDS = CS_METRICS.fields;
-export const CS_TREND_ITEM_FIELDS = Object.freeze(['date', ...CS_SUMMARY_FIELDS,
-  'category_top10_avg_response_seconds', 'category_avg_response_seconds']);
+export const CS_TREND_ITEM_FIELDS = Object.freeze(['date', ...CS_SUMMARY_FIELDS, ...CS_REFERENCE_METRICS.fields]);
 
 function trendView(trend) {
   if (trend === null) return null;

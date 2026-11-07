@@ -1,8 +1,15 @@
-export function classifyRateLimit(raw, response) {
-  if (response) {
-    const status = typeof response.status === 'function' ? response.status() : response?.status;
-    if (status === 429) return 'http-429';
+export function readResponseStatus(response) {
+  if (!response) return null;
+  try {
+    const status = typeof response.status === 'function' ? response.status() : response.status;
+    return typeof status === 'number' ? status : null;
+  } catch {
+    return null;
   }
+}
+
+export function classifyRateLimit(raw, response) {
+  if (readResponseStatus(response) === 429) return 'http-429';
 
   if (raw != null && typeof raw === 'object') {
     const candidates = [

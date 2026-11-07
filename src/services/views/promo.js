@@ -19,7 +19,7 @@ export const PROMO_TOTALS_FIELDS = Object.freeze([
 ]);
 
 export function ctrPct(click, impression) {
-  return impression > 0 ? ratioPct(click, impression) : null;
+  return ratioPct(click, impression);
 }
 
 function rowLabel(row, by) {

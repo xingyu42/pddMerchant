@@ -1,7 +1,6 @@
 import { evaluateInMainWorld } from '../browser.js';
 import { responseShapeError } from '../../infra/errors.js';
-import { isSuccessfulResponse, mapWriteBusinessError } from '../response-interpreter.js';
-export { mapWriteBusinessError } from '../response-interpreter.js';
+import { isSuccessfulResponse, mapWriteBusinessError, WRITE_SUCCESS_RULE } from '../response-interpreter.js';
 
 function isCount(value) {
   return (typeof value === 'number' || (typeof value === 'string' && value.trim() !== ''))
@@ -57,8 +56,6 @@ export const GOODS_LIST = {
 };
 
 // --- Write endpoints (recon 2026-05-07, goods_id=673182058048) ---
-
-const WRITE_SUCCESS_RULE = { mode: 'flag-or-code' };
 
 export const GOODS_UPDATE_STATUS = {
   name: 'goods.update.status',

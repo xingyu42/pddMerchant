@@ -1,6 +1,6 @@
 import { toFiniteNumber } from '../../infra/units.js';
 import { ratioPct } from '../../infra/metrics.js';
-import { matchSales } from '../goods-sales-matcher.js';
+import { matchSales, scanQuality } from '../goods-sales-matcher.js';
 
 const STALE_SAMPLE_LIMIT = 10;
 const LOW_STOCK_THRESHOLD = 10;
@@ -44,21 +44,6 @@ function computeStale(orders30d, goods) {
   };
 }
 
-function inventoryQuality(input) {
-  const { goods, orders30d, goodsTotal, truncated = false, ratelimited = false,
-    goodsScanTruncated = false, goodsScanRateLimited = false } = input;
-  const goodsIncomplete = goodsScanTruncated || goodsScanRateLimited
-    || (Number.isFinite(goodsTotal) && goodsTotal > (goods?.length ?? 0));
-  return {
-    goods_complete: Array.isArray(goods) && !goodsIncomplete,
-    orders_complete: Array.isArray(orders30d) && !truncated && !ratelimited,
-    goods_truncated: goodsScanTruncated,
-    goods_ratelimited: goodsScanRateLimited,
-    orders_truncated: truncated,
-    orders_ratelimited: ratelimited,
-  };
-}
-
 function stockDetail(goods) {
   const total = goods.length;
   const quantities = goods.map((item) => toFiniteNumber(item?.quantity));
@@ -83,7 +68,7 @@ function ordersSkipReason(orders, truncated, ratelimited) {
 
 export function summarizeInventory(input = {}) {
   const { goods, orders30d, goodsTotal, truncated = false, ratelimited = false } = input;
-  const dataQuality = inventoryQuality(input);
+  const dataQuality = scanQuality(input);
   if (!Array.isArray(goods)) {
     return { status: 'partial', issues: ['无商品数据'], hints: ['执行 pdd goods list'], detail: { data_quality: dataQuality } };
   }

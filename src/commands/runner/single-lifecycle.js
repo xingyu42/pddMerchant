@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { withBrowser } from '../../adapter/browser.js';
 import { PDD_HOME } from '../../adapter/auth-state.js';
 import { withMerchantAuthUpdate, commitMerchantCandidate } from '../../adapter/merchant-auth-storage.js';
+import { verifyMerchantContext } from '../../adapter/merchant-auth.js';
 import { resolveMallContext } from '../../adapter/mall-reader.js';
 import { switchTo } from '../../adapter/mall-writer.js';
 import { isMockEnabled } from '../../adapter/mock-dispatcher.js';
@@ -66,8 +67,8 @@ async function persistAuthStateAfterSuccess(spec, runtime, context, transaction,
 
   try {
     await page.close();
-    const { result } = await checkMerchantSession(context, { mode: 'snapshot',
-      task: { signal: runtime.signal, deadlineAt: runtime.deadlineAt ?? undefined, expectedMallId: runtime.verifiedMallId },
+    const result = await verifyMerchantContext(context, {
+      signal: runtime.signal, deadlineAt: runtime.deadlineAt ?? undefined, expectedMallId: runtime.verifiedMallId,
     });
     if (result.verdict !== 'verified') {
       runtime.warnings.push(result.reason === 'identity_mismatch' ? 'auth_state_identity_mismatch' : 'auth_state_persist_unverified');

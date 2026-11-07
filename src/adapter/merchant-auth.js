@@ -41,10 +41,9 @@ export async function verifyMerchantContext(context, options = {}) {
     if (!mockIsAuthValid() && !hasFixtureRelogin(state)) return { verdict: 'rejected', reason: 'login_false' };
     const mall = context?.fixtureMallId != null
       ? { id: context.fixtureMallId, name: '模拟店铺' } : await mockCurrentMall();
-    const mallId = context?.fixtureMallId ?? mall.id;
-    if (options.expectedMallId != null && String(options.expectedMallId) !== String(mallId)) return { verdict: 'failed', reason: 'identity_mismatch' };
+    if (options.expectedMallId != null && String(options.expectedMallId) !== String(mall.id)) return { verdict: 'failed', reason: 'identity_mismatch' };
     const checkedAt = new Date().toISOString();
-    const identity = { mallId: String(mallId), displayName: mall.name };
+    const identity = { mallId: String(mall.id), displayName: mall.name };
     const candidate = freeze({ state, identity, checked_at: checkedAt, scope: 'shop_read' });
     verifiedCandidates.add(candidate);
     return { verdict: 'verified', reason: 'shop_read', checked_at: checkedAt, identity, candidate };

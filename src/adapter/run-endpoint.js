@@ -3,7 +3,6 @@ import { getLogger } from '../infra/logger.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 import { isMockEnabled } from './mock-dispatcher.js';
 import { getSharedClient, _resetSharedClient, _cooldownConfig } from './rate-limiter-singleton.js';
-export { readBusinessError, SUCCESS_BUSINESS_CODES } from './response-interpreter.js';
 
 export async function runEndpoint(page, meta, params = {}, ctx = {}) {
   if ((!page && !isMockEnabled()) || !meta) {

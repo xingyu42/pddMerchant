@@ -1,10 +1,26 @@
 import { toFiniteNumber } from '../infra/units.js';
 
+// 商品与订单扫描的完整性；goods/orders30d 缺失（非数组）视为未完整采集。
+export function scanQuality(input) {
+  const { goods, orders30d, goodsTotal, truncated = false, ratelimited = false,
+    goodsScanTruncated = false, goodsScanRateLimited = false } = input;
+  const goodsIncomplete = goodsScanTruncated || goodsScanRateLimited
+    || (Number.isFinite(goodsTotal) && goodsTotal > (goods?.length ?? 0));
+  return {
+    goods_complete: Array.isArray(goods) && !goodsIncomplete,
+    orders_complete: Array.isArray(orders30d) && !truncated && !ratelimited,
+    goods_truncated: goodsScanTruncated,
+    goods_ratelimited: goodsScanRateLimited,
+    orders_truncated: truncated,
+    orders_ratelimited: ratelimited,
+  };
+}
+
 export function normalizeGoodsName(name) {
   return String(name ?? '').trim().normalize('NFKC');
 }
 
-function readGoodsId(raw) {
+export function readGoodsId(raw) {
   const id = raw?.goods_id ?? raw?.goodsId;
   if (typeof id === 'number' && Number.isFinite(id) && id > 0) return String(id);
   if (typeof id === 'string' && id.trim() && id.trim() !== '0') return id.trim();
@@ -72,9 +88,10 @@ export function matchSales(goods, orders) {
   const warnings = [];
   for (const [key, bucket] of groupGoods(goodsItems, strategy)) {
     if (strategy === 'goods_name' && bucket.length > 1) {
-      ambiguous.push({ normalized_name: key.slice(5), sku_count: bucket.length,
+      const name = bucket[0].goods_name;
+      ambiguous.push({ normalized_name: name, sku_count: bucket.length,
         sample_quantities: bucket.map((item) => item.quantity) });
-      warnings.push(`重名商品 "${key.slice(5)}" (${bucket.length} 个) 无法唯一匹配，已排除统计`);
+      warnings.push(`重名商品 "${name}" (${bucket.length} 个) 无法唯一匹配，已排除统计`);
       continue;
     }
     byGoods.set(key, { goods: bucket, unitsSold: sales.get(key) ?? 0 });

@@ -1,7 +1,8 @@
-import { toLocalDate } from '../infra/units.js';
+import { toLocalDate, SHANGHAI_OFFSET_MS } from '../infra/units.js';
 
 const DAY_SECONDS = 86400;
 const DAY_MS = DAY_SECONDS * 1000;
+const SHANGHAI_OFFSET_SECONDS = SHANGHAI_OFFSET_MS / 1000;
 
 // 平台就绪日为包含在窗口内的截止日；日期运算固定使用 UTC，隔离宿主时区。
 export function windowEndingAt(days, endDate) {
@@ -15,7 +16,7 @@ export function windowEndingYesterday(days, now = Date.now()) {
 }
 
 export function completeShanghaiWindow(days, now = Math.floor(Date.now() / 1000)) {
-  const end = Math.floor((now + 8 * 3600) / DAY_SECONDS) * DAY_SECONDS - 8 * 3600;
+  const end = Math.floor((now + SHANGHAI_OFFSET_SECONDS) / DAY_SECONDS) * DAY_SECONDS - SHANGHAI_OFFSET_SECONDS;
   const start = end - days * DAY_SECONDS;
   return { days, start, end, startDate: toLocalDate(start), endDate: toLocalDate(end - 1) };
 }

@@ -2,8 +2,8 @@ import { parseBody } from './xhr-collector.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
 import { interpretResponse } from './response-interpreter.js';
+import { readResponseStatus } from './classify-rate-limit.js';
 import { isMockEnabled, mockRunEndpoint } from './mock-dispatcher.js';
-export { readBusinessError, SUCCESS_BUSINESS_CODES } from './response-interpreter.js';
 import {
   throwIfAborted,
   abortableSleep,
@@ -16,16 +16,6 @@ import { executePageApiRequest } from './page-api-client.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 
 const RETRY_DELAYS_MS = [1000, 2000, 4000];
-
-function responseStatus(response) {
-  if (!response) return null;
-  try {
-    const status = typeof response.status === 'function' ? response.status() : response.status;
-    return typeof status === 'number' ? status : null;
-  } catch {
-    return null;
-  }
-}
 
 function resolveNavUrl(meta, params, ctx) {
   try {
@@ -169,11 +159,11 @@ export class PlaywrightEndpointClient {
   // 传输只提供 HTTP 状态和上游响应体，fixture 与浏览器共用后续判定、归一化和冷却记账。
   async send(spec, params, ctx) {
     if (isMockEnabled()) {
-      const raw = await mockRunEndpoint(spec, params, ctx);
+      const raw = await mockRunEndpoint(spec, params);
       return { status: 200, raw, response: { status: () => 200 } };
     }
     const response = await this._attemptOnce(ctx.page, spec, params, ctx, ctx.log, ctx.navUrl);
-    const status = responseStatus(response);
+    const status = readResponseStatus(response);
     const raw = [401, 403, 429].includes(status) ? null : await parseBody(response);
     return { status, raw, response };
   }

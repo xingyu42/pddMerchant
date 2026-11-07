@@ -3,7 +3,7 @@
 
 const NUMERIC_TEXT = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
 const YUAN_TEXT = /^\d+(?:\.\d{1,2})?$/;
-const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
+export const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
 // 秒级时间戳到公元 5138 年前都 < 1e11；毫秒级自 1973-03 起即 >= 1e11，二者不重叠
 const MS_TIMESTAMP_MIN = 1e11;
 

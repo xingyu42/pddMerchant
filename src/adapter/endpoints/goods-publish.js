@@ -1,12 +1,11 @@
 import { evaluateInMainWorld } from '../browser.js';
 import { normalizeGoodsPropertyTemplate } from '../goods-publish/property-mapper.js';
-import { isSuccessfulResponse, mapWriteBusinessError } from '../response-interpreter.js';
+import { isSuccessfulResponse, mapWriteBusinessError, WRITE_SUCCESS_RULE } from '../response-interpreter.js';
 
 export function mapPublishBusinessError(raw) {
   return mapWriteBusinessError(raw, { notFound: false, businessLabel: '发布业务错误' });
 }
 
-const WRITE_SUCCESS_RULE = { mode: 'flag-or-code' };
 export const SAVE_DRAFT_SUCCESS_RULE = { mode: 'flag-or-code', codeField: 'error_code', codes: [1000000] };
 
 export const GOODS_PUBLISH_CREATE_DRAFT = {

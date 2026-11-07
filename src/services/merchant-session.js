@@ -1,17 +1,14 @@
-import { verifyMerchantContext, assertMerchantVerified } from '../adapter/merchant-auth.js';
+import { assertMerchantVerified } from '../adapter/merchant-auth.js';
 import { verifyStoredMerchant, recordMerchantCheck, assertAuthTask } from '../adapter/merchant-auth-storage.js';
 import { probeCheckLogin, selectCheckCookiesFromState } from '../adapter/merchant-auth-probe.js';
 import { mockIsAuthValid, mockIsAuthIndeterminate } from '../adapter/mock-dispatcher.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { reloginInCommand, reloginForFixture, fixtureSessionRecovered } from './password-relogin.js';
 
-// report 只返回事实；login 把明确失效交回人工授权；snapshot 只核验最终材料。
-export async function checkMerchantSession(context, { tx, state = tx?.state, task = {}, mode = 'command',
-  runtime = task, browser } = {}) {
-  const result = mode === 'snapshot'
-    ? await verifyMerchantContext(context, task)
-    : await verifyStoredMerchant(context, state, task);
-  if (mode === 'report' || mode === 'snapshot') return { result };
+// 核验已保存材料并记录非 verified 结果；login 把明确失效交回人工授权，command/patrol 进入重登。
+// 只读核验（doctor、成功后的复核）直接调用 adapter，不经过本模块。
+export async function checkMerchantSession(context, { tx, task = {}, mode = 'command', runtime = task, browser } = {}) {
+  const result = await verifyStoredMerchant(context, tx.state, task);
   if (mode === 'patrol') assertAuthTask(task);
   if (result.verdict !== 'verified') recordMerchantCheck(result, tx);
   if (result.verdict === 'rejected') {

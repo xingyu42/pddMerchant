@@ -146,8 +146,7 @@ it.each(definitions)('registers Chinese hints and rejects unknown or inherited k
 });
 
 it.each([undefined, null, '', '   ', 'untranslated_hint'])('rejects invalid registered hint text: %s', (text) => {
-  const definition = defineReport({ days: CUSTOMER_SERVICE_REPORT.days, hints: { invalid: text } });
-  assert.throws(() => reportHints(definition, ['invalid']), { code: 'E_INTERNAL' });
+  assert.throws(() => defineReport({ days: CUSTOMER_SERVICE_REPORT.days, hints: { invalid: text } }), { code: 'E_INTERNAL' });
 });
 
 it('fails loudly through report views rather than returning null or filtering unknown hints', () => {

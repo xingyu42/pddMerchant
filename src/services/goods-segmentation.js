@@ -1,4 +1,4 @@
-import { matchSales, normalizeGoodsName } from './goods-sales-matcher.js';
+import { matchSales, normalizeGoodsName, readGoodsId, scanQuality } from './goods-sales-matcher.js';
 import { collectAllGoods } from './diagnose/goods-collector.js';
 import { collectOrdersForStaleAnalysis } from './diagnose/orders-collector.js';
 import { analyzePromoRoi } from './promo-roi.js';
@@ -26,24 +26,11 @@ function segmentHeadline(windowDays, items, summary) {
   return headline;
 }
 
-function segmentQuality(input) {
-  const { goods = [], truncated = false, ratelimited = false } = input;
-  const { goodsScanTruncated = false, goodsScanRateLimited = false, goodsTotal } = input;
-  const goodsIncomplete = goodsScanTruncated || goodsScanRateLimited
-    || (Number.isFinite(goodsTotal) && goodsTotal > goods.length);
-  const ordersIncomplete = truncated || ratelimited || !Array.isArray(input.orders30d);
-  return {
-    goods_complete: !goodsIncomplete, orders_complete: !ordersIncomplete,
-    goods_truncated: goodsScanTruncated, goods_ratelimited: goodsScanRateLimited,
-    orders_truncated: truncated, orders_ratelimited: ratelimited,
-  };
-}
-
 function promoRoiByGoods(promoRoi) {
   const promoRoiMap = new Map();
   if (promoRoi && Array.isArray(promoRoi.rows)) {
     for (const row of promoRoi.rows) {
-      const gid = row.goods_id != null ? String(row.goods_id) : null;
+      const gid = readGoodsId(row);
       const gname = normalizeGoodsName(row.goods_name);
       if (gid) promoRoiMap.set(`id:${gid}`, row.roi);
       if (gname) promoRoiMap.set(`name:${gname}`, row.roi);
@@ -74,7 +61,8 @@ function segmentCompleteness(quality, goods, orders, promoRoi) {
 
 export function segmentGoods(input, { windowDays = 30 } = {}) {
   const { goods = [], orders30d = [], promoRoi = null } = input;
-  const dataQuality = segmentQuality(input);
+  // 分群把缺失的商品列表视为空列表。
+  const dataQuality = scanQuality({ ...input, goods: input.goods ?? [] });
   const warnings = [];
   if (!dataQuality.goods_complete || !dataQuality.orders_complete) warnings.push('采集不完整，统计仅反映已采集数据');
   const matched = matchSales(goods, orders30d);

@@ -44,7 +44,7 @@ export function summarizePromo({ totals } = {}) {
       gmv_yuan: round(gmv, 2),
       spend_yuan: spend == null ? null : round(spend, 2),
       // 曝光为 0 时点击率无分母 → null
-      ctr_pct: impression > 0 ? ratioPct(click, impression) : null,
+      ctr_pct: ratioPct(click, impression),
       roi: roi == null ? null : round(roi, 2),
     },
   };
