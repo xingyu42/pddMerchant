@@ -7,6 +7,7 @@ import { toGoodsReceiptView } from './views/goods-receipt.js';
 // 口径 → 场景值：每种口径只采用自己的单件 / 多件场景，其余场景忽略并告警。
 export const RECEIPT_CALIBERS = Object.freeze({
   regular: Object.freeze({ label: '商家出资常规优惠', single: 7, multi: 8 }),
+  all: Object.freeze({ label: '商家出资所有优惠', single: 10, multi: 11 }),
 });
 export const DEFAULT_RECEIPT_CALIBER = 'regular';
 
@@ -23,12 +24,20 @@ function parseGoodsIds(values = []) {
   return [...new Set(ids)];
 }
 
-export function parseReceiptQuery({ goodsId, page = 1, size = GOODS_PRICE_MAX_PAGE_SIZE } = {}) {
+function parseCaliber(value = DEFAULT_RECEIPT_CALIBER) {
+  if (!Object.hasOwn(RECEIPT_CALIBERS, value)) {
+    throw usage(`--caliber 取值 ${Object.keys(RECEIPT_CALIBERS).join(' | ')}`,
+      'regular = 商家出资常规优惠（默认），all = 商家出资所有优惠');
+  }
+  return value;
+}
+
+export function parseReceiptQuery({ goodsId, page = 1, size = GOODS_PRICE_MAX_PAGE_SIZE, caliber } = {}) {
   if (!Number.isSafeInteger(page) || page < 1) throw usage('--page 需为不小于 1 的整数');
   if (!Number.isSafeInteger(size) || size < 1 || size > GOODS_PRICE_MAX_PAGE_SIZE) {
     throw usage(`--size 取值 1–${GOODS_PRICE_MAX_PAGE_SIZE}`, '上游每页最多查询 10 个商品');
   }
-  return { goodsIds: parseGoodsIds(goodsId), page, size, caliber: DEFAULT_RECEIPT_CALIBER };
+  return { goodsIds: parseGoodsIds(goodsId), page, size, caliber: parseCaliber(caliber) };
 }
 
 function selectScenes(goodsId, sku, caliber, warnings) {

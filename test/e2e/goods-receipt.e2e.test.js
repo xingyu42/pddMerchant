@@ -1,7 +1,8 @@
 import { it } from 'vitest';
 import assert from 'node:assert/strict';
 import { runCli } from '../helpers/isolated-cli.js';
-import { createGoodsReceiptFixtures, receiptGoods, receiptScene, receiptSku } from '../fixtures/test-data.js';
+import { allCaliberReceiptGoods, createGoodsReceiptFixtures, receiptGoods, receiptScene, receiptSku }
+  from '../fixtures/test-data.js';
 
 it('reports platform estimated receipt per sku in yuan with single and multi scenes', () => {
   const result = runCli(['goods', 'receipt'], { fixtures: createGoodsReceiptFixtures() });
@@ -68,7 +69,33 @@ it('reads the requested page and size', () => {
   assert.equal(view.items[0].goods_id, '111');
 });
 
-for (const args of [['--size', '11'], ['--size', '0'], ['--goods-id', '10a'], ['--goods-id', '101,,102']]) {
+it('requests and adopts the all-discounts scenes 10 and 11 under --caliber all, ignoring regular scenes', () => {
+  // 所有优惠口径样本只在请求场景值为 [10,11] 时被读取；请求错口径会落到常规口径的基础 fixture。
+  const fixtures = createGoodsReceiptFixtures({ allCaliberGoods: allCaliberReceiptGoods() });
+  const result = runCli(['goods', 'receipt', '--caliber', 'all'], { fixtures });
+  assert.equal(result.status, 0, result.stderr);
+  const view = result.envelope.data;
+  assert.equal(view.caliber, '商家出资所有优惠');
+  assert.deepEqual(view.headline, ['商家出资所有优惠口径：共 1 个商品，本页 1 个商品、1 个 SKU']);
+  const [sku] = view.items[0].skus;
+  assert.deepEqual(sku.single, { merchant_discount_yuan: 2.7, receipt_yuan: 18.6,
+    discounts: [{ name: '非公开优惠', desc: '合成文案', discount_yuan: 2.7 }] });
+  assert.deepEqual(sku.multi, { quantity: 3, avg_merchant_discount_yuan: 4.2, receipt_yuan: 17.1,
+    discounts: [{ name: '多单立减', desc: '合成立减', discount_yuan: 12.6 }] });
+  const warnings = result.envelope.meta.warnings;
+  assert.deepEqual(warnings.map((warning) => [warning.code, warning.goods_id, warning.sku_id, warning.scenes]),
+    [['receipt_scene_ignored', '101', '1001', [7]]]);
+  assert.match(warnings[0].message, /商家出资所有优惠/);
+});
+
+it('accepts the regular caliber explicitly', () => {
+  const result = runCli(['goods', 'receipt', '--caliber', 'regular'], { fixtures: createGoodsReceiptFixtures() });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.envelope.data.caliber, '商家出资常规优惠');
+});
+
+for (const args of [['--size', '11'], ['--size', '0'], ['--goods-id', '10a'], ['--goods-id', '101,,102'],
+  ['--caliber', 'ALL'], ['--caliber', 'platform']]) {
   it(`rejects ${args.join(' ')} as a usage error`, () => {
     const result = runCli(['goods', 'receipt', ...args], { fixtures: createGoodsReceiptFixtures() });
     assert.equal(result.status, 2);

@@ -347,10 +347,24 @@ function defaultReceiptGoods() {
   ];
 }
 
-export function createGoodsReceiptFixtures({ total = 2, goods = defaultReceiptGoods(), pages = {} } = {}) {
+// 「商家出资所有优惠」口径（场景 10/11）的合成样本，混入常规口径场景 7 用于断言忽略与告警。
+export function allCaliberReceiptGoods() {
+  return [receiptGoods(101, [receiptSku(1001, { scenes: [
+    receiptScene(10, { avg: 270, receipt: 1860, discounts: [receiptDiscount('非公开优惠', '合成文案', 270)] }),
+    receiptScene(11, { avg: 420, receipt: 1710, number: 3, discounts: [receiptDiscount('多单立减', '合成立减', 1260)] }),
+    receiptScene(7, { avg: 170, receipt: 1960 }),
+  ] })])];
+}
+
+// allCaliberGoods 写入按请求场景值 [10,11] 选择的变体 fixture，只有 --caliber all 的请求会读到它。
+export function createGoodsReceiptFixtures({ total = 2, goods = defaultReceiptGoods(), pages = {},
+  allCaliberGoods } = {}) {
   const fixtures = { 'endpoints/goodsPrice.list.json': receiptSuccess(total, goods) };
   for (const [page, list] of Object.entries(pages)) {
     fixtures[`endpoints/goodsPrice.list.page${page}.json`] = receiptSuccess(total, list);
+  }
+  if (allCaliberGoods) {
+    fixtures['endpoints/goodsPrice.list.10,11.json'] = receiptSuccess(allCaliberGoods.length, allCaliberGoods);
   }
   return fixtures;
 }

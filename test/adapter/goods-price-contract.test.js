@@ -1,6 +1,7 @@
 import { it } from 'vitest';
 import assert from 'node:assert/strict';
 import { GOODS_PRICE_LIST } from '../../src/adapter/endpoints/goods-price.js';
+import { RECEIPT_CALIBERS } from '../../src/services/goods-receipt.js';
 import { receiptGoods, receiptScene, receiptSku, receiptSuccess } from '../fixtures/test-data.js';
 
 it('posts the price-management list payload with scenes, goods filter and upstream source type', () => {
@@ -13,6 +14,14 @@ it('posts the price-management list payload with scenes, goods filter and upstre
     source_type: 'PriceManagent',
   });
   assert.equal('goods_search_condition' in GOODS_PRICE_LIST.buildPayload({ page: 1, size: 10, scenes: [7, 8] }), false);
+});
+
+it('carries each caliber\'s own single and multi scenes in consult_price_scene_list', () => {
+  const sceneList = (key) => GOODS_PRICE_LIST.buildPayload({ page: 1, size: 10,
+    scenes: [RECEIPT_CALIBERS[key].single, RECEIPT_CALIBERS[key].multi] }).consult_price_scene_list;
+  assert.deepEqual(Object.keys(RECEIPT_CALIBERS), ['regular', 'all']);
+  assert.deepEqual(sceneList('regular'), [7, 8]);
+  assert.deepEqual(sceneList('all'), [10, 11]);
 });
 
 it('rejects missing totals, prices and receipts instead of inventing zero', () => {

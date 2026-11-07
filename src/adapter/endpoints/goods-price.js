@@ -98,4 +98,6 @@ export const GOODS_PRICE_LIST = {
   buildPayload: buildListPayload,
   successRule: { mode: 'flag-or-code', codeField: 'error_code', codes: [1000000] },
   errorMap: 'upstream', normalize: normalizeList, fixtureListKey: 'result.goods_price_info_list',
+  // fixture 可按请求场景值提供口径变体（goodsPrice.list.10,11.json），缺失时回落分页 / 基础 fixture。
+  fixtureVariantKey: 'scenes',
 };

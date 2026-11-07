@@ -38,10 +38,12 @@ function registerCosts(goods, wireAction) {
 function registerReads(goods, wireAction) {
   wireAction(withReportDays(goods.command('traffic').description('商品区间流量与推广直接成交拆分'), GOODS_TRAFFIC_REPORT)
     .option('--goods-id <id>', '商品 ID'), 'goods.traffic', traffic.run);
-  wireAction(goods.command('receipt').description('SKU 预估实收（平台报告值，商家出资常规优惠口径）')
+  wireAction(goods.command('receipt').description('SKU 预估实收（平台报告值，按商家出资口径）')
     .option('--goods-id <id>', '商品 ID，可重复或逗号分隔', (value, previous = []) => [...previous, value])
     .option('--page <n>', '页码', integerArg(1), 1)
-    .option('--size <n>', '每页商品数（1–10）', integerArg(1), 10), 'goods.receipt', receipt.run);
+    .option('--size <n>', '每页商品数（1–10）', integerArg(1), 10)
+    .option('--caliber <name>', '商家出资口径：regular（常规优惠）| all（所有优惠）', 'regular'),
+  'goods.receipt', receipt.run);
   wireAction(
     goods
       .command('list')

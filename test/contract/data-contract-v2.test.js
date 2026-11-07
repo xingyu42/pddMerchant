@@ -7,7 +7,7 @@ import { runCli } from '../helpers/isolated-cli.js';
 import {
   createAccounts, createFactFixtures, createPublishFixtures, createUpstreamGoods, createExperienceFixtures,
   createCustomerServiceFixtures, createReviewFixtures, createTrafficFixtures, createGoodsTrafficFixtures,
-  createGoodsReceiptFixtures,
+  createGoodsReceiptFixtures, allCaliberReceiptGoods,
 } from '../fixtures/test-data.js';
 import { ACCOUNT_VIEW_FIELDS, ACCOUNT_REMOVED_VIEW_FIELDS } from '../../src/services/views/account.js';
 import { CONFIG_FIELD_VIEW_FIELDS } from '../../src/services/views/config.js';
@@ -83,16 +83,22 @@ async function discoverRegisteredCommands() {
 // 以 command: 'login' 的附加用例覆盖。
 const VALID_AUTH_STATE = { cookies: [{ name: 'PASS_ID', value: 'synthetic' }], origins: [] };
 
+const GOODS_RECEIPT_ENTITY_FIELDS = { 'items[]': GOODS_RECEIPT_ITEM_FIELDS, 'items[].skus[]': GOODS_RECEIPT_SKU_FIELDS,
+  'items[].skus[].single': GOODS_RECEIPT_SINGLE_FIELDS, 'items[].skus[].multi': GOODS_RECEIPT_MULTI_FIELDS,
+  'items[].skus[].single.discounts[]': GOODS_RECEIPT_DISCOUNT_FIELDS,
+  'items[].skus[].multi.discounts[]': GOODS_RECEIPT_DISCOUNT_FIELDS };
+
 const V2_CASES = [
   { command: 'diagnose.traffic', args: ['diagnose', 'traffic'], fixtures: createTrafficFixtures(),
     entityFields: { 'items[]': TRAFFIC_ITEM_FIELDS, summary: TRAFFIC_SUMMARY_FIELDS } },
   { command: 'goods.traffic', args: ['goods', 'traffic'], fixtures: createGoodsTrafficFixtures(),
     entityFields: { 'items[]': GOODS_TRAFFIC_ITEM_FIELDS } },
   { command: 'goods.receipt', args: ['goods', 'receipt'], fixtures: createGoodsReceiptFixtures(),
-    entityFields: { 'items[]': GOODS_RECEIPT_ITEM_FIELDS, 'items[].skus[]': GOODS_RECEIPT_SKU_FIELDS,
-      'items[].skus[].single': GOODS_RECEIPT_SINGLE_FIELDS, 'items[].skus[].multi': GOODS_RECEIPT_MULTI_FIELDS,
-      'items[].skus[].single.discounts[]': GOODS_RECEIPT_DISCOUNT_FIELDS,
-      'items[].skus[].multi.discounts[]': GOODS_RECEIPT_DISCOUNT_FIELDS } },
+    entityFields: GOODS_RECEIPT_ENTITY_FIELDS },
+  { command: 'goods.receipt', args: ['goods', 'receipt', '--caliber', 'all'],
+    fixtures: createGoodsReceiptFixtures({ allCaliberGoods: allCaliberReceiptGoods() }),
+    entityFields: GOODS_RECEIPT_ENTITY_FIELDS,
+    checkData: (data) => assert.equal(data.caliber, '商家出资所有优惠') },
   { command: 'diagnose.customer-service', args: ['diagnose', 'customer-service'], fixtures: createCustomerServiceFixtures(),
     entityFields: { summary: CS_SUMMARY_FIELDS, 'trend.items[]': CS_TREND_ITEM_FIELDS } },
   { command: 'diagnose.reviews', args: ['diagnose', 'reviews'], fixtures: createReviewFixtures(),

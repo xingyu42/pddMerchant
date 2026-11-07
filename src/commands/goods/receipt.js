@@ -4,8 +4,8 @@ import { getGoodsReceiptView } from '../../services/goods-receipt.js';
 export const run = withCommand({
   name: 'goods.receipt', needsAuth: true, needsMall: 'switch',
   async run(ctx) {
-    const { goodsId, page, size } = ctx.config ?? {};
-    return getGoodsReceiptView(ctx, { goodsId, page, size });
+    const { goodsId, page, size, caliber } = ctx.config ?? {};
+    return getGoodsReceiptView(ctx, { goodsId, page, size, caliber });
   },
 });
 
