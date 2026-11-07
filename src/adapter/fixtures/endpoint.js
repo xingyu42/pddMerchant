@@ -32,6 +32,18 @@ function emptyPage(meta, fixture) {
   return raw;
 }
 
+// 声明 fixtureVariantKey 的 spec 按对应请求参数读取 `<spec.name>.<变体>.json`；变体文件缺失时返回 null 交给基础加载。
+function loadVariantFixture(meta, params) {
+  const variant = meta.fixtureVariantKey ? params[meta.fixtureVariantKey] : null;
+  if (variant == null) return null;
+  try {
+    return loadFixture(join('endpoints', `${meta.name}.${variant}.json`));
+  } catch (error) {
+    if (error?.code !== 'E_FIXTURE_MISSING') throw error;
+    return null;
+  }
+}
+
 function loadEndpointFixture(meta, page) {
   try {
     return loadFixture(join('endpoints', `${meta.name}.page${page}.json`));
@@ -51,7 +63,7 @@ export function mockRunEndpoint(meta, params = {}) {
       exitCode: ExitCodes.USAGE,
     });
   }
-  const raw = loadEndpointFixture(meta, params.page ?? 1);
+  const raw = loadVariantFixture(meta, params) ?? loadEndpointFixture(meta, params.page ?? 1);
   throwFixtureError(raw, meta.name);
   return structuredClone(raw);
 }

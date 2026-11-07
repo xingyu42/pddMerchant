@@ -152,3 +152,22 @@ it('skips token waiting while accounting business rate limits and clearing them 
   await assert.rejects(client.execute(TRAFFIC_READY_TIME), (error) => error.detail.cooldown_triggered === true);
   assert.equal(limiter.acquire.mock.calls.length, 0);
 });
+
+it('loads declared param variants, falls back to the base fixture and ignores variants for undeclared specs', async () => {
+  const spec = { ...TRAFFIC_READY_TIME, fixtureVariantKey: 'goods_id' };
+  useFixtures({ 'endpoints/traffic.readyTime.json': { success: true, errorCode: 0, result: '2026-10-30' },
+    'endpoints/traffic.readyTime.1001.json': { success: true, errorCode: 0, result: '2026-11-01' } });
+  assert.equal(await runEndpoint(null, spec, { goods_id: 1001 }, ctx), '2026-11-01');
+  assert.equal(await runEndpoint(null, spec, { goods_id: 1002 }, ctx), '2026-10-30');
+  assert.equal(await runEndpoint(null, TRAFFIC_READY_TIME, { goods_id: 1001 }, ctx), '2026-10-30');
+});
+
+it('applies __throws injected in a variant fixture', async () => {
+  const spec = { ...TRAFFIC_READY_TIME, fixtureVariantKey: 'goods_id' };
+  useFixtures({ 'endpoints/traffic.readyTime.json': { success: true, errorCode: 0, result: '2026-10-30' },
+    'endpoints/traffic.readyTime.1001.json': { __throws: true,
+      __error: { code: 'E_NETWORK', message: 'Synthetic variant failure', exitCode: 5 } } });
+  await assert.rejects(runEndpoint(null, spec, { goods_id: 1001 }, ctx), {
+    code: 'E_NETWORK', message: 'Synthetic variant failure', exitCode: 5,
+  });
+});
