@@ -1,13 +1,11 @@
 import { withBrowser, closeBrowser } from '../adapter/browser.js';
-import { assertMerchantVerified } from '../adapter/merchant-auth.js';
-import { probeCheckLogin, selectCheckCookiesFromState } from '../adapter/merchant-auth-probe.js';
-import { withMerchantAuthUpdate, verifyStoredMerchant, recordMerchantCheck, assertAuthTask } from '../adapter/merchant-auth-storage.js';
-import { isMockEnabled, mockIsAuthValid, mockIsAuthIndeterminate } from '../adapter/mock-dispatcher.js';
+import { withMerchantAuthUpdate, assertAuthTask } from '../adapter/merchant-auth-storage.js';
+import { isMockEnabled } from '../adapter/mock-dispatcher.js';
 import { listAccounts } from '../infra/account-store.js';
 import { armDeadline, abortableSleep } from '../infra/abort.js';
 import { setDaemonMeta } from '../infra/daemon-state.js';
-import { PddCliError, ExitCodes } from '../infra/errors.js';
-import { fixtureSessionRecovered, reloginForFixture, reloginInCommand } from './password-relogin.js';
+import { PddCliError } from '../infra/errors.js';
+import { checkMerchantSession, probeMerchantSession, checkFixtureMerchantSession } from './merchant-session.js';
 
 const ACCOUNT_BUDGET_MS = 120_000;
 const defaultClock = { now: () => Date.now(), sleep: abortableSleep };
@@ -21,31 +19,8 @@ export function patrolIntervalMs(runtimeConfig) {
   return Number.isSafeInteger(override) && override > 0 ? override : runtimeConfig.patrolIntervalMs;
 }
 
-async function checkFixture(account, runtime, tx) {
-  if (mockIsAuthIndeterminate()) {
-    throw new PddCliError({ code: 'E_AUTH_CHECK_INDETERMINATE', message: '无法确认登录状态', exitCode: ExitCodes.NETWORK });
-  }
-  if (!mockIsAuthValid() && !fixtureSessionRecovered(account.id)) {
-    await reloginForFixture(account.id, runtime, { tx });
-  }
-}
-
 async function checkLive(runtime, tx, ownerTag) {
-  assertAuthTask(runtime);
-  if (tx.state?.merchant_auth?.last_check?.verdict === 'rejected') return browserRelogin(runtime, tx, ownerTag);
-  let result;
-  try {
-    const cookies = selectCheckCookiesFromState(tx.state);
-    result = await probeCheckLogin(cookies, { signal: runtime.signal, deadlineAt: runtime.deadlineAt });
-  } catch (error) {
-    if (error?.code === 'E_AUTH_CANDIDATE_INVALID') return browserRelogin(runtime, tx, ownerTag);
-    throw error;
-  }
-  assertAuthTask(runtime);
-  if (result.verdict === 'verified') return;
-  recordMerchantCheck(result, tx);
-  if (result.verdict === 'rejected') return browserRelogin(runtime, tx, ownerTag);
-  assertMerchantVerified(result);
+  if (!await probeMerchantSession(tx, runtime)) await browserRelogin(runtime, tx, ownerTag);
 }
 
 async function browserRelogin(runtime, tx, ownerTag) {
@@ -55,13 +30,10 @@ async function browserRelogin(runtime, tx, ownerTag) {
     runtime.signal.addEventListener('abort', onAbort, { once: true });
     try {
       assertAuthTask(runtime);
-      const result = await verifyStoredMerchant(context, tx.state, {
-        signal: runtime.signal, deadlineAt: runtime.deadlineAt, expectedMallId: tx.recoveryMallId,
+      await checkMerchantSession(context, { tx, runtime, browser, mode: 'patrol',
+        task: { signal: runtime.signal, deadlineAt: runtime.deadlineAt, expectedMallId: tx.recoveryMallId },
       });
       assertAuthTask(runtime);
-      if (result.verdict !== 'verified') recordMerchantCheck(result, tx);
-      if (result.verdict === 'rejected') await reloginInCommand(runtime, tx, browser, result);
-      else assertMerchantVerified(result);
       // No business result: keep the saved snapshot; relogin owns its verified commit.
     } finally {
       runtime.signal.removeEventListener('abort', onAbort);
@@ -76,7 +48,7 @@ async function checkAccount(account, context) {
     get deadlineAt() { return deadline.deadlineAt; } };
   try {
     await withMerchantAuthUpdate(account.id, async (tx) => {
-      if (isMockEnabled()) await checkFixture(account, runtime, tx);
+      if (isMockEnabled()) await checkFixtureMerchantSession(account.id, runtime, { tx });
       else await checkLive(runtime, tx, context.ownerTag);
       assertAuthTask(runtime);
     }, { timeoutMs: 0, signal: runtime.signal, deadlineAt: runtime.deadlineAt });

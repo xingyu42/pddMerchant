@@ -1,10 +1,11 @@
 import { hasPasswordCredential, loadPasswordCredential, savePasswordCredential, deletePasswordCredential } from '../adapter/password-credential.js';
-import { assertMerchantVerified, verifyMerchantContext } from '../adapter/merchant-auth.js';
+import { assertMerchantVerified, assertVerifiedMerchantCandidate, verifyMerchantContext } from '../adapter/merchant-auth.js';
 import { createSnapshotContext } from '../adapter/browser.js';
 import { attemptPasswordLogin } from '../adapter/password-login.js';
-import { loadAuthState, saveAuthStateSnapshot } from '../adapter/auth-state.js';
+import { loadAuthState } from '../adapter/auth-state.js';
 import { withMerchantAuthUpdate, commitMerchantCandidate, assertAuthTask } from '../adapter/merchant-auth-storage.js';
 import { mockPasswordLogin } from '../adapter/mock-dispatcher.js';
+import { hasFixtureRelogin, createFixtureReloginContext } from '../adapter/fixtures/auth.js';
 import { getAccountById, getCredential, getReloginState, putReloginState,
   ensureOpenPendingAction, resolveOpenPendingActions, listPendingActions } from '../infra/account-store.js';
 import { transaction, isInTransaction } from '../infra/db.js';
@@ -64,18 +65,51 @@ function throttleError(account, state, minIntervalMs) {
   return reloginFailed(detail);
 }
 
-export function decideRelogin(accountId, { now = Date.now(), minIntervalMs, authResult }) {
+export function decideRelogin(accountId, { now = Date.now(), minIntervalMs, authResult, manual = false, decrypt = true }) {
+  const state = getReloginState(accountId);
+  if (manual && state?.status === 'blocked') {
+    return { action: 'fail', error: reloginBlocked({ account: merchantAccount(accountId).slug, reason: state.reason }) };
+  }
   if (!hasPasswordCredential(accountId)) return { action: 'fail', error: authExpired(undefined, authResult) };
   const account = merchantAccount(accountId);
-  const state = getReloginState(accountId);
   if (state?.status === 'blocked') return { action: 'fail', error: reloginBlocked({ account: account.slug, reason: state.reason }) };
-  if (state?.status === 'awaiting_human') return { action: 'fail', error: authHumanRequired({ account: account.slug, challenge: state.reason }) };
+  if (!manual && state?.status === 'awaiting_human') return { action: 'fail', error: authHumanRequired({ account: account.slug, challenge: state.reason }) };
   const intervalMs = Number.isFinite(minIntervalMs) && minIntervalMs > 0 ? minIntervalMs : 1_800_000;
-  if (state?.last_attempt_at && now - Date.parse(state.last_attempt_at) < intervalMs) {
+  if (!manual && state?.last_attempt_at && now - Date.parse(state.last_attempt_at) < intervalMs) {
     return { action: 'fail', error: throttleError(account, state, intervalMs) };
   }
   const row = getCredential(accountId);
-  return { action: 'attempt', credential: loadPasswordCredential(accountId), credentialUpdatedAt: row.updated_at };
+  return { action: 'attempt', credential: decrypt ? loadPasswordCredential(accountId) : undefined, credentialUpdatedAt: row.updated_at };
+}
+
+// 提交回调只负责候选保存；尝试结果与人工状态的收尾统一由句柄持有。
+export function beginReloginAttempt(tx, { manual = false, password = true, credentialUpdatedAt,
+  commit = commitMerchantCandidate } = {}) {
+  assertAuthTask(tx);
+  if (password) recordReloginAttempt(tx);
+  return {
+    fail(outcome) {
+      if ((typeof outcome === 'string' ? outcome : outcome?.outcome) === 'success') {
+        throw new PddCliError({ code: 'E_USAGE', message: '重登成功须提交已验证材料', exitCode: ExitCodes.USAGE });
+      }
+      const error = recordReloginOutcome(tx, outcome, { credentialUpdatedAt });
+      if (error) throw error;
+    },
+    succeed(candidate) {
+      assertVerifiedMerchantCandidate(candidate);
+      getMasterKey();
+      const draft = { ...tx };
+      const saved = write(() => {
+        assertAuthTask(tx);
+        assertLeaseOwner('account', tx.accountId, tx.token);
+        commit(candidate, draft);
+        if (manual) markManualLoginSucceeded(tx.accountId);
+        if (password) recordReloginOutcome(tx, 'success', { credentialUpdatedAt });
+        return loadAuthState(tx.accountId);
+      });
+      Object.assign(tx, saved);
+    },
+  };
 }
 
 export function recordReloginAttempt(tx) {
@@ -182,10 +216,6 @@ export function getAccountActionWarnings(accountId, slug) {
     .map((action) => ({ code: 'account_action_required', account: slug, reason: action.reason }));
 }
 
-function hasFixtureRelogin(state) {
-  return state?.cookies?.some((cookie) => cookie.name === 'PDD_FIXTURE_RELOGIN' && cookie.value === '1') ?? false;
-}
-
 export function fixtureSessionRecovered(accountId) {
   return hasFixtureRelogin(loadAuthState(accountId).state);
 }
@@ -202,7 +232,6 @@ async function withReloginBudget(runtime, tx, operation) {
   tx.signal = task.signal;
   tx.deadlineAt = task.deadlineAt;
   try {
-    recordReloginAttempt(tx);
     return await operation(task);
   }
   finally {
@@ -222,6 +251,7 @@ function beginRelogin(tx, runtime, authResult) {
 
 async function runRelogin(tx, decision, task, attempt) {
   assertAuthTask(task);
+  const handle = beginReloginAttempt(tx, decision);
   let result;
   try { result = await attempt(decision.credential); }
   catch (error) {
@@ -230,9 +260,16 @@ async function runRelogin(tx, decision, task, attempt) {
     result = { outcome: 'network_error' };
   }
   assertAuthTask(task);
-  const error = recordReloginOutcome(tx, result, decision);
-  if (result.verification?.reason === 'identity_mismatch') assertMerchantVerified(result.verification);
-  if (error) throw error;
+  if (result.outcome !== 'success') {
+    try { handle.fail(result); }
+    catch (error) {
+      if (error.code === 'E_AUTH_RELOGIN_FAILED' && result.verification?.reason === 'identity_mismatch') {
+        assertMerchantVerified(result.verification);
+      }
+      throw error;
+    }
+  }
+  handle.succeed(result.candidate);
   renewLease('account', tx.accountId, tx.token);
 }
 
@@ -260,8 +297,7 @@ export async function reloginInCommand(runtime, tx, browser, authResult) {
         await loginPage.close();
         const verified = await verifyMerchantContext(context, { ...task, expectedMallId: tx.recoveryMallId });
         if (verified.verdict !== 'verified') return { outcome: 'verify_failed', verification: verified };
-        commitMerchantCandidate(verified.candidate, tx);
-        return result;
+        return { ...result, candidate: verified.candidate };
       });
       const page = await context.newPage();
       assertAuthTask(task);
@@ -274,28 +310,17 @@ export async function reloginInCommand(runtime, tx, browser, authResult) {
   });
 }
 
-export function commitFixtureRelogin(tx, task) {
-  const checkedAt = new Date().toISOString();
-  const state = { cookies: [{ name: 'PDD_FIXTURE_RELOGIN', value: '1', domain: '.pinduoduo.com', path: '/' }], origins: [],
-    merchant_auth: { version: 1, mall_id: tx.recoveryMallId, usable: true, scope: 'shop_read',
-      check_verdict: 'verified', checked_at: checkedAt,
-      last_check: { verdict: 'verified', reason: 'shop_read', checked_at: checkedAt } } };
-  write(() => {
-    assertAuthTask(task);
-    assertLeaseOwner('account', tx.accountId, tx.token);
-    tx.revision = saveAuthStateSnapshot(state, tx.accountId, { expectedRevision: tx.revision });
-  });
-  tx.state = state;
-}
-
 export async function reloginForFixture(accountId, runtime, { tx: heldTransaction } = {}) {
   const operation = async (tx) => {
     if (hasFixtureRelogin(tx.state)) return;
     const decision = beginRelogin(tx, runtime);
     return withReloginBudget(runtime, tx, (task) => runRelogin(tx, decision, task, async () => {
       const result = await mockPasswordLogin(task);
-      if (result.outcome === 'success') commitFixtureRelogin(tx, task);
-      return result;
+      if (result.outcome !== 'success') return result;
+      const context = createFixtureReloginContext(tx.recoveryMallId);
+      const verified = await verifyMerchantContext(context, { ...task, expectedMallId: tx.recoveryMallId });
+      if (verified.verdict !== 'verified') return { outcome: 'verify_failed', verification: verified };
+      return { ...result, candidate: verified.candidate };
     }));
   };
   if (heldTransaction) return operation(heldTransaction);

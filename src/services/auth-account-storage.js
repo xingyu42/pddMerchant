@@ -1,4 +1,4 @@
-import { transaction } from '../infra/db.js';
+import { transaction, isInTransaction } from '../infra/db.js';
 import { listAccounts, getAccountById, findAccountByIdentity, insertAccount, updateAccount, setDefaultAccount } from '../infra/account-store.js';
 import { assertLeaseOwner } from '../infra/leases.js';
 import { getMasterKey } from '../infra/master-key.js';
@@ -21,7 +21,8 @@ export function saveMerchantLogin(result, initial, task) {
   assertVerifiedMerchantCandidate(result?.candidate);
   // 主密钥指纹先独立确认，账号提交回滚时仍保留加密库的密钥标识。
   getMasterKey();
-  return transaction(() => {
+  const write = isInTransaction() ? (callback) => callback() : transaction;
+  return write(() => {
     assertAuthTask(task);
     if (initial) {
       assertLeaseOwner('account', initial.accountId, initial.token);

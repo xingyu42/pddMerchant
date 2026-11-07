@@ -7,7 +7,7 @@ import {
 } from '../adapter/browser.js';
 import { loadAuthState, isConsumerAuthValid } from '../adapter/auth-state.js';
 import { assertMerchantVerified } from '../adapter/merchant-auth.js';
-import { verifyStoredMerchant } from '../adapter/merchant-auth-storage.js';
+import { checkMerchantSession } from '../services/merchant-session.js';
 import { PddCliError, ExitCodes, secretDecryptFailed } from '../infra/errors.js';
 import { existsSync } from 'node:fs';
 import { listAccounts } from '../infra/account-store.js';
@@ -72,7 +72,7 @@ async function checkLoginStates(accountId, consumerAccountId, task = {}) {
     browser = launched.browser;
     let merchant = { ok: false, detail: { configured: false, verdict: 'not_configured' } };
     if (accountId != null) {
-      const result = await verifyStoredMerchant(launched.context, loaded.state, task);
+      const { result } = await checkMerchantSession(launched.context, { state: loaded.state, task, mode: 'report' });
       merchant = { ok: result.verdict === 'verified', detail: {
         configured: true, verdict: result.verdict, reason: result.reason,
         checked_at: result.checked_at, shops: result.identity ? 1 : null,

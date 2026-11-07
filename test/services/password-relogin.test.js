@@ -6,11 +6,14 @@ import { get, run, transaction, isInTransaction } from '../../src/infra/db.js';
 import { getLogger } from '../../src/infra/logger.js';
 import { savePasswordCredential, deletePasswordCredential } from '../../src/adapter/password-credential.js';
 import { withMerchantAuthUpdate } from '../../src/adapter/merchant-auth-storage.js';
-import { assertMerchantVerified } from '../../src/adapter/merchant-auth.js';
+import { assertMerchantVerified, verifyMerchantContext } from '../../src/adapter/merchant-auth.js';
+import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
+import { createFixtureReloginContext } from '../../src/adapter/fixtures/auth.js';
+import { aad, seal } from '../../src/infra/secret-box.js';
 import { armDeadline } from '../../src/commands/runner/single-lifecycle.js';
 import { decideRelogin, recordReloginAttempt, recordReloginOutcome, markManualLoginSucceeded,
   setAccountPassword, clearAccountPassword, clearReloginBlock, recordTakeoverTimeout, getReloginSummary, reloginInCommand,
-  deviceState } from '../../src/services/password-relogin.js';
+  deviceState, beginReloginAttempt, reloginForFixture, fixtureSessionRecovered } from '../../src/services/password-relogin.js';
 
 const credential = { loginName: 'synthetic-login-54639', password: 'synthetic-password-183646' };
 const now = Date.parse('2026-10-27T00:00:00.000Z');
@@ -146,6 +149,82 @@ it('records an attempt before browser work, creating a default row and preservin
     assert.equal(state.last_attempt_at, new Date(now).toISOString());
     vi.useRealTimers();
   });
+});
+
+it('keeps both the held transaction and persisted state unchanged when success finalization fails', async () => {
+  saveAuthStateSnapshot({ cookies: [], origins: [] }, account.id);
+  savePasswordCredential(account.id, credential);
+  seedState({ status: 'awaiting_human', reason: 'sms', consecutiveTakeoverTimeouts: 1 });
+  insertPendingAction(account.id, { kind: 'human_takeover', reason: 'sms' });
+  const { candidate } = await verifyMerchantContext(createFixtureReloginContext(account.identity));
+  await withMerchantAuthUpdate(account.id, (tx) => {
+    const before = structuredClone(tx.state);
+    const handle = beginReloginAttempt(tx, { manual: true, credentialUpdatedAt: getCredential(account.id).updated_at });
+    run(`CREATE TEMP TRIGGER fail_handle_success BEFORE UPDATE ON relogin_states
+      WHEN NEW.reason = 'success' BEGIN SELECT RAISE(ABORT, 'synthetic outcome failure'); END`);
+    try {
+      assert.throws(() => handle.succeed(candidate), { code: 'E_AUTH_ACCOUNT_SAVE_FAILED' });
+      assert.equal(tx.revision, 1);
+      assert.deepEqual(tx.state, before);
+      assert.equal(loadAuthState(account.id).revision, 1);
+      assert.equal(getReloginState(account.id).status, 'awaiting_human');
+      assert.equal(getReloginState(account.id).consecutive_takeover_timeouts, 1);
+      assert.equal(openActions().length, 1);
+    } finally { run('DROP TRIGGER fail_handle_success'); }
+    handle.succeed(candidate);
+    assert.equal(tx.revision, 2);
+    assert.equal(tx.corrupt, false);
+    assert.deepEqual(tx.metadata, loadAuthState(account.id).metadata);
+    assert.equal(getReloginState(account.id).reason, 'success');
+    assert.deepEqual(openActions(), []);
+  });
+});
+
+it('rejects an unverified candidate through the attempt handle without advancing state', async () => {
+  await withMerchantAuthUpdate(account.id, (tx) => {
+    const handle = beginReloginAttempt(tx);
+    assert.throws(() => handle.fail('success'), { code: 'E_USAGE' });
+    assert.throws(() => handle.succeed({ state: { cookies: [], origins: [] } }), { code: 'E_AUTH_CANDIDATE_INVALID' });
+    assert.equal(tx.revision, 0);
+    assert.equal(loadAuthState(account.id).exists, false);
+    assert.ok(getReloginState(account.id).last_attempt_at);
+    assert.equal(getReloginState(account.id).reason, null);
+  });
+});
+
+it('keeps a reset credential authoritative when a handle reports a stale blocking failure', async () => {
+  setAccountPassword(account.id, credential);
+  await withMerchantAuthUpdate(account.id, (tx) => {
+    const handle = beginReloginAttempt(tx, decide());
+    setAccountPassword(account.id, credential);
+    assert.throws(() => handle.fail({ outcome: 'challenge', challenge: 'sms' }), { code: 'E_AUTH_HUMAN_REQUIRED' });
+    assert.equal(getReloginState(account.id).reason, 'password_reset');
+    assert.deepEqual(openActions(), []);
+  });
+});
+
+it('fixture recovery repairs held metadata and corrupt bookkeeping and restores the runtime deadline', async () => {
+  saveAuthStateSnapshot({ cookies: [], origins: [] }, account.id);
+  setAccountPassword(account.id, credential);
+  run('UPDATE auth_states SET state_sealed = ? WHERE account_id = ?', seal({ cookies: [] }, aad('auth_states', account.id)), account.id);
+  vi.stubEnv('PDD_TEST_AUTH_INVALID', '1');
+  const deadline = armDeadline({ timeoutMs: 5000 }, null, Date.now());
+  const runtime = { deadline, signal: deadline.signal, get deadlineAt() { return deadline.deadlineAt; } };
+  try {
+    await withMerchantAuthUpdate(account.id, async (tx) => {
+      assert.equal(tx.corrupt, true);
+      await reloginForFixture(account.id, runtime, { tx });
+      assert.equal(tx.revision, 2);
+      assert.equal(tx.corrupt, false);
+      assert.equal(tx.metadata.mall_id, account.identity);
+      assert.equal(tx.metadata.last_check.verdict, 'verified');
+      assert.deepEqual(tx.metadata, loadAuthState(account.id).metadata);
+      assert.equal(tx.deadlineAt, runtime.deadlineAt);
+      assert.equal(tx.signal, runtime.signal);
+    }, { recoveryMallId: account.identity, signal: runtime.signal, deadlineAt: runtime.deadlineAt });
+    assert.equal(fixtureSessionRecovered(account.id), true);
+    assert.equal(getReloginState(account.id).reason, 'success');
+  } finally { deadline.dispose(); }
 });
 
 const outcomes = [

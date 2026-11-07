@@ -138,6 +138,28 @@ it.each(['wrong_password', 'account_locked'])('records %s and closes the browser
   assertReleased();
 });
 
+it('rolls back the live login snapshot and manual reset when recording success fails', async () => {
+  putReloginState(account.id, { status: 'awaiting_human', reason: 'sms', consecutiveTakeoverTimeouts: 1 });
+  insertPendingAction(account.id, { kind: 'human_takeover', reason: 'sms' });
+  const authBefore = get('SELECT * FROM auth_states WHERE account_id = ?', account.id);
+  const accountBefore = getAccountById(account.id);
+  const actionsBefore = listPendingActions(account.id);
+  run(`CREATE TEMP TRIGGER fail_relogin_success BEFORE UPDATE ON relogin_states
+    WHEN NEW.reason = 'success' BEGIN SELECT RAISE(ABORT, 'synthetic outcome failure'); END`);
+  try {
+    await stateIs(start(), 'failed');
+    assert.equal(JSON.stringify(get('SELECT * FROM auth_states WHERE account_id = ?', account.id)) === JSON.stringify(authBefore), true);
+    assert.deepEqual(getAccountById(account.id), accountBefore);
+    assert.deepEqual(listPendingActions(account.id), actionsBefore);
+    const state = getReloginState(account.id);
+    assert.equal(state.status, 'awaiting_human');
+    assert.equal(state.reason, 'sms');
+    assert.equal(state.consecutive_takeover_timeouts, 1);
+    assert.ok(state.last_attempt_at);
+    assertReleased();
+  } finally { run('DROP TRIGGER fail_relogin_success'); }
+});
+
 it.each(['unknown', 'slider'])('offers captcha takeover for %s challenges and waits for PASS_ID before verification', async (challenge) => {
   control.outcome = { outcome: 'challenge', challenge };
   const id = start();
