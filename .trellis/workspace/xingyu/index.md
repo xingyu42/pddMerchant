@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 45
-- **Last Active**: 2026-11-03
+- **Total Sessions**: 47
+- **Last Active**: 2026-11-07
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1380 | Active |
+| `journal-1.md` | ~1449 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,8 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 47 | 2026-11-07 | 架构加深清单落地并合并 | `cad0ad5`, `9f08bd3`, `d8b0117` | `main` |
+| 46 | 2026-11-07 | 架构加深评审与待办 | - | `main` |
 | 45 | 2026-11-03 | 控制台指针串行发送与回放恢复 | - | `fix/console-pointer-ux` |
 | 44 | 2026-11-03 | 账密登录移除 DOM 兜底；否决控制台挂官方验证码组件 | `b421e81` | `main` |
 | 43 | 2026-11-01 | ③ 流量与商品明细：实现、审计与提交 | `fe1710a` | `feat/operating-data-gaps` |

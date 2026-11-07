@@ -1378,3 +1378,72 @@ Topics: [.trellis/spec/adapter/browser-runtime.md](../../spec/adapter/browser-ru
 ### Next Steps
 
 - 真实手机触控、输入法及真实验证码后端行为待验证。
+
+
+## Session 46: 架构加深评审与待办
+<!-- trellis-session: v=2 fp=60a21ba4d1e3a937 -->
+
+**Date**: 2026-11-07
+**Task**: 架构加深评审与待办
+**Branch**: `main`
+
+### Summary
+
+热点区域架构评审（子代理勘察 + Claude 抽查 + Codex 核查），整理为 3 个缺陷与 8 个加深候选，记入 research 主题；未改代码、未跑测试。
+Topics: [.trellis/research/architecture-deepening.md](../../research/architecture-deepening.md)
+
+### Main Changes
+
+- 新增 .trellis/research/architecture-deepening.md：T1 40002 分类丢失、T2 并发页泄漏、T3 控制台登录两事务，及 C1-C8 加深候选
+- 已推翻：errorCode=0 由 page-api 包装造成（issue #1 证明平台真实返回 0）；重登恢复丢失 deadline 原值
+
+### Git Commits
+
+(No commits - planning session)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- T1 先写 40002 失败测试再修；随后 C1 上游响应判定、C2 fixture transport seam
+
+
+## Session 47: 架构加深清单落地并合并
+<!-- trellis-session: v=2 fp=a230aa19e1d4dab5 -->
+
+**Date**: 2026-11-07
+**Task**: 架构加深清单落地并合并
+**Branch**: `main`
+
+### Summary
+
+Codex 在 worktree 分 6 批完成 T1-T3 与 C1-C8，Claude 逐批审查并跑全量测试（最终 112 files / 2000 passed / 1 skipped）；真实账号 15 个只读命令新旧输出一致；拆为非认证与认证两个提交，经 no-ff 合并回 main。
+Topics: [.trellis/research/architecture-deepening.md](../../research/architecture-deepening.md)
+
+### Main Changes
+
+- 新增 response-interpreter、fixture send() 传输层、withEndpointPages、runReport/report-windows、goods-sales-matcher、infra/metrics、merchant-session、beginReloginAttempt
+- 修复 40002 分类丢失、并发页泄漏、控制台登录两事务；--days 解析期校验并拒绝 1e1/0x1e；未登记 hint 抛 E_INTERNAL
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cad0ad5` | ♻️ refactor: 上游响应判定、fixture 传输层、页面租借与报表骨架收进深模块 |
+| `9f08bd3` | ♻️ refactor: 商家会话核验与重登尝试收成单一入口，控制台登录成功原子提交 |
+| `d8b0117` | 🔀 merge: response verdict, fixture transport, page leasing, report scaffolding, metrics/matcher and merchant session deepening |
+
+### Testing
+
+- [OK] npm test：112 files, 2000 passed, 1 skipped；第一个提交单独 111 files, 1987 passed
+- [OK] 真实账号（绘梦童坊）15 个只读命令新旧 data/error/warnings 一致
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- daemon 仍运行旧代码，需 pdd daemon restart；真实账号待验证：账密重登/短信/验证码接管/扫码、错误分支、推广与利润有数据时的输出
