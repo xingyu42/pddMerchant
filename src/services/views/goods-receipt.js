@@ -16,16 +16,13 @@ function toDiscounts(scene) {
     discount_yuan: yuanFromFen(item.discount_amount) }));
 }
 
-function toSingle(scene) {
+// 单件与多件场景同构：多件额外带件数，商家出资优惠为平均每件。
+function toScene(scene, { multi = false } = {}) {
   if (!scene) return null;
-  return { merchant_discount_yuan: yuanFromFen(scene.avg_discount_amount), receipt_yuan: yuanFromFen(scene.promo_price),
-    discounts: toDiscounts(scene) };
-}
-
-function toMulti(scene) {
-  if (!scene) return null;
-  return { quantity: scene.number, avg_merchant_discount_yuan: yuanFromFen(scene.avg_discount_amount),
-    receipt_yuan: yuanFromFen(scene.promo_price), discounts: toDiscounts(scene) };
+  const discount = yuanFromFen(scene.avg_discount_amount);
+  const head = multi ? { quantity: scene.number, avg_merchant_discount_yuan: discount }
+    : { merchant_discount_yuan: discount };
+  return { ...head, receipt_yuan: yuanFromFen(scene.promo_price), discounts: toDiscounts(scene) };
 }
 
 // sku 已由 service 按口径选出 single / multi 场景（缺失为 null）。
@@ -35,7 +32,7 @@ export function toGoodsReceiptSku(sku) {
     sku_id: sku.sku_id, spec: sku.sku_spec, group_price_yuan: yuanFromFen(sku.group_price),
     pre_coupon_price_yuan: yuanFromFen(activity ? activity.activity_price : sku.group_price),
     pre_coupon_price_source: activity ? activity.activity_type_desc : GROUP_PRICE_SOURCE,
-    single: toSingle(sku.single), multi: toMulti(sku.multi),
+    single: toScene(sku.single), multi: toScene(sku.multi, { multi: true }),
   };
 }
 

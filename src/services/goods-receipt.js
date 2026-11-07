@@ -1,8 +1,10 @@
 // 预估实收服务：调用价格管理列表、按口径选取单件 / 多件场景并收集警告；投影与换算在视图层。
 import { runEndpoint } from '../adapter/run-endpoint.js';
 import { GOODS_PRICE_EXPAND, GOODS_PRICE_LIST, GOODS_PRICE_MAX_PAGE_SIZE } from '../adapter/endpoints/goods-price.js';
-import { PddCliError, ExitCodes } from '../infra/errors.js';
+import { usageError } from './goods.js';
 import { toGoodsReceiptView } from './views/goods-receipt.js';
+
+export { GOODS_PRICE_MAX_PAGE_SIZE };
 
 // 口径 → 场景值：每种口径只采用自己的单件 / 多件场景，其余场景忽略并告警。
 export const RECEIPT_CALIBERS = Object.freeze({
@@ -11,31 +13,32 @@ export const RECEIPT_CALIBERS = Object.freeze({
 });
 export const DEFAULT_RECEIPT_CALIBER = 'regular';
 
-function usage(message, hint) {
-  return new PddCliError({ code: 'E_USAGE', message, hint, exitCode: ExitCodes.USAGE });
+// 口径可选值说明：注册器帮助文案与用法错误提示共用。
+export function describeReceiptCalibers(separator = ' | ') {
+  return Object.entries(RECEIPT_CALIBERS).map(([name, { label }]) => `${name}（${label}）`).join(separator);
 }
 
 function parseGoodsIds(values = []) {
   const ids = values.flatMap((value) => String(value).split(',')).map((value) => value.trim());
   const invalid = ids.find((id) => !/^[1-9]\d*$/.test(id) || !Number.isSafeInteger(Number(id)));
   if (invalid !== undefined) {
-    throw usage('--goods-id 需为正整数商品 ID', '可重复传入或用逗号分隔，例如 --goods-id 101,102');
+    throw usageError('--goods-id 需为正整数商品 ID', '可重复传入或用逗号分隔，例如 --goods-id 101,102');
   }
   return [...new Set(ids)];
 }
 
 function parseCaliber(value = DEFAULT_RECEIPT_CALIBER) {
   if (!Object.hasOwn(RECEIPT_CALIBERS, value)) {
-    throw usage(`--caliber 取值 ${Object.keys(RECEIPT_CALIBERS).join(' | ')}`,
-      'regular = 商家出资常规优惠（默认），all = 商家出资所有优惠');
+    throw usageError(`--caliber 取值 ${Object.keys(RECEIPT_CALIBERS).join(' | ')}`,
+      `${describeReceiptCalibers('，')}；默认 ${DEFAULT_RECEIPT_CALIBER}`);
   }
   return value;
 }
 
 export function parseReceiptQuery({ goodsId, page = 1, size = GOODS_PRICE_MAX_PAGE_SIZE, caliber } = {}) {
-  if (!Number.isSafeInteger(page) || page < 1) throw usage('--page 需为不小于 1 的整数');
+  if (!Number.isSafeInteger(page) || page < 1) throw usageError('--page 需为不小于 1 的整数');
   if (!Number.isSafeInteger(size) || size < 1 || size > GOODS_PRICE_MAX_PAGE_SIZE) {
-    throw usage(`--size 取值 1–${GOODS_PRICE_MAX_PAGE_SIZE}`, '上游每页最多查询 10 个商品');
+    throw usageError(`--size 取值 1–${GOODS_PRICE_MAX_PAGE_SIZE}`, `上游每页最多查询 ${GOODS_PRICE_MAX_PAGE_SIZE} 个商品`);
   }
   return { goodsIds: parseGoodsIds(goodsId), page, size, caliber: parseCaliber(caliber) };
 }

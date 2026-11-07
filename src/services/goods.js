@@ -64,7 +64,7 @@ export function validateGoodsId(goodsId) {
   return n;
 }
 
-function usageError(message, hint) {
+export function usageError(message, hint) {
   return new PddCliError({ code: 'E_USAGE', message, ...(hint ? { hint } : {}), exitCode: ExitCodes.USAGE });
 }
 
