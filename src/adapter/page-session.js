@@ -54,5 +54,3 @@ export function createPageSession(context, { now = Date.now, ttlMs = DEFAULT_TTL
 
   return { selectPage, recordNavigation, goto, getSiblings, closeAll, _history: history };
 }
-
-export { normalizeKey, DEFAULT_TTL_MS };

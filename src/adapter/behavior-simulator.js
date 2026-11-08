@@ -4,7 +4,7 @@ function randomBetween(lo, hi, random = Math.random) {
   return lo + Math.floor(random() * (hi - lo + 1));
 }
 
-export async function pickTargetElements(page, count = 3) {
+async function pickTargetElements(page, count = 3) {
   const priorities = [
     'img[src*="goods"]',
     '[class*="sku"]',
@@ -29,7 +29,7 @@ export async function pickTargetElements(page, count = 3) {
   return targets;
 }
 
-export async function naturalScroll(page, opts = {}) {
+async function naturalScroll(page, opts = {}) {
   const segments = opts.segments ?? 2;
   const range = opts.range ?? [200, 500];
   const random = opts.random ?? Math.random;

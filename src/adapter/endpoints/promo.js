@@ -71,7 +71,7 @@ function createMoneyReader() {
 
 // entityReportList 元素的金额/计数字段可能直接挂在元素上，也可能嵌套在 reportInfo 里
 // （OQ1：当前店铺无投放数据无法实测，两种结构都兼容）。?? 链优先取顶层，回退到 reportInfo。
-export function flattenEntity(e, money = moneyToNumber) {
+function flattenEntity(e, money = moneyToNumber) {
   if (e == null) return null;
   const r = e.reportInfo ?? {};
   return {

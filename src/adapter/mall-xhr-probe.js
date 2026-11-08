@@ -8,7 +8,7 @@ function hasMallId(value) {
   return true;
 }
 
-export function findActiveIdInPayload(value, seen = new Set(), depth = 0) {
+function findActiveIdInPayload(value, seen = new Set(), depth = 0) {
   if (value == null || depth > PAYLOAD_SEARCH_MAX_DEPTH) return null;
   if (Array.isArray(value)) {
     for (const item of value) {

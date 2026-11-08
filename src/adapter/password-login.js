@@ -19,8 +19,6 @@ export const SMS_SELECTORS = Object.freeze({
 });
 const SMS_RESPONSE_MS = 5000;
 
-// 账密登录提交接口；成功时 PASS_ID 写入 Cookie，失败时响应带 error_code（见调研报告）。
-export const PASSWORD_AUTH_URL = 'https://mms.pinduoduo.com/janus/api/auth';
 // error_code → 登录结果。缺失或未收录的码返回 null，继续轮询至截止。
 const AUTH_RESPONSE_OUTCOMES = Object.freeze({
   402: { outcome: 'wrong_password' },
@@ -43,6 +41,7 @@ export function classifyAuthResponse(raw) {
   return AUTH_RESPONSE_OUTCOMES[code] ?? null;
 }
 
+// 账密登录提交接口；成功时 PASS_ID 写入 Cookie，失败时响应带 error_code（见调研报告）。
 function isAuthSubmitUrl(url) {
   try { return new URL(url).pathname === '/janus/api/auth'; }
   catch { return false; }

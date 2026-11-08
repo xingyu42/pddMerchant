@@ -1,6 +1,6 @@
 import { boxMullerZ } from '../infra/random-utils.js';
 
-export function lognormalJitter(baseMs, sigma = 0.5, random = Math.random) {
+function lognormalJitter(baseMs, sigma = 0.5, random = Math.random) {
   if (sigma <= 0 || baseMs <= 0) return 0;
   const z = boxMullerZ(random);
   return Math.max(0, Math.round(baseMs * (Math.exp(sigma * z) - 1)));

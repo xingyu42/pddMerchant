@@ -57,15 +57,6 @@ const SWITCHER_TRIGGER_SELECTORS = [
   'text=店铺',
 ];
 
-function readPath(root, path) {
-  let cur = root;
-  for (const key of path) {
-    if (cur == null) return undefined;
-    cur = cur[key];
-  }
-  return cur;
-}
-
 async function readFromState(page, paths) {
   try {
     return await evaluateInMainWorld(page, (ps) => {
@@ -277,14 +268,6 @@ export async function listMalls(page) {
 }
 
 export {
-  readPath,
-  readFromState,
-  readActiveIdFromUrl,
-  readActiveIdFromCookie,
-  readActiveIdFromStorage,
-  tryOpenSwitcher,
-  readMallListFromDom,
   buildMallContext,
-  MALL_CONTEXT_HINT,
   SWITCHER_TRIGGER_SELECTORS,
 };

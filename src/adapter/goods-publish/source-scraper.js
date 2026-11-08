@@ -66,7 +66,7 @@ export function parseGoodsUrl(url) {
   });
 }
 
-export function isPriceMasked(price) {
+function isPriceMasked(price) {
   if (price === null || price === undefined) return true;
   const str = String(price).trim();
   if (str === '') return true;

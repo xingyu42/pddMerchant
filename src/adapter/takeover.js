@@ -47,7 +47,7 @@ export function invalidTakeoverInput() {
   return new PddCliError({ code: 'E_USAGE', message: '接管输入参数无效', exitCode: ExitCodes.USAGE });
 }
 
-export function validatePointer(events) {
+function validatePointer(events) {
   if (!Array.isArray(events) || events.length > 200) throw invalidTakeoverInput();
   let previous = -1;
   return events.map((event) => {

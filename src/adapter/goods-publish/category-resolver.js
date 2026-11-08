@@ -92,8 +92,3 @@ export function buildCategorySearchText(resolved) {
   const cats = (resolved.cates || resolved.cats || []).filter(Boolean);
   return cats.join(' > ');
 }
-
-export function _resetCategoryCircuit() {
-  consecutiveFailures = 0;
-  cooldownUntil = 0;
-}

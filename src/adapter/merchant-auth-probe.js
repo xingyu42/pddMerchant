@@ -4,8 +4,8 @@ import { PddCliError, ExitCodes } from '../infra/errors.js';
 
 // Fixed site protocol. Input Cookie lists must belong to a frozen scoped snapshot.
 export const MERCHANT_CHECK_URL = 'https://mms.pinduoduo.com/janus/api/checkLogin';
-export const MERCHANT_IDENTITY_URL = 'https://mms.pinduoduo.com/earth/api/mallInfo/querySimpleCredential';
-export const MERCHANT_SHOP_READ_URL = 'https://mms.pinduoduo.com/earth/api/mallInfo/queryMallAuditInfo';
+const MERCHANT_IDENTITY_URL = 'https://mms.pinduoduo.com/earth/api/mallInfo/querySimpleCredential';
+const MERCHANT_SHOP_READ_URL = 'https://mms.pinduoduo.com/earth/api/mallInfo/queryMallAuditInfo';
 const COOKIE_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const INVALID_VALUE = /[^\x21-\x7e]|["\\;]/;
 const TEMPORARY_CODES = new Set(['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ECONNREFUSED']);

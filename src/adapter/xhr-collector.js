@@ -208,7 +208,3 @@ export async function parseBody(response) {
   }
   return null;
 }
-
-export function _resetCollectorState() {
-  globalSeq = 0;
-}

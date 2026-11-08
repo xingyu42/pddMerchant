@@ -10,9 +10,9 @@ import { TIMEOUTS } from '../infra/timeouts.js';
 import { getLogger } from '../infra/logger.js';
 import { evaluateInMainWorld } from './browser.js';
 
-export { DEFAULT_QR_DIR, QR_SELECTORS, QR_TAB_SELECTORS };
+export { QR_SELECTORS };
 
-export const QR_LOGIN_URL = 'https://mms.pinduoduo.com/login/?login_tab=qrcode';
+const QR_LOGIN_URL = 'https://mms.pinduoduo.com/login/?login_tab=qrcode';
 
 const MIN_QR_SIZE = 80;
 const MAX_QR_ASPECT_RATIO = 1.4;
@@ -58,7 +58,7 @@ export async function ensureQrTab(page, { tabSelectors = QR_TAB_SELECTORS } = {}
   return false;
 }
 
-export async function isQrReady(element) {
+async function isQrReady(element) {
   try {
     const box = await element.boundingBox();
     if (!box) return false;

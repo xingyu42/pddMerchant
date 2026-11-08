@@ -7,9 +7,6 @@ import {
   extractElementImage,
   dismissModalOverlay,
   ensureQrTab,
-  saveQrPng,
-  decodeQrContent,
-  renderQrToStream,
   QR_SELECTORS,
 } from './qr-login.js';
 
@@ -83,5 +80,3 @@ export async function waitForConsumerLogin(page, { timeoutMs }) {
     return { success: false, url: page.url(), error: err?.message || 'timeout' };
   }
 }
-
-export { saveQrPng, decodeQrContent, renderQrToStream };

@@ -12,7 +12,7 @@ function missingRuntimeConfig(fields) {
   });
 }
 
-export const _cooldownConfig = {
+const _cooldownConfig = {
   threshold: undefined,
   ms: undefined,
 };
@@ -37,7 +37,7 @@ function resolveRuntimeConfig(runtimeConfig, fields) {
   return resolved;
 }
 
-export function getSharedLimiter(runtimeConfig) {
+function getSharedLimiter(runtimeConfig) {
   if (!_limiter) {
     const resolved = resolveRuntimeConfig(runtimeConfig, ['rateLimitQps', 'rateLimitBurst']);
     _limiter = createRateLimiter({
@@ -63,11 +63,6 @@ export function getSharedClient(runtimeConfig) {
     });
   }
   return _client;
-}
-
-export function _resetSharedLimiter() {
-  _limiter = null;
-  _client = null;
 }
 
 export function _resetSharedClient() {
