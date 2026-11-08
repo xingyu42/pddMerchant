@@ -11,6 +11,7 @@ const COMPARE_NOTE_LABEL = Object.freeze({ current_snapshot_only: '仅有当前�
 export const DIAGNOSE_DIMENSIONS = Object.freeze(['orders', 'inventory', 'promo', 'after_sales']);
 
 export const STALE_SAMPLE_FIELDS = Object.freeze(['goods_id', 'goods_name', 'quantity']);
+
 function pct(value) {
   return value == null ? '无法计算' : `${value}%`;
 }

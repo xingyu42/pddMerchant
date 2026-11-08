@@ -20,7 +20,7 @@ Status: ready-for-agent
 - 文件内部还在用、只是多余地导出了：去掉 `export`
 - 完全没有用到：删除
 - 重复 export：保留 registry 实际导入的那一种
-- 有意保留的公开接缝（极少数）：在 `knip.json` 里逐项放行，并写明原因
+- 有意保留的公开接缝（极少数）：逐项放行，每项用 `//` 注释写明原因；JSON 不支持注释，第一项放行时把 `knip.json` 改名为 `knip.jsonc`（knip 两者都读）
 - 每一批改动后跑 `npm run check`
 
 ## Acceptance criteria
@@ -28,4 +28,4 @@ Status: ready-for-agent
 - [ ] `npx knip --include exports,types,duplicates` 输出为空
 - [ ] `package.json` 的 `lint` 加上 `exports,types,duplicates`
 - [ ] `npm run check` 通过
-- [ ] `knip.json` 里每一项放行都附有原因
+- [ ] 若有放行：配置已改为 `knip.jsonc`，每一项放行都附有 `//` 原因注释

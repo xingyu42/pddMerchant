@@ -12,17 +12,10 @@ function missingRuntimeConfig(fields) {
   });
 }
 
-const _cooldownConfig = {
+const cooldownState = {
+  map: new Map(),
   threshold: undefined,
   ms: undefined,
-};
-
-const _cooldownState = {
-  map: new Map(),
-  get threshold() { return _cooldownConfig.threshold; },
-  set threshold(v) { _cooldownConfig.threshold = v; },
-  get ms() { return _cooldownConfig.ms; },
-  set ms(v) { _cooldownConfig.ms = v; },
 };
 
 let _limiter = null;
@@ -51,22 +44,22 @@ function getSharedLimiter(runtimeConfig) {
 export function getSharedClient(runtimeConfig) {
   if (!_client) {
     const resolved = resolveRuntimeConfig(runtimeConfig, ['cooldownThreshold', 'cooldownMs']);
-    if (runtimeConfig || _cooldownConfig.threshold == null) {
-      _cooldownConfig.threshold = resolved.cooldownThreshold;
+    if (runtimeConfig || cooldownState.threshold == null) {
+      cooldownState.threshold = resolved.cooldownThreshold;
     }
-    if (runtimeConfig || _cooldownConfig.ms == null) {
-      _cooldownConfig.ms = resolved.cooldownMs;
+    if (runtimeConfig || cooldownState.ms == null) {
+      cooldownState.ms = resolved.cooldownMs;
     }
     _client = new PlaywrightEndpointClient({
       limiter: getSharedLimiter(resolved),
-      cooldownState: _cooldownState,
+      cooldownState,
     });
   }
   return _client;
 }
 
 export function _resetSharedClient() {
-  _cooldownState.map.clear();
+  cooldownState.map.clear();
   _limiter = null;
   _client = null;
 }

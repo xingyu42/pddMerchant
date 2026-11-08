@@ -31,8 +31,6 @@ export const run = withCommand({
     return getOrderDetailView(ctx.page, sn, ctx);
   },
 });
-
-export default run;
 ```
 
 **域注册器** — `src/commands/registry/orders.js`：

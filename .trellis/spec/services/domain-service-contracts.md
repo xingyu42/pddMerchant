@@ -61,7 +61,7 @@ order.js          ORDER_VIEW_FIELDS / ORDER_DETAIL_VIEW_FIELDS、toOrderView、s
 goods.js          GOODS_VIEW_FIELDS / GOODS_PROMOTION_VIEW_FIELDS / COST_TEMPLATE_VIEW_FIELDS
 goods-publish.js  PUBLISH_VIEW_FIELDS（live / fixture 两条流程同一形状）
 promo.js          PROMO_ROI_ITEM_FIELDS / PROMO_TOTALS_FIELDS
-diagnose.js       维度视图、shop 视图、compare 视图、STALE_SAMPLE_FIELDS / AMBIGUOUS_GROUP_FIELDS
+diagnose.js       DIAGNOSE_DIMENSIONS / STALE_SAMPLE_FIELDS、toDimensionView、toShopView（compare 视图在 shop 视图内组装）
 shops.js account.js config.js auth.js   管理命令视图
 ```
 
