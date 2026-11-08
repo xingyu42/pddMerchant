@@ -42,8 +42,7 @@ Layering (`commands → services → adapter → infra`) is enforced by review o
 - Price input is yuan: `goods update price --price-yuan <元>`, batch `field: "price_yuan"`; upstream still receives fen (exact string parsing via `parseYuanToFen`)
 - Exit codes: 0=OK, 1=GENERAL, 2=USAGE, 3=AUTH, 4=RATE_LIMIT, 5=NETWORK, 6=BUSINESS, 7=PARTIAL
 - Redacted keys are defined by `REDACT_KEYS` in `src/infra/logger.js`; add new sensitive fields there
-- Functions < 50 lines, nesting ≤ 3 levels, no single-letter vars except loop counters
-- Conventional Commits with emoji: `✨ feat` / `🐛 fix` / `🔧 chore` / `📝 docs` / `♻️ refactor`
+- Conventional Commits with emoji: `✨ feat` / `🐛 fix` / `🔧 chore` / `📝 docs` / `♻️ refactor` / `✅ test`
 
 ## Testing
 
