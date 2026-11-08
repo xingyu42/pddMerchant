@@ -5,8 +5,13 @@ import { allCaliberReceiptGoods, createGoodsReceiptFixtures, receiptDiscount, re
   receiptSku }
   from '../fixtures/test-data.js';
 
+// 默认 fixture 的同一次运行由前两个用例共享，避免重复启动子进程。
+let defaultRun;
+const runDefault = () => (defaultRun ??= runCli(['goods', 'receipt'], { fixtures: createGoodsReceiptFixtures() }));
+const listed = (skuId) => receiptSku(skuId, { scenes: [receiptScene(7, { avg: 0, receipt: 1000 })] });
+
 it('reports platform estimated receipt per sku in yuan with single and multi scenes', () => {
-  const result = runCli(['goods', 'receipt'], { fixtures: createGoodsReceiptFixtures() });
+  const result = runDefault();
   assert.equal(result.status, 0, result.stderr);
   const view = result.envelope.data;
   assert.equal(view.caliber, '商家出资常规优惠');
@@ -29,7 +34,7 @@ it('reports platform estimated receipt per sku in yuan with single and multi sce
 });
 
 it('keeps explicit no-discount at zero, missing scenes null, and warns on missing single or foreign scenes', () => {
-  const result = runCli(['goods', 'receipt'], { fixtures: createGoodsReceiptFixtures() });
+  const result = runDefault();
   assert.equal(result.status, 0, result.stderr);
   const [first, second] = result.envelope.data.items;
   const activitySku = first.skus[1];
@@ -98,14 +103,8 @@ it('reads the page fixture under --caliber all', () => {
   assert.equal(view.items[0].skus[0].single.receipt_yuan, 21.3);
 });
 
-it('accepts the regular caliber explicitly', () => {
-  const result = runCli(['goods', 'receipt', '--caliber', 'regular'], { fixtures: createGoodsReceiptFixtures() });
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.envelope.data.caliber, '商家出资常规优惠');
-});
-
-for (const args of [['--size', '11'], ['--size', '0'], ['--goods-id', '10a'], ['--goods-id', '101,,102'],
-  ['--caliber', 'ALL'], ['--caliber', 'platform']]) {
+// 取值规则由解析器单测覆盖（numeric-options.test.js）；这里每个选项各起一次进程，证明在解析阶段以退出码 2 拒绝。
+for (const args of [['--size', '11'], ['--goods-id', '10a'], ['--caliber', 'ALL']]) {
   it(`rejects ${args.join(' ')} as a usage error`, () => {
     const result = runCli(['goods', 'receipt', ...args], { fixtures: createGoodsReceiptFixtures() });
     assert.equal(result.status, 2);
@@ -123,7 +122,6 @@ it('maps upstream business errors to exit six with the upstream message', () => 
 });
 
 it('expands every goods with remaining skus into its full sku list without duplicates', () => {
-  const listed = (skuId) => receiptSku(skuId, { scenes: [receiptScene(7, { avg: 0, receipt: 1000 })] });
   const extra = (skuId, receipt, discounts = []) => receiptSku(skuId, { spec: `扩展-${skuId}`, scenes: [
     receiptScene(7, { avg: 2130 - receipt, receipt, discounts }), receiptScene(9, { avg: 0, receipt: 2130 })] });
   const fixtures = createGoodsReceiptFixtures({ total: 3, goods: [
@@ -170,7 +168,6 @@ it('adopts the all-discounts scenes for expanded skus under --caliber all', () =
 });
 
 it('warns when expansion returns fewer skus than the platform reported as remaining', () => {
-  const listed = (skuId) => receiptSku(skuId, { scenes: [receiptScene(7, { avg: 0, receipt: 1000 })] });
   const fixtures = createGoodsReceiptFixtures({ total: 1, goods: [
     receiptGoods(401, [listed(40101), listed(40102)], { remain: 3 })],
   expansions: { 401: [listed(40102), listed(40103)] } });
@@ -192,7 +189,7 @@ it('fails with exit six and no partial sku list when expansion returns a busines
 });
 
 it('ignores foreign scenes of a different shape and accepts a single scene without quantity', () => {
-  const { number: _number, ...single } = receiptScene(7, { avg: 0, receipt: 2130 });
+  const single = receiptScene(7, { avg: 0, receipt: 2130 });
   const foreign = { consult_price_scene: 9, consult_price_scene_desc: '合成走势', avg_discount_amount: 0 };
   const fixtures = createGoodsReceiptFixtures({ total: 1, goods: [receiptGoods(301, [
     receiptSku(30101, { scenes: [single, foreign] })])] });

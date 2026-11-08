@@ -2,7 +2,7 @@
 import { responseShapeError } from '../../infra/errors.js';
 import { toFiniteNumber } from '../../infra/units.js';
 
-export const GOODS_PRICE_PAGE = 'https://mms.pinduoduo.com/kit/goods-price-management';
+const GOODS_PRICE_PAGE = 'https://mms.pinduoduo.com/kit/goods-price-management';
 export const GOODS_PRICE_MAX_PAGE_SIZE = 10;
 
 function requireObject(value, endpoint, expected) {
@@ -62,8 +62,8 @@ function normalizeScene(item, endpoint, scenes) {
   requireObject(item, endpoint, 'calculate_price_detail_list[] object');
   const sceneValue = toFiniteNumber(item.consult_price_scene);
   if (sceneValue === null) throw responseShapeError(endpoint, 'consult_price_scene');
-  if (sceneValue === scenes?.single) return normalizeSceneDetail(item, sceneValue, endpoint);
-  if (sceneValue !== scenes?.multi) return { consult_price_scene: sceneValue };
+  if (sceneValue === scenes.single) return normalizeSceneDetail(item, sceneValue, endpoint);
+  if (sceneValue !== scenes.multi) return { consult_price_scene: sceneValue };
   return { ...normalizeSceneDetail(item, sceneValue, endpoint),
     number: requireCount(item.number, endpoint, 'scene number', 1) };
 }
@@ -75,7 +75,7 @@ function readActivityPrice(info, endpoint) {
 }
 
 // 列表与补全接口的 SKU 结构相同，补全端点复用此归一化。
-export function normalizePriceSku(item, endpoint, scenes) {
+function normalizePriceSku(item, endpoint, scenes) {
   requireObject(item, endpoint, 'sku_promo_list[] object');
   const details = requireArray(item.calculate_price_detail_list, endpoint, 'calculate_price_detail_list array');
   return { sku_id: requireId(item.sku_id, endpoint, 'sku_id'), sku_spec: optionalText(item.sku_spec),
@@ -92,7 +92,7 @@ function normalizeGoods(item, endpoint, scenes) {
     sku_promo_list: skus.map((sku) => normalizePriceSku(sku, endpoint, scenes)) };
 }
 
-function normalizeList(raw, { scenes } = {}) {
+function normalizeList(raw, { scenes }) {
   const endpoint = 'goodsPrice.list';
   const expected = 'result.total / goods_price_info_list';
   const total = requireCount(raw?.result?.total, endpoint, expected);
@@ -121,7 +121,7 @@ export const GOODS_PRICE_LIST = {
   buildPayload: buildListPayload, normalize: normalizeList, fixtureListKey: 'result.goods_price_info_list',
 };
 
-function normalizeExpand(raw, { scenes } = {}) {
+function normalizeExpand(raw, { scenes }) {
   const endpoint = 'goodsPrice.expand';
   const result = requireObject(raw?.result, endpoint, 'result.sku_promo_list');
   const skus = requireArray(result.sku_promo_list, endpoint, 'result.sku_promo_list');

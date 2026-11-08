@@ -304,10 +304,12 @@ export function receiptDiscount(name, desc, fen) {
     discount_amount: fen, mms_link_url: 'https://mms.pinduoduo.com/SYN-PRIVATE' };
 }
 
-export function receiptScene(scene, { avg, receipt, number = 1, discounts = [] }) {
+// 件数只在调用方给出时出现：单件场景与外口径场景可以不带件数。
+export function receiptScene(scene, { avg, receipt, number, discounts = [] }) {
   return { consult_price_scene: scene, consult_price_scene_desc: '多件件实收最低场景', merge_promo_detail_list: discounts,
     promo_detail_list: [{ promotion_sn: 'SYN-PRIVATE-SN', discount_amount: avg }], discount_amount_desc: 'SYN-PRIVATE-DESC',
-    avg_discount_amount: avg, promo_price_list: [receipt], number, same_promo_price_any_number: number === 1 };
+    avg_discount_amount: avg, promo_price_list: [receipt], ...(number === undefined ? {} : { number }),
+    same_promo_price_any_number: number === undefined || number === 1 };
 }
 
 export function receiptSku(skuId, { spec = '合成规格', group = 2130, activity, scenes }) {
@@ -322,8 +324,10 @@ export function receiptGoods(goodsId, skus, { remain = 0, name = '合成商品' 
     effect_promotion: { promotion_id: 'SYN-PRIVATE' } };
 }
 
-export const receiptSuccess = (total, goods) =>
-  ({ success: true, error_code: 1000000, result: { total, goods_price_info_list: goods } });
+// 价格管理接口沿用上游 snake_case 成功码 error_code。
+const priceSuccess = (result) => ({ success: true, error_code: 1000000, result });
+
+export const receiptSuccess = (total, goods) => priceSuccess({ total, goods_price_info_list: goods });
 
 function defaultReceiptGoods() {
   const fullReduce = receiptDiscount('全店满减活动', '满50减4', 170);
@@ -357,7 +361,7 @@ export function allCaliberReceiptGoods() {
 }
 
 export const receiptExpandSuccess = (goodsId, skus, name = '合成商品') =>
-  ({ success: true, error_code: 1000000, result: { goods_id: goodsId, goods_name: name, sku_promo_list: skus } });
+  priceSuccess({ goods_id: goodsId, goods_name: name, sku_promo_list: skus });
 
 // 默认商品 101 的 remain_sku_num = 3，对应补全接口按 goods_id 变体返回其余 3 个 SKU。
 function defaultReceiptExpansions() {

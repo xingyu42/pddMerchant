@@ -1,7 +1,7 @@
 import { it } from 'vitest';
 import assert from 'node:assert/strict';
 import { Command, InvalidArgumentError } from 'commander';
-import { integerArg, reportDaysArg } from '../../src/commands/option-parsers.js';
+import { goodsIdListArg, integerArg, reportDaysArg } from '../../src/commands/option-parsers.js';
 import { register as registerDiagnose } from '../../src/commands/registry/diagnose.js';
 import { register as registerGoods } from '../../src/commands/registry/goods.js';
 import { validateReportDays } from '../../src/services/operating-report.js';
@@ -62,6 +62,19 @@ it.each([['abc', 1], ['', 1], ['1.5', 1], ['1e3', 1], ['0x10', 1], ['0', 1], ['-
   'rejects %s with minimum %s', (value, min) => {
     assert.throws(() => integerArg(min)(value), InvalidArgumentError);
   });
+
+it('bounds integers by an optional maximum', () => {
+  assert.equal(integerArg(1, 10)('10'), 10);
+  for (const value of ['0', '11']) assert.throws(() => integerArg(1, 10)(value), InvalidArgumentError);
+});
+
+it('accumulates repeated and comma-separated goods ids without duplicates', () => {
+  const first = goodsIdListArg('101,102', undefined);
+  assert.deepEqual(goodsIdListArg(' 103 ,101', first), ['101', '102', '103']);
+  for (const value of ['10a', '101,,102', '0', '-1', '1.5', '99999999999999999']) {
+    assert.throws(() => goodsIdListArg(value, []), InvalidArgumentError);
+  }
+});
 
 it.each([
   ['orders', 'list', '--since', 'abc'],

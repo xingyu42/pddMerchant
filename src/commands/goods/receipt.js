@@ -5,7 +5,7 @@ export const run = withCommand({
   name: 'goods.receipt', needsAuth: true, needsMall: 'switch',
   async run(ctx) {
     const { goodsId, page, size, caliber } = ctx.config ?? {};
-    return getGoodsReceiptView(ctx, { goodsId, page, size, caliber });
+    return getGoodsReceiptView(ctx, { goodsIds: goodsId, page, size, caliber });
   },
 });
 

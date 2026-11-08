@@ -13,34 +13,15 @@ export const RECEIPT_CALIBERS = Object.freeze({
 });
 export const DEFAULT_RECEIPT_CALIBER = 'regular';
 
-// 口径可选值说明：注册器帮助文案与用法错误提示共用。
-export function describeReceiptCalibers(separator = ' | ') {
-  return Object.entries(RECEIPT_CALIBERS).map(([name, { label }]) => `${name}（${label}）`).join(separator);
+// 口径可选值说明：注册器帮助文案与未知口径提示共用。
+export function describeReceiptCalibers() {
+  return Object.entries(RECEIPT_CALIBERS).map(([name, { label }]) => `${name}（${label}）`).join(' | ');
 }
 
-function parseGoodsIds(values = []) {
-  const ids = values.flatMap((value) => String(value).split(',')).map((value) => value.trim());
-  const invalid = ids.find((id) => !/^[1-9]\d*$/.test(id) || !Number.isSafeInteger(Number(id)));
-  if (invalid !== undefined) {
-    throw usageError('--goods-id 需为正整数商品 ID', '可重复传入或用逗号分隔，例如 --goods-id 101,102');
-  }
-  return [...new Set(ids)];
-}
-
-function parseCaliber(value = DEFAULT_RECEIPT_CALIBER) {
-  if (!Object.hasOwn(RECEIPT_CALIBERS, value)) {
-    throw usageError(`--caliber 取值 ${Object.keys(RECEIPT_CALIBERS).join(' | ')}`,
-      `${describeReceiptCalibers('，')}；默认 ${DEFAULT_RECEIPT_CALIBER}`);
-  }
-  return value;
-}
-
-export function parseReceiptQuery({ goodsId, page = 1, size = GOODS_PRICE_MAX_PAGE_SIZE, caliber } = {}) {
-  if (!Number.isSafeInteger(page) || page < 1) throw usageError('--page 需为不小于 1 的整数');
-  if (!Number.isSafeInteger(size) || size < 1 || size > GOODS_PRICE_MAX_PAGE_SIZE) {
-    throw usageError(`--size 取值 1–${GOODS_PRICE_MAX_PAGE_SIZE}`, `上游每页最多查询 ${GOODS_PRICE_MAX_PAGE_SIZE} 个商品`);
-  }
-  return { goodsIds: parseGoodsIds(goodsId), page, size, caliber: parseCaliber(caliber) };
+// 选项取值由 commander 在解析阶段校验；此处只把口径名解析为场景表，防御直接调用 service 的未知口径。
+function resolveCaliber(name) {
+  if (!Object.hasOwn(RECEIPT_CALIBERS, name)) throw usageError(`未知口径：${name}`, `可选：${describeReceiptCalibers()}`);
+  return RECEIPT_CALIBERS[name];
 }
 
 function selectScenes(goodsId, sku, caliber, warnings) {
@@ -68,33 +49,29 @@ function warnIncomplete(item, skus, warnings) {
 }
 
 // 列表每个商品只带回前几个 SKU；remain_sku_num > 0 的商品按顺序补全，补全结果按 sku_id 去重后追加，数量不足时告警。
-async function expandSkus(ctx, item, scenes, warnings) {
-  if (item.remain_sku_num === 0) return { skus: item.sku_promo_list, calls: 0 };
+async function expandSkus(ctx, item, caliber, warnings) {
+  if (item.remain_sku_num === 0) return item.sku_promo_list;
   const exposedSkuIds = item.sku_promo_list.map((sku) => sku.sku_id);
   const expanded = await runEndpoint(ctx.page, GOODS_PRICE_EXPAND,
-    { goods_id: item.goods_id, scenes, exposedSkuIds }, ctx);
+    { goods_id: item.goods_id, scenes: caliber, exposedSkuIds }, ctx);
   const seen = new Set(exposedSkuIds);
   const extra = expanded.sku_promo_list.filter((sku) => !seen.has(sku.sku_id) && seen.add(sku.sku_id));
   const skus = [...item.sku_promo_list, ...extra];
   warnIncomplete(item, skus, warnings);
-  return { skus, calls: 1 };
+  return skus;
 }
 
-export async function getGoodsReceiptView(ctx, options = {}) {
-  const query = parseReceiptQuery(options);
-  const caliber = RECEIPT_CALIBERS[query.caliber];
-  const scenes = { single: caliber.single, multi: caliber.multi };
-  const result = await runEndpoint(ctx.page, GOODS_PRICE_LIST, { page: query.page, size: query.size,
-    goodsIds: query.goodsIds, scenes }, ctx);
+export async function getGoodsReceiptView(ctx, { goodsIds = [], page = 1, size = GOODS_PRICE_MAX_PAGE_SIZE,
+  caliber: caliberName = DEFAULT_RECEIPT_CALIBER } = {}) {
+  const caliber = resolveCaliber(caliberName);
+  const result = await runEndpoint(ctx.page, GOODS_PRICE_LIST, { page, size, goodsIds, scenes: caliber }, ctx);
   const warnings = [];
   const goods = [];
-  let xhrCount = 1;
   for (const item of result.goods) {
-    const { skus, calls } = await expandSkus(ctx, item, scenes, warnings);
-    xhrCount += calls;
+    const skus = await expandSkus(ctx, item, caliber, warnings);
     goods.push({ ...item, skus: skus.map((sku) => selectScenes(item.goods_id, sku, caliber, warnings)) });
   }
-  const data = toGoodsReceiptView(goods, { total: result.total, page: query.page, size: query.size,
-    caliberLabel: caliber.label, goodsIds: query.goodsIds });
+  const data = toGoodsReceiptView(goods, { total: result.total, page, size, caliberLabel: caliber.label, goodsIds });
+  const xhrCount = 1 + result.goods.filter((item) => item.remain_sku_num > 0).length;
   return { data, meta: { xhr_count: xhrCount }, warnings };
 }

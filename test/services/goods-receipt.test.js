@@ -27,7 +27,7 @@ it('requests the all-discounts scenes 10 and 11 under the all caliber', async ()
     [['goodsPrice.list', [10, 11]], ['goodsPrice.list', [7, 8]]]);
 });
 
-it('sends repeated and comma-separated goods ids as one deduplicated goods_id_list', async () => {
-  await getGoodsReceiptView(CTX, { goodsId: ['101,102', '103', '101'] });
+it('sends the parsed goods ids as goods_id_list', async () => {
+  await getGoodsReceiptView(CTX, { goodsIds: ['101', '102', '103'] });
   assert.deepEqual(calls[0].payload.goods_search_condition, { goods_id_list: [101, 102, 103] });
 });

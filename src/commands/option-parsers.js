@@ -29,16 +29,21 @@ export function reportDaysArg(definition) {
   };
 }
 
-// 可重复选项收集器：每次出现追加一个原始值，拆分与校验交给 service。
-export function collectArg(value, previous = []) {
-  return [...previous, value];
+// 可重复的商品 ID 选项：每次出现可用逗号分隔多个 ID，累积去重；非正整数在解析阶段拒绝。
+export function goodsIdListArg(value, previous = []) {
+  const ids = String(value).split(',').map((id) => id.trim());
+  if (ids.some((id) => !/^[1-9]\d*$/.test(id) || !Number.isSafeInteger(Number(id)))) {
+    throw new InvalidArgumentError('需为正整数商品 ID，可重复传入或用逗号分隔');
+  }
+  return [...new Set([...previous, ...ids])];
 }
 
-export function integerArg(min = 1) {
+export function integerArg(min = 1, max = Number.MAX_SAFE_INTEGER) {
+  const message = max === Number.MAX_SAFE_INTEGER ? `需为不小于 ${min} 的整数` : `需为 ${min}–${max} 的整数`;
   return (value) => {
     const parsed = parseIntegerText(value);
-    if (parsed === null || !Number.isSafeInteger(parsed) || parsed < min) {
-      throw new InvalidArgumentError(`需为不小于 ${min} 的整数`);
+    if (parsed === null || !Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+      throw new InvalidArgumentError(message);
     }
     return parsed;
   };

@@ -6,11 +6,6 @@ import { receiptExpandSuccess, receiptGoods, receiptScene, receiptSku, receiptSu
 
 const REGULAR = { scenes: { single: 7, multi: 8 } };
 
-function withoutNumber(scene) {
-  const { number: _number, ...rest } = scene;
-  return rest;
-}
-
 it('posts the price-management list payload with scenes, goods filter and upstream source type', () => {
   assert.equal(GOODS_PRICE_LIST.strategy, 'page-api');
   assert.equal(GOODS_PRICE_LIST.nav.url, 'https://mms.pinduoduo.com/kit/goods-price-management');
@@ -72,9 +67,9 @@ it('normalizes expanded skus with the list sku rules and rejects a missing sku l
 });
 
 it('validates only the requested caliber scenes and keeps foreign scenes as bare scene values', () => {
-  const single = withoutNumber(receiptScene(7, { avg: 0, receipt: 100 }));
+  const single = receiptScene(7, { avg: 0, receipt: 100 });
   const foreign = { consult_price_scene: 9, consult_price_scene_desc: '合成走势', avg_discount_amount: 0 };
-  const sku = receiptSku(1, { scenes: [single, foreign, withoutNumber(receiptScene(10, { avg: 5, receipt: 95 }))] });
+  const sku = receiptSku(1, { scenes: [single, foreign, receiptScene(10, { avg: 5, receipt: 95 })] });
   for (const result of [GOODS_PRICE_LIST.normalize(receiptSuccess(1, [receiptGoods(1, [sku])]), REGULAR).goods[0],
     GOODS_PRICE_EXPAND.normalize(receiptExpandSuccess(1, [sku]), REGULAR)]) {
     assert.deepEqual(result.sku_promo_list[0].calculate_price_detail_list, [
@@ -84,7 +79,7 @@ it('validates only the requested caliber scenes and keeps foreign scenes as bare
 });
 
 it('still requires the multi scene quantity and a scene value on every scene', () => {
-  const multi = withoutNumber(receiptScene(8, { avg: 0, receipt: 100 }));
+  const multi = receiptScene(8, { avg: 0, receipt: 100 });
   for (const scene of [multi, { consult_price_scene_desc: '合成场景' }]) {
     const raw = receiptSuccess(1, [receiptGoods(1, [receiptSku(1, { scenes: [scene] })])]);
     assert.throws(() => GOODS_PRICE_LIST.normalize(raw, REGULAR), { code: 'E_NETWORK' });

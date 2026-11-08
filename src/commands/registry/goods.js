@@ -1,4 +1,5 @@
 // 🛍️ Goods 分组注册：读操作 + update 写操作子组 + publish/templates（design D-3）
+import { Option } from 'commander';
 import * as list from '../goods/list.js';
 import * as stock from '../goods/stock.js';
 import * as segment from '../goods/segment.js';
@@ -16,10 +17,10 @@ import * as costImport from '../goods/cost/import.js';
 import * as profit from '../goods/profit.js';
 import * as traffic from '../goods/traffic.js';
 import * as receipt from '../goods/receipt.js';
-import { collectArg, integerArg, withReportDays } from '../option-parsers.js';
+import { goodsIdListArg, integerArg, withReportDays } from '../option-parsers.js';
 import { GOODS_TRAFFIC_REPORT } from '../../services/goods-traffic.js';
 import { GOODS_PROFIT_REPORT } from '../../services/goods-profit.js';
-import { DEFAULT_RECEIPT_CALIBER, GOODS_PRICE_MAX_PAGE_SIZE, describeReceiptCalibers }
+import { DEFAULT_RECEIPT_CALIBER, GOODS_PRICE_MAX_PAGE_SIZE, RECEIPT_CALIBERS, describeReceiptCalibers }
   from '../../services/goods-receipt.js';
 
 function registerCosts(goods, wireAction) {
@@ -41,10 +42,12 @@ function registerReads(goods, wireAction) {
   wireAction(withReportDays(goods.command('traffic').description('商品区间流量与推广直接成交拆分'), GOODS_TRAFFIC_REPORT)
     .option('--goods-id <id>', '商品 ID'), 'goods.traffic', traffic.run);
   wireAction(goods.command('receipt').description('SKU 预估实收（平台报告值，按商家出资口径）')
-    .option('--goods-id <id>', '商品 ID，可重复或逗号分隔', collectArg)
+    .option('--goods-id <id>', '商品 ID，可重复或逗号分隔', goodsIdListArg)
     .option('--page <n>', '页码', integerArg(1), 1)
-    .option('--size <n>', `每页商品数（1–${GOODS_PRICE_MAX_PAGE_SIZE}）`, integerArg(1), GOODS_PRICE_MAX_PAGE_SIZE)
-    .option('--caliber <name>', `商家出资口径：${describeReceiptCalibers()}`, DEFAULT_RECEIPT_CALIBER),
+    .option('--size <n>', `每页商品数（1–${GOODS_PRICE_MAX_PAGE_SIZE}）`, integerArg(1, GOODS_PRICE_MAX_PAGE_SIZE),
+      GOODS_PRICE_MAX_PAGE_SIZE)
+    .addOption(new Option('--caliber <name>', `商家出资口径：${describeReceiptCalibers()}`)
+      .choices(Object.keys(RECEIPT_CALIBERS)).default(DEFAULT_RECEIPT_CALIBER)),
   'goods.receipt', receipt.run);
   wireAction(
     goods
