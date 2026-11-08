@@ -9,6 +9,8 @@ if (Number(process.versions.node.split('.')[0]) < 24) {
 }
 
 const { Command } = await import('commander');
+// 版本号只以 package.json 为准，避免 --version 与发布版本漂移。
+const { default: { version: CLI_VERSION } } = await import('../package.json', { with: { type: 'json' } });
 const { emit, ENVELOPE_VERSION } = await import('../src/infra/output.js');
 const { ExitCodes, mapErrorToExit, errorToEnvelope } = await import('../src/infra/errors.js');
 const { createLogger, redactRecursive } = await import('../src/infra/logger.js');
@@ -65,7 +67,7 @@ const program = new Command();
 program
   .name('pdd')
   .description('拼多多商家后台 CLI · Patchright Chromium 模式\n\n命令分组：\n  📦 orders    订单管理\n  🛍️ goods     商品管理\n  🚀 promo     推广报表\n  🩺 diagnose  店铺诊断\n  🏬 shops     店铺切换\n  ⚙️ init / login / doctor  鉴权与环境')
-  .version('0.1.0')
+  .version(CLI_VERSION)
   .option('--json', 'stdout 输出单行 JSON（便于 AI/脚本消费）')
   .option('--no-color', '禁用彩色输出')
   .option('--timeout <ms>', '全局超时（毫秒）', (v) => Number(v))
