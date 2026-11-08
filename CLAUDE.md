@@ -59,3 +59,17 @@ Layering (`commands → services → adapter → infra`) is enforced by review o
 - Mall context resolution probe chain: mock → state → url → cookie → storage → xhr → dom
 - `recentOrderList` filters: `orderType` 0=all, 1=pending ship, 2=shipped awaiting receipt, 3=received; `afterSaleType` 0=no filter, 1=only orders without after-sales, 2=after-sales in progress. Only use the verified combinations in `ORDER_LIST_SCOPES` (`src/adapter/endpoints/orders.js`); `orders list` defaults to `all` (0/0), sales statistics use internal `valid` (0/1). `pageSize=100` is rejected upstream (`单页数据量过大或非法`) while `50` works (values in between are unverified)
 - Refunds are identified only by order `after_sales_status` (`5` = refunded, `10`/`11` = after-sales in progress, `null` = none); `refund_status` / `afterSaleType` etc. do not exist on order items. If no order in the sample carries the field, refund counts/rates are `null`, never 0
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as local markdown under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`), recorded as a `Status:` line. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `GLOSSARY.md` plus `docs/adr/`. See `docs/agents/domain.md`.
