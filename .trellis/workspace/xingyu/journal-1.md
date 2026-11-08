@@ -1447,3 +1447,46 @@ Topics: [.trellis/research/architecture-deepening.md](../../research/architectur
 ### Next Steps
 
 - daemon 仍运行旧代码，需 pdd daemon restart；真实账号待验证：账密重登/短信/验证码接管/扫码、错误分支、推广与利润有数据时的输出
+
+
+## Session 48: Retro：goods receipt 会话环境改进（守卫、knip、CI、审查入口）
+<!-- trellis-session: v=2 fp=4c4d99db22ad4a0f -->
+
+**Date**: 2026-11-08
+**Task**: Retro：goods receipt 会话环境改进（守卫、knip、CI、审查入口）
+**Branch**: `main`
+
+### Summary
+
+复盘 goods receipt 会话（bfe49150），按用户确认落地环境改进：pdd-* 项目 skill 纳入 git；新增命令文档守卫与引导文档路径守卫；lint 接入 knip，check=lint+test，新增 GitHub Actions；新增 CODING_STANDARDS.md 审查入口，明确 CLI 选项在解析阶段校验；.gitattributes 统一 LF。测试与门禁规则见 testing.md。
+Topics: [.trellis/spec/standards/testing.md](../../spec/standards/testing.md), [.trellis/spec/commands/command-contracts.md](../../spec/commands/command-contracts.md)
+
+### Main Changes
+
+- 实测：worktree 隔离子代理 30 次命令被沙箱拒绝；.claude/worktrees/ 下 node_modules 从主仓库解析，无需 junction（已写入 pdd-local-development skill）
+- 决定（用户确认）：全局 implement-spec 保持与宿主/技术栈无关，不改；全局 CLAUDE.md 的 worktree 两行说明默认不加
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `33094ed` | 🔧 chore: 将 pdd-* 项目 skill 纳入版本库，补充 worktree 运行说明 |
+| `f3e374d` | ✅ test: 新增命令文档守卫，注册命令须写入 pdd-cli skill；补 daemon run |
+| `5cbebe1` | 🔧 chore: 接入 knip lint 与 GitHub Actions CI，删除无用的 mall-switcher shim |
+| `85a14b7` | 📝 docs: 新增 knip 无用 export 清理工单 |
+| `7a629b8` | 📝 docs: 新增 CODING_STANDARDS.md 审查入口，明确选项在解析阶段校验 |
+| `814a57a` | ✅ test: 新增引导文档路径守卫，修正 AGENTS.md 中过时的 fixture 路径 |
+| `fb4066d` | 🔧 chore: .gitattributes 统一检出为 LF |
+
+### Testing
+
+- [OK] npm run check：lint 通过，118 文件 2031 通过 1 跳过；knip 与 doc-paths 守卫做过变异验证
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 观察首次 CI（ubuntu-latest，本地仅在 Windows 验证）
+- 执行 .scratch/knip-exports/issues/01-clear-unused-exports.md，清零后把 exports 纳入 lint
