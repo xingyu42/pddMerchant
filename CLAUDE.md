@@ -17,18 +17,20 @@ npx patchright install chromium       # Required: install the fallback Chromium 
 ## Architecture
 
 ```
-bin/pdd.js               CLI entry (signal/fatal handlers, global options, wireAction; registration delegated to registry/)
-src/commands/            Command handlers — thin wrappers around withCommand()
+bin/pdd.js               CLI entry (signal/fatal handlers, global options, wireAction, commander usage-error envelope; registration delegated to registry/)
+src/commands/            Command handlers — mostly thin wrappers around withCommand(); init/login/account/config emit directly
 src/commands/registry/   Domain registrars `register(program, wireAction)` — adding a command touches only the command file + its registrar
 src/commands/runner/     withCommand internals (envelope-finalizer / fixture-runtime / single-lifecycle / batch-executor); _runner.js is a facade
-src/services/            Domain logic (orders, goods, promo, diagnose, promo-roi, goods-segmentation); factual reporting without operating advice or scores
+src/commands/option-parsers.js  Parse-time option validation (integerArg(min, max), goodsIdListArg, withReportDays) — rejects before any browser starts
+src/daemon/              Explicit console daemon HTTP server (routes, SSE, static); src/console/ is its static frontend
+src/services/            Domain logic (orders, goods / goods-write / goods-publish, promo, diagnose, operating reports, goods cost/profit/receipt, merchant session, daemon/patrol/console); factual reporting without operating advice or scores
 src/services/views/      Domain views (anti-corruption layer): whitelist projection, unit/label conversion, headline; view-local tables own report vocabulary, labels.js owns shared vocabulary
-src/adapter/             Playwright integration, XHR interception, auth, mall context
+src/adapter/             Patchright browser (ADR 0002), endpoint transport (endpoint-client → response-interpreter → spec.normalize(raw, params)), auth, mall context, goods-publish, takeover
 src/adapter/fixtures/    Mock-mode providers (core.js owns the single fixture cache); mock-dispatcher.js is a facade
-src/infra/               Cross-cutting: envelope, errors, logger, timeouts, abort
+src/infra/               Cross-cutting: envelope, errors, logger, config, paths, timeouts, abort, units/metrics, SQLite storage and leases
 ```
 
-Layering (`commands → services → adapter → infra`) is enforced by review only — no guard test.
+Layering (`commands → services → adapter → infra`) is enforced by review only — no guard test. Known downward shortcuts: runner, doctor and login import adapter directly; `src/daemon/` depends only on services. Full map: `docs/architecture-overview.md`.
 
 ## Conventions
 
@@ -55,7 +57,7 @@ Layering (`commands → services → adapter → infra`) is enforced by review o
 - `goods.list` responses may contain `goods_id: null` — inventory matching falls back to `goods_name`, and internal `matched_by='mixed'` (output label `按商品名匹配（一侧缺少商品 ID）`) is an expected compatibility result
 - Endpoint naming inconsistent: `recentOrderList` uses camelCase (`errorCode`), `orderDetail` uses snake_case (`error_code`); `readBusinessError()` handles both
 - `createPageSession()` automatically creates a sibling page when the same normalized URL is revisited within its 1-second TTL; do not bypass that session for endpoint navigation
-- Rate limiting: 3 consecutive 429s trigger 5-minute global cooldown; retry delays `[1000, 2000, 4000] ms`
+- Rate limiting: HTTP 429 retries with delays `[1000, 2000, 4000] ms`; after `cooldownThreshold` (default 3) consecutive `E_RATE_LIMIT` results on the same endpoint, that endpoint cools down for `cooldownMs` (default 5 min). The cooldown is per endpoint and shared within the process
 - Mall context resolution probe chain: mock → state → url → cookie → storage → xhr → dom
 - `recentOrderList` filters: `orderType` 0=all, 1=pending ship, 2=shipped awaiting receipt, 3=received; `afterSaleType` 0=no filter, 1=only orders without after-sales, 2=after-sales in progress. Only use the verified combinations in `ORDER_LIST_SCOPES` (`src/adapter/endpoints/orders.js`); `orders list` defaults to `all` (0/0), sales statistics use internal `valid` (0/1). `pageSize=100` is rejected upstream (`单页数据量过大或非法`) while `50` works (values in between are unverified)
 - Refunds are identified only by order `after_sales_status` (`5` = refunded, `10`/`11` = after-sales in progress, `null` = none); `refund_status` / `afterSaleType` etc. do not exist on order items. If no order in the sample carries the field, refund counts/rates are `null`, never 0

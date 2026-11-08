@@ -50,7 +50,7 @@ mock -> state -> url -> cookie -> storage -> xhr -> dom
 - Consumer QR、headed 与 fixture login MUST 共用 `src/adapter/consumer-qr-login.js` 的 `CONSUMER_LOGIN_URL`。`consumerLoginUrl` 不属于公开运行配置，`PDD_CONSUMER_LOGIN_URL` 不得重新加入 env 映射；登录页改版应连同选择器和流程一起修改、测试。
 - `--mall <id>` MUST resolve/switch mall context before domain endpoint execution。
 - Default mall id parsing is strict `1-15` digits; `PDD_MALL_ID_STRICT_PARSE=0` MAY allow up to 64 chars。
-- Mall context readers MUST preserve the 6-layer probe order unless an OpenSpec-approved design changes it。
+- Mall context readers MUST preserve the 6-layer probe order unless an ADR in `docs/adr/` changes it。
 
 ## 4. Validation & Error Matrix
 

@@ -24,7 +24,7 @@ Managed by mini-trellis. Edits outside this block are preserved.
 
 # pdd-cli Agent Context
 
-`pdd-cli` is a JavaScript ESM CLI for Pinduoduo merchant operations, requiring Node.js >= 24. It uses Commander and Patchright/Chromium to reuse the merchant frontend runtime and capture XHR/fetch business responses. There is no TypeScript or build step; check `package.json` for scripts.
+`pdd-cli` is a JavaScript ESM CLI for Pinduoduo merchant operations, requiring Node.js >= 24. It uses Commander and Patchright/Chromium to reuse the merchant frontend runtime, calling business APIs through the page's signed request client (page-api) and capturing XHR/fetch responses for the remaining endpoints. There is no TypeScript or build step; check `package.json` for scripts.
 
 ## Use Project Skills First
 
@@ -32,13 +32,13 @@ Project-specific skills live under `.agents/skills/`. Use the smallest matching 
 
 - `$pdd-architecture-navigation`: trace layers, runtime flow, envelope/errors, and high-risk modules.
 - `$pdd-local-development`: local setup, env vars, SQLite storage paths, logs, scripts, and no-build ESM execution.
-- `$pdd-testing-troubleshooting`: Vitest, smoke/unit/e2e/PBT, fixture adapter, JSON purity, and validation selection.
+- `$pdd-testing-troubleshooting`: Vitest, unit/contract/e2e layers, fixture adapter, JSON purity, and validation selection.
 - `$pdd-command-feature-development`: commands, services, endpoint specs, domain behavior, dry-run/write flow.
 - `$pdd-adapter-auth-integration`: Playwright, auth, mall context, account storage, endpoint transport, rate limit, redaction, external integration.
 
 ## Architecture
 
-- `bin/pdd.js` defines CLI routing and options; keep domain logic out of it.
+- `bin/pdd.js` defines global options and delegates command registration to `src/commands/registry/`; keep domain logic out of it.
 - `withCommand()` owns auth/account/mall context, timeout/abort, fixture mode, batch mode, and envelope emission; `src/commands/_runner.js` is a facade over `src/commands/runner/`.
 - Keep dependencies flowing `commands -> services -> adapter -> infra`; avoid reverse imports.
 - Use the matching project skill for detailed file routes and runtime configuration. Before implementation, read the relevant `.trellis/spec/` guidelines and related `.trellis/research/` topics, if any.

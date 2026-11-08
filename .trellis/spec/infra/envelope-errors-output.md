@@ -127,7 +127,7 @@ Warning `account_action_required`：`{ code: 'account_action_required', account:
 
 - Good：service returns plain data; runner builds envelope and sets exit code。
 - Base：`PDD_DEBUG_RAW=1` emits redacted pre-strip raw payload to stderr JSONL; stdout envelope stays unchanged。
-- Bad：adding `traceId` at envelope top-level; use `meta` only if existing contract allows, otherwise OpenSpec/Trellis update first。
+- Bad：adding `traceId` at envelope top-level; use `meta` only if existing contract allows, otherwise update `.trellis/spec/` (and an ADR if hard to reverse) first。
 - Bad：returning `{ data: rows, meta: { total, mall } }` — v1 shape; return `{ headline, items, total, mall_id }` instead。
 
 ## 6. Tests Required

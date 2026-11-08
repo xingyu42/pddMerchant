@@ -10,14 +10,20 @@
 
 ```text
 node bin/pdd.js <domain> <command> [flags]
-  -> Commander parses global + command options
-  -> registry/<domain>.js register(program, wireAction)
-  -> wireAction binds to withCommand({name, needsAuth, needsMall, run})
-  -> runner resolves auth/account/mall/timeout/abort/fixture mode
-  -> service executes domain flow
-  -> adapter captures endpoint/XHR or fixture payload
-  -> infra finalizes envelope exactly once
-  -> process exits with ExitCodes 0-7
+  -> registry/<domain>.js register(program, wireAction)        注册先于解析
+  -> program.parseAsync()                                      解析全局与命令选项
+       option parser 抛 InvalidArgumentError -> exitOverride -> E_USAGE envelope（exit 2，不进入 runner）
+  -> wireAction(cmd, name, runFn, { runtimeConfigPolicy })     合并选项、加载运行配置与 logger、注入 shutdown signal
+  -> withCommand(spec) -> executeSingle | executeBatch（allAccounts && needsAuth）
+       executeSingle: resolveAccount -> armDeadline ->
+         needsBrowser:false && !needsAuth -> executeWithoutBrowser
+         isMockEnabled()                  -> executeFixture
+         otherwise live: withMerchantAuthUpdate 租约 -> withBrowser -> checkMerchantSession
+           -> 打开 PDD_HOME -> resolveMallContext / switchTo -> createPageSession + getSharedClient
+           -> run(ctx) -> pageSession.closeAll -> 复核并持久化登录态
+  -> service 编排领域流程；adapter 经 endpoint client 传输（fixture 模式替换 send）
+  -> runner/envelope-finalizer.js finalizeSuccess / finalizeError -> emitOnce（infra/output.js）
+  -> process exits with ExitCodes 0-7；信号 130/143
 ```
 
 Real example — `src/commands/orders/list.js`:
@@ -31,9 +37,10 @@ export const run = withCommand({
   needsAuth: true,
   needsMall: 'switch',
   async run(ctx) {
-    const { page: pageNumber = 1, size = 20, since, until } = ctx.config;
+    const { page: pageNumber = 1, size = 20, since, until, status } = ctx.config;
+    const scope = resolveStatusScope(status);
     // service 读取 ctx.mallCtx 并返回 v2 data：{ headline, items, total, mall_id }
-    return getOrderListView(ctx.page, { page: pageNumber, size, since, until }, ctx);
+    return getOrderListView(ctx.page, { page: pageNumber, size, since, until, scope }, ctx);
   },
 });
 
@@ -42,13 +49,13 @@ export default run;
 
 ## 3. Contracts
 
-- Every command MUST finalize via success/error finalizer exactly once。
+- Every `withCommand` command MUST finalize via success/error finalizer exactly once；`init`、`login`、`account`、`config` 直接 `emit()` 一次，同样只输出一个 envelope。
 - `--json` mode MUST write exactly one JSON envelope line to stdout。
 - Human diagnostics MAY go to stderr/logger, never pollute JSON stdout。
 - Signal/fatal errors MUST map to a valid `PddCliError` / `ExitCodes` envelope where possible。
 - Fixture mode MUST bypass real browser/platform calls while preserving command envelope semantics。
-- `runSingleLifecycle` MUST await live execution inside its timer-owning `try/finally`; returning an unawaited promise clears the deadline too early. Clear timers and composed-signal listeners only after execution settles.
-- Standalone diagnosis handlers MUST forward `{ ...ctx, mallId }`, preserving `signal`, deadline, client and page-session context instead of replacing context with `{ mallId }`.
+- `executeSingle` MUST await live execution inside its timer-owning `try/finally`; returning an unawaited promise clears the deadline too early. Clear timers and composed-signal listeners only after execution settles.
+- Diagnosis handlers MUST forward the whole `ctx`（`mallId` 已由 `buildCommandCtx` 提供），preserving `signal`, deadline, client and page-session context instead of building a new context.
 
 ## 4. Validation & Error Matrix
 
@@ -56,6 +63,7 @@ export default run;
 | ------------------------------- | ------------------------------------------------------------- |
 | handler throws `PddCliError`    | error envelope，exit code 来自 error mapping                  |
 | handler throws unknown error    | mapped to GENERAL 或对应 infra mapping，仍输出 envelope       |
+| option parser rejects a value   | commander `invalidArgument` → `E_USAGE` / code 2，不启动浏览器 |
 | command validates usage failure | `ExitCodes.USAGE` / code 2                                    |
 | auth expired                    | `ExitCodes.AUTH` / code 3，hint 指向 login/init               |
 | partial batch failure           | `ok` 根据 batch contract，exit code 7，`meta.warnings` 可增长 |
@@ -69,11 +77,11 @@ export default run;
 
 ## 6. Tests Required
 
-- 命令注册/flags：对应 command smoke/e2e。
-- runner/finalizer：runner、output、abort、timeout 相关 unit。
+- 命令注册/flags：`test/commands/` 的解析器与命令契约测试、对应 e2e。
+- runner/finalizer：`test/commands/runner-deadline.test.js`（deadline 暂停/恢复与清理）及 output、errors 相关测试；共享 runner 改动运行 `npm test`。
 - fixture path：`PDD_TEST_ADAPTER=fixture` 的 e2e 子进程测试。
 - JSON purity：断言 stdout 只有 envelope，stderr 不影响 envelope 解析。
-- `runner-contract.unit.test.js` MUST cover the actual live branch with mocked browser/account dependencies, timeout and success cleanup, including the `AbortSignal.any` fallback. `diagnosis-data-flow.unit.test.js` MUST assert all four diagnosis handlers preserve context.
+- 原 `runner-contract.unit.test.js`、`diagnosis-data-flow.unit.test.js` 已在 `cc0cb1c` 删除；live 分支（mock 浏览器/账号的超时与成功清理）与 diagnosis handler 透传 ctx 目前没有专门单测，改动这两处时需补测试或人工核对。
 
 ## 7. Wrong vs Correct
 
@@ -105,8 +113,7 @@ export const run = withCommand({
         exitCode: ExitCodes.USAGE,
       });
     }
-    const result = await getOrderDetail(ctx.page, sn, ctx);
-    return { order: result.order, mall_id: ctx.mallCtx?.activeId ?? null };
+    return getOrderDetailView(ctx.page, sn, ctx);
   },
 });
 ```
