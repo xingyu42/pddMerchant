@@ -1,6 +1,6 @@
 const DEFAULT_SLEEP = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export function createRateControl({
+function createRateControl({
   tokensPerMinute,
   burst = 2,
   jitterMs = [2000, 8000],
@@ -57,15 +57,11 @@ export function createRateControl({
 
 let _shared = null;
 
-export function getSharedWriteRateControl(opts) {
+function getSharedWriteRateControl(opts) {
   if (!_shared) {
     _shared = createRateControl(opts);
   }
   return _shared;
-}
-
-export function _resetSharedRateControl() {
-  _shared = null;
 }
 
 export async function withWriteRateControl(label, fn, options = {}) {

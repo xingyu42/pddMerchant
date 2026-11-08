@@ -121,7 +121,7 @@ function cachePath(cacheDir, goodsId) {
   return join(cacheDir, `${normalizeGoodsId(goodsId)}.json`);
 }
 
-export function createSourceGoodsCache({ cacheDir = GOODS_PUBLISH_SOURCE_CACHE_DIR } = {}) {
+function createSourceGoodsCache({ cacheDir = GOODS_PUBLISH_SOURCE_CACHE_DIR } = {}) {
   return {
     async read(goodsId) {
       const normalizedId = normalizeGoodsId(goodsId);
@@ -185,5 +185,3 @@ export function createSourceGoodsCache({ cacheDir = GOODS_PUBLISH_SOURCE_CACHE_D
 }
 
 export const defaultSourceGoodsCache = createSourceGoodsCache();
-
-export { CACHE_VERSION };

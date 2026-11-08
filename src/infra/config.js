@@ -287,7 +287,7 @@ export function configInspectionError(inspection) {
   });
 }
 
-export async function loadConfig({
+async function loadConfig({
   cliFlags = {},
   env = process.env,
   baselinePath = DEFAULT_CONFIG_EXAMPLE_PATH,
@@ -325,9 +325,5 @@ export async function loadRuntimeConfig(options) {
 }
 
 export {
-  ConfigSchema,
-  RuntimeConfigSchema,
   CONFIG_FIELD_DEFINITIONS,
-  DEFAULT_CONFIG_EXAMPLE_PATH,
-  DEFAULT_CONFIG_PATH,
 };

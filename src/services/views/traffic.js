@@ -11,7 +11,7 @@ export const TRAFFIC_REPORT = defineReport({
   },
 });
 
-export const TRAFFIC_METRICS = metricTable([
+const TRAFFIC_METRICS = metricTable([
   ['shop_visitor_count', 'uv', 'count'], ['shop_page_view_count', 'pv', 'count'], ['goods_visitor_count', 'guv', 'count'],
   ['goods_page_view_count', 'gpv', 'count'], ['pay_buyer_count', 'payOrdrUsrCnt', 'count'], ['pay_order_count', 'payOrdrCnt', 'count'],
   ['pay_amount_yuan', 'payOrdrAmt', 'yuan'], ['pay_conversion_pct', 'payUvRto', 'ratio'],

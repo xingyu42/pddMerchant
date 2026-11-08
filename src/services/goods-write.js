@@ -40,7 +40,7 @@ function echoValue(field, normalized) {
 }
 
 // 校验并生成回显：{ goods_id, field, value[, sku_id] }；price_yuan 回显为元，status 回显为中文动作
-export function planGoodsWrite({ field, goodsId, value, skuId }) {
+function planGoodsWrite({ field, goodsId, value, skuId }) {
   const spec = WRITE_FIELDS[field];
   const id = validateGoodsId(goodsId);
   const normalized = validateWriteValue(field, value);
@@ -61,7 +61,7 @@ function describeWrite(plan, { dryRun }) {
 }
 
 // 上游写接口结果 → { success, failed_count }（不透传上游字段名）
-export function toWriteResultView(result) {
+function toWriteResultView(result) {
   return {
     success: result?.success === true,
     failed_count: toFiniteNumber(result?.fail_goods_num),
@@ -69,7 +69,7 @@ export function toWriteResultView(result) {
 }
 
 // 写入上游：使用原始输入（price_yuan 为元字符串 / 数字），由 update* 内部再次校验并换算为分
-export function applyGoodsWrite(page, { field, goodsId, value }, ctx) {
+function applyGoodsWrite(page, { field, goodsId, value }, ctx) {
   return WRITE_FIELDS[field].update(page, validateGoodsId(goodsId), value, ctx);
 }
 

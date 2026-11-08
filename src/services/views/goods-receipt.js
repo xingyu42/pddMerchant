@@ -26,7 +26,7 @@ function toScene(scene, { multi = false } = {}) {
 }
 
 // sku 已由 service 按口径选出 single / multi 场景（缺失为 null）。
-export function toGoodsReceiptSku(sku) {
+function toGoodsReceiptSku(sku) {
   const activity = sku.activity_price_info;
   return {
     sku_id: sku.sku_id, spec: sku.sku_spec, group_price_yuan: yuanFromFen(sku.group_price),

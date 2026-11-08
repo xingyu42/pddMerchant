@@ -11,8 +11,6 @@ const COMPARE_NOTE_LABEL = Object.freeze({ current_snapshot_only: '仅有当前�
 export const DIAGNOSE_DIMENSIONS = Object.freeze(['orders', 'inventory', 'promo', 'after_sales']);
 
 export const STALE_SAMPLE_FIELDS = Object.freeze(['goods_id', 'goods_name', 'quantity']);
-export const AMBIGUOUS_GROUP_FIELDS = Object.freeze(['normalized_name', 'sku_count', 'sample_quantities']);
-
 function pct(value) {
   return value == null ? '无法计算' : `${value}%`;
 }
@@ -103,7 +101,7 @@ function toMetricView(metric) {
   return note ? { ...values, note: labelOf(COMPARE_NOTE_LABEL, note) } : values;
 }
 
-export function toCompareView(compare) {
+function toCompareView(compare) {
   const dimensions = {};
   for (const [name, { metrics }] of Object.entries(compare.dimensions ?? {})) {
     const out = {};

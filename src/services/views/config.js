@@ -14,7 +14,7 @@ function sourceLabel(source) {
   return labelOf(CONFIG_SOURCE_LABEL, source);
 }
 
-export function toLayerSummaryView(inspection) {
+function toLayerSummaryView(inspection) {
   return Object.fromEntries(
     Object.entries(inspection.layers).map(([name, layer]) => [name, { valid: layer.valid }]),
   );

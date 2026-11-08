@@ -11,8 +11,8 @@ it('statically checks every declared view metric kind against its output unit su
   let tableCount = 0;
   for (const file of readdirSync(root, { recursive: true }).filter((name) => name.endsWith('.js'))) {
     const source = readFileSync(join(root, file), 'utf8');
-    const declarations = [...source.matchAll(/export const (\w+) = metricTable\(\[([\s\S]*?)\]\);/g)];
-    assert.equal(declarations.length, [...source.matchAll(/\bmetricTable\s*\(/g)].length, `${file}: export each literal metric table`);
+    const declarations = [...source.matchAll(/^(?:export )?const (\w+) = metricTable\(\[([\s\S]*?)\]\);/gm)];
+    assert.equal(declarations.length, [...source.matchAll(/\bmetricTable\s*\(/g)].length, `${file}: declare each metric table as a literal const`);
     for (const [, name, body] of declarations) {
       const entries = [...body.matchAll(/\['([^']+)', '([^']+)', '([^']+)'\]/g)];
       assert.ok(entries.length > 0, `${file}:${name} must declare metrics`);

@@ -140,7 +140,7 @@ function pad2(value) {
 }
 
 /** Local calendar date key YYYY-MM-DD (not UTC). */
-export function formatLocalDateKey(date = new Date()) {
+function formatLocalDateKey(date = new Date()) {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 }
 
@@ -150,7 +150,7 @@ export function formatLocalDateKey(date = new Date()) {
  * Optional basename: resolveDatedLogPath(dir, date, 'pdd') -> dir/pdd-2026-07-20.log
  * When basename is omitted/null, file is simply YYYY-MM-DD.log inside the directory.
  */
-export function resolveDatedLogPath(logDirectory, date = new Date(), basename = null) {
+function resolveDatedLogPath(logDirectory, date = new Date(), basename = null) {
   const dateKey = formatLocalDateKey(date);
   const fileName = basename
     ? `${basename}-${dateKey}.log`
@@ -314,4 +314,4 @@ export function redactValue(value) {
   return fingerprint(value);
 }
 
-export { SECRET_KEYS, REDACT_KEYS, REDACT_KEY_SET, redactRecursive };
+export { SECRET_KEYS, REDACT_KEYS, redactRecursive };

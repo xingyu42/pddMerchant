@@ -175,7 +175,7 @@ export async function inspectManagedConfig(options = {}) {
   });
 }
 
-export async function readLocalConfigForEdit(options = {}) {
+async function readLocalConfigForEdit(options = {}) {
   const paths = await assertManagedConfigPaths(options);
   let raw;
   try {
@@ -211,7 +211,7 @@ export async function readLocalConfigForEdit(options = {}) {
   return { exists: true, value, paths };
 }
 
-export async function writeLocalConfigAtomic(value, options = {}) {
+async function writeLocalConfigAtomic(value, options = {}) {
   const paths = await assertManagedConfigPaths(options, { createDir: true });
   const tempPath = resolve(paths.configDir, `.config.json.${process.pid}.${randomUUID()}.tmp`);
   let handle = null;

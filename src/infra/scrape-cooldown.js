@@ -29,7 +29,7 @@ function warn(obj, msg) {
  * @param {number} [opts.threshold] 触发冷却的连续软封阈值
  * @param {number} [opts.cooldownMs] 冷却时长（毫秒）
  */
-export function createScrapeCooldown({
+function createScrapeCooldown({
   now = Date.now,
   statePath = SCRAPE_COOLDOWN_PATH,
   threshold,
@@ -137,8 +137,4 @@ let _shared = null;
 export function getSharedScrapeCooldown(opts) {
   if (!_shared) _shared = createScrapeCooldown(opts);
   return _shared;
-}
-
-export function _resetSharedScrapeCooldown() {
-  _shared = null;
 }

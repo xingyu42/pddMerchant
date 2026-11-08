@@ -10,7 +10,7 @@ const MALL_SOURCE_LABEL = Object.freeze({
 export const SHOP_VIEW_FIELDS = Object.freeze(['mall_id', 'name', 'is_current']);
 
 // 记录可能已由 normalizeMallRecord 归一（id/name），也兼容上游别名；is_current 以当前店铺 ID 为准
-export function toShopView(record, activeId) {
+function toShopView(record, activeId) {
   const mallId = text(record?.id ?? record?.mall_id ?? record?.mallId);
   return {
     mall_id: mallId,

@@ -18,7 +18,7 @@ export const PROMO_TOTALS_FIELDS = Object.freeze([
   'goods_fav_spend_yuan', 'mall_fav_spend_yuan', 'inquiry_spend_yuan',
 ]);
 
-export function ctrPct(click, impression) {
+function ctrPct(click, impression) {
   return ratioPct(click, impression);
 }
 
@@ -29,7 +29,7 @@ function rowLabel(row, by) {
   return text(row.label);
 }
 
-export function toPromoRoiItemView(row, by) {
+function toPromoRoiItemView(row, by) {
   return {
     label: rowLabel(row, by),
     plan_id: text(row.plan_id),
@@ -51,7 +51,7 @@ export function toPromoRoiItemView(row, by) {
 }
 
 // 上游报表合计（endpoint flattenTotals 结果，金额已为元）；缺失为 null
-export function toPromoTotalsView(totals) {
+function toPromoTotalsView(totals) {
   if (!totals || Object.keys(totals).length === 0) return null;
   return {
     impression: totals.impression ?? null,
