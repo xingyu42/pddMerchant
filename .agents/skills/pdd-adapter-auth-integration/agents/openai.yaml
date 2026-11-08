@@ -1,0 +1,4 @@
+interface:
+  display_name: "PDD Adapter Auth Integration"
+  short_description: "Work on Playwright, auth, mall, and endpoint integration"
+  default_prompt: "Use $pdd-adapter-auth-integration to change pdd-cli adapter, auth, mall, or endpoint code."

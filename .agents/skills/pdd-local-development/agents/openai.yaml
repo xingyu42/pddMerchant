@@ -1,0 +1,4 @@
+interface:
+  display_name: "PDD Local Development"
+  short_description: "Run and configure pdd-cli locally"
+  default_prompt: "Use $pdd-local-development to set up or debug the pdd-cli local environment."

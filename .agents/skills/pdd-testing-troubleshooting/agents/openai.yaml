@@ -1,0 +1,4 @@
+interface:
+  display_name: "PDD Testing Troubleshooting"
+  short_description: "Validate pdd-cli changes with fixtures and contract tests"
+  default_prompt: "Use $pdd-testing-troubleshooting to choose and run pdd-cli validation commands."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "PDD Architecture Navigation"
+  short_description: "Navigate pdd-cli layers and runtime flow"
+  default_prompt: "Use $pdd-architecture-navigation to trace a pdd-cli feature before editing."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "PDD Command Feature Development"
+  short_description: "Extend pdd-cli commands and domain services"
+  default_prompt: "Use $pdd-command-feature-development to add or modify a pdd-cli command safely."

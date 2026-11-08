@@ -1,7 +1,9 @@
 .ace-tool/
 .codegraph/
 .jshook-profile/
-.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/mini-trellis-*/
 .ccg/
 .codex/
 .cursor/
