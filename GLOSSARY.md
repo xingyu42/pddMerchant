@@ -106,6 +106,10 @@ _Avoid_: The reply rate, unified reply rate
 An upstream numeric value delivered as Private Use Area characters under a per-load remapped font. It counts as a fact only after decoding and a cross-check against a plaintext source; otherwise it is reported as unavailable.
 _Avoid_: Encrypted data, garbled number, best-effort decode
 
+**Estimated Merchant Receipt** (预估实收):
+The per-unit amount Pinduoduo estimates the merchant receives for a SKU at its current price: the pre-coupon price (券前价) less the discounts funded by the merchant. It is a Platform-Reported figure, reported verbatim; the CLI never recomputes it from prices or fee rates. It is a forward-looking per-unit estimate and is distinct from the order revenue used in Goods Net Profit. Pinduoduo offers it as a single-unit receipt and as the lowest average multi-unit receipt, and under two merchant-discount calibers: 商家出资常规优惠 (regular merchant discounts) and 商家出资所有优惠 (additionally non-public discounts, multi-order instant reductions, and merchant-funded platform coupons). Every reported value names its caliber, and values from different calibers are never mixed.
+_Avoid_: Net income, settlement amount, buyer price, CLI-calculated receipt
+
 **Non-Promo Sales**:
 The orders and transaction amount of a goods item that remain after subtracting the promotion's direct attribution from the goods total. It is a derived difference rather than a platform-reported split; a negative difference is unknown, not zero. Visitors are never split this way because promotion clicks are not visitors.
 _Avoid_: Free traffic, natural traffic, organic visitors
