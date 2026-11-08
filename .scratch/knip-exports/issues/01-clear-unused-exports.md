@@ -1,6 +1,6 @@
 # 01: 清零 knip 报告的无用 export，并把 exports 纳入 lint
 
-Status: ready-for-agent
+Status: resolved
 
 ## What to build
 
@@ -25,7 +25,11 @@ Status: ready-for-agent
 
 ## Acceptance criteria
 
-- [ ] `npx knip --include exports,types,duplicates` 输出为空
-- [ ] `package.json` 的 `lint` 加上 `exports,types,duplicates`
-- [ ] `npm run check` 通过
-- [ ] 若有放行：配置已改为 `knip.jsonc`，每一项放行都附有 `//` 原因注释
+- [x] `npx knip --include exports,types,duplicates` 输出为空
+- [x] `package.json` 的 `lint` 加上 `exports,types,duplicates`
+- [x] `npm run check` 通过
+- [x] 若有放行：配置已改为 `knip.jsonc`，每一项放行都附有 `//` 原因注释（本次 0 项放行，配置仍为 `knip.json`）
+
+## Comments
+
+- 2026-11-08：已在集成分支 `feat/knip-exports` 完成。清理见 729f26c、da41602、6352107、4632d44：删除 49 项（30 个重复 `default` export、19 个死代码或无人用的转导出），去掉 `export` 108 项，`registry/daemon.js` 由 `daemon[name]` 改为静态引用，`metric-tables` 守卫改为扫描 `const` 声明。code review 修复见 64319a6。worktree 中 knip 需要本地 `node_modules` 的说明见 924464f。
