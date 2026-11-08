@@ -19,5 +19,3 @@ export const run = withCommand({
     return getOrderDetailView(ctx.page, sn, ctx);
   },
 });
-
-export default run;

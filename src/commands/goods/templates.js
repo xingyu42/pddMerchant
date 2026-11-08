@@ -9,5 +9,3 @@ export const run = withCommand({
     return getCostTemplatesView(ctx);
   },
 });
-
-export default run;

@@ -25,5 +25,3 @@ export const run = withCommand({
     });
   },
 });
-
-export default run;

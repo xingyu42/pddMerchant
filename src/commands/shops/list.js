@@ -9,5 +9,3 @@ export const run = withCommand({
     return getShopListView(ctx);
   },
 });
-
-export default run;

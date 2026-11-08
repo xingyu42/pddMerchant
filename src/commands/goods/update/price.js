@@ -14,5 +14,3 @@ export const run = withCommand({
     return { data, meta: { xhr_count: data.dry_run ? 0 : 1 } };
   },
 });
-
-export default run;

@@ -11,5 +11,3 @@ export const run = withCommand({
     return getPromoDiagnosis(ctx);
   },
 });
-
-export default run;

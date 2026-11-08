@@ -23,7 +23,7 @@ function buildQrCallback({ json, timeoutMs }) {
   };
 }
 
-export async function resolveLoginAuthTarget({ account } = {}) {
+async function resolveLoginAuthTarget({ account } = {}) {
   return account ? resolveAccountContext({ account, needsAuth: false }) : { accountId: null, account: null };
 }
 
@@ -58,5 +58,3 @@ export async function runInteractiveLogin(options = {}) {
 export async function run(options = {}) {
   return runInteractiveLogin({ ...options, command: 'init' });
 }
-
-export default run;

@@ -22,7 +22,7 @@ const COOLDOWN_GLOBAL_KEY = '*';
 //   （last-wins；detail.endpoint 缺失时退化记入 '*'）；
 // "命中已激活冷却"（cooldown_triggered === true）→ 先查同 endpoint 源、缺失退化查 '*'，
 //   源非自身则追加继承警告（additive-only，不触碰 ok/exit_code/data，batchExitCode 语义不变）。
-export function applyCooldownAttribution(result, slug, sourcesByEndpoint) {
+function applyCooldownAttribution(result, slug, sourcesByEndpoint) {
   if (result?.ok !== false || result.error?.code !== 'E_RATE_LIMIT') return sourcesByEndpoint;
   const endpoint = result.error.detail?.endpoint ?? COOLDOWN_GLOBAL_KEY;
   if (result.error.detail?.cooldown_triggered !== true) {

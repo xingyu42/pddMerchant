@@ -21,8 +21,6 @@ export async function run(options = {}, { runtimeConfig } = {}) {
   return runInteractiveLogin({ ...options, command: 'login' });
 }
 
-export default run;
-
 async function runConsumerLogin(opts, runtimeConfig) {
   const command = 'login.consumer';
   const startedAt = Date.now();

@@ -11,5 +11,3 @@ export const run = withCommand({
     return getShopDiagnosis(ctx, { compare: ctx.config.compare ?? false, days: ctx.config.days ?? 7 });
   },
 });
-
-export default run;

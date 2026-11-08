@@ -7,5 +7,3 @@ export const run = withCommand({
     return getReviewsView(ctx, { days: ctx.config?.days });
   },
 });
-
-export default run;

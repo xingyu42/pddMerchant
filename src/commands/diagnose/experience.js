@@ -29,5 +29,3 @@ export const run = withCommand({
     return getShopExperienceView(ctx, { days: ctx.config?.days });
   },
 });
-
-export default run;
