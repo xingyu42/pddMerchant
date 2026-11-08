@@ -5,5 +5,3 @@ export const run = withCommand({
   name: 'diagnose.traffic', needsAuth: true, needsMall: 'switch',
   async run(ctx) { return getTrafficView(ctx, { days: ctx.config?.days }); },
 });
-
-export default run;

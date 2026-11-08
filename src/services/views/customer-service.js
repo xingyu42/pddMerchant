@@ -8,14 +8,14 @@ export const CUSTOMER_SERVICE_REPORT = defineReport({
   hints: { trend_unavailable: '客服逐日趋势拉取失败' },
 });
 
-export const CS_METRICS = metricTable([
+const CS_METRICS = metricTable([
   ['consult_user_count', 'consultUserCnt', 'count'], ['need_manual_reply_user_count', 'needManuReplyConsultUserCnt', 'count'],
   ['manual_receive_user_count', 'receiveUserCnt', 'count'], ['manual_reply_3min_rate_pct', 'manuReplyRate3Min', 'ratio'],
   ['reply_30s_rate_pct', 'manuReplyRate30s', 'ratio'], ['avg_manual_response_seconds', 'artificialResponseTime', 'seconds'],
   ['unsatisfied_review_count', 'unsatisfiedServeScoreCnt', 'count'], ['service_refund_count', 'serveRefundCnt', 'count'],
   ['complained_user_count', 'complainCsUserCnt', 'count'],
 ]);
-export const CS_REFERENCE_METRICS = metricTable([
+const CS_REFERENCE_METRICS = metricTable([
   ['category_top10_avg_response_seconds', 'avgReplyTimeTop10', 'seconds'],
   ['category_avg_response_seconds', 'avgReplyTimeTotal', 'seconds'],
 ]);

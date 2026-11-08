@@ -1,7 +1,7 @@
 import { PddCliError, ExitCodes, mapErrorToExit } from '../infra/errors.js';
 import { classifyRateLimit } from './classify-rate-limit.js';
 
-export const SUCCESS_BUSINESS_CODES = new Set([0, 1000000]);
+const SUCCESS_BUSINESS_CODES = new Set([0, 1000000]);
 // 写接口：success 标记或成功码任一成立即成功。
 export const WRITE_SUCCESS_RULE = Object.freeze({ mode: 'flag-or-code' });
 

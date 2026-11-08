@@ -10,5 +10,3 @@ export const run = withCommand({
     return getOrderStatsView(ctx.page, { size }, ctx);
   },
 });
-
-export default run;

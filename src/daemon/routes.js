@@ -9,7 +9,7 @@ import { startConsoleSession, startConsoleAddSession, getConsoleSession, console
 import { streamFrames } from './sse.js';
 import { getConsolePatrol, setConsolePatrol } from '../services/console-patrol.js';
 
-export const CONSOLE_ROUTES = Object.freeze([
+const CONSOLE_ROUTES = Object.freeze([
   { method: 'GET', template: '/healthz', pattern: /^\/healthz$/, public: true, run: () => consoleHealth() },
   { method: 'GET', template: '/c/:token', pattern: /^\/c\/([^/]+)$/, public: true, run: redemptionPage },
   { method: 'GET', template: '/app/redeem.js', pattern: /^\/app\/redeem\.js$/, public: true,

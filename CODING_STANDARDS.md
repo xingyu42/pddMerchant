@@ -11,7 +11,7 @@ Review entry point for pdd-cli diffs. The rules live in the files below; this fi
 - `.trellis/spec/adapter/endpoint-xhr-contracts.md` and `.trellis/spec/adapter/fixture-mode.md` — endpoint specs, normalizers, fixtures
 - `.trellis/spec/services/domain-service-contracts.md` and `docs/adr/` — domain semantics
 
-Tooling already enforces these, so skip them in review: unused files and dependencies (`npm run lint`, knip), `data` contract v2 for every registered command (`test/contract/data-contract-v2.test.js`), and every registered command appearing in `skills/pdd-cli/SKILL.md` (`test/contract/command-docs.test.js`).
+Tooling already enforces these, so skip them in review: unused files, exports and dependencies (`npm run lint`, knip), `data` contract v2 for every registered command (`test/contract/data-contract-v2.test.js`), and every registered command appearing in `skills/pdd-cli/SKILL.md` (`test/contract/command-docs.test.js`).
 
 ## Judgement calls
 

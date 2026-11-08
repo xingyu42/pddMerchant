@@ -11,5 +11,3 @@ export const run = withCommand({
     return getOrdersDiagnosis(ctx);
   },
 });
-
-export default run;

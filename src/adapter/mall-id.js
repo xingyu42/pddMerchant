@@ -3,7 +3,7 @@ import { PddCliError, ExitCodes } from '../infra/errors.js';
 const STRICT_PATTERN = /^[0-9]{1,15}$/;
 const RELAXED_MAX_LEN = 64;
 
-export function parseMallId(input, { strict } = {}) {
+function parseMallId(input, { strict } = {}) {
   if (typeof strict !== 'boolean') {
     throw new PddCliError({
       code: 'E_CONFIG_INVALID',

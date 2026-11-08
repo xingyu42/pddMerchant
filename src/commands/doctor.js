@@ -20,7 +20,7 @@ import { AUTH_REASON_LABEL, AUTH_VERDICT_LABEL, formatPasswordReloginStatus } fr
 
 const LEGACY_STORAGE_MESSAGE = '检测到旧版数据，已不再使用，可手动删除';
 
-export async function checkChromium() {
+async function checkChromium() {
   if (isMockEnabled()) return { ok: true, detail: { fixture: true } };
   try {
     const execPath = getBrowserExecutablePath();
@@ -222,5 +222,3 @@ export const run = withCommand({
     return view;
   },
 });
-
-export default run;

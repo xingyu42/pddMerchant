@@ -1,8 +1,8 @@
 import { listGoods as defaultListGoods } from '../goods.js';
 import { PddCliError } from '../../infra/errors.js';
 
-export const GOODS_SCAN_PAGE_SIZE = 50;
-export const GOODS_SCAN_MAX_PAGES = 10;
+const GOODS_SCAN_PAGE_SIZE = 50;
+const GOODS_SCAN_MAX_PAGES = 10;
 const PAGE_DELAY_MS = 200;
 
 function sleep(ms) {

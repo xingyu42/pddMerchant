@@ -14,14 +14,14 @@ export const GOODS_TRAFFIC_REPORT = defineReport({
   },
 });
 
-export const GOODS_TRAFFIC_METRICS = metricTable([
+const GOODS_TRAFFIC_METRICS = metricTable([
   ['visitor_count', 'goodsUv', 'count'], ['page_view_count', 'goodsPv', 'count'], ['fav_user_count', 'goodsFavCnt', 'count'],
   ['order_create_user_count', 'ordrCrtUsrCnt', 'count'], ['order_rate_pct', 'ordrVstrRto', 'ratio'],
   ['pay_conversion_pct', 'goodsVcr', 'ratio'], ['pay_rate_pct', 'payOrdrRto', 'ratio'],
   ['pay_order_count', 'payOrdrCnt', 'count'], ['pay_goods_qty', 'payOrdrGoodsQty', 'count'], ['pay_buyer_count', 'payOrdrUsrCnt', 'count'],
   ['pay_amount_yuan', 'payOrdrAmt', 'yuan'], ['consult_user_count', 'cnsltUsrQty', 'count'],
 ]);
-export const GOODS_TRAFFIC_PROMO_METRICS = metricTable([
+const GOODS_TRAFFIC_PROMO_METRICS = metricTable([
   ['promo_direct_order_count', 'directOrderNum', 'count'], ['promo_indirect_order_count', 'indirectOrderNum', 'count'],
   ['promo_direct_amount_yuan', 'directAmountFen', 'fen'], ['promo_indirect_amount_yuan', 'indirectAmountFen', 'fen'],
   ['promo_spend_yuan', 'spendFen', 'fen'], ['promo_click_count', 'click', 'count'],

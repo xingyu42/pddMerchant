@@ -5,7 +5,7 @@ import { emit, buildEnvelope } from '../../infra/output.js';
 import { ExitCodes, errorToEnvelope } from '../../infra/errors.js';
 import { accountMetaForEnvelope } from '../../infra/account-resolver.js';
 
-export function normalizeRunResult(result) {
+function normalizeRunResult(result) {
   if (result == null) return { data: null };
   if (typeof result !== 'object' || Array.isArray(result)) return { data: result };
 

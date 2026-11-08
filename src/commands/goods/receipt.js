@@ -8,5 +8,3 @@ export const run = withCommand({
     return getGoodsReceiptView(ctx, { goodsIds: goodsId, page, size, caliber });
   },
 });
-
-export default run;

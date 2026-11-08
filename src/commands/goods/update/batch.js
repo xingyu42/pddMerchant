@@ -75,5 +75,3 @@ export const run = withCommand({
     return { data, meta: { xhr_count: xhrCount, exit_code: exitCode } };
   },
 });
-
-export default run;

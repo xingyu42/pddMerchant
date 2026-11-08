@@ -10,5 +10,3 @@ export const run = withCommand({
     return getPromoRoiView(ctx.page, { page: pageNum, size, since, by, includeInactive }, ctx);
   },
 });
-
-export default run;

@@ -11,5 +11,3 @@ export const run = withCommand({
     return getAfterSalesDiagnosis(ctx, { days: ctx.config?.days });
   },
 });
-
-export default run;

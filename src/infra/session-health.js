@@ -23,7 +23,7 @@ function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
-export function createSessionHealth({
+function createSessionHealth({
   minScore = DEFAULT_MIN_SCORE,
   now = Date.now,
   decayIntervalMs = DEFAULT_DECAY_INTERVAL_MS,
@@ -105,8 +105,4 @@ let _shared = null;
 export function getSharedSessionHealth(opts) {
   if (!_shared) _shared = createSessionHealth(opts);
   return _shared;
-}
-
-export function _resetSharedSessionHealth() {
-  _shared = null;
 }

@@ -80,7 +80,7 @@ function fullCountDiscountPayloadValue(discountRate) {
   return payloadValue;
 }
 
-export function normalizeCategoryText(s) {
+function normalizeCategoryText(s) {
   return String(s ?? '').replace(/\s+/g, '').replace(/＞/g, '>');
 }
 
@@ -88,29 +88,12 @@ export function normalizeCategoryText(s) {
  * 从商品详情纯文本中提取结构化属性（"属性名：属性值" 模式）。
  * 仅提取分隔符左右非空、值不含句读的键值对。纯函数，便于单测。
  */
-export function parseProperties(text) {
-  if (!text || typeof text !== 'string') return [];
-  const pattern = /([^：:\n，,]{1,20})[：:]\s*([^，,。；;\n]{1,50})/g;
-  const seen = new Set();
-  const props = [];
-  let match;
-  while ((match = pattern.exec(text)) !== null) {
-    const name = match[1].trim();
-    const value = match[2].trim();
-    if (name && value && !seen.has(name)) {
-      seen.add(name);
-      props.push({ name, value });
-    }
-  }
-  return props;
-}
-
-export function countSkuCombinations(skuDims) {
+function countSkuCombinations(skuDims) {
   if (!Array.isArray(skuDims) || skuDims.length === 0) return 1;
   return skuDims.reduce((total, dim) => total * Math.max(0, dim?.values?.length ?? 0), 1);
 }
 
-export function mapSkuTableColumns(headers) {
+function mapSkuTableColumns(headers) {
   const normalized = headers.map((header) => String(header ?? '').replace(/[\s*]/g, ''));
   return {
     stock: normalized.findIndex((header) => header === '库存' || header.endsWith('库存')),
@@ -131,7 +114,7 @@ function normalizeSkuSpecValue(value) {
     : normalized;
 }
 
-export function matchSkuPricingToTableRows(rowModels, skuPricing) {
+function matchSkuPricingToTableRows(rowModels, skuPricing) {
   if (!Array.isArray(rowModels) || !Array.isArray(skuPricing) || rowModels.length !== skuPricing.length) {
     return { ok: false, issue: 'sku_combination_count_mismatch', rowIndexes: [] };
   }
@@ -168,7 +151,7 @@ export function matchSkuPricingToTableRows(rowModels, skuPricing) {
  * 无精确匹配且后缀匹配非唯一（或无匹配）→ 返回 -1（不盲选首项，避免选错类目）。
  * 纯函数，便于单测。
  */
-export function pickCategoryOptionIndex(itemTexts, searchText) {
+function pickCategoryOptionIndex(itemTexts, searchText) {
   if (!Array.isArray(itemTexts) || itemTexts.length === 0) return -1;
   const target = normalizeCategoryText(searchText);
   const leaf = normalizeCategoryText(String(searchText ?? '').split(' > ').pop());
@@ -276,7 +259,7 @@ export async function selectCategory(page, searchText) {
   return { goodsCommitId, goodsId };
 }
 
-export async function dismissOverlays(page) {
+async function dismissOverlays(page) {
   await evaluateInMainWorld(page, () => {
     document.querySelectorAll('[data-testid="beast-core-modal"]').forEach(el => el.remove());
     document.querySelectorAll('[class*="MDL_outerWrapper"]').forEach(el => el.remove());
@@ -423,7 +406,7 @@ function normalizePropertyText(value) {
     .trim();
 }
 
-export function matchPropertyRowIndex(labels, targetName) {
+function matchPropertyRowIndex(labels, targetName) {
   const expected = normalizePropertyText(targetName);
   const matches = (Array.isArray(labels) ? labels : [])
     .map((label, index) => ({ label: normalizePropertyText(label), index }))
@@ -726,7 +709,7 @@ export async function fillFullCountDiscount(page, discountRate, log = getLogger(
   return { rate: payloadValue / 100, displayValue, payloadValue };
 }
 
-export async function fillPrices(page, pricing, warnings, log) {
+async function fillPrices(page, pricing, warnings, log) {
   const { pricingPlan, pricingValidation } = pricing ?? {};
   if (!pricingPlan || !pricingValidation) {
     warnings.push('pricing_plan_missing');
@@ -815,7 +798,7 @@ function costTemplateBodyError(message) {
   });
 }
 
-export function injectCostTemplateIntoEditBody(postData, costTemplateId) {
+function injectCostTemplateIntoEditBody(postData, costTemplateId) {
   if (!postData) throw costTemplateBodyError('保存草稿请求体为空，无法写入运费模板');
   let body;
   try {
@@ -880,7 +863,7 @@ function expectedSkuColor(expectedSku) {
   return entries.length === 1 ? normalizeSkuSpecValue(entries[0][1]) : '';
 }
 
-export function validateDraftEditPayload(body, options = {}) {
+function validateDraftEditPayload(body, options = {}) {
   const issues = new Set();
   const payload = typeof body === 'string' ? JSON.parse(body) : body;
   const gallery = Array.isArray(payload?.gallery) ? payload.gallery : [];
@@ -1147,7 +1130,7 @@ function resolveDraftDetailCandidate(payload) {
     : { candidate: null, path: null, resultValue: undefined };
 }
 
-export function normalizeDraftDetailResponse(response) {
+function normalizeDraftDetailResponse(response) {
   const wrapped = isObject(response) && Object.hasOwn(response, 'payload');
   const payload = wrapped ? response.payload : response;
   const httpStatus = wrapped ? response.http_status ?? null : null;
@@ -1298,7 +1281,7 @@ function skuValuesMatch(actual, expected) {
     && actualNumber === expectedNumber;
 }
 
-export async function fillSkuCell(inputLocator, value) {
+async function fillSkuCell(inputLocator, value) {
   if (!inputLocator || await inputLocator.count() === 0) return { ok: false, actual: null };
   const expected = String(value);
   await inputLocator.fill(expected);
@@ -1324,7 +1307,7 @@ function skuCellLocator(row, domCellIndex) {
  * 1. 三个输入都已挂载时先并行写入（快路径）
  * 2. 读回失败则回退串行（React 局部重绘时并行可能命中同一 input）
  */
-export async function fillSkuRowFields(row, rowModel, columns, sku) {
+async function fillSkuRowFields(row, rowModel, columns, sku) {
   const fields = skuRowFieldSpecs(rowModel, columns, sku);
   const locators = fields.map((field) => skuCellLocator(row, field.domCellIndex));
   if (locators.some((locator) => locator == null)) {

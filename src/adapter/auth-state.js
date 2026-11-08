@@ -6,9 +6,9 @@ import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { isMockEnabled, mockIsConsumerAuthValid } from './mock-dispatcher.js';
 
 export const PDD_HOME = 'https://mms.pinduoduo.com';
-export const CONSUMER_HOME = 'https://mobile.yangkeduo.com';
+const CONSUMER_HOME = 'https://mobile.yangkeduo.com';
 
-export function validateShape(state) {
+function validateShape(state) {
   return Boolean(state && typeof state === 'object' && Array.isArray(state.cookies) && Array.isArray(state.origins));
 }
 

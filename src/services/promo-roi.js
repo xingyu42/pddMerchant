@@ -105,7 +105,7 @@ export function analyzePromoRoi(input, { by = 'plan', includeInactive = false } 
   };
 }
 
-export async function getPromoRoi(page, params = {}, ctx = {}) {
+async function getPromoRoi(page, params = {}, ctx = {}) {
   const report = await getPromoReport(page, {
     type: 'entity',
     page: params.page,

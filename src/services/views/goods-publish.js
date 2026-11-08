@@ -2,7 +2,7 @@
 import { labelOf } from '../../infra/units.js';
 import { text, toFiniteNumber } from './_shared.js';
 
-export const PUBLISH_STATUS_LABEL = Object.freeze({ draft: '草稿', submitted: '已提交' });
+const PUBLISH_STATUS_LABEL = Object.freeze({ draft: '草稿', submitted: '已提交' });
 
 export const PUBLISH_VIEW_FIELDS = Object.freeze([
   'headline', 'goods_id', 'goods_commit_id', 'source_goods_id', 'status', 'cost_template_id',

@@ -10,5 +10,3 @@ export const run = withCommand({
     return getGoodsSegmentView(ctx, { days, size, maxPages, usePromo });
   },
 });
-
-export default run;

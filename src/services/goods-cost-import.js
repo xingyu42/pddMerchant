@@ -4,7 +4,7 @@ import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { validateCostEntry } from './goods-cost-input.js';
 
 const MAX_BYTES = 1024 * 1024;
-export function importInvalid(rowErrors) {
+function importInvalid(rowErrors) {
   return new PddCliError({ code: 'E_COST_IMPORT_INVALID', message: '成本导入文件校验失败',
     detail: { row_errors: rowErrors }, exitCode: ExitCodes.USAGE });
 }

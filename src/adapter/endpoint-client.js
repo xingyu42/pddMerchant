@@ -49,7 +49,7 @@ function mergePlainObjects(origPayload, payload) {
 // buildPayload 的业务字段覆盖页面同名字段；嵌套纯对象递归合并以保留 queryRange
 // 等容器内的页面签名字段。非 JSON body（如 multipart）回退到整替模式。
 // 参考 src/adapter/goods-publish/form-filler.js 的已验证模式。
-export function mergePayload(origPostData, payload) {
+function mergePayload(origPostData, payload) {
   if (!origPostData) return payload;
   try {
     const origPayload = JSON.parse(origPostData);

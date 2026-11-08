@@ -1,9 +1,9 @@
 import { listOrders as defaultListOrders } from '../orders.js';
 import { PddCliError } from '../../infra/errors.js';
 
-export const STALE_SCAN_DAYS = 30;
+const STALE_SCAN_DAYS = 30;
 export const STALE_PAGE_SIZE = 50;
-export const STALE_MAX_PAGES = 10;
+const STALE_MAX_PAGES = 10;
 const PAGE_DELAY_MS = 200;
 const DAY_SECONDS = 86400;
 

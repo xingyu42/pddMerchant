@@ -21,7 +21,7 @@ export async function getOrderStats(page, ctx = {}) {
   return runEndpoint(page, ORDER_STATS, {}, ctx);
 }
 
-export async function getOrderDetail(page, sn, ctx = {}) {
+async function getOrderDetail(page, sn, ctx = {}) {
   if (!sn) {
     throw new PddCliError({
       code: 'E_USAGE',

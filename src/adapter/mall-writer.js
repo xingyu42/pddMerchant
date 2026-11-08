@@ -5,7 +5,7 @@ import { currentMall, SWITCHER_TRIGGER_SELECTORS } from './mall-reader.js';
 import { requireMallId } from './mall-id.js';
 import { cssEscape } from './css-escape.js';
 
-export function optionSelectorsFor(mallId) {
+function optionSelectorsFor(mallId) {
   const id = cssEscape(String(mallId));
   return [
     `[data-testid="mall-option-${id}"]`,

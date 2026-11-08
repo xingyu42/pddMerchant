@@ -1,6 +1,6 @@
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 
-export const CONSUMER_IDENTITY_PATH = '/proxy/api/api/apollo/v3/user/me';
+const CONSUMER_IDENTITY_PATH = '/proxy/api/api/apollo/v3/user/me';
 
 function identityError(reason) {
   return new PddCliError({
@@ -12,7 +12,7 @@ function identityError(reason) {
   });
 }
 
-export function normalizeConsumerIdentity(payload) {
+function normalizeConsumerIdentity(payload) {
   if (!payload || typeof payload !== 'object') throw identityError('invalid_payload');
   const uid = payload.uid;
   const nickname = typeof payload.nickname === 'string' ? payload.nickname.trim() : '';

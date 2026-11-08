@@ -31,7 +31,7 @@ function propertySignature(property) {
   });
 }
 
-export function mergeDynamicPropertyTemplate(baseTemplate, rawDefinitions) {
+function mergeDynamicPropertyTemplate(baseTemplate, rawDefinitions) {
   if (baseTemplate?.ok !== true || !Array.isArray(baseTemplate.properties)) {
     return invalidDynamicTemplate(baseTemplate);
   }
@@ -210,10 +210,3 @@ export async function readDynamicPropertyTemplate(page, baseTemplate) {
     .filter((name) => !knownNames.has(name));
   return unresolvedVisibleNames.length > 0 ? invalidDynamicTemplate(baseTemplate) : merged;
 }
-
-export {
-  MAX_VISIBLE_PROPERTY_ROWS,
-  MAX_REACT_OBJECTS,
-  MAX_REACT_DEPTH,
-  MAX_TEMPLATE_VALUES,
-};

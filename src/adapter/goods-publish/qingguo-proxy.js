@@ -145,7 +145,7 @@ function parseDeadline(value) {
   return Date.parse(zoned);
 }
 
-export function normalizeQingguoLease(body, config, { now = Date.now() } = {}) {
+function normalizeQingguoLease(body, config, { now = Date.now() } = {}) {
   const providerCode = body?.code;
   const rawRequestId = body?.request_id ?? body?.requestId ?? null;
   if (String(providerCode ?? '').toUpperCase() !== 'SUCCESS') {

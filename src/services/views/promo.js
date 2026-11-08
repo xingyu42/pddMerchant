@@ -18,10 +18,6 @@ export const PROMO_TOTALS_FIELDS = Object.freeze([
   'goods_fav_spend_yuan', 'mall_fav_spend_yuan', 'inquiry_spend_yuan',
 ]);
 
-export function ctrPct(click, impression) {
-  return ratioPct(click, impression);
-}
-
 function rowLabel(row, by) {
   if (by === 'channel') {
     return row.scenes_type != null ? labelOf(SCENES_TYPE_LABEL, row.scenes_type) : labelOf({}, row.promotion_type);
@@ -29,7 +25,7 @@ function rowLabel(row, by) {
   return text(row.label);
 }
 
-export function toPromoRoiItemView(row, by) {
+function toPromoRoiItemView(row, by) {
   return {
     label: rowLabel(row, by),
     plan_id: text(row.plan_id),
@@ -42,7 +38,7 @@ export function toPromoRoiItemView(row, by) {
     promotion_type: labelOf({}, row.promotion_type),
     impression: row.impression,
     click: row.click,
-    ctr_pct: ctrPct(row.click, row.impression),
+    ctr_pct: ratioPct(row.click, row.impression),
     spend_yuan: round(row.spend, 2),
     gmv_yuan: round(row.gmv, 2),
     roi: row.roi,
@@ -51,12 +47,12 @@ export function toPromoRoiItemView(row, by) {
 }
 
 // 上游报表合计（endpoint flattenTotals 结果，金额已为元）；缺失为 null
-export function toPromoTotalsView(totals) {
+function toPromoTotalsView(totals) {
   if (!totals || Object.keys(totals).length === 0) return null;
   return {
     impression: totals.impression ?? null,
     click: totals.click ?? null,
-    ctr_pct: ctrPct(totals.click, totals.impression),
+    ctr_pct: ratioPct(totals.click, totals.impression),
     spend_yuan: round(totals.spend, 2),
     gmv_yuan: round(totals.gmv, 2),
     net_gmv_yuan: round(totals.netGmv, 2),

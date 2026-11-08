@@ -14,7 +14,7 @@ const TRIPWIRE_MESSAGES = [
   '验证码', 'captcha', 'slider', '滑块', '请求太频繁', '风控',
 ];
 
-export class CircuitBreaker {
+class CircuitBreaker {
   constructor(opts = {}) {
     this._threshold = opts.failureThreshold ?? BREAKER_DEFAULTS.failureThreshold;
     this._cooldownMs = opts.cooldownMs ?? BREAKER_DEFAULTS.cooldownMs;
@@ -140,8 +140,4 @@ let _shared = null;
 export function getSharedBreaker(opts) {
   if (!_shared) _shared = new CircuitBreaker(opts);
   return _shared;
-}
-
-export function _resetSharedBreaker() {
-  _shared = null;
 }

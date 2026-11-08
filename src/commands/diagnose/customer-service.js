@@ -7,5 +7,3 @@ export const run = withCommand({
     return getCustomerServiceView(ctx, { days: ctx.config?.days });
   },
 });
-
-export default run;

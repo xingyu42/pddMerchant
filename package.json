@@ -14,7 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "npm run lint && npm test",
-    "lint": "knip --include files,dependencies,unlisted,binaries"
+    "lint": "knip --include files,dependencies,unlisted,binaries,exports,types,duplicates"
   },
   "dependencies": {
     "chalk": "^5.3.0",

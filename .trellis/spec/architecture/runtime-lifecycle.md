@@ -43,8 +43,6 @@ export const run = withCommand({
     return getOrderListView(ctx.page, { page: pageNumber, size, since, until, scope }, ctx);
   },
 });
-
-export default run;
 ```
 
 ## 3. Contracts

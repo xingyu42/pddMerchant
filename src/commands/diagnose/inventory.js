@@ -11,5 +11,3 @@ export const run = withCommand({
     return getInventoryDiagnosis(ctx);
   },
 });
-
-export default run;

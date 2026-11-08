@@ -50,7 +50,7 @@ const SOURCE_PROXY_RETRY_DELAYS = [500, 1000];
 // was removed on 2026-07-10 in favor of the active UI-automation path. If PDD later exposes a
 // stable publish API, reintroduce those modules from git history rather than reviving stale code.
 
-export async function listCostTemplates(ctx) {
+async function listCostTemplates(ctx) {
   const result = await runEndpoint(ctx.page, GOODS_PUBLISH_COST_TEMPLATE_LIST, {}, ctx);
   // normalize() already maps endpoint variants into `templates`.
   const templates = result.templates ?? [];
@@ -69,7 +69,7 @@ export async function getCostTemplatesView(ctx) {
   return { headline, items, total: items.length, mall_id: mallIdOf(ctx) };
 }
 
-export async function resolvePublishCostTemplate(ctx, requestedId = null) {
+async function resolvePublishCostTemplate(ctx, requestedId = null) {
   const templates = (await listCostTemplates(ctx)).filter(t => t.id != null && String(t.id) !== '');
   if (templates.length === 0) {
     throw new PddCliError({
