@@ -54,7 +54,7 @@ Project-specific skills live under `.agents/skills/`. Use the smallest matching 
 - Do not commit or expose credentials or sensitive runtime data, including files under `data/`, `log/`, and environment-overridden paths.
 - Goods write commands require `--confirm`; without it they return dry-run data.
 - Diagnostic reports contain factual metrics and data availability, not operating advice or scores.
-- Endpoint specs should keep fixture names aligned with `spec.name` under `test/fixtures/endpoints/`.
+- Endpoint fixtures are keyed `endpoints/<spec.name>.json`; tests build them with factories in `test/fixtures/test-data.js`.
 - Merchant authentication is checked on demand at login, ordinary commands, and doctor; successful commands re-verify before persistence. Ordinary commands, login and doctor never launch or depend on a background process; `pdd daemon` (console, takeover, optional patrol; see `docs/adr/0003-reintroduce-explicit-daemon-console.md`) is started explicitly.
 
 ## Verification Checklist
