@@ -25,10 +25,10 @@ node bin/pdd.js doctor --json
 node bin/pdd.js orders list --size 20 --json
 npm test
 npx vitest run test/<file>.test.js
-npm run lint
+npm run check
 ```
 
-`npm run lint` is currently a no-op (`echo no-lint`). There is no build step; the project runs directly as Node.js ESM.
+`npm run lint` runs knip (unused files, dependencies, unlisted imports, binaries); `npm run check` runs lint then tests and is what `.github/workflows/check.yml` runs. There is no build step; the project runs directly as Node.js ESM.
 
 ## Runtime Facts
 
@@ -48,7 +48,7 @@ npm run lint
 
 - Do not commit the database, master key, credentials, or files under `log/`.
 - Do not add a build step or TypeScript assumption; this checkout is JavaScript ESM.
-- Do not document CI/CD unless a repo-local CI config exists. Current checkout has no root `.github` workflow.
+- CI lives in `.github/workflows/check.yml`; keep it running `npm run check` so local and CI checks stay identical.
 - Do not redirect the CLI file channel through an env-configured destination. Inspect the fixed log files; foreground/bootstrap diagnostics are expected on stderr.
 
 ## Verification

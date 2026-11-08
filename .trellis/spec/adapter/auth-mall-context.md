@@ -2,7 +2,7 @@
 
 ## 1. Scope / Trigger
 
-适用于修改 `src/adapter/auth-state.js`、`src/adapter/merchant-auth-storage.js`、`src/adapter/consumer-qr-login.js`、`src/adapter/mall-reader.js`、`src/adapter/mall-writer.js`、`src/adapter/mall-switcher.js`、`src/adapter/mall-id.js`、`src/services/auth.js`、`src/services/auth-account-storage.js`、`src/commands/login.js`、账号解析与商家即时认证检查。存储层本身（库、主密钥、加密、租约、账号表）见 [sqlite-storage.md](../infra/sqlite-storage.md)。
+适用于修改 `src/adapter/auth-state.js`、`src/adapter/merchant-auth-storage.js`、`src/adapter/consumer-qr-login.js`、`src/adapter/mall-reader.js`、`src/adapter/mall-writer.js`、`src/adapter/mall-id.js`、`src/services/auth.js`、`src/services/auth-account-storage.js`、`src/commands/login.js`、账号解析与商家即时认证检查。存储层本身（库、主密钥、加密、租约、账号表）见 [sqlite-storage.md](../infra/sqlite-storage.md)。
 
 ## 2. Signatures
 
@@ -16,7 +16,7 @@ src/infra/account-resolver.js           merchant account resolution (flag / defa
 src/infra/consumer-account-resolver.js  consumer account resolution (same three sources)
 src/adapter/consumer-qr-login.js        owns CONSUMER_LOGIN_URL
 src/adapter/mall-reader.js              resolves mall context
-src/adapter/mall-switcher.js            switches requested mall
+src/adapter/mall-writer.js              switches requested mall
 src/commands/login.js / init            login and QR login commands
 ```
 

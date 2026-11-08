@@ -13,7 +13,7 @@ Use this skill for high-risk integration paths. Prefer narrow, well-tested chang
 - `src/adapter/browser.js` for Playwright launch/context behavior.
 - `src/adapter/auth-state.js`, `src/adapter/merchant-auth-storage.js`, `src/infra/leases.js`, and `src/infra/paths.js` for auth-state storage, account leases, and revision CAS.
 - `src/infra/account-store.js`, `src/infra/account-resolver.js`, `src/infra/consumer-account-resolver.js`, and `src/infra/master-key.js` for multi-account storage and encryption keys.
-- `src/adapter/mall-reader.js`, `src/adapter/mall-writer.js`, `src/adapter/mall-switcher.js`, `src/adapter/mall-id.js`, and `src/adapter/mall-xhr-probe.js` for mall context.
+- `src/adapter/mall-reader.js`, `src/adapter/mall-writer.js`, `src/adapter/mall-id.js`, and `src/adapter/mall-xhr-probe.js` for mall context.
 - `src/adapter/run-endpoint.js`, `src/adapter/endpoint-client.js`, `src/adapter/xhr-collector.js`, and `src/adapter/rate-limiter-singleton.js` for endpoint transport.
 - `src/adapter/mock-dispatcher.js` before changing test seams.
 - `src/infra/logger.js` before adding fields to logs or envelopes.

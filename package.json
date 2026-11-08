@@ -13,8 +13,8 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "npm test",
-    "lint": "echo no-lint"
+    "check": "npm run lint && npm test",
+    "lint": "knip --include files,dependencies,unlisted,binaries"
   },
   "dependencies": {
     "chalk": "^5.3.0",

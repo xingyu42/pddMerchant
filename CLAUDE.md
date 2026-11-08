@@ -9,6 +9,7 @@
 ## Commands
 
 ```bash
+npm run check                         # knip lint + all tests (what CI runs)
 npm test                              # Run all tests (vitest)
 npx vitest run test/<file>.test.js    # Run a single test file
 npx patchright install chromium       # Required: install the fallback Chromium runtime
@@ -19,7 +20,7 @@ npx patchright install chromium       # Required: install the fallback Chromium 
 ```
 bin/pdd.js               CLI entry (signal/fatal handlers, global options, wireAction, commander usage-error envelope; registration delegated to registry/)
 src/commands/            Command handlers — mostly thin wrappers around withCommand(); init/login/account/config emit directly
-src/commands/registry/   Domain registrars `register(program, wireAction)` — adding a command touches only the command file + its registrar
+src/commands/registry/   Domain registrars `register(program, wireAction)` — a new command also needs a v2 case and a `skills/pdd-cli/SKILL.md` line (both guarded under test/contract/)
 src/commands/runner/     withCommand internals (envelope-finalizer / fixture-runtime / single-lifecycle / batch-executor); _runner.js is a facade
 src/commands/option-parsers.js  Parse-time option validation (integerArg(min, max), goodsIdListArg, withReportDays) — rejects before any browser starts
 src/daemon/              Explicit console daemon HTTP server (routes, SSE, static); src/console/ is its static frontend

@@ -197,7 +197,7 @@ npx vitest run test/<file>.test.js # 单文件
 npm run test:watch                 # 监听模式
 ```
 
-测试分层：`test/contract/`（data 契约 v2，覆盖全部已注册命令）/ `test/e2e/`（子进程 + fixture adapter）/ `test/services`、`test/commands`、`test/adapter`、`test/infra`。`npm run lint` 当前仅输出 `no-lint`；项目没有 build 步骤，也没有仓库级 CI。
+测试分层：`test/contract/`（data 契约 v2 与命令文档守卫，覆盖全部已注册命令）/ `test/e2e/`（子进程 + fixture adapter）/ `test/services`、`test/commands`、`test/adapter`、`test/infra`。`npm run lint` 用 knip 检查无用文件、依赖、未声明导入与二进制；`npm run check` 依次跑 lint 和测试，`.github/workflows/check.yml` 在推送 `main` 和 PR 时执行它。项目没有 build 步骤。
 
 ---
 

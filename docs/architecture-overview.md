@@ -156,7 +156,7 @@ export const ORDER_LIST = {
 #### 3.4.3 鉴权与店铺上下文
 
 - 商家鉴权：`merchant-auth.js`、`merchant-auth-probe.js`、`merchant-auth-storage.js`（租约 + revision CAS 持久化）、`password-login.js` / `password-credential.js`；消费者：`consumer-qr-login.js`、`consumer-identity.js`。
-- 店铺上下文：`mall-reader.js` 探测链 mock → state → url → cookie → storage → xhr → dom；`mall-writer.js` 切换店铺，`mall-switcher.js` 为 re-export。
+- 店铺上下文：`mall-reader.js` 探测链 mock → state → url → cookie → storage → xhr → dom；`mall-writer.js` 切换店铺。
 - fixture：`mock-dispatcher.js` 是 facade，`fixtures/core.js` 拥有唯一 fixture cache，`fixtures/endpoint.js` 按 `endpoints/<spec.name>[.<variant>|.page<N>].json` 查找原始响应。
 
 #### 3.4.4 商品发布子模块 (`adapter/goods-publish/`)

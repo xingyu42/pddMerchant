@@ -1,16 +1,12 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "entry": [
-    "bin/pdd.js",
     "test/**/*.test.js"
   ],
   "project": [
     "src/**/*.js",
     "bin/**/*.js",
     "!src/console/**"
-  ],
-  "ignoreBinaries": [
-    "playwright"
   ],
   "ignoreDependencies": [],
   "ignore": [

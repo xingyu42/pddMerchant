@@ -62,7 +62,7 @@ Project-specific skills live under `.agents/skills/`. Use the smallest matching 
 - Run targeted tests with `npx vitest run test/<file>.test.js` for the touched domain.
 - Run `npm test` for shared contracts, `_runner.js`, adapter transport, auth/mall, envelope/errors, or cross-domain changes.
 - Use `PDD_TEST_ADAPTER=fixture` for ordinary automated integration checks. Confirm scope with the user before verification against real accounts or backends unless already explicitly authorized.
-- `npm run lint` is currently `echo no-lint`, not a static check. Do not report it as lint coverage; consult `package.json` if scripts change.
+- `npm run lint` runs knip (unused files, dependencies, unlisted imports, binaries); `npm run check` runs lint then tests, and `.github/workflows/check.yml` runs `npm run check` on pushes to `main` and on PRs.
 - Check `git diff` before finishing and confirm changes stay within the requested scope.
 - Report checks actually performed and any unverified behavior. Claim CI coverage only after inspecting the relevant workflow and results.
 
