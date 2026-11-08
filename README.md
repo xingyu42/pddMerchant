@@ -66,11 +66,13 @@ pdd orders list --json      # AI 消费加 --json
 | `diagnose traffic [--days 30]` | 1–30 天 | 全店逐日访客、浏览、成交及同行均值/优秀值；访客汇总跨日存在重复 |
 | `goods traffic [--days 30] [--goods-id <id>]` | 1 / 7 / 30 天 | 全店商品明细，并按商品拆分推广直接/间接成交与花费 |
 | `goods profit [--days 30] [--goods-id <id>]` | 1–90 天 | 窗口收入、商家成本、毛利、推广花费与净利润 |
+| `goods receipt [--goods-id <id>] [--page 1] [--size 10] [--caliber regular\|all]` | 当前价格 | 按 SKU 输出平台预估实收（券前价 − 商家出资优惠），含单件与多件最低场景 |
 
 口径说明：
 
 - `goods traffic` 的 `non_promo_*` 为商品总成交减去推广直接成交的差值，平台不提供该拆分；负差额或推广拉取失败时为 `null`。推广拆分口径来自第三方插件静态分析，尚未经有投放店铺实测。
 - `goods profit` 推广花费仅含商品推广报表口径；以下两种情况利润可能高估：仅退款不退货、商家共担平台补贴。`gross_margin_pct` / `net_margin_pct` 为有符号百分数，可负、可超过 ±100。
+- `goods receipt` 原样报告「商品价格管理」页的平台估算值，CLI 不重算，也不含技术服务费或平台补贴。`--caliber regular`（默认，商家出资常规优惠）与 `all`（另含非公开优惠、多单立减、商家出资平台券）分别取各自场景，两种口径不混用。上游每页最多 10 个商品；列表只带回部分规格的商品会逐个补全全部 SKU。
 
 ## 商品成本与净利润
 

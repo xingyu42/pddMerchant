@@ -330,6 +330,14 @@ Wrong：total - (direct + indirect)，推广失败时输出 0。Correct：仅减
 - view 白名单由 views/goods-cost.js / goods-profit.js 导出，中文 availability 表在 labels.js，利润 hints 归 goods-profit view 的报表声明所有。gross_margin_pct/net_margin_pct 为有符号百分数，可超过 ±100 且原样保留，零收入为 null。filter_goods_id 仅筛 items，summary 全店。固定提示当前成本重算与两项高估：仅退款不退货、商家共担补贴。
 - 测试：goods-cost*、goods-profit* 服务/视图单测，orders-scope/orders-contract/promo-money 回归，两个 goods 成本/利润 fixture e2e 与五个命令的 data-contract-v2；共享 runner/存储改动执行 npm test。
 
+## Scenario: Goods Estimated Receipt
+
+- `getGoodsReceiptView(ctx, { goodsIds = [], page = 1, size = 10, caliber = 'regular' })` → `goods receipt`。选项已由 commander 校验，service 只把口径名解析为 `RECEIPT_CALIBERS` 场景表（未知口径防御为 E_USAGE）。术语见 GLOSSARY.md「Estimated Merchant Receipt」，PRD 见 `.scratch/goods-receipt/spec.md`。
+- 口径只靠请求的 `consult_price_scene_list` 携带，服务端不保存：常规 7/8、所有优惠 10/11；场景 9（未来走势）不用。`RECEIPT_CALIBERS` 是场景值唯一来源，列表与补全请求共用。
+- 列表 `goodsPrice.list` 每页最多 10 个商品、每个商品只带回部分 SKU；`remain_sku_num > 0` 的商品按顺序调用 `goodsPrice.expand` 补全（带已拿到的 SKU ID），按 sku_id 去重追加，少于平台报告数时告警 `receipt_sku_incomplete`；补全业务错误整体 E_BUSINESS / exit 6，不输出半截列表。`xhr_count` = 1 + 补全次数。
+- 每个 SKU 只采用当前口径的单件 / 多件场景，其他场景忽略并告警 `receipt_scene_ignored`；缺单件场景 `single: null` 并告警 `receipt_single_missing`，缺多件场景 `multi: null`。平台明确无优惠为 0 / `[]`。
+- views/goods-receipt.js 拥有白名单与分转元：券前价取活动价（来源为 activity_type_desc）否则拼单价（来源「拼单价」）；多件 `discounts` 为合计。数值全部原样报告，不重算、不推导技术服务费或补贴。
+
 ## Scenario: Order list scope & refund identification
 
 ### 1. Scope / Trigger

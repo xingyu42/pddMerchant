@@ -34,7 +34,7 @@ runEndpoint(page, spec, params, ctx)
   -> PlaywrightEndpointClient.execute(spec, params, ctx)
   -> send(spec, params, ctx) -> { status, raw, response }
   -> interpretResponse(spec, { status, raw, response, url, retries })
-  -> spec.normalize(raw) 或 { raw }
+  -> spec.normalize(raw, params) 或 { raw }
 ```
 
 ## 3. Contracts

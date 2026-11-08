@@ -1,6 +1,6 @@
 # 经营报表口径
 
-转述 `diagnose *`、`goods traffic`、`goods profit` 结果前读本文件。通用规则见 SKILL.md「转述结果」：`headline` 优先、`null` 表示未知、`hints` 原样转述。
+转述 `diagnose *`、`goods traffic`、`goods profit`、`goods receipt` 结果前读本文件。通用规则见 SKILL.md「转述结果」：`headline` 优先、`null` 表示未知、`hints` 原样转述。
 
 ## diagnose shop / orders / inventory / promo
 
@@ -59,3 +59,13 @@
 - 缺成本或推广失败时利润为 `null`；完整拉取但无该商品推广记录时花费为 0。订单截断或限流时窗口财务为 `null`，保留 `observed_order_count` / `observed_revenue_yuan`，读取 `summary.data_quality` 与 `hints`。
 - `cost_updated_at` 是实际使用成本的最大更新时间；`default_fallback_order_count` 是规格未命中、回落默认成本的单数。成本只保留当前值，更新后历史窗口按新成本重算。
 - 转述利润时附三条说明：推广仅含商品推广报表口径；仅退款不退货时利润可能高估；商家共担平台补贴时收入与利润可能高估。
+
+## goods receipt
+
+- 预估实收 = 券前价 − 商家出资优惠，是「商品价格管理」页的平台估算值，按 SKU 给出，CLI 不重算；不含技术服务费、平台补贴，也不是订单收入，和 `goods profit` 的收入口径不同。
+- 券前价：有活动价时取活动价，`pre_coupon_price_source` 为活动类型（如「限量折扣」），否则为「拼单价」；`group_price_yuan` 始终是拼单价。
+- `single` 是买 1 件的预估实收；`multi` 是多件时平均单件预估实收的最低值，`quantity` 为出现最低值的件数，`multi.discounts[].discount_yuan` 是多件合计优惠。件数为 1 表示多件不比单件更低。
+- 口径：`caliber` 为「商家出资常规优惠」（默认）或「商家出资所有优惠」（另含非公开优惠、多单立减、商家出资平台券）。转述时必须带上口径，两种口径的数字不能放在一起比较。
+- 平台明确无优惠时优惠为 0、`discounts` 为空；`multi: null` 表示平台没给多件场景；`single: null` 同时有 `receipt_single_missing` 警告。
+- `meta.warnings`：`receipt_scene_ignored`（平台返回了其他口径的场景，已忽略）、`receipt_sku_incomplete`（补全后 SKU 数少于平台报告数，`sku_count` 可能偏少）。
+- 每页最多 10 个商品，CLI 不自动翻页；按 `total` 和 `--page` 读取其余页。查不到的商品 ID 返回空列表、`total` 为 0，不报错。

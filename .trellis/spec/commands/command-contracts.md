@@ -103,6 +103,11 @@ src/services/<domain>.js           业务逻辑（被 handler 调用）
 - `goods profit` 保留普通 needsAuth + mall switch 生命周期；days 默认 30，仅整数 1–90，非法为 E_USAGE / exit 2。goods-id 只筛列表，summary 始终全店；列表/summary 及 quality 的固定键由 views/goods-profit.js 拥有。
 - 验证：`test/commands/goods-cost-runtime.test.js`、`goods-cost-contract.test.js`，`test/e2e/goods-cost.e2e.test.js`、`goods-profit.e2e.test.js`，以及五个命令的 data-contract-v2 用例。共享 runner 改动运行 npm test。
 
+### Goods Receipt
+
+- `goods receipt` 为普通 needsAuth + mall switch 只读命令，允许 `--all-accounts`。`--size` 用 `integerArg(1, GOODS_PRICE_MAX_PAGE_SIZE)`、`--caliber` 用 commander `Option.choices(Object.keys(RECEIPT_CALIBERS))`、`--goods-id` 用 `goodsIdListArg`（可重复 / 逗号分隔、去重、正整数），均在解析阶段拒绝（commander.invalidArgument → E_USAGE / exit 2，`xhr_count` 0，不启动浏览器）。可选值与上限只从 service 导出的 `RECEIPT_CALIBERS` / `GOODS_PRICE_MAX_PAGE_SIZE` 派生。
+- 验证：`test/commands/numeric-options.test.js`（解析器）、`test/e2e/goods-receipt.e2e.test.js`、`test/adapter/goods-price-contract.test.js`、`test/services/goods-receipt.test.js` 及两个口径的 data-contract-v2 用例。
+
 | 输入条件                                                   | 结果                                                  |
 | ---------------------------------------------------------- | ----------------------------------------------------- |
 | missing required flag such as `--sn`                       | usage error，exit code 2                              |

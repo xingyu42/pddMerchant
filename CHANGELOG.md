@@ -14,6 +14,7 @@
 - **商品成本与净利润**：`goods cost set / list / remove / import <file>` 在本地 SQLite 录入成本（按账号、店铺、商品及可选规格隔离，写入需 `--confirm`）；`goods profit [--days 30] [--goods-id <id>]` 按成团时间统计窗口收入、商家成本、毛利、推广花费与净利润。`gross_margin_pct` / `net_margin_pct` 为有符号百分数，可负、可超过 ±100；仅退款不退货及商家共担补贴时利润可能高估。新错误码 `E_COST_IMPORT_INVALID`（退出码 2）。
 - **店铺综合体验星级**：`diagnose experience [--days 7]` 输出平台当前星级、行业排名、各指标与下一星级门槛及每日趋势。
 - **客服与评价**：`diagnose customer-service [--days 30]` 输出「多多客服-客服数据（人工回复）」区间汇总与逐日趋势；`diagnose reviews [--days 30|60|90|180]` 输出满意/不满意标签、问题分类计数与 1-3 星中差评（正文手机号掩码，昵称、头像、订单信息不输出）。
+- **商品预估实收**：`goods receipt [--goods-id <id>] [--page 1] [--size 1-10] [--caliber regular|all]` 按 SKU 原样输出「商品价格管理」页的平台预估实收（券前价 − 商家出资优惠），含单件与多件最低场景及各自的优惠明细，自动补全每个商品的全部 SKU。`--caliber all` 切换到「商家出资所有优惠」口径；`--goods-id` 可重复或逗号分隔，取值错误在参数解析阶段以退出码 2 拒绝。
 - **流量与商品明细**：`diagnose traffic [--days 30]` 输出全店逐日访客、浏览、成交及平台同行参考值；`goods traffic [--days 1|7|30] [--goods-id <id>]` 输出全店商品明细，并按商品拆分推广直接 / 间接成交与花费，`non_promo_*` 为总成交减推广直接成交的差值。推广拆分口径尚未经有投放店铺实测。
 
 ---

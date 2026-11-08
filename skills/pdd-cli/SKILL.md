@@ -51,7 +51,7 @@ node bin/pdd.js <command> [options] --json   # 已 npm link 时可写 pdd <comma
 - `null` 表示未知或数据缺失，说「数据不可用」；分母为 0 的比率也是 `null`。
 - 诊断的 `status`（`数据完整` / `数据不完整`）只描述数据完整性；`hints`、`data_quality`、截断标记原样转述。
 - 输出是事实数字。经营判断、评分、保本 ROI 和建议留给用户自己做。
-- 报表的字段与口径细节见 [reports.md](reports.md)；转述 `diagnose *`、`goods traffic`、`goods profit` 结果前先读。
+- 报表的字段与口径细节见 [reports.md](reports.md)；转述 `diagnose *`、`goods traffic`、`goods profit`、`goods receipt` 结果前先读。
 
 ## 命令
 
@@ -92,6 +92,7 @@ node bin/pdd.js goods stock [--threshold 10]                         # 低库存
 node bin/pdd.js goods segment [--days 30] [--max-pages 10] [--no-promo]  # 销量与库存统计
 node bin/pdd.js goods traffic [--days 30] [--goods-id <id>]          # 商品流量与推广拆分
 node bin/pdd.js goods profit [--days 30] [--goods-id <id>]           # 净利润（需先录入成本）
+node bin/pdd.js goods receipt [--goods-id <id>] [--caliber regular|all]  # SKU 预估实收（平台报告值），每页最多 10 个商品
 node bin/pdd.js goods templates                                      # 运费模板 ID
 ```
 
@@ -148,7 +149,7 @@ node bin/pdd.js diagnose reviews [--days 30]           # 评价标签与中差�
 node bin/pdd.js diagnose traffic [--days 30]           # 全店逐日流量，1–30 天
 ```
 
-`goods traffic` 的 `non_promo_*` 是 CLI 推算的差值，推广拆分口径尚未实测；`goods profit` 有两项可能高估。转述前读 [reports.md](reports.md)。
+`goods traffic` 的 `non_promo_*` 是 CLI 推算的差值，推广拆分口径尚未实测；`goods profit` 有两项可能高估；`goods receipt` 必须带上口径。转述前读 [reports.md](reports.md)。
 
 ### 店铺与账号
 
