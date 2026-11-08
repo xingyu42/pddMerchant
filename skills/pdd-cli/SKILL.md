@@ -182,6 +182,7 @@ node bin/pdd.js daemon status
 node bin/pdd.js console link [--account <slug>]   # 一次性链接，10 分钟有效
 node bin/pdd.js daemon stop
 node bin/pdd.js daemon restart                    # 更新代码后加载新代码；中断进行中的登录
+node bin/pdd.js daemon run                        # 前台运行（调试），日志同时输出到 stderr
 ```
 
 - 密码和验证码只由用户本人在控制台输入；聊天中绝不索要密码、登录名或验证码。

@@ -1,8 +1,8 @@
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { Command } from 'commander';
+import { existsSync, readFileSync } from 'node:fs';
 import { assertDataContractV2 } from '../helpers/data-contract.js';
+import { discoverRegisteredCommands } from '../helpers/registered-commands.js';
 import { runCli } from '../helpers/isolated-cli.js';
 import {
   createAccounts, createFactFixtures, createPublishFixtures, createUpstreamGoods, createExperienceFixtures,
@@ -62,21 +62,8 @@ function lowStockFixtures() {
 // 输出契约 v2 守卫（design.md §6）：全部注册命令的成功路径 data 必须满足 v2 规则。
 // 命令清单从 src/commands/registry/ 动态收集 —— 新增命令未覆盖即失败。
 
-const registryDir = new URL('../../src/commands/registry/', import.meta.url);
 const projectRoot = new URL('../../', import.meta.url);
 
-// 以桩 wireAction 运行全部域注册器，收集 wireAction 的命令名（即 envelope command）
-async function discoverRegisteredCommands() {
-  const names = [];
-  const program = new Command();
-  const wireAction = (_cmd, commandName) => { names.push(commandName); };
-  const files = readdirSync(registryDir).filter((file) => file.endsWith('.js')).sort();
-  for (const file of files) {
-    const registrar = await import(new URL(file, registryDir).href);
-    registrar.register(program, wireAction);
-  }
-  return names;
-}
 
 // v2 用例：{ command, envelopeCommand?, args, fixtures?, registry?, authState?, freeKeyPaths?, entityFields? }；
 // 同一命令可有多个用例（如 dry-run）。`login --consumer` 的 envelope command 为 'login.consumer'，
