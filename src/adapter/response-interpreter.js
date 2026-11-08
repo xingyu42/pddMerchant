@@ -102,7 +102,7 @@ function businessFailure(spec, raw, response) {
 }
 
 // successRule 可声明 flag、flag-or-code、result，特殊结构允许函数覆盖；
-// errorMap: upstream 保留业务原文，errorMapper 仅处理端点例外，normalize 在判定通过后执行。
+// errorMap: upstream 保留业务原文，errorMapper 仅处理端点例外，normalize(raw, params) 在判定通过后执行。
 export function interpretResponse(spec, context) {
   const { raw, response } = context;
   const httpError = httpFailure(spec, context);
@@ -119,5 +119,5 @@ export function interpretResponse(spec, context) {
   });
   // 40002 只细化已失败响应，保留端点接受 success: true 的既有规则。
   if (!isSuccessfulResponse(raw, spec.successRule)) throw businessFailure(spec, raw, response);
-  return typeof spec.normalize === 'function' ? spec.normalize(raw) : { raw };
+  return typeof spec.normalize === 'function' ? spec.normalize(raw, context.params ?? {}) : { raw };
 }

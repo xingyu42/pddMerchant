@@ -29,6 +29,11 @@ export function reportDaysArg(definition) {
   };
 }
 
+// 可重复选项收集器：每次出现追加一个原始值，拆分与校验交给 service。
+export function collectArg(value, previous = []) {
+  return [...previous, value];
+}
+
 export function integerArg(min = 1) {
   return (value) => {
     const parsed = parseIntegerText(value);

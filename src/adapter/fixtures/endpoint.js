@@ -32,14 +32,27 @@ function emptyPage(meta, fixture) {
   return raw;
 }
 
-function loadEndpointFixture(meta, page) {
+// 可选 fixture：文件缺失时返回 null，其余加载错误照常抛出。
+function tryLoadFixture(rel) {
   try {
-    return loadFixture(join('endpoints', `${meta.name}.page${page}.json`));
+    return loadFixture(join('endpoints', rel));
   } catch (error) {
     if (error?.code !== 'E_FIXTURE_MISSING') throw error;
-    const base = loadFixture(join('endpoints', `${meta.name}.json`));
-    return page === 1 ? base : emptyPage(meta, base);
+    return null;
   }
+}
+
+// 声明 fixtureVariantKey 的 spec 按对应请求参数读取 `<spec.name>.<变体>.json`；变体文件缺失时返回 null 交给基础加载。
+function loadVariantFixture(meta, params) {
+  const variant = meta.fixtureVariantKey ? params[meta.fixtureVariantKey] : null;
+  return variant == null ? null : tryLoadFixture(`${meta.name}.${variant}.json`);
+}
+
+function loadEndpointFixture(meta, page) {
+  const paged = tryLoadFixture(`${meta.name}.page${page}.json`);
+  if (paged) return paged;
+  const base = loadFixture(join('endpoints', `${meta.name}.json`));
+  return page === 1 ? base : emptyPage(meta, base);
 }
 
 // 优先读取显式分页 fixture；缺失的后续页仅清空列表，保留上游 envelope、总数和汇总。
@@ -51,7 +64,7 @@ export function mockRunEndpoint(meta, params = {}) {
       exitCode: ExitCodes.USAGE,
     });
   }
-  const raw = loadEndpointFixture(meta, params.page ?? 1);
+  const raw = loadVariantFixture(meta, params) ?? loadEndpointFixture(meta, params.page ?? 1);
   throwFixtureError(raw, meta.name);
   return structuredClone(raw);
 }
