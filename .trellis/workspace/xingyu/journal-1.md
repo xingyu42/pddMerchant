@@ -1490,3 +1490,42 @@ Topics: [.trellis/spec/standards/testing.md](../../spec/standards/testing.md), [
 
 - 观察首次 CI（ubuntu-latest，本地仅在 Windows 验证）
 - 执行 .scratch/knip-exports/issues/01-clear-unused-exports.md，清零后把 exports 纳入 lint
+
+
+## Session 49: knip 无用 export 清零，lint 纳入 exports/types/duplicates
+<!-- trellis-session: v=2 fp=7408874326371107 -->
+
+**Date**: 2026-11-08
+**Task**: knip 无用 export 清零，lint 纳入 exports/types/duplicates
+**Branch**: `main`
+
+### Summary
+
+按 /implement-spec 完成 .scratch/knip-exports 工单 01：删除 49 项、去 export 108 项、放行 0 项；registry/daemon.js 由 daemon[name] 改为静态引用（knip 原把这 5 个在用 export 报为无用）；lint 现含 exports/types/duplicates。code review：Standards 0 硬违规，修 5 个判断项；Spec 修 1 处文档过期。门禁与 worktree 中 knip 的限制见 testing.md。
+Topics: [.trellis/spec/standards/testing.md](../../spec/standards/testing.md)
+
+### Main Changes
+
+- 实测：嵌套 worktree 无本地 node_modules 时 knip lint 在 main 上也失败，npm test 正常；编排会话给集成 worktree 建 junction，删除前先 unlink（已写入 pdd-local-development skill）
+- 验证 retro 改进：brief 写明沙箱规则后子代理未再批量被拒；worktree 中可读到 .agents/skills
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `729f26c` | ♻️ refactor: 清理 commands 层无用 export，daemon 注册改为静态引用 |
+| `da41602` | ♻️ refactor: 清理 adapter 层无用 export 与死代码 |
+| `6352107` | ♻️ refactor: 清理 services/infra/daemon 层无用 export，指标表守卫改为扫描 const 声明 |
+| `4632d44` | 🔧 chore: lint 纳入 knip exports/types/duplicates 检查，同步 testing 规范 |
+| `924464f` | 📝 docs: 说明 worktree 中 knip lint 需要本地 node_modules junction |
+| `64319a6` | ♻️ refactor: 修复 knip exports 清理的审查意见 |
+| `e73be92` | 📝 docs: knip export 清理工单标记为 resolved |
+| `720e740` | 🔀 merge: 清零 knip 无用 export，lint 纳入 exports/types/duplicates |
+
+### Testing
+
+- [OK] main@720e740 npm run check：lint 通过，118 文件 2031 通过 1 跳过；GitHub Actions success
+
+### Status
+
+[OK] **Completed**
