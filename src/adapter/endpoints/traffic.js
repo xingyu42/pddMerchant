@@ -1,5 +1,6 @@
 import { ExitCodes, PddCliError, responseShapeError } from '../../infra/errors.js';
 import { toFiniteNumber } from '../../infra/units.js';
+import { resultObject } from './_shared.js';
 
 const FLOW_FIELDS = ['uv', 'pv', 'guv', 'gpv', 'payOrdrUsrCnt', 'payOrdrCnt', 'payOrdrAmt', 'payUvRto', 'payOrdrAup', 'uvCfmVal'];
 const FLOW_METRIC_FIELDS = FLOW_FIELDS.flatMap((key) => [key, `${key}1dPln`, `${key}1dOst`]);
@@ -76,11 +77,7 @@ export const TRAFFIC_TODAY_FLOW = endpoint('traffic.todayFlow', '/sydney/api/mal
 // todayRtList 按小时累计（hr "00".."23"）；当天尚无累计行时可能为空或缺失。
 export const TRAFFIC_TODAY_TRADE = endpoint('traffic.todayTrade', '/sydney/api/mallTrade/queryMallTradeList',
   '/sycm/search_data/plate', (raw) => {
-    const result = raw?.result;
-    if (!result || typeof result !== 'object' || Array.isArray(result)) {
-      throw responseShapeError('traffic.todayTrade', 'result object');
-    }
-    const rows = result.todayRtList ?? [];
+    const rows = resultObject(raw, 'traffic.todayTrade').todayRtList ?? [];
     if (!Array.isArray(rows)) throw responseShapeError('traffic.todayTrade', 'todayRtList array');
     return rows.map((row) => {
       if (typeof row?.hr !== 'string' || !/^(?:[01]\d|2[0-3])$/.test(row.hr)) {

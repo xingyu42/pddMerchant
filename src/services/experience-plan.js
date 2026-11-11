@@ -4,6 +4,7 @@ import {
 } from '../adapter/endpoints/experience-plan.js';
 import { toExperiencePlanView, EXPERIENCE_PLAN_REPORT } from './views/experience-plan.js';
 import { runReport } from './operating-report.js';
+import { mallIdOf } from './views/_shared.js';
 import { shanghaiDaysThroughToday } from './report-windows.js';
 
 export { EXPERIENCE_PLAN_REPORT };
@@ -13,10 +14,12 @@ export async function getExperiencePlanView(ctx, { days = EXPERIENCE_PLAN_REPORT
   return runReport(ctx, EXPERIENCE_PLAN_REPORT, { days, window: shanghaiDaysThroughToday }, async (report) => {
     const status = await runEndpoint(ctx.page, PLAN_STATUS, {}, ctx);
     const available = await runEndpoint(ctx.page, PLAN_AVAILABLE_INFO, {}, ctx);
-    const profits = await runEndpoint(ctx.page, PLAN_PROFITS, { days }, ctx);
+    const farDate = EXPERIENCE_PLAN_REPORT.days.choices[days];
+    const profits = await runEndpoint(ctx.page, PLAN_PROFITS, { farDate }, ctx);
     const list = await runEndpoint(ctx.page, PLAN_ORDER_INSURANCE_LIST, { page,
-      shippingBeginTime: report.window.startMs, shippingEndTime: report.window.endMs }, ctx);
+      createBeginTime: report.window.startMs, createEndTime: report.window.endMs }, ctx);
     report.hint('count_caliber');
-    return toExperiencePlanView({ status, available, profits, list }, { window: report.window, page, hints: report.hints });
+    return toExperiencePlanView({ status, available, profits, list },
+      { window: report.window, page, hints: report.hints, mallId: mallIdOf(ctx) });
   });
 }

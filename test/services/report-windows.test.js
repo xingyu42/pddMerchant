@@ -1,6 +1,8 @@
 import { it, vi } from 'vitest';
 import assert from 'node:assert/strict';
-import { completeShanghaiWindow, rollingSecondsWindow, windowEndingAt, windowEndingYesterday } from '../../src/services/report-windows.js';
+import {
+  completeShanghaiWindow, rollingSecondsWindow, shanghaiDaysThroughToday, windowEndingAt, windowEndingYesterday,
+} from '../../src/services/report-windows.js';
 
 it.each(['UTC', 'Asia/Shanghai', 'Pacific/Honolulu'])('keeps calendar windows independent of host TZ=%s', (timezone) => {
   vi.stubEnv('TZ', timezone);
@@ -25,4 +27,18 @@ it('keeps complete-day seconds exclusive at the end with the original profit-win
 
 it('retains rolling second timestamps including the current day', () => {
   assert.deepEqual(rollingSecondsWindow(30, 1793404800999), { startTime: 1790812800, endTime: 1793404800 });
+});
+
+it.each(['UTC', 'Pacific/Honolulu'])('spans Shanghai calendar days through the end of today in ms under TZ=%s', (timezone) => {
+  vi.stubEnv('TZ', timezone);
+  // 上海 2026-01-01 23:59:59.999 与 2026-01-02 00:00:00 两侧
+  assert.deepEqual(shanghaiDaysThroughToday(7, Date.parse('2026-01-01T15:59:59.999Z')), { days: 7,
+    startMs: Date.parse('2025-12-25T16:00:00Z'), endMs: Date.parse('2026-01-01T16:00:00Z') - 1 });
+  assert.deepEqual(shanghaiDaysThroughToday(1, Date.parse('2026-01-01T16:00:00Z')), { days: 1,
+    startMs: Date.parse('2026-01-01T16:00:00Z'), endMs: Date.parse('2026-01-02T16:00:00Z') - 1 });
+});
+
+it('ends the complete-day window where the through-today window starts today', () => {
+  const now = Date.parse('2024-02-29T03:00:00Z');
+  assert.equal(completeShanghaiWindow(1, now / 1000).end * 1000, shanghaiDaysThroughToday(1, now).startMs);
 });

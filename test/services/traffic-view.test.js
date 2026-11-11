@@ -1,6 +1,7 @@
-import { it } from 'vitest';
+import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
-import { toTrafficView, TRAFFIC_ITEM_FIELDS, TRAFFIC_SUMMARY_FIELDS } from '../../src/services/views/traffic.js';
+import { toTrafficView, TRAFFIC_ITEM_FIELDS, TRAFFIC_SUMMARY_FIELDS, TRAFFIC_TODAY_FIELDS,
+  TRAFFIC_TODAY_HOURLY_FIELDS } from '../../src/services/views/traffic.js';
 import { toGoodsTrafficItem, toGoodsTrafficView, GOODS_TRAFFIC_ITEM_FIELDS, GOODS_TRAFFIC_PROMO_FIELDS } from '../../src/services/views/goods-traffic.js';
 
 it('projects daily flow, peer metrics, percentages and additive summaries only', () => {
@@ -56,4 +57,46 @@ it('assembles goods traffic data with promo fen conversion, absent promo as null
   assert.ok(GOODS_TRAFFIC_PROMO_FIELDS.every((key) => view.items[1][key] === null));
   assert.equal(view.hints.length, 2);
   assert.ok(view.hints.every((hint) => typeof hint === 'string' && hint.length > 0));
+});
+
+describe('today block projection', () => {
+  const window = { start_date: '2026-10-29', end_date: '2026-10-30', days: 2 };
+  const rows = [{ statDate: '2026-10-29' }, { statDate: '2026-10-30' }];
+  const today = (trade, flow = { muvRt: 377, mpvRt: 912, guvRt: 350, gpvRt: 801 }) =>
+    ({ snapshotAt: '2026-11-11 19:30:00', sources: { flow, trade } });
+
+  it('takes trade fields from the latest cumulative hour and keeps flow realtime values separate', () => {
+    const view = toTrafficView(rows, { window, today: today([
+      { hr: '18', payOrdrAmt: 745.364, payOrdrCnt: 39, payOrdrUsrCnt: 37, payOrdrAup: 19.11, payUvRto: 0.0955 },
+      { hr: '09', payOrdrAmt: 100, payOrdrCnt: 5, payOrdrUsrCnt: 5 },
+    ]) });
+    assert.deepEqual(Object.keys(view.today), TRAFFIC_TODAY_FIELDS);
+    const { hourly, ...latest } = view.today;
+    assert.deepEqual(latest, { snapshot_at: '2026-11-11 19:30:00', as_of_hour: '18',
+      shop_visitor_count: 377, shop_page_view_count: 912, goods_visitor_count: 350, goods_page_view_count: 801,
+      pay_amount_yuan: 745.36, pay_order_count: 39, pay_buyer_count: 37, avg_order_value_yuan: 19.11,
+      pay_conversion_pct: 9.55 });
+    assert.deepEqual(hourly, [
+      { hour: '09', pay_amount_yuan: 100, pay_order_count: 5, pay_buyer_count: 5 },
+      { hour: '18', pay_amount_yuan: 745.36, pay_order_count: 39, pay_buyer_count: 37 },
+    ]);
+    for (const hour of hourly) assert.deepEqual(Object.keys(hour), TRAFFIC_TODAY_HOURLY_FIELDS);
+    assert.equal(view.headline[1], '今日截至 18 时累计成交 745.36 元、39 单，店铺访客 377 人');
+  });
+
+  it('reports null trade fields and an empty hourly list before the first cumulative row', () => {
+    const view = toTrafficView(rows, { window, today: today([], {}) });
+    assert.equal(view.today.as_of_hour, null);
+    assert.equal(view.today.pay_amount_yuan, null);
+    assert.equal(view.today.shop_visitor_count, null);
+    assert.deepEqual(view.today.hourly, []);
+    assert.equal(view.headline[1], '今日暂无成交累计数据，店铺访客 未知');
+  });
+
+  it('keeps today null without a headline line when collection degraded', () => {
+    const view = toTrafficView(rows, { window, today: null, hints: ['today_unavailable'] });
+    assert.equal(view.today, null);
+    assert.equal(view.headline.length, 1);
+    assert.ok(view.hints.some((hint) => hint.includes('今日实时数据拉取失败')));
+  });
 });

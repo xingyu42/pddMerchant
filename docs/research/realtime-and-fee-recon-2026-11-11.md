@@ -45,6 +45,8 @@
 
 状态枚举（bundle）：收费状态 1 = 待收费、2 = 收费成功、3 = 收费取消（文案按 bundle 推断）；服务状态 1 = 生效中、2 = 已失效、3 = 已补偿运费。
 
+页面默认参数（静态 bundle 分析补充）：收费记录列表默认发送 `queryFeeStatusList: [1, 2]`（1 = WaitFee 待收费、2 = FeeSuccess 收费成功；3 = FeeCancel 不查），时间窗口用 `createBeginTime` / `createEndTime`（毫秒，默认今天减 6 天 00:00:00 至今天 23:59:59），不按发货时间筛选。`diagnose experience-plan` 据此对齐请求。
+
 结论：
 - **有逐单数据**，按 `orderSn` 能和订单对齐 → `experience-plan-fee` 03（接入 `goods profit`）可做
 - 服务费逐单金额动态（今日 1.11 元/单，随日费率变化）；运费补偿是另一条收入，按售后单记录

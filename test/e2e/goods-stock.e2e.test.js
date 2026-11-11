@@ -24,7 +24,7 @@ it('lists every sku of an alerted goods with id, spec, stock, on-sale flag and l
   assert.deepEqual(data.headline, [
     '本页扫描 1 件商品（在售共 1 件）',
     '库存不高于 10 的商品 1 件（其中缺货 0 件）',
-    '库存不高于 10 的在售规格 1 个（其中缺货 0 个），总库存高于 10、因规格库存进入告警的商品 0 件',
+    '库存不高于 10 的在售规格 1 个（其中缺货 0 个），总库存高于 10 或缺失、因规格库存进入告警的商品 0 件',
   ]);
 });
 
@@ -41,7 +41,7 @@ it('judges goods without sku data by total stock only and reports null sku count
   assert.deepEqual(data.headline, [
     '本页扫描 4 件商品（在售共 4 件）',
     '库存不高于 10 的商品 3 件（其中缺货 1 件）',
-    '库存不高于 10 的在售规格 0 个（其中缺货 0 个），总库存高于 10、因规格库存进入告警的商品 0 件',
+    '库存不高于 10 的在售规格 0 个（其中缺货 0 个），总库存高于 10 或缺失、因规格库存进入告警的商品 0 件',
     '规格数据缺失的告警商品 2 件',
   ]);
 });
@@ -97,7 +97,7 @@ it('alerts goods whose total stock is above threshold when an on-sale sku is at 
   assert.deepEqual(data.headline, [
     '本页扫描 2 件商品（在售共 2 件）',
     '库存不高于 10 的商品 0 件（其中缺货 0 件）',
-    '库存不高于 10 的在售规格 2 个（其中缺货 0 个），总库存高于 10、因规格库存进入告警的商品 1 件',
+    '库存不高于 10 的在售规格 2 个（其中缺货 0 个），总库存高于 10 或缺失、因规格库存进入告警的商品 1 件',
   ]);
 });
 
@@ -112,7 +112,7 @@ it('does not alert on low skus that are off sale, have unknown on-sale flag, or 
   ]);
   assert.deepEqual(data.items.map((item) => [item.goods_id, item.low_stock_sku_count]), [['104', 0]]);
   assert.deepEqual(data.items[0].skus.map((sku) => [sku.sku_id, sku.quantity, sku.low_stock]), [['1013', null, false]]);
-  assert.equal(data.headline[2], '库存不高于 10 的在售规格 0 个（其中缺货 0 个），总库存高于 10、因规格库存进入告警的商品 0 件');
+  assert.equal(data.headline[2], '库存不高于 10 的在售规格 0 个（其中缺货 0 个），总库存高于 10 或缺失、因规格库存进入告警的商品 0 件');
 });
 
 it('alerts on an on-sale sku with zero stock as sold out and applies --threshold to skus', () => {
@@ -128,6 +128,6 @@ it('alerts on an on-sale sku with zero stock as sold out and applies --threshold
   assert.deepEqual(data.items[0].skus.map((sku) => sku.low_stock), [true, true, false]);
   assert.deepEqual(data.headline.slice(1), [
     '库存不高于 3 的商品 1 件（其中缺货 0 件）',
-    '库存不高于 3 的在售规格 3 个（其中缺货 1 个），总库存高于 3、因规格库存进入告警的商品 1 件',
+    '库存不高于 3 的在售规格 3 个（其中缺货 1 个），总库存高于 3 或缺失、因规格库存进入告警的商品 1 件',
   ]);
 });

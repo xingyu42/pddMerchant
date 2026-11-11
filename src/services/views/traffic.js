@@ -53,13 +53,13 @@ function toTodayView(today) {
     hourly: hourly.map((row) => ({ hour: row.hr, ...TODAY_HOURLY_METRICS.project(row) })) };
 }
 
-const known = (value, unit) => (value === null ? '未知' : `${value} ${unit}`);
+const valueWithUnit = (value, unit) => (value === null ? '未知' : `${value} ${unit}`);
 
 function todayHeadline(today) {
-  const visitors = `店铺访客 ${known(today.shop_visitor_count, '人')}`;
+  const visitors = `店铺访客 ${valueWithUnit(today.shop_visitor_count, '人')}`;
   if (today.as_of_hour === null) return `今日暂无成交累计数据，${visitors}`;
-  return `今日截至 ${today.as_of_hour} 时累计成交 ${known(today.pay_amount_yuan, '元')}、`
-    + `${known(today.pay_order_count, '单')}，${visitors}`;
+  return `今日截至 ${today.as_of_hour} 时累计成交 ${valueWithUnit(today.pay_amount_yuan, '元')}、`
+    + `${valueWithUnit(today.pay_order_count, '单')}，${visitors}`;
 }
 
 export function toTrafficView(rows, { window, today = null, hints = [], mallId = null }) {

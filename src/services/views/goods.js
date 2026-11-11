@@ -53,21 +53,21 @@ export function toGoodsView(record) {
   };
 }
 
+// 库存、在售与低库存标记由 services/goods.js 判定；视图只做白名单投影与 ID / 规格文本化
 function toStockSkuView(sku) {
   return {
-    sku_id: text(sku?.sku_id),
-    spec: text(sku?.spec),
-    quantity: toFiniteNumber(sku?.quantity),
-    on_sale: typeof sku?.on_sale === 'boolean' ? sku.on_sale : null,
-    low_stock: sku?.low_stock === true,
+    sku_id: text(sku.sku_id),
+    spec: text(sku.spec),
+    quantity: sku.quantity,
+    on_sale: sku.on_sale,
+    low_stock: sku.low_stock,
   };
 }
 
-// 规格数据不可用（记录 skus 非数组）→ skus 与 low_stock_sku_count 均为 null
+// 输入为带 low_stock_sku_count 的商品记录；规格数据不可用时 skus 与 low_stock_sku_count 均为 null
 export function toGoodsStockView(record) {
-  const skus = Array.isArray(record?.skus) ? record.skus.map(toStockSkuView) : null;
-  const lowStockSkuCount = skus === null ? null : skus.filter((sku) => sku.low_stock).length;
-  return { ...toGoodsView(record), low_stock_sku_count: lowStockSkuCount, skus };
+  return { ...toGoodsView(record), low_stock_sku_count: record.low_stock_sku_count,
+    skus: record.skus?.map(toStockSkuView) ?? null };
 }
 
 // free_province_need 无值域证据，不输出
