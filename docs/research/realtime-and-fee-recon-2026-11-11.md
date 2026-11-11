@@ -56,3 +56,19 @@
 ## 三、SKU 库存（`sku-stock` 冒烟补充）
 
 从商品列表页 React 状态读取（页面自己的签名请求结果，未重放）：`goods_list[].sku_list[]` 字段为 `spec`、`newSpec`、`skuId`（数字）、`skuQuantity`（数字）、`skuSoldQuantity`、`outSkuSn`、`isOnsale`（**布尔**）、`normalPrice`、`groupPrice`、`activityGroupPrice`、`skuThumbUrl`、`specIdList`、`reserveQuantity`、`isSkuLowQuantity` 等。样例商品 18 个规格，`skuQuantity` 合计 1386，商品 `quantity` 1387，相差 1，原因未确认。商品对象另有 `sku_count`、`is_goods_low_quantity`。
+
+## 四、CLI 真实账号只读冒烟（2026-11-11 23:50 前后）
+
+在集成分支 `feat/region-sku-stock` 上用默认账号运行，全部只读：
+
+| 命令 | 结果 |
+| --- | --- |
+| `goods stock` | 退出码 0。18 件在售商品无一总库存 ≤ 10，3 件因在售规格库存 ≤ 10 进入告警（低库存规格 14 个，其中 8 个库存为 0）；`sku_id` 为字符串，`on_sale` 为布尔 |
+| `orders list` | 退出码 0。20 条订单的 `province` / `city` / `district` 全部有值（如「广东省」），输出中没有收件人、手机号、地址类键 |
+| `orders detail --sn` | 退出码 0。省市区为字符串，唯一命中 `receive` 的键是 `received_at` |
+| `diagnose traffic --days 7` | 退出码 0。`today` 正常：23:53 抓取时 `as_of_hour` 为 `"22"`，`hourly` 23 项 |
+| `diagnose experience-plan --days 7` | 首次退出码 6：经 page-api 的成功响应是 `success: true, errorCode: 0`（浏览器抓包为 `1000`），成功规则只认 `1000`。改为接受 `[0, 1000]` 后退出码 0：费率 1.11 元/单，汇总收费 209 单、补偿 23 单，列表 `total` 208 |
+
+新事实：
+- `rfreight` 模块经 page-api 返回 `errorCode: 0`，与 #1（流量接口）同类；接入新模块时成功码要同时接受 `0`
+- 未发货订单的收费状态为「待收费」且 `shipped_at` 为 `null`，推断服务费在发货后才收取
