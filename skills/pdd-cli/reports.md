@@ -24,8 +24,10 @@
 
 - `--days` 取 1 / 7 / 30 / 90，默认 7，窗口为上海自然日、含今天（`window.start_at` 至 `window.end_at`）；`--page` 默认 1，收费记录每页 10 条。
 - `plan_status` 是平台 `configStatus` 原值（已见样本 1 = 计划生效中，其余取值无标签证据），按原值转述。`today_fee_per_order_yuan` 是平台当日动态费率；`items[].service_fee_yuan` 是平台逐单报告的服务费，CLI 不按费率重算。
-- `charged_order_count` / `compensated_order_count` 取自平台数据概况；`total` 是收费记录在发货时间窗口内的总数。两者口径可能不同（实测近 7 天 209 对 203），原样分别转述，不互相校正。
+- 收费记录与页面默认请求一致：只查收费状态「待收费」「收费成功」（不含「收费取消」），按记录创建时间落在窗口内筛选（不是发货时间）。
+- `charged_order_count` / `compensated_order_count` 取自平台数据概况；`total` 是上述筛选下的收费记录总数。两者口径可能不同（实测近 7 天 209 对 203），原样分别转述，不互相校正。
 - `items[].fee_status` 是平台收费状态原文；`service_status` 为生效中 / 已失效 / 已补偿运费，未登记码为 `未知(<code>)`。金额单位不是元时对应金额为 `null` 并写入 `meta.warnings`。
+- `mall_id` 为当前店铺 ID，与其他 diagnose 报表一致。
 - 任一上游请求失败时命令失败，业务错误退出码 6、提示为平台原文。
 
 ## diagnose customer-service
@@ -49,6 +51,13 @@
 - 返回日期少于窗口天数时，`summary` 只汇总已返回日期，并附提示。
 - `today` 是全店今日截至当前的实时区块，独立于逐日 `items` / `summary`。`snapshot_at` 是 CLI 抓取时间，平台不返回快照时间。访客与浏览量来自流量看板实时值；成交字段取按小时累计的最新一行，`as_of_hour` 是该行小时（通常落后当前约 1 小时），`hourly[]` 为逐小时累计值。两组数据刷新时点不同，转述时分开说明，不互相换算。
 - 当天还没有成交累计行时，成交字段为 `null`、`hourly: []`。今日数据拉取失败时 `today: null` 并附提示，逐日数据照常返回。
+
+## goods stock
+
+- 只扫描一页商品（`--size` 默认 50）。`items` 为总库存不高于 `threshold` 的商品，加上总库存高于阈值或缺失、但至少一个在售规格库存不高于阈值的商品。
+- `low_stock_count` 只计总库存不高于阈值的商品，可能少于 `items` 条数；仅因规格进入告警的商品由 headline 第三行单独计数，两行合计等于 `items` 条数。
+- `skus[]` 为该商品全部规格；`low_stock` 只在规格在售（`on_sale: true`）且库存为已知数并不高于阈值时为 true，在售标记未知或库存缺失不触发。`low_stock_sku_count` 是该商品 `low_stock` 规格数；规格数据缺失时 `skus` 与 `low_stock_sku_count` 均为 `null`（区别于零个规格 `[]` / `0`）。
+- 「缺货」在商品级和规格级都指库存 `<= 0`。
 
 ## goods traffic
 

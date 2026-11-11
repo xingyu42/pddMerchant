@@ -16,6 +16,10 @@
 - **客服与评价**：`diagnose customer-service [--days 30]` 输出「多多客服-客服数据（人工回复）」区间汇总与逐日趋势；`diagnose reviews [--days 30|60|90|180]` 输出满意/不满意标签、问题分类计数与 1-3 星中差评（正文手机号掩码，昵称、头像、订单信息不输出）。
 - **商品预估实收**：`goods receipt [--goods-id <id>] [--page 1] [--size 1-10] [--caliber regular|all]` 按 SKU 原样输出「商品价格管理」页的平台预估实收（券前价 − 商家出资优惠），含单件与多件最低场景及各自的优惠明细，自动补全每个商品的全部 SKU。`--caliber all` 切换到「商家出资所有优惠」口径；`--goods-id` 可重复或逗号分隔，取值错误在参数解析阶段以退出码 2 拒绝。
 - **流量与商品明细**：`diagnose traffic [--days 30]` 输出全店逐日访客、浏览、成交及平台同行参考值；`goods traffic [--days 1|7|30] [--goods-id <id>]` 输出全店商品明细，并按商品拆分推广直接 / 间接成交与花费，`non_promo_*` 为总成交减推广直接成交的差值。推广拆分口径尚未经有投放店铺实测。
+- **订单收货地区**：`orders list` 每项与 `orders detail` 新增 `province` / `city` / `district`，只取平台返回的省 / 市 / 区名称，缺失为 `null`；街道、邮编、详细地址仍不输出。
+- **库存规格明细与规格级告警**：`goods stock` 每项新增 `skus[]`（`sku_id`、`spec`、`quantity`、`on_sale`、`low_stock`）与 `low_stock_sku_count`；总库存高于阈值（或缺失）但有在售规格库存不高于阈值的商品也进入告警。`low_stock_count` 仍只计总库存不高于阈值的商品，可能少于 `items` 条数；规格数据缺失时 `skus` 与 `low_stock_sku_count` 为 `null`。
+- **全店今日实时**：`diagnose traffic` 新增 `today` 区块（流量看板实时访客 / 浏览，按小时累计的成交及 `hourly[]`，`snapshot_at` 为抓取时间）；今日数据拉取失败时 `today: null` 并附提示，逐日数据照常返回。
+- **消费者体验提升计划服务费**：`diagnose experience-plan [--days 1|7|30|90] [--page 1]` 只读输出计划状态码（平台原值）、今日服务费费率、窗口内收费订单数与运费补偿订单数，以及按创建时间筛选的待收费 / 收费成功逐单记录；金额为平台报告值，CLI 不按费率重算。
 
 ---
 

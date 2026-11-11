@@ -34,3 +34,4 @@
 
 - 2026-11-11：按浏览器侦察结论细化为 ready-for-agent。运费补偿列表 `compensation_list` 不在本工单范围（与 03 一起评估）。
 - 2026-11-11：已在集成分支 feat/region-sku-stock 完成（ce6ba08）。待评审：列表请求未带 queryFeeStatusList；未输出 mall_id；data 额外带 hints。
+- 2026-11-11（评审修正）：列表请求改为页面默认参数 `queryFeeStatusList: [1, 2]` + `createBeginTime` / `createEndTime`（上文的 `shippingBeginTime` / `shippingEndTime` 作废，依据见 recon 文档第二节「页面默认参数」）；`data` 增加 `mall_id`；`hints` 保留（`count_caliber` 口径提示）；`plan_status` 原值例外写入 domain-service-contracts。

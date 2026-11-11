@@ -39,7 +39,7 @@ pdd orders list --json      # AI 消费加 --json
 | **goods cost** | `set` / `list` / `remove` / `import <file>`（本地成本，写入需 `--confirm`） |
 | **goods update** | `status` / `price` / `stock` / `title` / `batch`（需 `--confirm`） |
 | **promo** | `roi` |
-| **diagnose** | `shop` / `orders` / `inventory` / `promo` / `after-sales` / `experience` / `customer-service` / `reviews` / `traffic` |
+| **diagnose** | `shop` / `orders` / `inventory` / `promo` / `after-sales` / `experience` / `experience-plan` / `customer-service` / `reviews` / `traffic` |
 | **shops** | `list` / `current` |
 | **config** | `show` / `set <key> <value>` / `unset <key>` / `validate` |
 | **account** | `add` / `list` / `default` / `remove`（需 `--confirm`，否则仅预演） |
@@ -61,9 +61,10 @@ pdd orders list --json      # AI 消费加 --json
 | `diagnose shop [--compare] [--days 7]` | 默认 7 天 | 订单 / 库存 / 推广 / 售后四维汇总与数值环比 |
 | `diagnose after-sales [--days 30]` | 默认 30 天 | 退款成功数/率、售后处理中数/占比（取代原 `diagnose funnel`） |
 | `diagnose experience [--days 7]` | 1–30 天 | 平台体验星级、行业排名、指标与下一星级门槛、每日趋势 |
+| `diagnose experience-plan [--days 7] [--page 1]` | 1 / 7 / 30 / 90 天（含今天） | 消费者体验提升计划状态、今日服务费费率、收费订单与运费补偿订单数、逐单收费记录（每页 10 条） |
 | `diagnose customer-service [--days 30]` | 1–63 天 | 「多多客服-客服数据（人工回复）」区间汇总；逐日趋势取页面加载的最近 31 天 |
 | `diagnose reviews [--days 30]` | 30 / 60 / 90 / 180 天 | 满意/不满意标签、五类问题计数、1–3 星中差评（最多 30 页，手机号掩码） |
-| `diagnose traffic [--days 30]` | 1–30 天 | 全店逐日访客、浏览、成交及同行均值/优秀值；访客汇总跨日存在重复 |
+| `diagnose traffic [--days 30]` | 1–30 天 | 全店逐日访客、浏览、成交及同行均值/优秀值，另附今日截至当前的实时区块 `today`；访客汇总跨日存在重复 |
 | `goods traffic [--days 30] [--goods-id <id>]` | 1 / 7 / 30 天 | 全店商品明细，并按商品拆分推广直接/间接成交与花费 |
 | `goods profit [--days 30] [--goods-id <id>]` | 1–90 天 | 窗口收入、商家成本、毛利、推广花费与净利润 |
 | `goods receipt [--goods-id <id>] [--page 1] [--size 10] [--caliber regular\|all]` | 当前价格 | 按 SKU 输出平台预估实收（券前价 − 商家出资优惠），含单件与多件最低场景 |

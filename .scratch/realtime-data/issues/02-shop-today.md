@@ -33,3 +33,4 @@
 
 - 2026-11-11：按浏览器侦察结论细化为 ready-for-agent。同时段昨日对照（`yesterdayRtList`）、成功退款 `sucRfOrdr*`（样例全 `null`）不在本工单范围。
 - 2026-11-11：已在集成分支 feat/region-sku-stock 完成（8d29c27）。共用写法为服务层 collectToday（today_unavailable hint）；E_TIMEOUT / E_INTERNAL 沿用 report.optional 规则会使命令失败。
+- 2026-11-11（评审修正）：上文「任一失败时 `today: null`」的范围是业务 / 网络类失败：`report.optional` 把普通 `PddCliError`（E_NETWORK、E_BUSINESS、E_RATE_LIMIT 等）降级为 `today: null` + hint；E_TIMEOUT（整条命令的截止时间）、E_INTERNAL、取消与程序异常按 `report.optional` 规则透传，命令失败。03、04 复用 `collectToday` 时沿用同一规则。
