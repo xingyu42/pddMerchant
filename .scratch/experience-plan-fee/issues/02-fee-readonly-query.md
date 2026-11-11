@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 上游（page-api，导航页 `https://mms.pinduoduo.com/freight/return_freight`；成功判定为 `success === true` 且 `errorCode === 1000`，注意不是 `1000000`）：
 - `/mms-gateway/rfreight/mall_insurance_status`（`{}`）：`configStatus`
@@ -21,15 +21,16 @@
 - 金额对象 `{ unit: "YUAN", value: "<字符串>" }`：`unit` 为 `YUAN` 时按字符串精确转元；其他 unit 输出 `null` 并写 `meta.warnings`
 - 收费编号 `batchSn`、`sn`、`mallId`、`uid` 不进入 `data`
 
-- [ ] fixture 模式下命令输出上述字段，金额、时间（`_at`，Asia/Shanghai）、标签正确
-- [ ] 汇总计数与列表 `total` 分别原样输出，不互相校正；字段说明注明两者口径可能不同
-- [ ] `configStatus` 表示未开通或列表为空时给事实性 headline，退出码 0（未开通的取值没有样本：以"列表为空 + 汇总为 0"作为 fixture 场景，`configStatus` 原样输出）
-- [ ] 非 `YUAN` 金额输出 `null` 并有 warning
-- [ ] 上游业务错误退出码 6，提示为上游原文
-- [ ] 注册到 diagnose registrar；`data-contract-v2` 新增 case；`skills/pdd-cli/SKILL.md` 补一行
-- [ ] 每个新 endpoint spec 有 fixture 合同测试；e2e 用合成 fixture，订单号为合成值
-- [ ] `npm test` 通过
+- [x] fixture 模式下命令输出上述字段，金额、时间（`_at`，Asia/Shanghai）、标签正确
+- [x] 汇总计数与列表 `total` 分别原样输出，不互相校正；字段说明注明两者口径可能不同
+- [x] `configStatus` 表示未开通或列表为空时给事实性 headline，退出码 0（未开通的取值没有样本：以"列表为空 + 汇总为 0"作为 fixture 场景，`configStatus` 原样输出）
+- [x] 非 `YUAN` 金额输出 `null` 并有 warning
+- [x] 上游业务错误退出码 6，提示为上游原文
+- [x] 注册到 diagnose registrar；`data-contract-v2` 新增 case；`skills/pdd-cli/SKILL.md` 补一行
+- [x] 每个新 endpoint spec 有 fixture 合同测试；e2e 用合成 fixture，订单号为合成值
+- [x] `npm test` 通过
 
 ## Comments
 
 - 2026-11-11：按浏览器侦察结论细化为 ready-for-agent。运费补偿列表 `compensation_list` 不在本工单范围（与 03 一起评估）。
+- 2026-11-11：已在集成分支 feat/region-sku-stock 完成（ce6ba08）。待评审：列表请求未带 queryFeeStatusList；未输出 mall_id；data 额外带 hints。
