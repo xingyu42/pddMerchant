@@ -23,8 +23,8 @@ function endpoint(name, path, normalize, buildPayload = () => ({})) {
     nav: { url: 'https://mms.pinduoduo.com/freight/return_freight' },
     apiUrl: `/mms-gateway/rfreight/${path}`,
     buildPayload, normalize,
-    // 该模块成功码为 1000（报表类接口是 1000000）。
-    successRule: { mode: 'flag-and-code', codeField: 'errorCode', codes: [1000] },
+    // 该模块成功码：浏览器抓包为 1000，经 page-api 实测为 0（报表类接口是 1000000）。
+    successRule: { mode: 'flag-and-code', codeField: 'errorCode', codes: [0, 1000] },
     errorMap: 'upstream',
   };
 }

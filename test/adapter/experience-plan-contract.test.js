@@ -35,9 +35,12 @@ describe('experience plan fee page-api contracts', () => {
       createBeginTime: 1762444800000, createEndTime: 1763049599999 });
   });
 
-  it('accepts success true with errorCode 1000 and rejects the 1000000 report code', () => {
+  it('accepts success true with errorCode 1000 or 0 and rejects the 1000000 report code', () => {
     const context = (raw) => ({ raw, response: null, status: 200, params: {} });
     assert.deepEqual(interpretResponse(PLAN_STATUS, context(ok({ configStatus: 1 }))), { configStatus: 1 });
+    // 真实账号经 page-api 返回 errorCode 0（浏览器抓包为 1000），两者都是成功
+    assert.deepEqual(interpretResponse(PLAN_STATUS, context({ success: true, errorCode: 0, result: { configStatus: 1 } })),
+      { configStatus: 1 });
     assert.throws(() => interpretResponse(PLAN_STATUS, context({ success: true, errorCode: 1000000, result: {} })),
       { code: 'E_BUSINESS' });
     assert.throws(() => interpretResponse(PLAN_PROFITS, context({ success: false, errorCode: 4000, errorMsg: '合成上游错误' })),
