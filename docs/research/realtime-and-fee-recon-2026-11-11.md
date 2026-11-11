@@ -1,0 +1,56 @@
+# 今日实时数据与消费者体验提升计划服务费：只读实测
+
+> 2026-11-11 19:30 前后，用户已登录的 Chrome（agent-browser-cli）。方法：页面自身请求的 CDP 抓包；`/sydney/api/*` 和 `/desert/*` 另在页面上下文用不带签名的 `fetch` 直接 POST 复核
+> 脱敏：订单号、收费编号、售后单号、店铺 ID、商品 ID、商品名均未记录；数值只保留说明口径所需的样例
+> **风控**：对 `/vodka/v2/mms/query/display/mall/goodsList` 做不带签名的 `fetch` 重放，立即返回 `error_code 54001 操作太过频繁` 并附 `verifyAuthToken`。vodka 接口必须走页面签名客户端（page-api），不能裸调；本次未再重试
+
+## 一、今日实时（`realtime-data` 01）
+
+所有接口都是明文，响应外壳 `{ success, errorCode: 1000000, errorMsg, result }`；不带 `Anti-Content` 的 POST 也能拿到（实现时仍走 page-api，与现有端点一致）。上游**均不返回快照时间**。
+
+| 端点 | 请求 | 结果 |
+| --- | --- | --- |
+| `/sydney/api/mallFlow/queryMallFlowRtData` | POST `{}`（流量看板页面原生调用） | `result`：`muvRt` / `mpvRt` / `guvRt` / `gpvRt`，整数，只有这 4 个字段 |
+| `/sydney/api/mallTrade/queryMallTradeList` | POST `{ queryType: 6, queryDate: "<今天 YYYY-MM-DD>" }` | `todayRtList[]`（按小时**累计**，`hr` "00"..当前小时）、`yesterdayRtList[]`（24 项）、`todayPerHourRtList[]` / `yesterdayPerHourRtList[]`（每小时**增量**：`payOrdrCnt` / `payOrdrUsrCnt` / `payOrdrAmt`）、`dayList: null`、`delayData`。累计行字段：`payOrdrAmt`（元，浮点）、`payOrdrCnt`、`payOrdrUsrCnt`、`payOrdrAup`（元）、`payUvRto`（0-1）、`rpayUsrRtoDth`、`sucRfOrdrAmt1d` / `sucRfOrdrCnt1d`（今日成功退款，样例中为 `null`）、`mallFavCnt`、`uvCfmVal` 及一组 `*Pct`（样例全为 `null`）。完整响应约 22.5 KB |
+| `/sydney/api/goodsDataShow/queryGoodsPageRT` | POST `{}` | 全店商品汇总，**值全是格式化字符串**：`payOrdrAmtRt: "745.36"`（千分位逗号，如 `"1,203.64"`）、`payOrdrCntRt: "39"`、`payUvRtoRt: "9.55%"`、`guvRt`、`gpvRt`、`vstGoodsCntRt`。不带 `Rt` 的同名字段是**昨日全天**（与交易接口 `yesterdayRtList` 末项一致） |
+| `/sydney/api/mallCoreData/queryAppRecentDataList` | POST `{}` | `todayData[]` / `yesterdayData[]`，按小时累计（`date` "00".."23"）：`guvDth`、`gpvDth`、`payOrdrCntDth`、`payOrdrUsrCntDth`、`payUvRto`；金额 `payOrdrAmtDth` 为**厘**，同时给 `payOrdrAmtDthCent`（分），客单价 `payOrdrAupDth` / `payOrdrAupDthCent` 同理 |
+| `/sydney/api/goodsDataShow/queryGoodsStatDtr` | POST `{ goodsId }` | 单商品：`todayGoodsDetail` / `yesterdayGoodsDetail`（`statDate`，`payOrdrAmt` 元 + `payOrdrAmtCent` 分，`payOrdrCnt`、`payOrdrUsrCnt`、`payOrdrGoodsQty`、`goodsUv`、`goodsPv`、`ordrVstrRto` / `payOrdrRto` / `goodsVcr`（0-1）、`goodsFavCnt`、`imprUsrCnt`、`cnsltUsrQty`），以及 `todayGoodsDetailList[]` / `yesterdayGoodsDetailList[]`（按 `statHr` 累计） |
+| `/desert/stat/mallServiceRealTimeData` | GET，无参数（客服数据页原生调用） | `replyRate3Min`（0-1，样例 1.0）、`replyRate3MinThreshold`（0.5）、`needReplyUserCnt`、`consultUserCnt` / `manuReceiveUserCnt`（样例 `null`） |
+| `/chats/cs/unreplyUser/count` | GET | `result.unreply_num` |
+| `/desert/stat/getMallHourConsultData` | POST（页面默认请求返回的 20–23 点有数据，是**前一天**） | `list[]`：`hour`、`replyUser3Min`、`unReplyUser3Min`；传今天的行为未验证 |
+
+口径差异（同一时刻）：
+- 商品访客 `queryMallFlowRtData.guvRt` = 377，`queryAppRecentDataList.todayData` 最新小时 `guvDth` = 357，`queryGoodsStatDtr.todayGoodsDetail.goodsUv` = 374（单商品店铺）。实时接口与小时快照的刷新时点不同，不能混成一条序列
+- 交易累计 `todayRtList` 最新 `hr` 落后当前时间约 1 小时
+
+对 `realtime-data` 工单的影响：
+- 02（`diagnose traffic`）：`queryMallFlowRtData` + `queryMallTradeList(queryType 6)`；可选用 `yesterdayRtList` 做同时段昨日对照
+- 03（`goods traffic`）：带 `--goods-id` 用 `queryGoodsStatDtr`；不带用 `queryGoodsPageRT`，需要解析千分位和百分号字符串
+- 04（客服）：`mallServiceRealTimeData`（回复率口径为"客服数据页实时"）+ `unreplyUser/count`；分时数据要先确认传今天的请求参数
+
+## 二、消费者体验提升计划服务费（`experience-plan-fee` 01）
+
+页面：`https://mms.pinduoduo.com/freight/return_freight`（"消费者体验"）。页面显示"计划生效中""今日服务费 1.11元/单"、数据概况（收费订单数、已获运费补偿订单数，可选今天 / 昨天 / 近 7 / 30 / 90 天 / 自定义）、收费记录（最多近 180 天）、运费补偿记录、操作记录。
+
+页面 bundle 中同模块还有**写接口**：`/mms-gateway/rfreight/close_service`、`pause_service`、`openService`（开通）、`mallInsurance/refreshServiceStatus`。一律不调用。
+
+| 端点 | 请求体（来自页面 bundle） | 响应 |
+| --- | --- | --- |
+| `/mms-gateway/rfreight/mall_insurance_status` | 无 | `configStatus`（样例 1）、`restartTime`、`pauseRestartMode` 等 |
+| `/mms-gateway/rfreight/mallInsurance/queryAvailableInfo`、`validInfo` | 无 | `normalService.algoDailyStrategy`：`priceType`、`price` / `smallPrice` / `largePrice`，均为 `{ unit: "YUAN", value: "1.11", unitCode: 1 }`（**当日费率**，动态） |
+| `/mms-gateway/rfreight/postpaid/profits` | `{ farDate, closerDate }`：距今天数，近 7 天为 `[6, 0]`，今天 `[0, 0]`，昨天 `[1, 1]` | `{ orderCount, compensationCount }` |
+| `/mms-gateway/rfreight/postpaid/order_insurance_list` | `{ pageSize: 10, pageNumber: <从 0 开始>, orderSnList?, batchSnList?, newStatusList?, queryFeeStatusList, clientType: 1, shippingBeginTime?, shippingEndTime?, createBeginTime?, createEndTime? }`（时间为毫秒） | `{ total, orderInsurances[] }`；每项：`orderSn`、`sn`（`<orderSn>-MI`）、`batchSn`（收费编号）、`serviceAmountVO` / `costVO`（`{ unit: "YUAN", value: "1.11" }`）、`status`、`feeStatusDesc`（"收费成功"）、`displayStatus`、`effectiveTime`（毫秒）、`ineffectiveTime`、`shippingTime`（毫秒）、`isFree`、`hasDiscount`、`discount`、`insuranceMode` |
+| `/mms-gateway/rfreight/postpaid/compensation_list` | `{ pageSize: 10, pageNumber: <从 0 开始>, orderSnList?, compensationReasonList?, afterSalesIdList?, statusList?, clientType: 1, shippingBeginTime?, shippingEndTime? }` | `{ total, compensations[] }`；每项：`orderSn`、`afterSalesId`、`amountVO`（补偿金额，元，如 "2.55" / "5.01"）、`status` / `displayStatus`（5）、`copy`（"已补贴运费"）、`compensationReason`、`shippingTime`（毫秒） |
+| `/mms-gateway/rfreight/postpaid/coupon/query` | 无 | 福利券列表（样例为空） |
+
+状态枚举（bundle）：收费状态 1 = 待收费、2 = 收费成功、3 = 收费取消（文案按 bundle 推断）；服务状态 1 = 生效中、2 = 已失效、3 = 已补偿运费。
+
+结论：
+- **有逐单数据**，按 `orderSn` 能和订单对齐 → `experience-plan-fee` 03（接入 `goods profit`）可做
+- 服务费逐单金额动态（今日 1.11 元/单，随日费率变化）；运费补偿是另一条收入，按售后单记录
+- 收费记录只保留近 180 天；"近 7 天收费订单数 209"与列表 `total` 203 不一致，口径（下单 / 发货 / 生效时间）未确认
+- 退款后服务费是否退还、`status` 其余取值的实际样本未见（样例全部为收费成功 / 生效中）
+
+## 三、SKU 库存（`sku-stock` 冒烟补充）
+
+从商品列表页 React 状态读取（页面自己的签名请求结果，未重放）：`goods_list[].sku_list[]` 字段为 `spec`、`newSpec`、`skuId`（数字）、`skuQuantity`（数字）、`skuSoldQuantity`、`outSkuSn`、`isOnsale`（**布尔**）、`normalPrice`、`groupPrice`、`activityGroupPrice`、`skuThumbUrl`、`specIdList`、`reserveQuantity`、`isSkuLowQuantity` 等。样例商品 18 个规格，`skuQuantity` 合计 1386，商品 `quantity` 1387，相差 1，原因未确认。商品对象另有 `sku_count`、`is_goods_low_quantity`。
