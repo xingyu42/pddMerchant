@@ -190,13 +190,14 @@ function stockHeadline({ page: pageNumber = 1 }, view) {
   const soldOut = items.filter((item) => item.quantity !== null && item.quantity <= 0).length;
   const catalog = view.total === null ? '在售总数未获取' : `在售共 ${view.total} 件`;
   const lowSkus = items.flatMap((item) => item.skus ?? []).filter((sku) => sku.low_stock);
-  const soldOutSkus = lowSkus.filter((sku) => sku.quantity === 0).length;
-  const skuTriggered = items.filter((item) => item.quantity !== null && item.quantity > threshold).length;
+  const soldOutSkus = lowSkus.filter((sku) => sku.quantity <= 0).length;
+  // 告警商品 = 总库存低 + 仅因规格进入（总库存高于阈值或缺失），两行合计覆盖全部 items
+  const skuTriggered = items.length - view.low_stock_count;
   const headline = [
     `${label}扫描 ${view.scanned_count} 件商品（${catalog}）`,
     `库存不高于 ${threshold} 的商品 ${view.low_stock_count} 件（其中缺货 ${soldOut} 件）`,
     `库存不高于 ${threshold} 的在售规格 ${lowSkus.length} 个（其中缺货 ${soldOutSkus} 个），`
-      + `总库存高于 ${threshold}、因规格库存进入告警的商品 ${skuTriggered} 件`,
+      + `总库存高于 ${threshold} 或缺失、因规格库存进入告警的商品 ${skuTriggered} 件`,
   ];
   const skuUnavailable = items.filter((item) => item.skus === null).length;
   if (skuUnavailable > 0) headline.push(`规格数据缺失的告警商品 ${skuUnavailable} 件`);

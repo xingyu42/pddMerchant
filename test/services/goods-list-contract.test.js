@@ -55,7 +55,7 @@ describe('goods list identity mapping', () => {
     assert.equal(stock.low_stock_count, 0);
     assert.deepEqual(stock.headline.slice(1), [
       '库存不高于 10 的商品 0 件（其中缺货 0 件）',
-      '库存不高于 10 的在售规格 1 个（其中缺货 0 个），总库存高于 10、因规格库存进入告警的商品 0 件',
+      '库存不高于 10 的在售规格 1 个（其中缺货 0 个），总库存高于 10 或缺失、因规格库存进入告警的商品 1 件',
     ]);
   });
 });
