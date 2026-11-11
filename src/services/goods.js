@@ -8,7 +8,7 @@ import {
 } from '../adapter/endpoints/goods.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { parseYuanToFen, toFiniteNumber } from '../infra/units.js';
-import { toGoodsView } from './views/goods.js';
+import { toGoodsStockView, toGoodsView } from './views/goods.js';
 import { mallIdOf } from './views/_shared.js';
 
 export const DEFAULT_LOW_STOCK_THRESHOLD = 10;
@@ -17,6 +17,22 @@ export function isLowStock(goods, threshold = DEFAULT_LOW_STOCK_THRESHOLD) {
   const qty = toFiniteNumber(goods?.quantity);
   if (qty === null) return false;
   return qty <= threshold;
+}
+
+// 上游 isOnsale 形态未经真实样本确认（布尔或 0/1），其余取值记为未知
+function toOnSale(value) {
+  if (value === true || value === 1 || value === '1') return true;
+  if (value === false || value === 0 || value === '0') return false;
+  return null;
+}
+
+function toSkuRecord(sku) {
+  return {
+    sku_id: sku?.skuId ?? null,
+    spec: sku?.spec ?? null,
+    quantity: toFiniteNumber(sku?.skuQuantity),
+    on_sale: toOnSale(sku?.isOnsale),
+  };
 }
 
 function toGoodsRecord(g) {
@@ -29,6 +45,7 @@ function toGoodsRecord(g) {
     origin_sku_group_price: g.origin_sku_group_price ?? null,
     promotion: g.promotion ?? g.promotion_goods ?? null,
     mall_id: g.mall_id ?? g.mallId ?? null,
+    skus: Array.isArray(g.sku_list) ? g.sku_list.map(toSkuRecord) : null,
   };
 }
 
@@ -171,10 +188,13 @@ function stockHeadline({ page: pageNumber = 1 }, view) {
   const label = pageLabel(pageNumber);
   const soldOut = view.items.filter((item) => item.quantity !== null && item.quantity <= 0).length;
   const catalog = view.total === null ? '在售总数未获取' : `在售共 ${view.total} 件`;
-  return [
+  const headline = [
     `${label}扫描 ${view.scanned_count} 件商品（${catalog}）`,
     `库存不高于 ${view.threshold} 的商品 ${view.low_stock_count} 件（其中缺货 ${soldOut} 件）`,
   ];
+  const skuUnavailable = view.items.filter((item) => item.skus === null).length;
+  if (skuUnavailable > 0) headline.push(`规格数据缺失的告警商品 ${skuUnavailable} 件`);
+  return headline;
 }
 
 // 仅扫描一页商品；items 为该页中库存 ≤ threshold 的商品（已筛选，故不再逐项标记 is_low_stock）
@@ -183,7 +203,7 @@ export async function getGoodsStockView(page, params = {}, ctx = {}) {
     ? Number(params.threshold)
     : DEFAULT_LOW_STOCK_THRESHOLD;
   const base = await listGoods(page, { ...params, size: params.size ?? 50 }, ctx);
-  const items = base.goods.filter((g) => isLowStock(g, threshold)).map(toGoodsView);
+  const items = base.goods.filter((g) => isLowStock(g, threshold)).map(toGoodsStockView);
   const view = {
     items,
     total: base.total,

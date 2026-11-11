@@ -7,6 +7,17 @@ function isCount(value) {
     && Number.isFinite(Number(value)) && Number(value) >= 0;
 }
 
+// 规格白名单投影：只保留四个字段；sku_list 缺失或非数组 → null（规格数据不可用，区别于零个规格）
+function normalizeSkuList(list) {
+  if (!Array.isArray(list)) return null;
+  return list.map((sku) => ({
+    skuId: sku?.skuId ?? null,
+    spec: sku?.spec ?? null,
+    skuQuantity: isCount(sku?.skuQuantity) ? Number(sku.skuQuantity) : null,
+    isOnsale: sku?.isOnsale ?? null,
+  }));
+}
+
 export const GOODS_LIST = {
   name: 'goods.list',
   fixtureListKey: 'result.goods_list',
@@ -47,6 +58,7 @@ export const GOODS_LIST = {
         origin_sku_group_price: g.origin_sku_group_price,
         promotion: g.promotion_goods,
         mall_id: g.mall_id,
+        sku_list: normalizeSkuList(g.sku_list),
       })),
       sessionId: result.sessionId,
       raw,
