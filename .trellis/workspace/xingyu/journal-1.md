@@ -1529,3 +1529,26 @@ Topics: [.trellis/spec/standards/testing.md](../../spec/standards/testing.md)
 ### Status
 
 [OK] **Completed**
+
+
+## Session 50: 修订 D5：订单输出省市区
+<!-- trellis-session: v=2 fp=be0361ebb82396a6 -->
+
+**Date**: 2026-11-11
+**Task**: 修订 D5：订单输出省市区
+**Branch**: `feat/region-sku-stock`
+
+### Summary
+
+orders list/detail 输出 province/city/district；收件人、手机号、详细地址仍排除；契约见 .trellis/spec/services/domain-service-contracts.md
+Topics: [.trellis/spec/services/domain-service-contracts.md](../../spec/services/domain-service-contracts.md)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `64bf883` | 🔀 merge: order-region 01 订单输出收货省市区 |
+
+### Status
+
+[OK] **Completed**
