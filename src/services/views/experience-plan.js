@@ -6,7 +6,7 @@ export const EXPERIENCE_PLAN_REPORT = defineReport({
   days: { choices: { 1: 0, 7: 6, 30: 29, 90: 89 }, default: 7, message: '--days 仅接受 {range}',
     description: '统计窗口天数（{range}，含今天）' },
   hints: {
-    count_caliber: '收费订单数和运费补偿订单数取自平台数据概况，收费记录总数按发货时间筛选，两者口径可能不同',
+    count_caliber: '收费订单数和运费补偿订单数取自平台数据概况，收费记录总数按创建时间筛选且只含待收费与收费成功，两者口径可能不同',
   },
 });
 
@@ -16,6 +16,8 @@ export const EXPERIENCE_PLAN_ITEM_FIELDS = Object.freeze([
   'order_sn', 'service_fee_yuan', 'fee_status', 'service_status', 'effective_at', 'shipped_at', 'is_free',
 ]);
 export const EXPERIENCE_PLAN_WINDOW_FIELDS = Object.freeze(['days', 'start_at', 'end_at']);
+export const EXPERIENCE_PLAN_FIELDS = Object.freeze(['headline', 'window', 'plan_status', 'today_fee_per_order_yuan',
+  'charged_order_count', 'compensated_order_count', 'items', 'total', 'page', 'hints', 'mall_id']);
 
 // 金额对象 { unit, value }：仅 YUAN 按字符串精确转元，其他单位输出 null 并登记单位。
 function moneyReader() {
@@ -58,7 +60,7 @@ function headlines({ planStatus, fee, charged, compensated, total, page, items, 
   ];
 }
 
-export function toExperiencePlanView({ status, available, profits, list }, { window, page, hints }) {
+export function toExperiencePlanView({ status, available, profits, list }, { window, page, hints, mallId = null }) {
   const money = moneyReader();
   const fee = money.read(available.price);
   const items = list.items.map((row) => item(row, money));
@@ -70,7 +72,7 @@ export function toExperiencePlanView({ status, available, profits, list }, { win
     window: { days: window.days, start_at: toLocalDateTime(window.startMs), end_at: toLocalDateTime(window.endMs) },
     plan_status: status.configStatus ?? null, today_fee_per_order_yuan: fee,
     charged_order_count: charged, compensated_order_count: compensated,
-    items, total: list.total, page, hints: reportHints(EXPERIENCE_PLAN_REPORT, hints),
+    items, total: list.total, page, hints: reportHints(EXPERIENCE_PLAN_REPORT, hints), mall_id: mallId,
   };
   return { data, warnings: money.warnings() };
 }

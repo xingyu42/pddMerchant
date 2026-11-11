@@ -53,7 +53,8 @@ export const PLAN_PROFITS = endpoint('profits', 'postpaid/profits', (raw) => {
 
 export const PLAN_ORDER_INSURANCE_LIST = {
   ...endpoint('orderInsuranceList', 'postpaid/order_insurance_list', orderInsuranceList,
-    ({ page, shippingBeginTime, shippingEndTime }) => ({ pageSize: 10, pageNumber: page - 1, clientType: 1,
-      shippingBeginTime, shippingEndTime })),
+    // 与页面默认请求一致：收费状态 1 待收费 + 2 收费成功（3 收费取消不查），按创建时间（毫秒）筛选。
+    ({ page, createBeginTime, createEndTime }) => ({ pageSize: 10, pageNumber: page - 1,
+      queryFeeStatusList: [1, 2], clientType: 1, createBeginTime, createEndTime })),
   fixtureListKey: 'result.orderInsurances',
 };

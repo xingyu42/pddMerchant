@@ -28,7 +28,7 @@ import { GOODS_COST_ENTRY_FIELDS } from '../../src/services/views/goods-cost.js'
 import { GOODS_PROFIT_ITEM_FIELDS, GOODS_PROFIT_SUMMARY_FIELDS, GOODS_PROFIT_QUALITY_FIELDS } from '../../src/services/views/goods-profit.js';
 import { EXPERIENCE_INDICATOR_FIELDS, EXPERIENCE_TREND_ITEM_FIELDS,
   EXPERIENCE_SNAPSHOT_FIELDS } from '../../src/services/views/experience.js';
-import { EXPERIENCE_PLAN_ITEM_FIELDS, EXPERIENCE_PLAN_WINDOW_FIELDS } from '../../src/services/views/experience-plan.js';
+import { EXPERIENCE_PLAN_FIELDS, EXPERIENCE_PLAN_ITEM_FIELDS, EXPERIENCE_PLAN_WINDOW_FIELDS } from '../../src/services/views/experience-plan.js';
 import { CS_SUMMARY_FIELDS, CS_TREND_ITEM_FIELDS } from '../../src/services/views/customer-service.js';
 import { REVIEW_TAG_FIELDS, ISSUE_TYPE_FIELDS, NEGATIVE_REVIEW_FIELDS } from '../../src/services/views/reviews.js';
 import { TRAFFIC_ITEM_FIELDS, TRAFFIC_SUMMARY_FIELDS, TRAFFIC_TODAY_FIELDS,
@@ -102,7 +102,8 @@ const V2_CASES = [
     entityFields: { snapshot: EXPERIENCE_SNAPSHOT_FIELDS, 'indicators[]': EXPERIENCE_INDICATOR_FIELDS,
       'trend.items[]': EXPERIENCE_TREND_ITEM_FIELDS } },
   { command: 'diagnose.experience-plan', args: ['diagnose', 'experience-plan'], fixtures: createExperiencePlanFixtures(),
-    entityFields: { window: EXPERIENCE_PLAN_WINDOW_FIELDS, 'items[]': EXPERIENCE_PLAN_ITEM_FIELDS } },
+    entityFields: { '': EXPERIENCE_PLAN_FIELDS, window: EXPERIENCE_PLAN_WINDOW_FIELDS,
+      'items[]': EXPERIENCE_PLAN_ITEM_FIELDS } },
   { command: 'goods.profit', args: ['goods', 'profit'], execute: runProfitContract,
     entityFields: { 'items[]': GOODS_PROFIT_ITEM_FIELDS, summary: GOODS_PROFIT_SUMMARY_FIELDS,
       'summary.data_quality': GOODS_PROFIT_QUALITY_FIELDS } },
