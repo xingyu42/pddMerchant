@@ -44,6 +44,17 @@ describe('goods list identity mapping', () => {
     assert.equal(stock.headline[0], '本页扫描 1 件商品（在售总数未获取）');
   });
 
+  it('maps sku on-sale flags from boolean or 0/1 and marks other shapes unknown', async () => {
+    const flags = [true, 1, '1', false, 0, '0', 'yes', null];
+    const goods = [{ id: 101, quantity: 0,
+      sku_list: flags.map((isOnsale, index) => ({ skuId: index, spec: 'S', skuQuantity: 1, isOnsale })) }];
+    const execute = vi.fn(async () => ({ data: { total: 1, goods } }));
+    const [item] = (await getGoodsStockView({}, {}, { client: { execute } })).items;
+    assert.deepEqual(item.skus.map((sku) => sku.on_sale), [true, true, true, false, false, false, null, null]);
+    assert.deepEqual(item.skus.map((sku) => sku.low_stock), [true, true, true, false, false, false, false, false]);
+    assert.equal(item.low_stock_sku_count, 3);
+  });
+
   it('alerts goods with unknown total stock when an on-sale sku is low, without counting it as total-low', async () => {
     const goods = [
       { id: 101, quantity: null, sku_list: [{ skuId: 1011, spec: '红色-M', skuQuantity: 2, isOnsale: 1 }] },

@@ -2,7 +2,8 @@ import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import { GOODS_LIST } from '../../src/adapter/endpoints/goods.js';
 import {
-  COST_TEMPLATE_VIEW_FIELDS, GOODS_VIEW_FIELDS, toCostTemplateView, toGoodsView,
+  COST_TEMPLATE_VIEW_FIELDS, GOODS_STOCK_ITEM_FIELDS, GOODS_STOCK_SKU_FIELDS, GOODS_VIEW_FIELDS,
+  toCostTemplateView, toGoodsStockView, toGoodsView,
 } from '../../src/services/views/goods.js';
 import { PUBLISH_VIEW_FIELDS, toPublishView } from '../../src/services/views/goods-publish.js';
 import { createUpstreamGoods } from '../fixtures/test-data.js';
@@ -58,6 +59,54 @@ describe('goods view projection', () => {
     const view = toCostTemplateView({ id: 3001, name: 'Synthetic', free_province_need: null });
     assert.deepEqual(view, { template_id: '3001', name: 'Synthetic' });
     assert.deepEqual(Object.keys(view), [...COST_TEMPLATE_VIEW_FIELDS]);
+  });
+});
+
+describe('goods stock view projection', () => {
+  const stockRecord = (overrides = {}) => ({ goods_id: 101, goods_name: 'Tea', quantity: 30, low_stock_sku_count: 1,
+    skus: [{ sku_id: 1011, spec: ' 红色-M ', quantity: 0, on_sale: true, low_stock: true, extra: 'drop' },
+      { sku_id: 1012, spec: '', quantity: null, on_sale: null, low_stock: false }], ...overrides });
+
+  it('appends the service-owned low sku count and whitelisted skus with text ids', () => {
+    const view = toGoodsStockView(stockRecord());
+    assert.deepEqual(Object.keys(view), GOODS_STOCK_ITEM_FIELDS);
+    assert.equal(view.low_stock_sku_count, 1);
+    assert.deepEqual(view.skus, [
+      { sku_id: '1011', spec: '红色-M', quantity: 0, on_sale: true, low_stock: true },
+      { sku_id: '1012', spec: null, quantity: null, on_sale: null, low_stock: false },
+    ]);
+    for (const sku of view.skus) assert.deepEqual(Object.keys(sku), GOODS_STOCK_SKU_FIELDS);
+  });
+
+  it('keeps unavailable sku data null and an empty sku list as zero', () => {
+    const unavailable = toGoodsStockView(stockRecord({ skus: null, low_stock_sku_count: null }));
+    assert.equal(unavailable.skus, null);
+    assert.equal(unavailable.low_stock_sku_count, null);
+    const empty = toGoodsStockView(stockRecord({ skus: [], low_stock_sku_count: 0 }));
+    assert.deepEqual(empty.skus, []);
+    assert.equal(empty.low_stock_sku_count, 0);
+  });
+});
+
+describe('goods.list sku normalization', () => {
+  const skusOf = (skuList) => recordOf(createUpstreamGoods({ sku_list: skuList })).sku_list;
+
+  it('keeps only id, spec, count stock and raw on-sale flag', () => {
+    assert.deepEqual(skusOf([{ skuId: 1011, spec: '红色-M', skuQuantity: '6', isOnsale: true, skuPrice: 1590 }]),
+      [{ skuId: 1011, spec: '红色-M', skuQuantity: 6, isOnsale: true }]);
+  });
+
+  it.each([-1, 'abc', '', { value: 3 }, undefined, null])('maps non-count stock %s to null', (skuQuantity) => {
+    assert.equal(skusOf([{ skuId: 1, skuQuantity }])[0].skuQuantity, null);
+  });
+
+  it.each([undefined, 'x', {}])('marks a missing or non-array sku_list (%s) as unavailable', (skuList) => {
+    assert.equal(skusOf(skuList), null);
+  });
+
+  it('distinguishes zero skus from unavailable sku data', () => {
+    assert.deepEqual(skusOf([]), []);
+    assert.deepEqual(skusOf([null]), [{ skuId: null, spec: null, skuQuantity: null, isOnsale: null }]);
   });
 });
 
