@@ -1,6 +1,6 @@
 // 订单领域视图（输出契约 v2 防腐层）：白名单投影上游订单对象，上游其余字段一律丢弃。
 // 字段依据 research/upstream-schema-2026-10.md §1–§2：金额为分、时间为 unix 秒（0 = 未发生）。
-// 收件人 / 联系方式 / 地址等 PII 不进入视图（D5）。
+// 收件人 / 联系方式 / 详细地址等 PII 不进入视图（D5）；收货省 / 市 / 区名称可输出（D5 修订，2026-11）。
 import { labelOf, round, toFiniteNumber, toLocalDateTime, toPct, yuanFromFen } from '../../infra/units.js';
 import { pick, text } from './_shared.js';
 import { AFTER_SALES_STATUS_LABEL } from './labels.js';
@@ -11,6 +11,7 @@ export const ORDER_VIEW_FIELDS = Object.freeze([
   'shipping_fee_yuan', 'paid_amount_yuan',
   'ordered_at', 'ship_deadline_at', 'shipped_at',
   'express_company', 'tracking_number', 'buyer_memo', 'after_sales_status',
+  'province', 'city', 'district',
 ]);
 
 export const ORDER_DETAIL_VIEW_FIELDS = Object.freeze([
@@ -48,6 +49,10 @@ export function toOrderView(raw) {
     buyer_memo: text(raw?.buyer_memo),
     // 售后状态码表见 labels.js（research order-list-filters-2026-10-08 §3）；未登记码输出 '未知(<code>)'
     after_sales_status: labelOf(AFTER_SALES_STATUS_LABEL, raw?.after_sales_status),
+    // 只读省 / 市 / 区名称原文；不读 *_id 编码，不拼接或解析详细地址
+    province: text(raw?.province_name),
+    city: text(raw?.city_name),
+    district: text(raw?.district_name),
   };
 }
 

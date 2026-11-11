@@ -7,7 +7,8 @@ import {
   createFactFixtures, createUpstreamGoods, createUpstreamOrder, createUpstreamOrderDetail, SYNTHETIC_PII_VALUES,
 } from '../fixtures/test-data.js';
 
-const PII_KEY = /receive_|receiver|mobile|phone|addr|nickname|contact|province|city|district/i;
+// 省 / 市 / 区名称可输出（D5 修订）；收件人、手机、电话、地址、昵称、联系方式仍拦截
+const PII_KEY = /receive_|receiver|mobile|phone|addr|nickname|contact/i;
 
 function collectKeys(value, keys = []) {
   if (Array.isArray(value)) value.forEach((item) => collectKeys(item, keys));
@@ -82,12 +83,47 @@ describe('offline CLI envelopes and process exits', () => {
     assert.equal(order.paid_amount_yuan, 23.5);
     assert.equal(order.unit_price_yuan, 12.5);
     assert.equal(order.ordered_at, '2023-11-15 06:13:20');
+    assert.equal(order.province, 'SYN-PROVINCE');
+    assert.equal(order.city, 'SYN-CITY');
+    assert.equal(order.district, 'SYN-DISTRICT');
     for (const token of ['orderStatus', '"order_status"', 'pageItems', 'order_status_str', '2350', '1250']) {
       assert.equal(stdout.includes(token), false, `stdout must not contain ${token}`);
     }
     assert.doesNotMatch(stdout, /\b1[6-9]\d{8}\b/, 'stdout must not contain unix timestamps');
     assert.deepEqual(collectKeys(envelope.data).filter((key) => PII_KEY.test(key)), []);
     assertRedacted(stdout, SYNTHETIC_PII_VALUES);
+  });
+
+  it('emits null region names when upstream omits them or sends empty strings', () => {
+    const { province_name: _p, city_name: _c, district_name: _d, ...withoutRegion } = createUpstreamOrder();
+    const { status, envelope } = runCli(['orders', 'list'], { fixtures: {
+      'endpoints/orders.list.json': { success: true, result: { totalItemNum: 2, pageItems: [
+        { ...withoutRegion, order_sn: 'SYN-NO-REGION' },
+        createUpstreamOrder({ order_sn: 'SYN-EMPTY-REGION', province_name: '', city_name: '', district_name: '' }),
+      ] } },
+    } });
+    assert.equal(status, 0);
+    assert.equal(envelope.data.items.length, 2);
+    for (const order of envelope.data.items) {
+      assert.deepEqual([order.province, order.city, order.district], [null, null, null], order.order_sn);
+    }
+  });
+
+  it('keeps order output unchanged when upstream injects address-like fields', () => {
+    const {
+      consumerAddress: _a, refundAddressInfo: _r, deliveryManPhone: _m, receive_name: _n, receive_mobile: _p, ...plain
+    } = createUpstreamOrder();
+    const injected = {
+      consumerAddress: 'SYN-INJECTED-ADDR', refundAddressInfo: { address: 'SYN-INJECTED-REFUND' },
+      deliveryManPhone: 'SYN-INJECTED-PHONE', receive_name: 'SYN-INJECTED-NAME', receive_mobile: 'SYN-INJECTED-MOBILE',
+    };
+    const { status, stdout, envelope } = runCli(['orders', 'list'], { fixtures: {
+      'endpoints/orders.list.json': { success: true, result: { totalItemNum: 2, pageItems: [plain, { ...plain, ...injected }] } },
+    } });
+    assert.equal(status, 0);
+    const [bare, noisy] = envelope.data.items;
+    assert.deepEqual(noisy, bare);
+    assertRedacted(stdout, ['SYN-INJECTED-ADDR', 'SYN-INJECTED-REFUND', 'SYN-INJECTED-PHONE', 'SYN-INJECTED-NAME', 'SYN-INJECTED-MOBILE']);
   });
 
   it('returns usage exit 2 for missing required order identity', () => {
@@ -135,6 +171,9 @@ describe('offline CLI envelopes and process exits', () => {
     assert.deepEqual(Object.keys(envelope.data.order).sort(), [...ORDER_DETAIL_VIEW_FIELDS].sort());
     assert.equal(envelope.data.order.order_sn, 'SYN-DETAIL');
     assert.equal(envelope.data.order.paid_at, '2023-11-15 06:14:20');
+    assert.equal(envelope.data.order.province, 'SYN-PROVINCE');
+    assert.equal(envelope.data.order.city, 'SYN-CITY');
+    assert.equal(envelope.data.order.district, 'SYN-DISTRICT');
     assert.equal(envelope.data.headline[0], '订单 SYN-DETAIL：已发货，待收货');
     assert.deepEqual(collectKeys(envelope.data).filter((key) => PII_KEY.test(key)), []);
     assertRedacted(stdout, [...SYNTHETIC_PII_VALUES, 'SYNTHETIC-PHONE', 'SYNTHETIC-AUTH', 'SYNTHETIC-RAW']);

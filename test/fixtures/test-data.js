@@ -94,9 +94,10 @@ export const SAMPLE_LIST_STATS = Object.freeze({
 
 // 上游 recentOrderList.pageItems[] 的真实字段结构（research/upstream-schema-2026-10.md §1），值均为合成数据。
 // 金额为分、时间为 unix 秒（0 = 未发生）；含平台内部噪声字段与 PII 字段，用于证明视图白名单丢弃它们。
+// 省 / 市 / 区名称（province_name / city_name / district_name）可输出（D5 修订），不在此列。
 export const SYNTHETIC_PII_VALUES = Object.freeze([
-  'SYN-RECEIVER', 'SYN-MOBILE-13800000000', 'SYN-CONTACT-MOBILE', 'SYN-NICK', 'SYN-PROVINCE',
-  'SYN-CITY', 'SYN-DISTRICT', 'SYN-ADDRESS', 'SYN-REFUND-ADDR', 'SYN-REFUND-PHONE',
+  'SYN-RECEIVER', 'SYN-MOBILE-13800000000', 'SYN-CONTACT-MOBILE', 'SYN-NICK',
+  'SYN-ADDRESS', 'SYN-REFUND-ADDR', 'SYN-REFUND-PHONE',
   'SYN-SHIPPING-PHONE', 'SYN-DELIVERY-PHONE',
 ]);
 
@@ -127,14 +128,15 @@ export function createUpstreamOrder(overrides = {}) {
     waybillDTOList: [{ shippingName: 'SYN 快递', shippingPhone: 'SYN-SHIPPING-PHONE' }],
     // 平台内部噪声字段
     isLuckyFlag: 0, mallRemarkTag: null, groupStatus: 1, risk_status: 0, showPrepareTag: false,
+    // 收货省 / 市 / 区名称（D5 修订：可输出）
+    province_name: 'SYN-PROVINCE',
+    city_name: 'SYN-CITY',
+    district_name: 'SYN-DISTRICT',
     // PII（D5：不得进入视图）
     receive_name: 'SYN-RECEIVER',
     receive_mobile: 'SYN-MOBILE-13800000000',
     contactMobile: 'SYN-CONTACT-MOBILE',
     nickname: 'SYN-NICK',
-    province_name: 'SYN-PROVINCE',
-    city_name: 'SYN-CITY',
-    district_name: 'SYN-DISTRICT',
     consumerAddress: 'SYN-ADDRESS',
     refundAddressInfo: { address: 'SYN-REFUND-ADDR', phone: 'SYN-REFUND-PHONE' },
     deliveryManPhone: 'SYN-DELIVERY-PHONE',
