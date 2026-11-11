@@ -19,7 +19,7 @@
 - **订单收货地区**：`orders list` 每项与 `orders detail` 新增 `province` / `city` / `district`，只取平台返回的省 / 市 / 区名称，缺失为 `null`；街道、邮编、详细地址仍不输出。
 - **库存规格明细与规格级告警**：`goods stock` 每项新增 `skus[]`（`sku_id`、`spec`、`quantity`、`on_sale`、`low_stock`）与 `low_stock_sku_count`；总库存高于阈值（或缺失）但有在售规格库存不高于阈值的商品也进入告警。`low_stock_count` 仍只计总库存不高于阈值的商品，可能少于 `items` 条数；规格数据缺失时 `skus` 与 `low_stock_sku_count` 为 `null`。
 - **全店今日实时**：`diagnose traffic` 新增 `today` 区块（流量看板实时访客 / 浏览，按小时累计的成交及 `hourly[]`，`snapshot_at` 为抓取时间）；今日数据拉取失败时 `today: null` 并附提示，逐日数据照常返回。
-- **消费者体验提升计划服务费**：`diagnose experience-plan [--days 1|7|30|90] [--page 1]` 只读输出计划状态码（平台原值）、今日服务费费率、窗口内收费订单数与运费补偿订单数，以及按创建时间筛选的待收费 / 收费成功逐单记录；金额为平台报告值，CLI 不按费率重算。
+- **消费者体验提升计划服务费**：`diagnose experience-plan [--days 1|7|30] [--page 1]` 只读输出计划状态码（平台原值）、今日服务费费率、窗口内收费订单数与运费补偿订单数，以及按创建时间筛选的待收费 / 收费成功逐单记录；金额为平台报告值，CLI 不按费率重算。
 
 ---
 

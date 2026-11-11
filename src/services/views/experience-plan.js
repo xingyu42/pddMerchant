@@ -1,9 +1,10 @@
 import { labelOf, parseYuanToFen, toFiniteNumber, toLocalDateTime, yuanFromFen } from '../../infra/units.js';
 import { defineReport, reportHints } from '../operating-report.js';
 
-// days → 汇总接口 farDate（距今天数，service 按此表传参）；页面数据概况提供今天 / 近 7 / 30 / 90 天。
+// days → 汇总接口 farDate（距今天数，service 按此表传参）。页面数据概况另有近 90 天，
+// 但收费记录按创建时间筛选时跨度不能超过一个月（上游「运费补贴生效时间跨度不能超过一个月」），故不提供 90。
 export const EXPERIENCE_PLAN_REPORT = defineReport({
-  days: { choices: { 1: 0, 7: 6, 30: 29, 90: 89 }, default: 7, message: '--days 仅接受 {range}',
+  days: { choices: { 1: 0, 7: 6, 30: 29 }, default: 7, message: '--days 仅接受 {range}',
     description: '统计窗口天数（{range}，含今天）' },
   hints: {
     count_caliber: '收费订单数和运费补偿订单数取自平台数据概况，收费记录总数按创建时间筛选且只含待收费与收费成功，两者口径可能不同',

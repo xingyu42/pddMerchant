@@ -335,7 +335,7 @@ getExperiencePlanView(ctx, { days = 7, page = 1 } = {}) // src/services/experien
 toExperiencePlanView({ status, available, profits, list }, { window, page, hints, mallId = null }) // views/experience-plan.js
 ```
 
-CLI：`pdd diagnose experience-plan [--days 1|7|30|90] [--page 1]`，`needsAuth:true`、`needsMall:'switch'`。四个 page-api 端点导航 `https://mms.pinduoduo.com/freight/return_freight`，成功码为 `success:true` 且 `errorCode === 1000`（不是 1000000）。
+CLI：`pdd diagnose experience-plan [--days 1|7|30] [--page 1]`，`needsAuth:true`、`needsMall:'switch'`。四个 page-api 端点导航 `https://mms.pinduoduo.com/freight/return_freight`，成功码为 `success:true` 且 `errorCode` 为 `0`（page-api 合成外壳）或 `1000`（浏览器抓包）。
 
 ### 3. Contracts
 

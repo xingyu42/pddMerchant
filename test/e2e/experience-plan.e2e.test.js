@@ -35,7 +35,7 @@ it('reports plan status, today fee, window counts and per-order fee records', ()
   }
 });
 
-it.each([1, 7, 30, 90])('accepts --days %s with a Shanghai window ending today', (days) => {
+it.each([1, 7, 30])('accepts --days %s with a Shanghai window ending today', (days) => {
   const { envelope } = runCli(['diagnose', 'experience-plan', '--days', String(days)],
     { fixtures: createExperiencePlanFixtures() });
   assert.equal(envelope.ok, true);
@@ -47,7 +47,7 @@ it.each([1, 7, 30, 90])('accepts --days %s with a Shanghai window ending today',
   assert.equal(span, (days - 1) * DAY_MS);
 });
 
-it.each(['0', '14', '2.5', 'x'])('rejects --days %s at parse time with usage exit 2', (days) => {
+it.each(['0', '14', '90', '2.5', 'x'])('rejects --days %s at parse time with usage exit 2', (days) => {
   const result = runCli(['diagnose', 'experience-plan', '--days', days], { fixtures: createExperiencePlanFixtures() });
   assert.equal(result.status, 2);
   assert.equal(result.envelope.command, 'diagnose.experience-plan');

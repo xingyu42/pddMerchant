@@ -32,7 +32,7 @@ it('requests the fee list like the page: pending + charged fees created within t
   assert.deepEqual(bodyOf('experiencePlan.profits'), { farDate: 6, closerDate: 0 });
 });
 
-it.each([[1, 0], [30, 29], [90, 89]])('maps --days %s to profits farDate %s and the matching create window', async (days, farDate) => {
+it.each([[1, 0], [30, 29]])('maps --days %s to profits farDate %s and the matching create window', async (days, farDate) => {
   await getExperiencePlanView(ctx, { days, page: 2 });
   assert.deepEqual(bodyOf('experiencePlan.profits'), { farDate, closerDate: 0 });
   const list = bodyOf('experiencePlan.orderInsuranceList');

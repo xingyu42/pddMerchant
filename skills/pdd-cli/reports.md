@@ -22,7 +22,7 @@
 
 ## diagnose experience-plan
 
-- `--days` 取 1 / 7 / 30 / 90，默认 7，窗口为上海自然日、含今天（`window.start_at` 至 `window.end_at`）；`--page` 默认 1，收费记录每页 10 条。
+- `--days` 取 1 / 7 / 30，默认 7（收费记录按创建时间筛选，上游限制跨度不超过一个月，故不提供 90），窗口为上海自然日、含今天（`window.start_at` 至 `window.end_at`）；`--page` 默认 1，收费记录每页 10 条。
 - `plan_status` 是平台 `configStatus` 原值（已见样本 1 = 计划生效中，其余取值无标签证据），按原值转述。`today_fee_per_order_yuan` 是平台当日动态费率；`items[].service_fee_yuan` 是平台逐单报告的服务费，CLI 不按费率重算。
 - 收费记录与页面默认请求一致：只查收费状态「待收费」「收费成功」（不含「收费取消」），按记录创建时间落在窗口内筛选（不是发货时间）。
 - `charged_order_count` / `compensated_order_count` 取自平台数据概况；`total` 是上述筛选下的收费记录总数。两者口径可能不同（实测近 7 天 209 对 203），原样分别转述，不互相校正。
