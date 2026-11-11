@@ -31,7 +31,8 @@ import { EXPERIENCE_INDICATOR_FIELDS, EXPERIENCE_TREND_ITEM_FIELDS,
 import { EXPERIENCE_PLAN_ITEM_FIELDS, EXPERIENCE_PLAN_WINDOW_FIELDS } from '../../src/services/views/experience-plan.js';
 import { CS_SUMMARY_FIELDS, CS_TREND_ITEM_FIELDS } from '../../src/services/views/customer-service.js';
 import { REVIEW_TAG_FIELDS, ISSUE_TYPE_FIELDS, NEGATIVE_REVIEW_FIELDS } from '../../src/services/views/reviews.js';
-import { TRAFFIC_ITEM_FIELDS, TRAFFIC_SUMMARY_FIELDS } from '../../src/services/views/traffic.js';
+import { TRAFFIC_ITEM_FIELDS, TRAFFIC_SUMMARY_FIELDS, TRAFFIC_TODAY_FIELDS,
+  TRAFFIC_TODAY_HOURLY_FIELDS } from '../../src/services/views/traffic.js';
 import { GOODS_TRAFFIC_ITEM_FIELDS } from '../../src/services/views/goods-traffic.js';
 import { GOODS_RECEIPT_ITEM_FIELDS, GOODS_RECEIPT_SKU_FIELDS, GOODS_RECEIPT_SINGLE_FIELDS, GOODS_RECEIPT_MULTI_FIELDS,
   GOODS_RECEIPT_DISCOUNT_FIELDS } from '../../src/services/views/goods-receipt.js';
@@ -82,7 +83,8 @@ const GOODS_RECEIPT_ENTITY_FIELDS = { 'items[]': GOODS_RECEIPT_ITEM_FIELDS, 'ite
 
 const V2_CASES = [
   { command: 'diagnose.traffic', args: ['diagnose', 'traffic'], fixtures: createTrafficFixtures(),
-    entityFields: { 'items[]': TRAFFIC_ITEM_FIELDS, summary: TRAFFIC_SUMMARY_FIELDS } },
+    entityFields: { 'items[]': TRAFFIC_ITEM_FIELDS, summary: TRAFFIC_SUMMARY_FIELDS,
+      today: TRAFFIC_TODAY_FIELDS, 'today.hourly[]': TRAFFIC_TODAY_HOURLY_FIELDS } },
   { command: 'goods.traffic', args: ['goods', 'traffic'], fixtures: createGoodsTrafficFixtures(),
     entityFields: { 'items[]': GOODS_TRAFFIC_ITEM_FIELDS } },
   { command: 'goods.receipt', args: ['goods', 'receipt'], fixtures: createGoodsReceiptFixtures(),

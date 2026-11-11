@@ -1,7 +1,9 @@
 import { it } from 'vitest';
 import assert from 'node:assert/strict';
-import { TRAFFIC_READY_TIME, TRAFFIC_OVERVIEW, GOODS_TRAFFIC_LIST } from '../../src/adapter/endpoints/traffic.js';
+import { TRAFFIC_READY_TIME, TRAFFIC_OVERVIEW, GOODS_TRAFFIC_LIST, TRAFFIC_TODAY_FLOW,
+  TRAFFIC_TODAY_TRADE } from '../../src/adapter/endpoints/traffic.js';
 import { GOODS_PROMOTION_LIST } from '../../src/adapter/endpoints/promo-goods.js';
+import { createTrafficFixtures } from '../fixtures/test-data.js';
 
 it('uses page-api with explicit navigation and exact plain goods payload', () => {
   for (const spec of [TRAFFIC_READY_TIME, TRAFFIC_OVERVIEW, GOODS_TRAFFIC_LIST]) {
@@ -35,6 +37,40 @@ it('guards every numeric field against obfuscated glyphs but keeps free text unt
 
 it.each([undefined, '2026-02-30', '2026-10-3', null])('rejects missing or invalid daily statDate %s', (statDate) => {
   assert.throws(() => TRAFFIC_OVERVIEW.normalize({ result: [{ statDate, uv: 10 }] }), { code: 'E_NETWORK' });
+});
+
+it('reads realtime flow from the traffic board with an empty body and projects only the four counters', () => {
+  assert.equal(TRAFFIC_TODAY_FLOW.strategy, 'page-api');
+  assert.equal(TRAFFIC_TODAY_FLOW.nav.url, TRAFFIC_OVERVIEW.nav.url);
+  assert.equal(TRAFFIC_TODAY_FLOW.apiUrl, '/sydney/api/mallFlow/queryMallFlowRtData');
+  assert.deepEqual(TRAFFIC_TODAY_FLOW.buildPayload({}), {});
+  const fixture = createTrafficFixtures()['endpoints/traffic.todayFlow.json'];
+  assert.deepEqual(TRAFFIC_TODAY_FLOW.normalize({ ...fixture, result: { ...fixture.result, extra: 'secret' } }),
+    { muvRt: 377, mpvRt: 912, guvRt: 350, gpvRt: 801 });
+  assert.throws(() => TRAFFIC_TODAY_FLOW.normalize({ result: null }), { code: 'E_NETWORK' });
+  assert.throws(() => TRAFFIC_TODAY_FLOW.normalize({ result: { muvRt: '' } }), { code: 'E_BUSINESS' });
+});
+
+it('queries cumulative trade for the given day and projects todayRtList rows only', () => {
+  assert.equal(TRAFFIC_TODAY_TRADE.strategy, 'page-api');
+  assert.equal(TRAFFIC_TODAY_TRADE.nav.url, TRAFFIC_OVERVIEW.nav.url);
+  assert.equal(TRAFFIC_TODAY_TRADE.apiUrl, '/sydney/api/mallTrade/queryMallTradeList');
+  assert.deepEqual(TRAFFIC_TODAY_TRADE.buildPayload({ queryDate: '2026-11-11' }), { queryType: 6, queryDate: '2026-11-11' });
+  const rows = TRAFFIC_TODAY_TRADE.normalize(createTrafficFixtures()['endpoints/traffic.todayTrade.json']);
+  assert.deepEqual(rows, [
+    { hr: '00', payOrdrAmt: 12.5, payOrdrCnt: 1, payOrdrUsrCnt: 1, payOrdrAup: 12.5, payUvRto: 0.0125 },
+    { hr: '01', payOrdrAmt: 745.364, payOrdrCnt: 39, payOrdrUsrCnt: 36, payOrdrAup: 19.112, payUvRto: 0.09549 },
+  ]);
+  assert.deepEqual(TRAFFIC_TODAY_TRADE.normalize({ result: { todayRtList: null } }), []);
+  assert.deepEqual(TRAFFIC_TODAY_TRADE.normalize({ result: {} }), []);
+});
+
+it.each([
+  [{ result: null }, 'E_NETWORK'], [{ result: { todayRtList: {} } }, 'E_NETWORK'],
+  [{ result: { todayRtList: [{ hr: '24' }] } }, 'E_NETWORK'], [{ result: { todayRtList: [{ hr: 1 }] } }, 'E_NETWORK'],
+  [{ result: { todayRtList: [{ hr: '01', payOrdrCnt: '' }] } }, 'E_BUSINESS'],
+])('rejects trade shape drift %j', (raw, code) => {
+  assert.throws(() => TRAFFIC_TODAY_TRADE.normalize(raw), { code });
 });
 
 it('flattens venus reports in order and converts bare li and object yuan to integer fen', () => {

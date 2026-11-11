@@ -12,6 +12,16 @@ export function createTrafficFixtures() {
       { statDate: end, uv: 20, pv: 30, guv: 18, gpv: 25, payOrdrUsrCnt: 4, payOrdrCnt: 5,
         payOrdrAmt: 23.45, payUvRto: 0.2, payOrdrAup: 4.69, uvCfmVal: 1.1725, uv1dPln: 8, uv1dOst: 25 },
     ]),
+    'endpoints/traffic.todayFlow.json': success({ muvRt: 377, mpvRt: 912, guvRt: 350, gpvRt: 801 }),
+    // todayRtList 为按小时累计；yesterdayRtList、退款字段与 *Pct 不在输出范围内
+    'endpoints/traffic.todayTrade.json': success({ dayList: null, delayData: false,
+      todayRtList: [
+        { hr: '00', payOrdrAmt: 12.5, payOrdrCnt: 1, payOrdrUsrCnt: 1, payOrdrAup: 12.5, payUvRto: 0.0125 },
+        { hr: '01', payOrdrAmt: 745.364, payOrdrCnt: 39, payOrdrUsrCnt: 36, payOrdrAup: 19.112, payUvRto: 0.09549,
+          sucRfOrdrAmt1d: null, sucRfOrdrCnt1d: null, mallFavCnt: 3, uvCfmVal: 1.98, payOrdrAmtPct: null },
+      ],
+      yesterdayRtList: [{ hr: '00', payOrdrAmt: 99, payOrdrCnt: 9, payOrdrUsrCnt: 9 }],
+      todayPerHourRtList: [{ hr: '01', payOrdrAmt: 732.86, payOrdrCnt: 38, payOrdrUsrCnt: 35 }] }),
   };
 }
 
