@@ -26,11 +26,12 @@ function toOnSale(value) {
   return null;
 }
 
+// 规格库存已由 GOODS_LIST.normalize 校验为非负有限数或 null，此处只做改名与在售语义转换
 function toSkuRecord(sku) {
   return {
     sku_id: sku?.skuId ?? null,
     spec: sku?.spec ?? null,
-    quantity: toFiniteNumber(sku?.skuQuantity),
+    quantity: sku?.skuQuantity ?? null,
     on_sale: toOnSale(sku?.isOnsale),
   };
 }

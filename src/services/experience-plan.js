@@ -14,7 +14,8 @@ export async function getExperiencePlanView(ctx, { days = EXPERIENCE_PLAN_REPORT
   return runReport(ctx, EXPERIENCE_PLAN_REPORT, { days, window: shanghaiDaysThroughToday }, async (report) => {
     const status = await runEndpoint(ctx.page, PLAN_STATUS, {}, ctx);
     const available = await runEndpoint(ctx.page, PLAN_AVAILABLE_INFO, {}, ctx);
-    const profits = await runEndpoint(ctx.page, PLAN_PROFITS, { days }, ctx);
+    const farDate = EXPERIENCE_PLAN_REPORT.days.choices[days];
+    const profits = await runEndpoint(ctx.page, PLAN_PROFITS, { farDate }, ctx);
     const list = await runEndpoint(ctx.page, PLAN_ORDER_INSURANCE_LIST, { page,
       createBeginTime: report.window.startMs, createEndTime: report.window.endMs }, ctx);
     report.hint('count_caliber');
