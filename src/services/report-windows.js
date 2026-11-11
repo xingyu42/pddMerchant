@@ -25,3 +25,9 @@ export function rollingSecondsWindow(days, now = Date.now()) {
   const endTime = Math.floor(now / 1000);
   return { startTime: endTime - days * DAY_SECONDS, endTime };
 }
+
+// 上海自然日窗口，含今天：[今天减 days-1 天 00:00:00, 今天 23:59:59.999]，毫秒。
+export function shanghaiDaysThroughToday(days, now = Date.now()) {
+  const todayStart = Math.floor((now + SHANGHAI_OFFSET_MS) / DAY_MS) * DAY_MS - SHANGHAI_OFFSET_MS;
+  return { days, startMs: todayStart - (days - 1) * DAY_MS, endMs: todayStart + DAY_MS - 1 };
+}
