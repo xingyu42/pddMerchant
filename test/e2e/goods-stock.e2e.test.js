@@ -13,27 +13,35 @@ function runStock(goodsList, args = []) {
   return result.envelope.data;
 }
 
-it('lists every sku of an alerted goods with id, spec, stock and on-sale flag', () => {
+it('lists every sku of an alerted goods with id, spec, stock, on-sale flag and low-stock flag', () => {
   const data = runStock([createUpstreamGoods()]);
   assert.equal(data.items.length, 1);
+  assert.equal(data.items[0].low_stock_sku_count, 1);
   assert.deepEqual(data.items[0].skus, [
-    { sku_id: '1011', spec: '红色-M', quantity: 6, on_sale: true },
-    { sku_id: '1012', spec: '蓝色-L', quantity: 4, on_sale: false },
+    { sku_id: '1011', spec: '红色-M', quantity: 6, on_sale: true, low_stock: true },
+    { sku_id: '1012', spec: '蓝色-L', quantity: 4, on_sale: false, low_stock: false },
   ]);
-  assert.deepEqual(data.headline, ['本页扫描 1 件商品（在售共 1 件）', '库存不高于 10 的商品 1 件（其中缺货 0 件）']);
+  assert.deepEqual(data.headline, [
+    '本页扫描 1 件商品（在售共 1 件）',
+    '库存不高于 10 的商品 1 件（其中缺货 0 件）',
+    '库存不高于 10 的在售规格 1 个（其中缺货 0 个），总库存高于 10、因规格库存进入告警的商品 0 件',
+  ]);
 });
 
-it('marks sku data unavailable as null, keeps zero skus as an empty list, and counts unavailable goods in headline', () => {
+it('judges goods without sku data by total stock only and reports null sku counts', () => {
   const data = runStock([
     createUpstreamGoods({ goods_id: 101, sku_list: undefined }),
     createUpstreamGoods({ goods_id: 102, quantity: 0, sku_list: 'unexpected' }),
     createUpstreamGoods({ goods_id: 103, sku_list: [] }),
     createUpstreamGoods({ goods_id: 104, quantity: 50, sku_list: undefined }),
   ]);
-  assert.deepEqual(data.items.map((item) => [item.goods_id, item.skus]), [['101', null], ['102', null], ['103', []]]);
+  assert.deepEqual(data.items.map((item) => [item.goods_id, item.skus, item.low_stock_sku_count]), [
+    ['101', null, null], ['102', null, null], ['103', [], 0],
+  ]);
   assert.deepEqual(data.headline, [
     '本页扫描 4 件商品（在售共 4 件）',
     '库存不高于 10 的商品 3 件（其中缺货 1 件）',
+    '库存不高于 10 的在售规格 0 个（其中缺货 0 个），总库存高于 10、因规格库存进入告警的商品 0 件',
     '规格数据缺失的告警商品 2 件',
   ]);
 });
@@ -73,4 +81,53 @@ it('keeps goods list output unchanged when upstream goods carry sku data', () =>
   const data = list(createUpstreamGoods());
   assert.deepEqual(data, list(createUpstreamGoods({ sku_list: undefined })));
   assert.equal('skus' in data.items[0], false);
+});
+
+it('alerts goods whose total stock is above threshold when an on-sale sku is at or below it', () => {
+  const data = runStock([
+    createUpstreamGoods({ goods_id: 101, quantity: 50, sku_list: [
+      createUpstreamSku({ skuId: 1011, skuQuantity: 3 }),
+      createUpstreamSku({ skuId: 1012, skuQuantity: 30 }),
+      createUpstreamSku({ skuId: 1013, skuQuantity: 10 }),
+    ] }),
+    createUpstreamGoods({ goods_id: 102, quantity: 50, sku_list: [createUpstreamSku({ skuQuantity: 11 })] }),
+  ]);
+  assert.deepEqual(data.items.map((item) => [item.goods_id, item.low_stock_sku_count]), [['101', 2]]);
+  assert.deepEqual(data.items[0].skus.map((sku) => [sku.sku_id, sku.low_stock]), [['1011', true], ['1012', false], ['1013', true]]);
+  assert.deepEqual(data.headline, [
+    '本页扫描 2 件商品（在售共 2 件）',
+    '库存不高于 10 的商品 0 件（其中缺货 0 件）',
+    '库存不高于 10 的在售规格 2 个（其中缺货 0 个），总库存高于 10、因规格库存进入告警的商品 1 件',
+  ]);
+});
+
+it('does not alert on low skus that are off sale, have unknown on-sale flag, or miss stock', () => {
+  const { isOnsale: _unknown, ...unknownOnSale } = createUpstreamSku({ skuId: 1012, skuQuantity: 1 });
+  const { skuQuantity: _missing, ...missingStock } = createUpstreamSku({ skuId: 1013 });
+  const data = runStock([
+    createUpstreamGoods({ goods_id: 101, quantity: 50, sku_list: [createUpstreamSku({ skuId: 1011, skuQuantity: 2, isOnsale: 0 })] }),
+    createUpstreamGoods({ goods_id: 102, quantity: 50, sku_list: [unknownOnSale] }),
+    createUpstreamGoods({ goods_id: 103, quantity: 50, sku_list: [missingStock] }),
+    createUpstreamGoods({ goods_id: 104, quantity: 5, sku_list: [missingStock] }),
+  ]);
+  assert.deepEqual(data.items.map((item) => [item.goods_id, item.low_stock_sku_count]), [['104', 0]]);
+  assert.deepEqual(data.items[0].skus.map((sku) => [sku.sku_id, sku.quantity, sku.low_stock]), [['1013', null, false]]);
+  assert.equal(data.headline[2], '库存不高于 10 的在售规格 0 个（其中缺货 0 个），总库存高于 10、因规格库存进入告警的商品 0 件');
+});
+
+it('alerts on an on-sale sku with zero stock as sold out and applies --threshold to skus', () => {
+  const data = runStock([
+    createUpstreamGoods({ goods_id: 101, quantity: 40, sku_list: [
+      createUpstreamSku({ skuId: 1011, skuQuantity: 0 }),
+      createUpstreamSku({ skuId: 1012, skuQuantity: 3 }),
+      createUpstreamSku({ skuId: 1013, skuQuantity: 37 }),
+    ] }),
+    createUpstreamGoods({ goods_id: 102, quantity: 2, sku_list: [createUpstreamSku({ skuId: 1021, skuQuantity: 2 })] }),
+  ], ['--threshold', '3']);
+  assert.deepEqual(data.items.map((item) => [item.goods_id, item.low_stock_sku_count]), [['101', 2], ['102', 1]]);
+  assert.deepEqual(data.items[0].skus.map((sku) => sku.low_stock), [true, true, false]);
+  assert.deepEqual(data.headline.slice(1), [
+    '库存不高于 3 的商品 1 件（其中缺货 0 件）',
+    '库存不高于 3 的在售规格 3 个（其中缺货 1 个），总库存高于 3、因规格库存进入告警的商品 1 件',
+  ]);
 });

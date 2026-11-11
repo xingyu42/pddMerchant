@@ -9,10 +9,10 @@ export const GOODS_VIEW_FIELDS = Object.freeze([
   'promotion',
 ]);
 
-// goods stock 专用：商品视图字段之后追加规格明细；goods list 的商品视图字段不变
-export const GOODS_STOCK_ITEM_FIELDS = Object.freeze([...GOODS_VIEW_FIELDS, 'skus']);
+// goods stock 专用：商品视图字段之后追加低库存规格数与规格明细；goods list 的商品视图字段不变
+export const GOODS_STOCK_ITEM_FIELDS = Object.freeze([...GOODS_VIEW_FIELDS, 'low_stock_sku_count', 'skus']);
 
-export const GOODS_STOCK_SKU_FIELDS = Object.freeze(['sku_id', 'spec', 'quantity', 'on_sale']);
+export const GOODS_STOCK_SKU_FIELDS = Object.freeze(['sku_id', 'spec', 'quantity', 'on_sale', 'low_stock']);
 
 export const GOODS_PROMOTION_VIEW_FIELDS = Object.freeze(['name', 'price_min_yuan', 'price_max_yuan']);
 
@@ -59,13 +59,15 @@ function toStockSkuView(sku) {
     spec: text(sku?.spec),
     quantity: toFiniteNumber(sku?.quantity),
     on_sale: typeof sku?.on_sale === 'boolean' ? sku.on_sale : null,
+    low_stock: sku?.low_stock === true,
   };
 }
 
-// 规格数据不可用（记录 skus 非数组）→ skus: null
+// 规格数据不可用（记录 skus 非数组）→ skus 与 low_stock_sku_count 均为 null
 export function toGoodsStockView(record) {
   const skus = Array.isArray(record?.skus) ? record.skus.map(toStockSkuView) : null;
-  return { ...toGoodsView(record), skus };
+  const lowStockSkuCount = skus === null ? null : skus.filter((sku) => sku.low_stock).length;
+  return { ...toGoodsView(record), low_stock_sku_count: lowStockSkuCount, skus };
 }
 
 // free_province_need 无值域证据，不输出
