@@ -1,9 +1,5 @@
 import { responseShapeError } from '../../infra/errors.js';
-
-function project(item, fields) {
-  return Object.fromEntries(fields.filter((field) => Object.hasOwn(item, field))
-    .map((field) => [field, item[field]]));
-}
+import { pickFields } from './_shared.js';
 
 function collection(result, key, endpoint) {
   if (!Array.isArray(result?.[key]) || result[key].some((item) => !item || typeof item !== 'object')) {
@@ -19,7 +15,7 @@ function reviewText(value) {
 
 function review(item) {
   return {
-    ...project(item, ['goodsId', 'createTime', 'descScore', 'logisticsScore', 'serviceScore', 'score', 'comment']),
+    ...pickFields(item, ['goodsId', 'createTime', 'descScore', 'logisticsScore', 'serviceScore', 'score', 'comment']),
     appendReview: reviewText(item.appendReview),
     keywords: Array.isArray(item.keywords) ? item.keywords.map((tag) =>
       typeof tag === 'string' ? tag : tag?.keywordName).filter((tag) => typeof tag === 'string') : [],
@@ -43,11 +39,11 @@ function endpoint(name, suffix, normalize) {
 
 export const REVIEWS_KEYWORD_AGG = endpoint('keywordAgg', 'keywords/agg', (raw) =>
   Object.fromEntries(['positiveKeywordList', 'negativeKeywordList'].map((key) =>
-    [key, collection(raw?.result, key, 'reviews.keywordAgg').map((item) => project(item, ['keywordName', 'num']))])));
+    [key, collection(raw?.result, key, 'reviews.keywordAgg').map((item) => pickFields(item, ['keywordName', 'num']))])));
 
 export const REVIEWS_TYPE_AGG = endpoint('typeAgg', 'type/agg', (raw) => ({
   typeList: collection(raw?.result, 'typeList', 'reviews.typeAgg')
-    .map((item) => project(item, ['typeName', 'positive', 'negative', 'proportion'])),
+    .map((item) => pickFields(item, ['typeName', 'positive', 'negative', 'proportion'])),
 }));
 
 export const REVIEWS_LIST = {

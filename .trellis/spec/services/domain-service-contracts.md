@@ -84,12 +84,14 @@ export function toOrderView(raw) {
 - Service MUST NOT call `console.log`、write stdout、or build full envelope。
 - Service MAY throw `PddCliError` with correct `ExitCodes` for domain validation/business failures。
 - Raw endpoint payload MUST be normalized before returning to command layer。
-- Command-facing results MUST go through a view in `src/services/views/`: whitelist projection (each entity view exports a `*_VIEW_FIELDS` list that equals the emitted key set), unit conversion (`src/infra/units.js`), Chinese labels and a factual `headline`. Upstream extra fields MUST NOT change the output; PII (receiver name / phone / address, `deliveryManPhone`, `refundAddressInfo` …) MUST NOT be projected。
+- Command-facing results MUST go through a view in `src/services/views/`: whitelist projection (each entity view exports a `*_VIEW_FIELDS` list that equals the emitted key set), unit conversion (`src/infra/units.js`), Chinese labels and a factual `headline`. Upstream extra fields MUST NOT change the output; PII (receiver name / phone / contact phone / nickname / detailed address such as `consumerAddress`, `deliveryManPhone`, `refundAddressInfo` …) MUST NOT be projected。
+- Order region (D5 revision, 2026-11, `.scratch/order-region/spec.md`): `orders list` items and the `orders detail` order MAY output `province` / `city` / `district`, taken only from upstream `province_name` / `city_name` / `district_name` via `text()` (missing or empty string → null). Region `*_id` codes, street, postcode and full addresses stay excluded, and the view MUST NOT parse region from `consumerAddress` or other address fields. Every other D5 exclusion is unchanged。
 - Internal calculators (`computeOrderStats`、`segmentGoods`、`analyzePromoRoi`、`summarize*`、`listGoods`、`listOrders`) keep internal codes and raw-ish numbers and MAY be reused by other services; only the view layer translates them. Field facts come from `.trellis/tasks/10-07-domain-view-contract-v2/research/upstream-schema-2026-10.md` (orders/goods money in fen, unix seconds with `0` = not happened)。
 - Shared enum → Chinese tables live in `src/services/views/labels.js`; single-view tables live beside their owning view. Report hint tables live in each view's report declaration. Unknown enum codes render `未知(<code>)` via `labelOf`; unregistered report hint keys throw `E_INTERNAL` instead of emitting a missing label。Order status uses upstream `order_status_str` (no self-built status table)。
 - Order quantity upstream field is `goods_number`; inventory/segment `readQuantity` reads `quantity ?? goods_number ?? goods_quantity ?? goodsQuantity`。
 - Reused calculations such as ROI、segmentation、inventory matching MUST have one owner module and tests。
 - Goods list identity MUST map `goods_id ?? goodsId ?? id ?? null` at both endpoint and service boundaries, preserving numeric/string IDs. A remaining null identity indicates upstream shape drift or a mapping regression, not normal behavior. Inventory matching MUST retain the `goods_name` fallback and may report internal `matched_by: 'mixed'` when identity is unavailable (output label `按商品名匹配（一侧缺少商品 ID）`)。
+- Goods stock SKU (2026-11, `.scratch/sku-stock/spec.md`): `GOODS_LIST.normalize` projects `sku_list[]` to `skuId` / `spec` / `skuQuantity` (non-negative finite or null) / raw `isOnsale`; missing or non-array `sku_list` → null (distinct from `[]`). `services/goods.js` alone maps `isOnsale` (true/1/'1' → true, false/0/'0' → false, else null), sets `low_stock` (on sale AND known quantity ≤ threshold) and computes `low_stock_sku_count` once; `toGoodsStockView` only projects `GOODS_STOCK_ITEM_FIELDS` / `GOODS_STOCK_SKU_FIELDS`. `goods list` output is unchanged. `items` = total quantity ≤ threshold OR `low_stock_sku_count > 0`; `low_stock_count` counts only the former and MAY differ from `items.length`; the headline's SKU-trigger line counts the rest (total above threshold or null), so the two lines sum to `items.length`. 缺货 means quantity `<= 0` at both goods and SKU level。
 - Inventory `detail.data_quality` and segmentation `summary.data_quality` MUST distinguish `goods_complete`, `orders_complete` and each scan's truncated/rate-limited flags. Forward `goodsTotal`, `goodsScanTruncated`, and `goodsScanRateLimited` along with order flags.
 - Incomplete segmentation uses internal `data_completeness` codes `partial_goods`, `partial_orders`, or `partial_goods_orders` (output as Chinese labels, see table below). Incomplete orders make `units_sold` (window given by top-level `window_days`; formerly `units_sold_30d`) and `stock_days` null; `observed_units_sold` preserves observed sales, not an estimate of the missing portion.
 - Queries MUST NOT generate operating advice, grades, scores, ranks, or good/bad promo classifications. The action-plan service is removed.
@@ -298,6 +300,7 @@ Correct：内部 page 与 pageNo 同步，buildPayload 保留精确请求格式�
 ### 3. Contracts
 
 - 全店 days 为 1-30 整数；先 `traffic.readyTime` 再 `traffic.overviewList`，page-api POST `/sydney/api/mallFlow/queryMallFlowOverViewReadyTime`（空请求；三个流量端点均以 `success: true` 且 errorCode ∈ `SUCCESS_BUSINESS_CODES`（0/1000000）为成功）及 `queryMallFlowOverViewList`（beginDate/endDate）。截止日取 readyTime，逐日行及同行均值/优秀值映射由 `views/traffic.js` 拥有；只汇总访客、订单、金额，提示访客跨日重复；窗口内无返回统计日时 summary 各项为 null，返回日数少于窗口天数时追加提示。
+- 今日实时区块（2026-11, `.scratch/realtime-data/issues/02-shop-today.md`）：逐日数据之后经 `collectToday(report, collect)`（`services/today.js`）调用 `traffic.todayFlow`（POST `/sydney/api/mallFlow/queryMallFlowRtData`，空请求，投影 `muvRt`/`mpvRt`/`guvRt`/`gpvRt`）与 `traffic.todayTrade`（POST `/sydney/api/mallTrade/queryMallTradeList`，`{ queryType: 6, queryDate: <上海今天> }`，`todayRtList[]` 按小时累计，`hr` 必须为 "00".."23"）。`data.today` 字段为 `TRAFFIC_TODAY_FIELDS`：`snapshot_at`（CLI 抓取时间，上游不返回快照时间）、`as_of_hour`（最新累计行 `hr`）、四项流量实时值、最新累计行的成交字段、`hourly[]`（`TRAFFIC_TODAY_HOURLY_FIELDS`）；两接口刷新时点不同，不交叉计算。无累计行时成交字段 null、`hourly: []`。`report.optional('today_unavailable')` 语义：普通 `PddCliError`（E_NETWORK / E_BUSINESS / E_RATE_LIMIT 等）→ `today: null` + 提示，逐日数据照常；E_TIMEOUT、E_INTERNAL、取消与程序异常透传。
 - 商品 days 仅 1/7/30 → queryType 0/1/2；窗口与全店相同，截止日取 `traffic.readyTime`（结束日晚于就绪日时平台返回空列表）。`traffic.goodsDetailList` page-api POST `/sydney/api/goodsDataShow/queryGoodsDetailVOList`，参数 startDate/endDate/queryType/sortCol:0/sortType:1/pageNum/pageSize:50/goodsId?，省略 actVs。按 totalNum 翻页，最多 20 页。行白名单在 `views/goods-traffic.js`；数值字段（含 goodsId）中的 PUA 字符触发 E_BUSINESS，商品名、类目等原文字段不做该检测。
 - `promo.goodsPromotionList` 复用 fetch 请求体合并策略，保留页面生成签名。POST `/mms-gateway/venus/api/goods/promotion/v3/list`：beginDate/endDate/blockType:3/clientType:1/pageNumber/pageSize:50/filter.searchKeyV2（当前批商品 ID 逗号拼接）/sortBy:9999/orderBy:9999/scenesMode:1 或 3/withTagsInfo:true。每批最多 50 个商品，每场景最多 20 页；只累加当前批的商品，阻止上游忽略过滤条件时重复归属。
 - adapter 依次展开 optimizationMessage/reportInfo/reportInfo2；空串视为缺失，金额对象读取 value（无 unit/YUAN 按元，FEN 除 100，PERCENT 除 unitCode 或 100；其他单位输出 null 并追加 promo_unknown_unit 提示，与 promo.js MoneyVO 一致），裸数字厘除 1000，转整数分后累计。adInfos:null 且 totalAdNum:0 为未开通；未知金额传播 null。
@@ -313,11 +316,39 @@ Good：两场景直接成交 1.23 元各一条，合计 2.46 元，再从商品�
 
 ### 6. Tests Required
 
-`traffic-contract.test.js`：请求、PUA、缺集合、金额形态、空串回退、未开通。`traffic-view.test.js`：白名单、百分数、金额、null、同行映射。`traffic.test.js`：窗口、原生 queryType、双场景、跨批归属、分页、失败降级和异常传播。两条 fixture e2e 和 data-contract-v2 的 items[] 字段集覆盖最终 JSON。
+`traffic-contract.test.js`：请求、PUA、缺集合、金额形态、空串回退、未开通、今日两端点。`traffic-view.test.js`：白名单、百分数、金额、null、同行映射、today 区块。`today.test.js`：上海日期、抓取时间、降级与透传。`traffic.test.js`：窗口、原生 queryType、双场景、跨批归属、分页、失败降级和异常传播。两条 fixture e2e 和 data-contract-v2 的 items[] 字段集覆盖最终 JSON。
 
 ### 7. Wrong vs Correct
 
 Wrong：total - (direct + indirect)，推广失败时输出 0。Correct：仅减 direct，失败时输出 null 并标记 promo_complete:false。
+
+## Scenario: Consumer Experience Plan Fee
+
+### 1. Scope / Trigger
+
+适用于 `diagnose.experience-plan`（`.scratch/experience-plan-fee/issues/02-fee-readonly-query.md`）：只读查询消费者体验提升计划（退货包运费）状态、费率、计数与逐单收费记录。同模块写接口（`close_service`、`pause_service`、`openService`、`refreshServiceStatus`）一律不接入。
+
+### 2. Signatures
+
+```js
+getExperiencePlanView(ctx, { days = 7, page = 1 } = {}) // src/services/experience-plan.js; returns { data, warnings }
+toExperiencePlanView({ status, available, profits, list }, { window, page, hints, mallId = null }) // views/experience-plan.js
+```
+
+CLI：`pdd diagnose experience-plan [--days 1|7|30] [--page 1]`，`needsAuth:true`、`needsMall:'switch'`。四个 page-api 端点导航 `https://mms.pinduoduo.com/freight/return_freight`，成功码为 `success:true` 且 `errorCode` 为 `0`（page-api 合成外壳）或 `1000`（浏览器抓包）。
+
+### 3. Contracts
+
+- 窗口为 `shanghaiDaysThroughToday(days)`：上海今天减 days-1 天 00:00:00 至今天 23:59:59.999（毫秒）。`EXPERIENCE_PLAN_REPORT.days.choices` 是 days → `profits.farDate` 的唯一来源（`{ farDate, closerDate: 0 }`）。
+- `order_insurance_list` 请求与页面默认一致：`{ pageSize: 10, pageNumber: page-1, queryFeeStatusList: [1, 2], clientType: 1, createBeginTime, createEndTime }`（1 待收费、2 收费成功，不含 3 收费取消；按创建时间筛选，不用 shippingBeginTime/EndTime）。
+- `data` 字段为 `EXPERIENCE_PLAN_FIELDS`：`headline`、`window`、`plan_status`、`today_fee_per_order_yuan`、`charged_order_count`、`compensated_order_count`、`items`、`total`、`page`、`hints`、`mall_id`（`mallIdOf(ctx)`，与其他 diagnose 一致）。`items[]` 为 `EXPERIENCE_PLAN_ITEM_FIELDS`；`batchSn`、`sn`、`mallId`、`uid` 不投影。
+- **枚举例外**：`plan_status` 输出上游 `configStatus` 原值（数字），不转中文标签。只见过样本 1 = 计划生效中，其余取值无标签证据；在取得证据前保持原值，headline 标注「平台原值」。这是「enums are output as Chinese labels」的显式例外，不适用于其他字段（`service_status` 按 1/2/3 标签输出，未登记码 `未知(<code>)`）。
+- 金额对象仅 `unit === 'YUAN'` 时按字符串精确解析（`parseYuanToFen`）；其他或缺失单位输出 null 并按单位去重写入 `meta.warnings`。该解析与 promo MoneyVO 语义不同，不共用。
+- 汇总计数与列表 `total` 原样分别输出，不互相校正；`count_caliber` 提示说明口径差异。任一端点失败整条命令失败。
+
+### 4. Tests Required
+
+`experience-plan-contract.test.js`（端点路径、请求体、成功码、白名单、缺形态拒绝）、`experience-plan.test.js`（请求参数、days → farDate、mall_id、days 校验）、`experience-plan-view.test.js`（字段集、金额单位、null、headline）、`experience-plan.e2e.test.js` 与 data-contract-v2（`''`、`window`、`items[]` 字段集）。
 
 ## Scenario: Goods Cost and Net Profit
 

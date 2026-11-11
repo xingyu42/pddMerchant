@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 49
-- **Last Active**: 2026-11-08
+- **Total Sessions**: 50
+- **Last Active**: 2026-11-11
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1531 | Active |
+| `journal-1.md` | ~1554 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 50 | 2026-11-11 | 修订 D5：订单输出省市区 | `64bf883` | `feat/region-sku-stock` |
 | 49 | 2026-11-08 | knip 无用 export 清零，lint 纳入 exports/types/duplicates | `729f26c`, `da41602`, `6352107`, `4632d44`, `924464f`, `64319a6`, `e73be92`, `720e740` | `main` |
 | 48 | 2026-11-08 | Retro：goods receipt 会话环境改进（守卫、knip、CI、审查入口） | `33094ed`, `f3e374d`, `5cbebe1`, `85a14b7`, `7a629b8`, `814a57a`, `fb4066d` | `main` |
 | 47 | 2026-11-07 | 架构加深清单落地并合并 | `cad0ad5`, `9f08bd3`, `d8b0117` | `main` |

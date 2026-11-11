@@ -21,6 +21,8 @@ beforeEach(() => {
   vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-31T17:00:00Z'));
   mock.handler = (name) => {
     if (name === 'traffic.overviewList') return [{ statDate: '2024-03-01', uv: 1 }];
+    if (name === 'traffic.todayFlow') return { muvRt: 1 };
+    if (name === 'traffic.todayTrade') return [];
     if (name === 'traffic.goodsDetailList') return { total: 1, items: [goods] };
     return { items: [promo] };
   };

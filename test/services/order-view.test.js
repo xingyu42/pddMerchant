@@ -29,6 +29,9 @@ const EXPECTED_ORDER_VIEW = Object.freeze({
   tracking_number: 'SYNTRACK001',
   buyer_memo: null,
   after_sales_status: null,
+  province: 'SYN-PROVINCE',
+  city: 'SYN-CITY',
+  district: 'SYN-DISTRICT',
 });
 
 describe('order view projection', () => {
@@ -41,11 +44,19 @@ describe('order view projection', () => {
   it('ignores unknown upstream fields and never leaks PII', () => {
     const noisy = createUpstreamOrder({
       unknownFlag: 1, orderStatusDesc: 'x', extra: { nested: true }, receiver_phone: 'SYN-EXTRA-PHONE',
+      province_id: 'SYN-PROVINCE-ID', city_id: 'SYN-CITY-ID', district_id: 'SYN-DISTRICT-ID',
     });
     const view = toOrderView(noisy);
     assert.deepEqual(view, EXPECTED_ORDER_VIEW);
     const serialized = JSON.stringify(view);
-    for (const value of [...SYNTHETIC_PII_VALUES, 'SYN-EXTRA-PHONE']) assert.equal(serialized.includes(value), false);
+    for (const value of [...SYNTHETIC_PII_VALUES, 'SYN-EXTRA-PHONE', 'SYN-PROVINCE-ID']) {
+      assert.equal(serialized.includes(value), false, value);
+    }
+  });
+
+  it('keeps empty-string region names null', () => {
+    const view = toOrderView(createUpstreamOrder({ province_name: '', city_name: ' ', district_name: '' }));
+    assert.deepEqual([view.province, view.city, view.district], [null, null, null]);
   });
 
   it('keeps every absent field null instead of inventing zero', () => {

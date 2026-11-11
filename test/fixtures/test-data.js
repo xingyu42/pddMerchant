@@ -12,6 +12,16 @@ export function createTrafficFixtures() {
       { statDate: end, uv: 20, pv: 30, guv: 18, gpv: 25, payOrdrUsrCnt: 4, payOrdrCnt: 5,
         payOrdrAmt: 23.45, payUvRto: 0.2, payOrdrAup: 4.69, uvCfmVal: 1.1725, uv1dPln: 8, uv1dOst: 25 },
     ]),
+    'endpoints/traffic.todayFlow.json': success({ muvRt: 377, mpvRt: 912, guvRt: 350, gpvRt: 801 }),
+    // todayRtList 为按小时累计；yesterdayRtList、退款字段与 *Pct 不在输出范围内
+    'endpoints/traffic.todayTrade.json': success({ dayList: null, delayData: false,
+      todayRtList: [
+        { hr: '00', payOrdrAmt: 12.5, payOrdrCnt: 1, payOrdrUsrCnt: 1, payOrdrAup: 12.5, payUvRto: 0.0125 },
+        { hr: '01', payOrdrAmt: 745.364, payOrdrCnt: 39, payOrdrUsrCnt: 36, payOrdrAup: 19.112, payUvRto: 0.09549,
+          sucRfOrdrAmt1d: null, sucRfOrdrCnt1d: null, mallFavCnt: 3, uvCfmVal: 1.98, payOrdrAmtPct: null },
+      ],
+      yesterdayRtList: [{ hr: '00', payOrdrAmt: 99, payOrdrCnt: 9, payOrdrUsrCnt: 9 }],
+      todayPerHourRtList: [{ hr: '01', payOrdrAmt: 732.86, payOrdrCnt: 38, payOrdrUsrCnt: 35 }] }),
   };
 }
 
@@ -94,9 +104,10 @@ export const SAMPLE_LIST_STATS = Object.freeze({
 
 // 上游 recentOrderList.pageItems[] 的真实字段结构（research/upstream-schema-2026-10.md §1），值均为合成数据。
 // 金额为分、时间为 unix 秒（0 = 未发生）；含平台内部噪声字段与 PII 字段，用于证明视图白名单丢弃它们。
+// 省 / 市 / 区名称（province_name / city_name / district_name）可输出（D5 修订），不在此列。
 export const SYNTHETIC_PII_VALUES = Object.freeze([
-  'SYN-RECEIVER', 'SYN-MOBILE-13800000000', 'SYN-CONTACT-MOBILE', 'SYN-NICK', 'SYN-PROVINCE',
-  'SYN-CITY', 'SYN-DISTRICT', 'SYN-ADDRESS', 'SYN-REFUND-ADDR', 'SYN-REFUND-PHONE',
+  'SYN-RECEIVER', 'SYN-MOBILE-13800000000', 'SYN-CONTACT-MOBILE', 'SYN-NICK',
+  'SYN-ADDRESS', 'SYN-REFUND-ADDR', 'SYN-REFUND-PHONE',
   'SYN-SHIPPING-PHONE', 'SYN-DELIVERY-PHONE',
 ]);
 
@@ -127,14 +138,15 @@ export function createUpstreamOrder(overrides = {}) {
     waybillDTOList: [{ shippingName: 'SYN 快递', shippingPhone: 'SYN-SHIPPING-PHONE' }],
     // 平台内部噪声字段
     isLuckyFlag: 0, mallRemarkTag: null, groupStatus: 1, risk_status: 0, showPrepareTag: false,
+    // 收货省 / 市 / 区名称（D5 修订：可输出）
+    province_name: 'SYN-PROVINCE',
+    city_name: 'SYN-CITY',
+    district_name: 'SYN-DISTRICT',
     // PII（D5：不得进入视图）
     receive_name: 'SYN-RECEIVER',
     receive_mobile: 'SYN-MOBILE-13800000000',
     contactMobile: 'SYN-CONTACT-MOBILE',
     nickname: 'SYN-NICK',
-    province_name: 'SYN-PROVINCE',
-    city_name: 'SYN-CITY',
-    district_name: 'SYN-DISTRICT',
     consumerAddress: 'SYN-ADDRESS',
     refundAddressInfo: { address: 'SYN-REFUND-ADDR', phone: 'SYN-REFUND-PHONE' },
     deliveryManPhone: 'SYN-DELIVERY-PHONE',
@@ -157,6 +169,19 @@ export function createUpstreamGoods(overrides = {}) {
     },
     mall_id: 900001,
     thumb_url: 'https://example.invalid/thumb.jpg', is_onsale: 1, out_goods_sn: 'SYN-OUT', sold_quantity: 3,
+    sku_list: [
+      createUpstreamSku(),
+      createUpstreamSku({ skuId: 1012, spec: '蓝色-L', skuQuantity: 4, isOnsale: 0 }),
+    ],
+    ...overrides,
+  };
+}
+
+// 上游 goods_list[].sku_list[] 的合成规格：字段名来自 issue #3 的真实响应观察，另含平台噪声字段
+export function createUpstreamSku(overrides = {}) {
+  return {
+    skuId: 1011, spec: '红色-M', skuQuantity: 6, isOnsale: 1,
+    thumbUrl: 'https://example.invalid/sku.jpg', skuPrice: 1590, outSkuSn: 'SYN-SKU-OUT',
     ...overrides,
   };
 }
@@ -258,6 +283,37 @@ export function createExperienceFixtures() {
     'endpoints/experience.navigatorInfo.json': success(createUpstreamExperience()),
     'endpoints/experience.navigatorReadyDate.json': success('2026-10-30'),
     'endpoints/experience.navigatorList.json': success(rows),
+  };
+}
+
+// 消费者体验提升计划服务费：rfreight 模块成功码为 1000；订单号、收费编号均为合成值
+const rfreightSuccess = (result) => ({ success: true, errorCode: 1000, errorMsg: null, result });
+const yuanVO = (value, unit = 'YUAN') => ({ unit, value, unitCode: 1 });
+
+export function createUpstreamOrderInsurance(overrides = {}) {
+  return {
+    orderSn: 'SYN-PLAN-ORDER-1', sn: 'SYN-PLAN-ORDER-1-MI', batchSn: 'SYN-PLAN-BATCH-1', mallId: 'SYN-PLAN-MALL',
+    uid: 'SYN-PLAN-UID', serviceAmountVO: yuanVO('1.11'), costVO: yuanVO('1.11'), status: 2,
+    feeStatusDesc: '收费成功', displayStatus: 1, effectiveTime: 1762500000000, ineffectiveTime: 0,
+    shippingTime: 1762490000000, isFree: false, hasDiscount: false, discount: null, insuranceMode: 1, ...overrides,
+  };
+}
+
+export function createExperiencePlanFixtures({ configStatus = 1, price = yuanVO('1.11'),
+  orderCount = 209, compensationCount = 3, total = 203, rows } = {}) {
+  const items = rows ?? [
+    createUpstreamOrderInsurance(),
+    createUpstreamOrderInsurance({ orderSn: 'SYN-PLAN-ORDER-2', sn: 'SYN-PLAN-ORDER-2-MI', batchSn: 'SYN-PLAN-BATCH-2',
+      serviceAmountVO: yuanVO('0.90'), displayStatus: 3, effectiveTime: 1762600000000, isFree: true }),
+    createUpstreamOrderInsurance({ orderSn: 'SYN-PLAN-ORDER-3', sn: 'SYN-PLAN-ORDER-3-MI', batchSn: 'SYN-PLAN-BATCH-3',
+      displayStatus: 9, feeStatusDesc: '待收费', effectiveTime: null, shippingTime: null, isFree: null }),
+  ];
+  return {
+    'endpoints/experiencePlan.status.json': rfreightSuccess({ configStatus, restartTime: 0, pauseRestartMode: 0 }),
+    'endpoints/experiencePlan.availableInfo.json': rfreightSuccess({ normalService: { algoDailyStrategy: {
+      priceType: 1, price, smallPrice: price, largePrice: price } } }),
+    'endpoints/experiencePlan.profits.json': rfreightSuccess({ orderCount, compensationCount }),
+    'endpoints/experiencePlan.orderInsuranceList.json': rfreightSuccess({ total, orderInsurances: items }),
   };
 }
 

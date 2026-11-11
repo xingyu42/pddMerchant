@@ -1,5 +1,6 @@
 import { ExitCodes, PddCliError, responseShapeError } from '../../infra/errors.js';
 import { toFiniteNumber } from '../../infra/units.js';
+import { resultObject } from './_shared.js';
 
 const FLOW_FIELDS = ['uv', 'pv', 'guv', 'gpv', 'payOrdrUsrCnt', 'payOrdrCnt', 'payOrdrAmt', 'payUvRto', 'payOrdrAup', 'uvCfmVal'];
 const FLOW_METRIC_FIELDS = FLOW_FIELDS.flatMap((key) => [key, `${key}1dPln`, `${key}1dOst`]);
@@ -64,3 +65,24 @@ export const GOODS_TRAFFIC_LIST = {
     ...(goodsId == null ? {} : { goodsId }),
   })), fixtureListKey: 'result.goodsDetailList',
 };
+
+// 今日实时：两个接口刷新时点不同（交易累计约落后 1 小时），上游均不返回快照时间。
+const TODAY_FLOW_FIELDS = ['muvRt', 'mpvRt', 'guvRt', 'gpvRt'];
+const TODAY_TRADE_FIELDS = ['payOrdrAmt', 'payOrdrCnt', 'payOrdrUsrCnt', 'payOrdrAup', 'payUvRto'];
+
+export const TRAFFIC_TODAY_FLOW = endpoint('traffic.todayFlow', '/sydney/api/mallFlow/queryMallFlowRtData',
+  '/sycm/search_data/plate', (raw) => project(raw?.result, TODAY_FLOW_FIELDS, TODAY_FLOW_FIELDS, 'traffic.todayFlow'),
+  () => ({}));
+
+// todayRtList 按小时累计（hr "00".."23"）；当天尚无累计行时可能为空或缺失。
+export const TRAFFIC_TODAY_TRADE = endpoint('traffic.todayTrade', '/sydney/api/mallTrade/queryMallTradeList',
+  '/sycm/search_data/plate', (raw) => {
+    const rows = resultObject(raw, 'traffic.todayTrade').todayRtList ?? [];
+    if (!Array.isArray(rows)) throw responseShapeError('traffic.todayTrade', 'todayRtList array');
+    return rows.map((row) => {
+      if (typeof row?.hr !== 'string' || !/^(?:[01]\d|2[0-3])$/.test(row.hr)) {
+        throw responseShapeError('traffic.todayTrade', 'todayRtList[].hr "00".."23"');
+      }
+      return project(row, ['hr', ...TODAY_TRADE_FIELDS], TODAY_TRADE_FIELDS, 'traffic.todayTrade');
+    });
+  }, ({ queryDate }) => ({ queryType: 6, queryDate }));

@@ -8,7 +8,7 @@ import {
 } from '../adapter/endpoints/goods.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { parseYuanToFen, toFiniteNumber } from '../infra/units.js';
-import { toGoodsView } from './views/goods.js';
+import { toGoodsStockView, toGoodsView } from './views/goods.js';
 import { mallIdOf } from './views/_shared.js';
 
 export const DEFAULT_LOW_STOCK_THRESHOLD = 10;
@@ -17,6 +17,23 @@ export function isLowStock(goods, threshold = DEFAULT_LOW_STOCK_THRESHOLD) {
   const qty = toFiniteNumber(goods?.quantity);
   if (qty === null) return false;
   return qty <= threshold;
+}
+
+// 上游 isOnsale 形态未经真实样本确认（布尔或 0/1），其余取值记为未知
+function toOnSale(value) {
+  if (value === true || value === 1 || value === '1') return true;
+  if (value === false || value === 0 || value === '0') return false;
+  return null;
+}
+
+// 规格库存已由 GOODS_LIST.normalize 校验为非负有限数或 null，此处只做改名与在售语义转换
+function toSkuRecord(sku) {
+  return {
+    sku_id: sku?.skuId ?? null,
+    spec: sku?.spec ?? null,
+    quantity: sku?.skuQuantity ?? null,
+    on_sale: toOnSale(sku?.isOnsale),
+  };
 }
 
 function toGoodsRecord(g) {
@@ -29,6 +46,7 @@ function toGoodsRecord(g) {
     origin_sku_group_price: g.origin_sku_group_price ?? null,
     promotion: g.promotion ?? g.promotion_goods ?? null,
     mall_id: g.mall_id ?? g.mallId ?? null,
+    skus: Array.isArray(g.sku_list) ? g.sku_list.map(toSkuRecord) : null,
   };
 }
 
@@ -169,27 +187,52 @@ export async function getGoodsListView(page, params = {}, ctx = {}) {
 
 function stockHeadline({ page: pageNumber = 1 }, view) {
   const label = pageLabel(pageNumber);
-  const soldOut = view.items.filter((item) => item.quantity !== null && item.quantity <= 0).length;
+  const { items, threshold } = view;
+  const soldOut = items.filter((item) => item.quantity !== null && item.quantity <= 0).length;
   const catalog = view.total === null ? '在售总数未获取' : `在售共 ${view.total} 件`;
-  return [
+  const lowSkus = items.flatMap((item) => item.skus ?? []).filter((sku) => sku.low_stock);
+  const soldOutSkus = lowSkus.filter((sku) => sku.quantity <= 0).length;
+  // 告警商品 = 总库存低 + 仅因规格进入（总库存高于阈值或缺失），两行合计覆盖全部 items
+  const skuTriggered = items.length - view.low_stock_count;
+  const headline = [
     `${label}扫描 ${view.scanned_count} 件商品（${catalog}）`,
-    `库存不高于 ${view.threshold} 的商品 ${view.low_stock_count} 件（其中缺货 ${soldOut} 件）`,
+    `库存不高于 ${threshold} 的商品 ${view.low_stock_count} 件（其中缺货 ${soldOut} 件）`,
+    `库存不高于 ${threshold} 的在售规格 ${lowSkus.length} 个（其中缺货 ${soldOutSkus} 个），`
+      + `总库存高于 ${threshold} 或缺失、因规格库存进入告警的商品 ${skuTriggered} 件`,
   ];
+  const skuUnavailable = items.filter((item) => item.skus === null).length;
+  if (skuUnavailable > 0) headline.push(`规格数据缺失的告警商品 ${skuUnavailable} 件`);
+  return headline;
 }
 
-// 仅扫描一页商品；items 为该页中库存 ≤ threshold 的商品（已筛选，故不再逐项标记 is_low_stock）
+// 规格低库存 = 在售且库存为有限数且 ≤ threshold；on_sale 未知或库存缺失的规格不触发
+function isLowStockSku(sku, threshold) {
+  return sku.on_sale === true && sku.quantity !== null && sku.quantity <= threshold;
+}
+
+// 规格数据不可用（skus 非数组）时 low_stock_sku_count 为 null
+function withSkuLowStock(record, threshold) {
+  if (!Array.isArray(record.skus)) return { ...record, low_stock_sku_count: null };
+  const skus = record.skus.map((sku) => ({ ...sku, low_stock: isLowStockSku(sku, threshold) }));
+  return { ...record, skus, low_stock_sku_count: skus.filter((sku) => sku.low_stock).length };
+}
+
+// 仅扫描一页商品；items 为该页中总库存 ≤ threshold 或至少一个规格低库存的商品
+// low_stock_count 仅计总库存 ≤ threshold 的商品（与 headline 第二行一致）
 export async function getGoodsStockView(page, params = {}, ctx = {}) {
   const threshold = Number.isFinite(Number(params.threshold))
     ? Number(params.threshold)
     : DEFAULT_LOW_STOCK_THRESHOLD;
   const base = await listGoods(page, { ...params, size: params.size ?? 50 }, ctx);
-  const items = base.goods.filter((g) => isLowStock(g, threshold)).map(toGoodsView);
+  const alerted = base.goods
+    .map((g) => withSkuLowStock(g, threshold))
+    .filter((g) => isLowStock(g, threshold) || g.low_stock_sku_count > 0);
   const view = {
-    items,
+    items: alerted.map(toGoodsStockView),
     total: base.total,
     scanned_count: base.goods.length,
     threshold,
-    low_stock_count: items.length,
+    low_stock_count: alerted.filter((g) => isLowStock(g, threshold)).length,
     mall_id: mallIdOf(ctx),
   };
   return { headline: stockHeadline(params, view), ...view };

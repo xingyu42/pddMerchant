@@ -7,14 +7,15 @@ import { runCli } from '../helpers/isolated-cli.js';
 import {
   createAccounts, createFactFixtures, createPublishFixtures, createUpstreamGoods, createExperienceFixtures,
   createCustomerServiceFixtures, createReviewFixtures, createTrafficFixtures, createGoodsTrafficFixtures,
-  createGoodsReceiptFixtures, allCaliberReceiptGoods,
+  createGoodsReceiptFixtures, allCaliberReceiptGoods, createExperiencePlanFixtures,
 } from '../fixtures/test-data.js';
 import { ACCOUNT_VIEW_FIELDS, ACCOUNT_REMOVED_VIEW_FIELDS } from '../../src/services/views/account.js';
 import { CONFIG_FIELD_VIEW_FIELDS } from '../../src/services/views/config.js';
 import { SHOP_VIEW_FIELDS } from '../../src/services/views/shops.js';
 import { ORDER_DETAIL_VIEW_FIELDS, ORDER_VIEW_FIELDS } from '../../src/services/views/order.js';
 import {
-  COST_TEMPLATE_VIEW_FIELDS, GOODS_PROMOTION_VIEW_FIELDS, GOODS_VIEW_FIELDS,
+  COST_TEMPLATE_VIEW_FIELDS, GOODS_PROMOTION_VIEW_FIELDS, GOODS_STOCK_ITEM_FIELDS, GOODS_STOCK_SKU_FIELDS,
+  GOODS_VIEW_FIELDS,
 } from '../../src/services/views/goods.js';
 import { PUBLISH_VIEW_FIELDS } from '../../src/services/views/goods-publish.js';
 import { GOODS_SEGMENT_ITEM_FIELDS } from '../../src/services/goods-segmentation.js';
@@ -27,9 +28,11 @@ import { GOODS_COST_ENTRY_FIELDS } from '../../src/services/views/goods-cost.js'
 import { GOODS_PROFIT_ITEM_FIELDS, GOODS_PROFIT_SUMMARY_FIELDS, GOODS_PROFIT_QUALITY_FIELDS } from '../../src/services/views/goods-profit.js';
 import { EXPERIENCE_INDICATOR_FIELDS, EXPERIENCE_TREND_ITEM_FIELDS,
   EXPERIENCE_SNAPSHOT_FIELDS } from '../../src/services/views/experience.js';
+import { EXPERIENCE_PLAN_FIELDS, EXPERIENCE_PLAN_ITEM_FIELDS, EXPERIENCE_PLAN_WINDOW_FIELDS } from '../../src/services/views/experience-plan.js';
 import { CS_SUMMARY_FIELDS, CS_TREND_ITEM_FIELDS } from '../../src/services/views/customer-service.js';
 import { REVIEW_TAG_FIELDS, ISSUE_TYPE_FIELDS, NEGATIVE_REVIEW_FIELDS } from '../../src/services/views/reviews.js';
-import { TRAFFIC_ITEM_FIELDS, TRAFFIC_SUMMARY_FIELDS } from '../../src/services/views/traffic.js';
+import { TRAFFIC_ITEM_FIELDS, TRAFFIC_SUMMARY_FIELDS, TRAFFIC_TODAY_FIELDS,
+  TRAFFIC_TODAY_HOURLY_FIELDS } from '../../src/services/views/traffic.js';
 import { GOODS_TRAFFIC_ITEM_FIELDS } from '../../src/services/views/goods-traffic.js';
 import { GOODS_RECEIPT_ITEM_FIELDS, GOODS_RECEIPT_SKU_FIELDS, GOODS_RECEIPT_SINGLE_FIELDS, GOODS_RECEIPT_MULTI_FIELDS,
   GOODS_RECEIPT_DISCOUNT_FIELDS } from '../../src/services/views/goods-receipt.js';
@@ -48,6 +51,9 @@ function staleGoodsFixtures() {
 const PROMO_ENTITIES = { 'items[]': PROMO_ROI_ITEM_FIELDS, totals: PROMO_TOTALS_FIELDS };
 
 const GOODS_ENTITIES = { 'items[]': GOODS_VIEW_FIELDS, 'items[].promotion': GOODS_PROMOTION_VIEW_FIELDS };
+
+const GOODS_STOCK_ENTITIES = { 'items[]': GOODS_STOCK_ITEM_FIELDS, 'items[].promotion': GOODS_PROMOTION_VIEW_FIELDS,
+  'items[].skus[]': GOODS_STOCK_SKU_FIELDS };
 
 function lowStockFixtures() {
   return {
@@ -77,7 +83,8 @@ const GOODS_RECEIPT_ENTITY_FIELDS = { 'items[]': GOODS_RECEIPT_ITEM_FIELDS, 'ite
 
 const V2_CASES = [
   { command: 'diagnose.traffic', args: ['diagnose', 'traffic'], fixtures: createTrafficFixtures(),
-    entityFields: { 'items[]': TRAFFIC_ITEM_FIELDS, summary: TRAFFIC_SUMMARY_FIELDS } },
+    entityFields: { 'items[]': TRAFFIC_ITEM_FIELDS, summary: TRAFFIC_SUMMARY_FIELDS,
+      today: TRAFFIC_TODAY_FIELDS, 'today.hourly[]': TRAFFIC_TODAY_HOURLY_FIELDS } },
   { command: 'goods.traffic', args: ['goods', 'traffic'], fixtures: createGoodsTrafficFixtures(),
     entityFields: { 'items[]': GOODS_TRAFFIC_ITEM_FIELDS } },
   { command: 'goods.receipt', args: ['goods', 'receipt'], fixtures: createGoodsReceiptFixtures(),
@@ -94,6 +101,9 @@ const V2_CASES = [
   { command: 'diagnose.experience', args: ['diagnose', 'experience'], fixtures: createExperienceFixtures(),
     entityFields: { snapshot: EXPERIENCE_SNAPSHOT_FIELDS, 'indicators[]': EXPERIENCE_INDICATOR_FIELDS,
       'trend.items[]': EXPERIENCE_TREND_ITEM_FIELDS } },
+  { command: 'diagnose.experience-plan', args: ['diagnose', 'experience-plan'], fixtures: createExperiencePlanFixtures(),
+    entityFields: { '': EXPERIENCE_PLAN_FIELDS, window: EXPERIENCE_PLAN_WINDOW_FIELDS,
+      'items[]': EXPERIENCE_PLAN_ITEM_FIELDS } },
   { command: 'goods.profit', args: ['goods', 'profit'], execute: runProfitContract,
     entityFields: { 'items[]': GOODS_PROFIT_ITEM_FIELDS, summary: GOODS_PROFIT_SUMMARY_FIELDS,
       'summary.data_quality': GOODS_PROFIT_QUALITY_FIELDS } },
@@ -187,7 +197,7 @@ const V2_CASES = [
     freeKeyPaths: ['local.status_distribution'],
   },
   { command: 'goods.list', args: ['goods', 'list'], fixtures: createFactFixtures(), entityFields: GOODS_ENTITIES },
-  { command: 'goods.stock', args: ['goods', 'stock'], fixtures: lowStockFixtures(), entityFields: GOODS_ENTITIES },
+  { command: 'goods.stock', args: ['goods', 'stock'], fixtures: lowStockFixtures(), entityFields: GOODS_STOCK_ENTITIES },
   {
     command: 'goods.segment',
     args: ['goods', 'segment', '--days', '7'],

@@ -43,4 +43,30 @@ describe('goods list identity mapping', () => {
     assert.deepEqual(stock.items, []);
     assert.equal(stock.headline[0], '本页扫描 1 件商品（在售总数未获取）');
   });
+
+  it('maps sku on-sale flags from boolean or 0/1 and marks other shapes unknown', async () => {
+    const flags = [true, 1, '1', false, 0, '0', 'yes', null];
+    const goods = [{ id: 101, quantity: 0,
+      sku_list: flags.map((isOnsale, index) => ({ skuId: index, spec: 'S', skuQuantity: 1, isOnsale })) }];
+    const execute = vi.fn(async () => ({ data: { total: 1, goods } }));
+    const [item] = (await getGoodsStockView({}, {}, { client: { execute } })).items;
+    assert.deepEqual(item.skus.map((sku) => sku.on_sale), [true, true, true, false, false, false, null, null]);
+    assert.deepEqual(item.skus.map((sku) => sku.low_stock), [true, true, true, false, false, false, false, false]);
+    assert.equal(item.low_stock_sku_count, 3);
+  });
+
+  it('alerts goods with unknown total stock when an on-sale sku is low, without counting it as total-low', async () => {
+    const goods = [
+      { id: 101, quantity: null, sku_list: [{ skuId: 1011, spec: '红色-M', skuQuantity: 2, isOnsale: 1 }] },
+      { id: 102, quantity: null, sku_list: [{ skuId: 1021, spec: '蓝色-L', skuQuantity: 20, isOnsale: 1 }] },
+    ];
+    const execute = vi.fn(async () => ({ data: { total: 2, goods } }));
+    const stock = await getGoodsStockView({}, {}, { client: { execute } });
+    assert.deepEqual(stock.items.map((item) => [item.goods_id, item.quantity, item.low_stock_sku_count]), [['101', null, 1]]);
+    assert.equal(stock.low_stock_count, 0);
+    assert.deepEqual(stock.headline.slice(1), [
+      '库存不高于 10 的商品 0 件（其中缺货 0 件）',
+      '库存不高于 10 的在售规格 1 个（其中缺货 0 个），总库存高于 10 或缺失、因规格库存进入告警的商品 1 件',
+    ]);
+  });
 });

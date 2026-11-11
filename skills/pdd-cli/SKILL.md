@@ -144,6 +144,7 @@ node bin/pdd.js diagnose shop [--compare] [--days 7]   # 订单/库存/推广/�
 node bin/pdd.js diagnose orders|inventory|promo        # 单维度统计
 node bin/pdd.js diagnose after-sales [--days 30]       # 退款成功与售后处理中
 node bin/pdd.js diagnose experience [--days 7]         # 店铺综合体验星级，1–30 天
+node bin/pdd.js diagnose experience-plan [--days 7] [--page 1]  # 消费者体验提升计划服务费与收费记录，1/7/30 天
 node bin/pdd.js diagnose customer-service [--days 30]  # 客服人工回复，1–63 天；逐日趋势最多最近 31 天
 node bin/pdd.js diagnose reviews [--days 30]           # 评价标签与中差评，30/60/90/180 天
 node bin/pdd.js diagnose traffic [--days 30]           # 全店逐日流量，1–30 天
