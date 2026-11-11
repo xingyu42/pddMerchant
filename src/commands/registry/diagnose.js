@@ -8,7 +8,9 @@ import * as experience from '../diagnose/experience.js';
 import * as customerService from '../diagnose/customer-service.js';
 import * as reviews from '../diagnose/reviews.js';
 import * as traffic from '../diagnose/traffic.js';
-import { withReportDays } from '../option-parsers.js';
+import * as experiencePlan from '../diagnose/experience-plan.js';
+import { integerArg, withReportDays } from '../option-parsers.js';
+import { EXPERIENCE_PLAN_REPORT } from '../../services/experience-plan.js';
 import { TRAFFIC_REPORT } from '../../services/traffic.js';
 import { CUSTOMER_SERVICE_REPORT } from '../../services/customer-service.js';
 import { REVIEWS_REPORT } from '../../services/reviews.js';
@@ -62,5 +64,11 @@ export function register(program, wireAction) {
     withReportDays(diagnose.command('experience').description('店铺综合体验星级与指标趋势'), EXPERIENCE_REPORT),
     'diagnose.experience',
     experience.run
+  );
+  wireAction(
+    withReportDays(diagnose.command('experience-plan').description('消费者体验提升计划服务费与收费记录'), EXPERIENCE_PLAN_REPORT)
+      .option('--page <n>', '收费记录页码（每页 10 条）', integerArg(1), 1),
+    'diagnose.experience-plan',
+    experiencePlan.run
   );
 }

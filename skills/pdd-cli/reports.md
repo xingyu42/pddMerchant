@@ -20,6 +20,14 @@
 - 趋势截止到平台就绪日期，只保留有数据的日期。比率为百分数，时长为小时或天；用户评价得分排名保留平台原单位。
 - 快照失败时命令失败；趋势不可用时 `trend:null`、`status:"数据不完整"` 并附 `hints`。
 
+## diagnose experience-plan
+
+- `--days` 取 1 / 7 / 30 / 90，默认 7，窗口为上海自然日、含今天（`window.start_at` 至 `window.end_at`）；`--page` 默认 1，收费记录每页 10 条。
+- `plan_status` 是平台 `configStatus` 原值（已见样本 1 = 计划生效中，其余取值无标签证据），按原值转述。`today_fee_per_order_yuan` 是平台当日动态费率；`items[].service_fee_yuan` 是平台逐单报告的服务费，CLI 不按费率重算。
+- `charged_order_count` / `compensated_order_count` 取自平台数据概况；`total` 是收费记录在发货时间窗口内的总数。两者口径可能不同（实测近 7 天 209 对 203），原样分别转述，不互相校正。
+- `items[].fee_status` 是平台收费状态原文；`service_status` 为生效中 / 已失效 / 已补偿运费，未登记码为 `未知(<code>)`。金额单位不是元时对应金额为 `null` 并写入 `meta.warnings`。
+- 任一上游请求失败时命令失败，业务错误退出码 6、提示为平台原文。
+
 ## diagnose customer-service
 
 - `--days` 1–63，默认 30；窗口为上海日期今天减 days 至昨天。口径固定「多多客服-客服数据（人工回复）」，与体验星级口径相互独立。
