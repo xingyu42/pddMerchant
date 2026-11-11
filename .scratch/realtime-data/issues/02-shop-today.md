@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 上游（两者都是 page-api，导航页为流量看板，成功码 `errorCode 1000000`）：
 - `/sydney/api/mallFlow/queryMallFlowRtData`，请求体 `{}`：`muvRt` / `mpvRt` / `guvRt` / `gpvRt`
@@ -21,14 +21,15 @@
 - 今日采集走 `report.optional`：流量和交易任一失败时 `today: null`，写入一个 hint（文案说明今日数据拉取失败），历史数据照常输出，退出码不变
 - 流量与交易来自两个刷新时点不同的接口，不做交叉计算（例如不用访客数和成交买家数重新算转化率）
 
-- [ ] fixture 模式下 `diagnose traffic` 输出 `today`，字段与上面一致，数值与合成 fixture 对应（金额元、比率 0-100）
-- [ ] `todayRtList` 为空或缺失时成交字段为 `null`、`hourly: []`；流量字段照常输出
-- [ ] 任一今日接口失败（fixture `__throws`）时 `today: null` 并出现 hint，`items` / `summary` 不受影响，退出码 0
-- [ ] headline 增加一行今日事实（截至几点的成交金额 / 订单数、访客数）；今日不可用时不加
-- [ ] `data-contract-v2` 中 `diagnose traffic` 的 case 覆盖 `today` 与 `today.hourly[]` 字段集
-- [ ] 两个新 endpoint spec 有 fixture 合同测试（参照 `test/adapter/traffic-contract.test.js`）
-- [ ] `npm test` 通过
+- [x] fixture 模式下 `diagnose traffic` 输出 `today`，字段与上面一致，数值与合成 fixture 对应（金额元、比率 0-100）
+- [x] `todayRtList` 为空或缺失时成交字段为 `null`、`hourly: []`；流量字段照常输出
+- [x] 任一今日接口失败（fixture `__throws`）时 `today: null` 并出现 hint，`items` / `summary` 不受影响，退出码 0
+- [x] headline 增加一行今日事实（截至几点的成交金额 / 订单数、访客数）；今日不可用时不加
+- [x] `data-contract-v2` 中 `diagnose traffic` 的 case 覆盖 `today` 与 `today.hourly[]` 字段集
+- [x] 两个新 endpoint spec 有 fixture 合同测试（参照 `test/adapter/traffic-contract.test.js`）
+- [x] `npm test` 通过
 
 ## Comments
 
 - 2026-11-11：按浏览器侦察结论细化为 ready-for-agent。同时段昨日对照（`yesterdayRtList`）、成功退款 `sucRfOrdr*`（样例全 `null`）不在本工单范围。
+- 2026-11-11：已在集成分支 feat/region-sku-stock 完成（8d29c27）。共用写法为服务层 collectToday（today_unavailable hint）；E_TIMEOUT / E_INTERNAL 沿用 report.optional 规则会使命令失败。
