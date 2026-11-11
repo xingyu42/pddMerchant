@@ -14,7 +14,8 @@ import { CONFIG_FIELD_VIEW_FIELDS } from '../../src/services/views/config.js';
 import { SHOP_VIEW_FIELDS } from '../../src/services/views/shops.js';
 import { ORDER_DETAIL_VIEW_FIELDS, ORDER_VIEW_FIELDS } from '../../src/services/views/order.js';
 import {
-  COST_TEMPLATE_VIEW_FIELDS, GOODS_PROMOTION_VIEW_FIELDS, GOODS_VIEW_FIELDS,
+  COST_TEMPLATE_VIEW_FIELDS, GOODS_PROMOTION_VIEW_FIELDS, GOODS_STOCK_ITEM_FIELDS, GOODS_STOCK_SKU_FIELDS,
+  GOODS_VIEW_FIELDS,
 } from '../../src/services/views/goods.js';
 import { PUBLISH_VIEW_FIELDS } from '../../src/services/views/goods-publish.js';
 import { GOODS_SEGMENT_ITEM_FIELDS } from '../../src/services/goods-segmentation.js';
@@ -48,6 +49,9 @@ function staleGoodsFixtures() {
 const PROMO_ENTITIES = { 'items[]': PROMO_ROI_ITEM_FIELDS, totals: PROMO_TOTALS_FIELDS };
 
 const GOODS_ENTITIES = { 'items[]': GOODS_VIEW_FIELDS, 'items[].promotion': GOODS_PROMOTION_VIEW_FIELDS };
+
+const GOODS_STOCK_ENTITIES = { 'items[]': GOODS_STOCK_ITEM_FIELDS, 'items[].promotion': GOODS_PROMOTION_VIEW_FIELDS,
+  'items[].skus[]': GOODS_STOCK_SKU_FIELDS };
 
 function lowStockFixtures() {
   return {
@@ -187,7 +191,7 @@ const V2_CASES = [
     freeKeyPaths: ['local.status_distribution'],
   },
   { command: 'goods.list', args: ['goods', 'list'], fixtures: createFactFixtures(), entityFields: GOODS_ENTITIES },
-  { command: 'goods.stock', args: ['goods', 'stock'], fixtures: lowStockFixtures(), entityFields: GOODS_ENTITIES },
+  { command: 'goods.stock', args: ['goods', 'stock'], fixtures: lowStockFixtures(), entityFields: GOODS_STOCK_ENTITIES },
   {
     command: 'goods.segment',
     args: ['goods', 'segment', '--days', '7'],

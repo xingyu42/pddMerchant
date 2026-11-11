@@ -157,6 +157,19 @@ export function createUpstreamGoods(overrides = {}) {
     },
     mall_id: 900001,
     thumb_url: 'https://example.invalid/thumb.jpg', is_onsale: 1, out_goods_sn: 'SYN-OUT', sold_quantity: 3,
+    sku_list: [
+      createUpstreamSku(),
+      createUpstreamSku({ skuId: 1012, spec: '蓝色-L', skuQuantity: 4, isOnsale: 0 }),
+    ],
+    ...overrides,
+  };
+}
+
+// 上游 goods_list[].sku_list[] 的合成规格：字段名来自 issue #3 的真实响应观察，另含平台噪声字段
+export function createUpstreamSku(overrides = {}) {
+  return {
+    skuId: 1011, spec: '红色-M', skuQuantity: 6, isOnsale: 1,
+    thumbUrl: 'https://example.invalid/sku.jpg', skuPrice: 1590, outSkuSn: 'SYN-SKU-OUT',
     ...overrides,
   };
 }

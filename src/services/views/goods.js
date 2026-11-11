@@ -9,6 +9,11 @@ export const GOODS_VIEW_FIELDS = Object.freeze([
   'promotion',
 ]);
 
+// goods stock 专用：商品视图字段之后追加规格明细；goods list 的商品视图字段不变
+export const GOODS_STOCK_ITEM_FIELDS = Object.freeze([...GOODS_VIEW_FIELDS, 'skus']);
+
+export const GOODS_STOCK_SKU_FIELDS = Object.freeze(['sku_id', 'spec', 'quantity', 'on_sale']);
+
 export const GOODS_PROMOTION_VIEW_FIELDS = Object.freeze(['name', 'price_min_yuan', 'price_max_yuan']);
 
 export const COST_TEMPLATE_VIEW_FIELDS = Object.freeze(['template_id', 'name']);
@@ -46,6 +51,21 @@ export function toGoodsView(record) {
     single_price_max_yuan: singlePrice.max,
     promotion: toPromotionView(record?.promotion),
   };
+}
+
+function toStockSkuView(sku) {
+  return {
+    sku_id: text(sku?.sku_id),
+    spec: text(sku?.spec),
+    quantity: toFiniteNumber(sku?.quantity),
+    on_sale: typeof sku?.on_sale === 'boolean' ? sku.on_sale : null,
+  };
+}
+
+// 规格数据不可用（记录 skus 非数组）→ skus: null
+export function toGoodsStockView(record) {
+  const skus = Array.isArray(record?.skus) ? record.skus.map(toStockSkuView) : null;
+  return { ...toGoodsView(record), skus };
 }
 
 // free_province_need 无值域证据，不输出
