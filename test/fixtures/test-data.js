@@ -286,6 +286,37 @@ export function createExperienceFixtures() {
   };
 }
 
+// 消费者体验提升计划服务费：rfreight 模块成功码为 1000；订单号、收费编号均为合成值
+const rfreightSuccess = (result) => ({ success: true, errorCode: 1000, errorMsg: null, result });
+const yuanVO = (value, unit = 'YUAN') => ({ unit, value, unitCode: 1 });
+
+export function createUpstreamOrderInsurance(overrides = {}) {
+  return {
+    orderSn: 'SYN-PLAN-ORDER-1', sn: 'SYN-PLAN-ORDER-1-MI', batchSn: 'SYN-PLAN-BATCH-1', mallId: 'SYN-PLAN-MALL',
+    uid: 'SYN-PLAN-UID', serviceAmountVO: yuanVO('1.11'), costVO: yuanVO('1.11'), status: 2,
+    feeStatusDesc: '收费成功', displayStatus: 1, effectiveTime: 1762500000000, ineffectiveTime: 0,
+    shippingTime: 1762490000000, isFree: false, hasDiscount: false, discount: null, insuranceMode: 1, ...overrides,
+  };
+}
+
+export function createExperiencePlanFixtures({ configStatus = 1, price = yuanVO('1.11'),
+  orderCount = 209, compensationCount = 3, total = 203, rows } = {}) {
+  const items = rows ?? [
+    createUpstreamOrderInsurance(),
+    createUpstreamOrderInsurance({ orderSn: 'SYN-PLAN-ORDER-2', sn: 'SYN-PLAN-ORDER-2-MI', batchSn: 'SYN-PLAN-BATCH-2',
+      serviceAmountVO: yuanVO('0.90'), displayStatus: 3, effectiveTime: 1762600000000, isFree: true }),
+    createUpstreamOrderInsurance({ orderSn: 'SYN-PLAN-ORDER-3', sn: 'SYN-PLAN-ORDER-3-MI', batchSn: 'SYN-PLAN-BATCH-3',
+      displayStatus: 9, feeStatusDesc: '待收费', effectiveTime: null, shippingTime: null, isFree: null }),
+  ];
+  return {
+    'endpoints/experiencePlan.status.json': rfreightSuccess({ configStatus, restartTime: 0, pauseRestartMode: 0 }),
+    'endpoints/experiencePlan.availableInfo.json': rfreightSuccess({ normalService: { algoDailyStrategy: {
+      priceType: 1, price, smallPrice: price, largePrice: price } } }),
+    'endpoints/experiencePlan.profits.json': rfreightSuccess({ orderCount, compensationCount }),
+    'endpoints/experiencePlan.orderInsuranceList.json': rfreightSuccess({ total, orderInsurances: items }),
+  };
+}
+
 // goods publish fixture 流程（PDD_TEST_ADAPTER=fixture）：发布结果 + 提交回执，值均为合成数据
 export function createPublishFixtures() {
   return {
