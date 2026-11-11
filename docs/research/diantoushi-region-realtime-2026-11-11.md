@@ -20,7 +20,7 @@
 - 页面「店透视工具箱-地域分布」只提供 `recent1` / `recent7` / `recent30`，对应 `queryType` 0 / 1 / 2（U:24917）。没有今日实时
 - 粒度只到省；口径是**成团**（`cfm*`），店透视在前端把它们改名成 `pay*` 显示
 - 客单件数 `payCntAup = cfmOrdrCnt / cfmOrdrUsrCnt` 是店透视自己算的
-- 请求通过通用 axios 发出（`/sydney/api/` 前缀会走 spider-font 解码钩子），是否命中字体混淆未知
+- ~~请求通过通用 axios 发出（`/sydney/api/` 前缀会走 spider-font 解码钩子）~~ 更正（2026-11-12）：这两个函数走模块 52 的请求通道，固定用页面的 `window.__mms.fetch`，没有 spider-font 解码，也会丢弃调用方传入的请求头，见 `diantoushi-endpoint-catalog-2026-11-12.md`「请求通道」B。商家后台官方页面实际调用的是明文的 `/sydney/api/mallCoreData/queryMallGeographyDistributionList`（`realtime-and-fee-recon-2026-11-11.md`）
 
 ## 二、今日实时
 
