@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { computeGoodsProfit } from '../../src/services/goods-profit-calculation.js';
 
 const entry = (overrides = {}) => ({ goods_id: '101', spec: null, purchase_fen: 800,
-  packaging_fen: 50, courier_fen: 300, insurance_fen: 30, technical_service_fen: 20,
+  packaging_fen: 50, courier_fen: 300, technical_service_fen: 20,
   updated_at: '2026-10-01T00:00:00Z', ...overrides });
 const order = (overrides = {}) => ({ order_sn: 'SYN-1', goods_id: 101, goods_name: 'Tea', spec: 'red', goods_number: 2,
   order_amount: 2350, platform_discount: 50, merchant_discount: 100, shipping_amount: 200,
@@ -106,10 +106,10 @@ it('handles promo-only goods and missing identities without hiding unknown shop 
   assert.equal(unattributed.summary.net_profit_fen, null);
 });
 
-it('takes insurance from the platform fee records of the order and ignores the manual entry value', () => {
+it('takes insurance from the platform fee records of the order', () => {
   const records = { 'SYN-1': [{ status: 'charged', fen: 111 }, { status: 'pending', fen: 12 }],
     'SYN-OTHER': [{ status: 'charged', fen: 999 }] };
-  const item = calculate({ entries: [entry({ insurance_fen: 5000 })], insurance: insurance(records) }).items[0];
+  const item = calculate({ insurance: insurance(records) }).items[0];
   assert.equal(item.insurance_fen, 123);
   assert.equal(item.merchant_cost_fen, 2093);
   assert.equal(item.gross_profit_fen, 307);

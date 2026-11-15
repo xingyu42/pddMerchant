@@ -1,7 +1,8 @@
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { parseYuanToFen } from '../infra/units.js';
 
-export const COST_NAMES = Object.freeze(['purchase', 'packaging', 'courier', 'insurance', 'technical_service']);
+// 运费险不再手填：goods profit 取平台收费记录的逐单服务费（ADR 0004）。
+export const COST_NAMES = Object.freeze(['purchase', 'packaging', 'courier', 'technical_service']);
 const INPUT_FIELDS = ['goods_id', 'spec', ...COST_NAMES.map((name) => `${name}_yuan`)];
 
 function invalid(field, message) {
@@ -26,11 +27,14 @@ export function validateCostSpec(value) {
 
 export function validateCostEntry(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw invalid(null, '成本记录需要对象');
+  if (Object.hasOwn(input, 'insurance_yuan')) {
+    throw invalid('insurance_yuan', '运费险已改为按平台收费记录自动计算，请删除 insurance_yuan');
+  }
   if (Object.keys(input).some((field) => !INPUT_FIELDS.includes(field))) throw invalid('unknown', '成本记录包含未知列');
   const entry = { goods_id: validateCostGoodsId(input.goods_id), spec: validateCostSpec(input.spec) };
-  for (const [index, name] of COST_NAMES.entries()) {
+  for (const name of COST_NAMES) {
     const field = `${name}_yuan`;
-    const value = index >= 3 && !Object.hasOwn(input, field) ? 0 : input[field];
+    const value = name === 'technical_service' && !Object.hasOwn(input, field) ? 0 : input[field];
     const amount = parseYuanToFen(value);
     if (amount === null) throw invalid(field, '成本金额需要非负元金额，最多 2 位小数');
     entry[`${name}_fen`] = amount;

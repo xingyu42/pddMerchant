@@ -28,7 +28,7 @@ function registerCosts(goods, wireAction) {
   wireAction(costs.command('list').option('--goods-id <id>', '商品 ID'), 'goods.cost.list', costList.run);
   wireAction(costs.command('set').requiredOption('--goods-id <id>', '商品 ID').option('--spec <text>', '精确规格文本')
     .requiredOption('--purchase-yuan <yuan>', '每件货本（元）').requiredOption('--packaging-yuan <yuan>', '每单包材（元）')
-    .requiredOption('--courier-yuan <yuan>', '每单快递（元）').option('--insurance-yuan <yuan>', '每单运费险（元）')
+    .requiredOption('--courier-yuan <yuan>', '每单快递（元）')
     .option('--technical-service-yuan <yuan>', '每单技术服务费（元）').option('--confirm', '确认保存，默认预演'),
   'goods.cost.set', costSet.run);
   wireAction(costs.command('remove').requiredOption('--goods-id <id>', '商品 ID')

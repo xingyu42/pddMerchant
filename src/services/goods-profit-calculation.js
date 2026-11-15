@@ -2,7 +2,8 @@ import { toFiniteNumber } from '../infra/units.js';
 import { sumKnown, ratioPct } from '../infra/metrics.js';
 import { COST_NAMES } from './goods-cost-input.js';
 
-const PROFIT_COST_FIELDS = Object.freeze(COST_NAMES.map((name) => `${name}_fen`));
+// 运费险不在成本录入中，取平台收费记录（insuranceFen）。
+const PROFIT_COST_FIELDS = Object.freeze([...COST_NAMES.map((name) => `${name}_fen`), 'insurance_fen']);
 const ORDER_MONEY_FIELDS = ['paid_amount_fen', 'platform_discount_fen', 'revenue_fen', 'observed_revenue_fen', 'after_sales_revenue_fen'];
 const SUM_FIELDS = [...ORDER_MONEY_FIELDS, ...PROFIT_COST_FIELDS, 'observed_order_count', 'quantity',
   'refunded_order_count', 'after_sales_order_count', 'default_fallback_order_count', 'missing_entry_order_count'];

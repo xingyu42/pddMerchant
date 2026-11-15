@@ -5,7 +5,7 @@ import { all } from '../../src/infra/db.js';
 import { listGoodsCosts, upsertGoodsCosts, removeGoodsCost } from '../../src/infra/goods-cost-store.js';
 
 const entry = (overrides = {}) => ({ goods_id: '101', spec: null, purchase_fen: 820,
-  packaging_fen: 50, courier_fen: 300, insurance_fen: 0, technical_service_fen: 0, ...overrides });
+  packaging_fen: 50, courier_fen: 300, technical_service_fen: 0, ...overrides });
 const account = (identity = '900001', kind = 'merchant') => insertAccount({ identity, kind, displayName: identity });
 const scope = (accountId, mallId = '900001') => ({ accountId, mallId });
 
