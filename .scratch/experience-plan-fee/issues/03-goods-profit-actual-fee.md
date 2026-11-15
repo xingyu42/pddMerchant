@@ -42,4 +42,4 @@
 ## Comments
 
 - 2026-11-11：创建（needs-triage）。
-- 2026-11-15：按用户决定重写为 ready-for-agent。运费补偿（`compensation_list`）不计入：协议 3.3 说补偿也从店铺资金扣除，但扣款流水未确认，本工单不处理。
+- 2026-11-15：按用户决定重写为 ready-for-agent。运费补偿（`compensation_list`）由平台承担、不是商家成本，不计入利润（用户确认）。
