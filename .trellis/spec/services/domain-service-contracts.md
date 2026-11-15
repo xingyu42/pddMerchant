@@ -322,33 +322,22 @@ Good：两场景直接成交 1.23 元各一条，合计 2.46 元，再从商品�
 
 Wrong：total - (direct + indirect)，推广失败时输出 0。Correct：仅减 direct，失败时输出 null 并标记 promo_complete:false。
 
-## Scenario: Consumer Experience Plan Fee
+## Scenario: Consumer Experience Plan Charge Records
 
 ### 1. Scope / Trigger
 
-适用于 `diagnose.experience-plan`（`.scratch/experience-plan-fee/issues/02-fee-readonly-query.md`）：只读查询消费者体验提升计划（退货包运费）状态、费率、计数与逐单收费记录。同模块写接口（`close_service`、`pause_service`、`openService`、`refreshServiceStatus`）一律不接入。
+`goods profit` 的运费险（`insurance_fen`）来源：消费者体验提升计划（退货包运费）收费记录 `experiencePlan.orderInsuranceList`。只读；同模块写接口（`close_service`、`pause_service`、`openService`、`refreshServiceStatus`）一律不接入。原只读命令 `diagnose experience-plan` 已于 2026-11-15 按用户要求移除，CLI 不再单独输出计划状态、费率或收费记录。
 
-### 2. Signatures
+### 2. Contracts
 
-```js
-getExperiencePlanView(ctx, { days = 7, page = 1 } = {}) // src/services/experience-plan.js; returns { data, warnings }
-toExperiencePlanView({ status, available, profits, list }, { window, page, hints, mallId = null }) // views/experience-plan.js
-```
+- 端点：page-api POST `/mms-gateway/rfreight/postpaid/order_insurance_list`，导航 `https://mms.pinduoduo.com/freight/return_freight`；成功码为 `success:true` 且 `errorCode` 为 `0`（page-api 合成外壳）或 `1000`（浏览器抓包）。
+- 请求：`{ pageSize: 100, pageNumber: page-1, queryFeeStatusList: [1, 2], clientType: 1, createBeginTime, createEndTime }`（1 待收费、2 收费成功，不含 3 收费取消；按创建时间毫秒筛选，单次跨度 ≤ 30 天）。筛选条件与页面默认一致；`pageSize` 页面默认 10，2026-11-15 真实账号只读实测 50 / 100 均可用。
+- 投影只保留 `orderSn`、`serviceAmountVO`、`feeStatusDesc`；`batchSn`、`sn`、`mallId`、`uid` 等不进入服务层。
+- 金额对象仅 `unit === 'YUAN'` 时按字符串精确解析（`parseYuanToFen`）；其他或缺失单位该单记 null 并按单位去重写入 `meta.warnings`。解析与 promo MoneyVO 语义不同，不共用；实现位于 `src/services/goods-profit-insurance.js`。
 
-CLI：`pdd diagnose experience-plan [--days 1|7|30] [--page 1]`，`needsAuth:true`、`needsMall:'switch'`。四个 page-api 端点导航 `https://mms.pinduoduo.com/freight/return_freight`，成功码为 `success:true` 且 `errorCode` 为 `0`（page-api 合成外壳）或 `1000`（浏览器抓包）。
+### 3. Tests Required
 
-### 3. Contracts
-
-- 窗口为 `shanghaiDaysThroughToday(days)`：上海今天减 days-1 天 00:00:00 至今天 23:59:59.999（毫秒）。`EXPERIENCE_PLAN_REPORT.days.choices` 是 days → `profits.farDate` 的唯一来源（`{ farDate, closerDate: 0 }`）。
-- `order_insurance_list` 请求：`{ pageSize: 100, pageNumber: page-1, queryFeeStatusList: [1, 2], clientType: 1, createBeginTime, createEndTime }`（1 待收费、2 收费成功，不含 3 收费取消；按创建时间筛选，不用 shippingBeginTime/EndTime）。筛选条件与页面默认一致；`pageSize` 页面默认 10，2026-11-15 真实账号只读实测 50 / 100 均可用，diagnose 与 goods profit 共用 100。
-- `data` 字段为 `EXPERIENCE_PLAN_FIELDS`：`headline`、`window`、`plan_status`、`today_fee_per_order_yuan`、`charged_order_count`、`compensated_order_count`、`items`、`total`、`page`、`hints`、`mall_id`（`mallIdOf(ctx)`，与其他 diagnose 一致）。`items[]` 为 `EXPERIENCE_PLAN_ITEM_FIELDS`；`batchSn`、`sn`、`mallId`、`uid` 不投影。
-- **枚举例外**：`plan_status` 输出上游 `configStatus` 原值（数字），不转中文标签。只见过样本 1 = 计划生效中，其余取值无标签证据；在取得证据前保持原值，headline 标注「平台原值」。这是「enums are output as Chinese labels」的显式例外，不适用于其他字段（`service_status` 按 1/2/3 标签输出，未登记码 `未知(<code>)`）。
-- 金额对象仅 `unit === 'YUAN'` 时按字符串精确解析（`parseYuanToFen`）；其他或缺失单位输出 null 并按单位去重写入 `meta.warnings`。该解析与 promo MoneyVO 语义不同，不共用；唯一实现为 `views/experience-plan.js` 的 `planMoneyReader()`（`fen` / `read` / `warnings`），goods profit 运费险复用。
-- 汇总计数与列表 `total` 原样分别输出，不互相校正；`count_caliber` 提示说明口径差异。任一端点失败整条命令失败。
-
-### 4. Tests Required
-
-`experience-plan-contract.test.js`（端点路径、请求体、成功码、白名单、缺形态拒绝）、`experience-plan.test.js`（请求参数、days → farDate、mall_id、days 校验）、`experience-plan-view.test.js`（字段集、金额单位、null、headline）、`experience-plan.e2e.test.js` 与 data-contract-v2（`''`、`window`、`items[]` 字段集）。
+`experience-plan-contract.test.js`（端点路径、请求体、成功码、白名单、缺形态拒绝）、`goods-profit-insurance.test.js`（分段、翻页、截断、失败、金额单位）、`page-api-success-guard.test.js`。
 
 ## Scenario: Goods Cost and Net Profit
 

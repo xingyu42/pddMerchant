@@ -299,24 +299,6 @@ export function createUpstreamOrderInsurance(overrides = {}) {
   };
 }
 
-export function createExperiencePlanFixtures({ configStatus = 1, price = yuanVO('1.11'),
-  orderCount = 209, compensationCount = 3, total = 203, rows } = {}) {
-  const items = rows ?? [
-    createUpstreamOrderInsurance(),
-    createUpstreamOrderInsurance({ orderSn: 'SYN-PLAN-ORDER-2', sn: 'SYN-PLAN-ORDER-2-MI', batchSn: 'SYN-PLAN-BATCH-2',
-      serviceAmountVO: yuanVO('0.90'), displayStatus: 3, effectiveTime: 1762600000000, isFree: true }),
-    createUpstreamOrderInsurance({ orderSn: 'SYN-PLAN-ORDER-3', sn: 'SYN-PLAN-ORDER-3-MI', batchSn: 'SYN-PLAN-BATCH-3',
-      displayStatus: 9, feeStatusDesc: '待收费', effectiveTime: null, shippingTime: null, isFree: null }),
-  ];
-  return {
-    'endpoints/experiencePlan.status.json': rfreightSuccess({ configStatus, restartTime: 0, pauseRestartMode: 0 }),
-    'endpoints/experiencePlan.availableInfo.json': rfreightSuccess({ normalService: { algoDailyStrategy: {
-      priceType: 1, price, smallPrice: price, largePrice: price } } }),
-    'endpoints/experiencePlan.profits.json': rfreightSuccess({ orderCount, compensationCount }),
-    'endpoints/experiencePlan.orderInsuranceList.json': rfreightSuccess({ total, orderInsurances: items }),
-  };
-}
-
 // goods publish fixture 流程（PDD_TEST_ADAPTER=fixture）：发布结果 + 提交回执，值均为合成数据
 export function createPublishFixtures() {
   return {

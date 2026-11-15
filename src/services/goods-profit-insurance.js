@@ -3,13 +3,30 @@ import { PLAN_ORDER_INSURANCE_LIST } from '../adapter/endpoints/experience-plan.
 import { throwIfAborted, abortableSleep } from '../infra/abort.js';
 import { createReport } from './operating-report.js';
 import { GOODS_PROFIT_REPORT } from './views/goods-profit.js';
-import { planMoneyReader } from './views/experience-plan.js';
+import { parseYuanToFen } from '../infra/units.js';
 
 const DAY_MS = 86400000;
 // 上游「运费补贴生效时间跨度不能超过一个月」：单次按创建时间查询最多 30 天。
 const SPAN_MS = 30 * DAY_MS;
 const PAGE_SIZE = 100;
 const FEE_STATUS = Object.freeze({ 收费成功: 'charged', 待收费: 'pending' });
+
+// 金额对象 { unit, value }：仅 YUAN 按字符串精确转分，其他单位记 null 并登记单位。
+// 与 promo 的 parseMoney（Number() 浮点、无 unit 按元、支持 FEN）和 promo-goods 的 amountFen（裸数字为厘、
+// 支持 PERCENT）语义不同：本模块只见过 YUAN 样本，故不复用、不推断其他单位。
+function planMoneyReader() {
+  const unknownUnits = new Set();
+  const fen = (money) => {
+    if (money == null || typeof money !== 'object') return null;
+    if (money.unit !== 'YUAN') {
+      unknownUnits.add(String(money.unit ?? '缺失'));
+      return null;
+    }
+    return parseYuanToFen(money.value);
+  };
+  const warnings = () => [...unknownUnits].map((unit) => `体验提升计划金额单位未知（${unit}），对应金额输出为 null`);
+  return { fen, warnings };
+}
 
 // 订单先创建后成交：创建时间从窗口起点前 1 天起，到窗口终点（含）止，按 ≤30 天分段。
 function createSpans(window) {
