@@ -212,7 +212,8 @@ const lease = await acquireDaemonLease();
 ## 9. Merchant Cost Storage
 
 - `goods_cost_entries` 主键 `(account_id,mall_id,goods_id,spec)`；account_id 外键 ON DELETE CASCADE，goods/mall 为文本。spec 空串是默认行哨兵，store 对外映射 null；真实非空规格保留原文精确匹配。
-- `purchase_fen` 按件，`packaging_fen/courier_fen/insurance_fen/technical_service_fen` 按单；非负整数分，默认可选项为 0。updated_at 为当前提交时间 ISO；普通 last-writer-wins，无历史版本或单调时间戳扩展。
+- `purchase_fen` 按件，`packaging_fen/courier_fen/technical_service_fen` 按单；非负整数分，默认可选项为 0。
+- `insurance_fen` 列已停用（2026-11-15，运费险改取平台收费记录）：保留在 schema v3 中，不升级 user_version（升级会让旧版 CLI 拒绝打开数据库）。store 用显式列名读写，不读也不写该列；新行取默认值 0，覆盖写入时旧值原样留存但不再输出。updated_at 为当前提交时间 ISO；普通 last-writer-wins，无历史版本或单调时间戳扩展。
 - `src/infra/goods-cost-store.js` 拥有参数化 SQL、账号检查、CRUD 和短同步事务；service 拥有单位解析与利润规则。批量写前复查 merchant 账号，全批同事务与提交时间，失败整批回滚。读取一次成本快照后在事务外采集网络数据。
 - 原生 CRUD 异常映射 E_COST_STORE_IO / exit 1，db.js 已有版本/打开错误保留，错误和日志省略数据库路径及原生异常。成本数据沿用整个数据库的敏感文件保护，不增加密钥或环境变量。
 - 验证 `test/infra/goods-cost-store.test.js`：隔离、覆盖时间、全批回滚、级联、账号删除/重登后不继承旧成本；结合 db/account-store 与成本 fixture e2e。

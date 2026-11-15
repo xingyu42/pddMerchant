@@ -2,7 +2,8 @@ import { all, run, transaction } from './db.js';
 import { getAccountById } from './account-store.js';
 import { accountNotFound, PddCliError, ExitCodes } from './errors.js';
 
-const MONEY_COLUMNS = ['purchase_fen', 'packaging_fen', 'courier_fen', 'insurance_fen', 'technical_service_fen'];
+// insurance_fen 列已停用：保留在表中（不升级 user_version），不读不写，插入时取默认值 0。
+const MONEY_COLUMNS = ['purchase_fen', 'packaging_fen', 'courier_fen', 'technical_service_fen'];
 
 function storageOperation(callback) {
   try { return callback(); }
@@ -17,15 +18,15 @@ function assertMerchant(accountId) {
 }
 
 function toEntry(row) {
-  const { account_id, mall_id, ...entry } = row;
-  return { ...entry, spec: entry.spec === '' ? null : entry.spec };
+  return { ...row, spec: row.spec === '' ? null : row.spec };
 }
 
 export function listGoodsCosts({ accountId, mallId, goodsId }) {
   return storageOperation(() => {
     assertMerchant(accountId);
     const params = [accountId, mallId, ...(goodsId == null ? [] : [goodsId])];
-    return all(`SELECT * FROM goods_cost_entries WHERE account_id = ? AND mall_id = ?
+    return all(`SELECT goods_id, spec, purchase_fen, packaging_fen, courier_fen, technical_service_fen, updated_at
+      FROM goods_cost_entries WHERE account_id = ? AND mall_id = ?
       ${goodsId == null ? '' : 'AND goods_id = ?'} ORDER BY goods_id, spec`, ...params).map(toEntry);
   });
 }
@@ -35,10 +36,10 @@ function saveEntry(scope, entry, updatedAt) {
     throw new Error('invalid cost');
   }
   const values = MONEY_COLUMNS.map((column) => entry[column]);
-  run(`INSERT INTO goods_cost_entries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  run(`INSERT INTO goods_cost_entries (account_id, mall_id, goods_id, spec, purchase_fen, packaging_fen,
+    courier_fen, technical_service_fen, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(account_id, mall_id, goods_id, spec) DO UPDATE SET
-    purchase_fen = excluded.purchase_fen, packaging_fen = excluded.packaging_fen,
-    courier_fen = excluded.courier_fen, insurance_fen = excluded.insurance_fen,
+    purchase_fen = excluded.purchase_fen, packaging_fen = excluded.packaging_fen, courier_fen = excluded.courier_fen,
     technical_service_fen = excluded.technical_service_fen, updated_at = excluded.updated_at`,
   scope.accountId, scope.mallId, entry.goods_id, entry.spec ?? '', ...values, updatedAt);
   return { ...entry, updated_at: updatedAt };

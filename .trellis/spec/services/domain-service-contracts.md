@@ -322,43 +322,33 @@ Good：两场景直接成交 1.23 元各一条，合计 2.46 元，再从商品�
 
 Wrong：total - (direct + indirect)，推广失败时输出 0。Correct：仅减 direct，失败时输出 null 并标记 promo_complete:false。
 
-## Scenario: Consumer Experience Plan Fee
+## Scenario: Consumer Experience Plan Charge Records
 
 ### 1. Scope / Trigger
 
-适用于 `diagnose.experience-plan`（`.scratch/experience-plan-fee/issues/02-fee-readonly-query.md`）：只读查询消费者体验提升计划（退货包运费）状态、费率、计数与逐单收费记录。同模块写接口（`close_service`、`pause_service`、`openService`、`refreshServiceStatus`）一律不接入。
+`goods profit` 的运费险（`insurance_fen`）来源：消费者体验提升计划（退货包运费）收费记录 `experiencePlan.orderInsuranceList`。只读；同模块写接口（`close_service`、`pause_service`、`openService`、`refreshServiceStatus`）一律不接入。原只读命令 `diagnose experience-plan` 已于 2026-11-15 按用户要求移除，CLI 不再单独输出计划状态、费率或收费记录。
 
-### 2. Signatures
+### 2. Contracts
 
-```js
-getExperiencePlanView(ctx, { days = 7, page = 1 } = {}) // src/services/experience-plan.js; returns { data, warnings }
-toExperiencePlanView({ status, available, profits, list }, { window, page, hints, mallId = null }) // views/experience-plan.js
-```
+- 端点：page-api POST `/mms-gateway/rfreight/postpaid/order_insurance_list`，导航 `https://mms.pinduoduo.com/freight/return_freight`；成功码为 `success:true` 且 `errorCode` 为 `0`（page-api 合成外壳）或 `1000`（浏览器抓包）。
+- 请求：`{ pageSize: 100, pageNumber: page-1, queryFeeStatusList: [1, 2], clientType: 1, createBeginTime, createEndTime }`（1 待收费、2 收费成功，不含 3 收费取消；按创建时间毫秒筛选，单次跨度 ≤ 30 天）。筛选条件与页面默认一致；`pageSize` 页面默认 10，2026-11-15 真实账号只读实测 50 / 100 均可用。
+- 投影只保留 `orderSn`、`serviceAmountVO`、`feeStatusDesc`；`batchSn`、`sn`、`mallId`、`uid` 等不进入服务层。
+- 金额对象仅 `unit === 'YUAN'` 时按字符串精确解析（`parseYuanToFen`）；其他或缺失单位该单记 null 并按单位去重写入 `meta.warnings`。解析与 promo MoneyVO 语义不同，不共用；实现位于 `src/services/goods-profit-insurance.js`。
 
-CLI：`pdd diagnose experience-plan [--days 1|7|30] [--page 1]`，`needsAuth:true`、`needsMall:'switch'`。四个 page-api 端点导航 `https://mms.pinduoduo.com/freight/return_freight`，成功码为 `success:true` 且 `errorCode` 为 `0`（page-api 合成外壳）或 `1000`（浏览器抓包）。
+### 3. Tests Required
 
-### 3. Contracts
-
-- 窗口为 `shanghaiDaysThroughToday(days)`：上海今天减 days-1 天 00:00:00 至今天 23:59:59.999（毫秒）。`EXPERIENCE_PLAN_REPORT.days.choices` 是 days → `profits.farDate` 的唯一来源（`{ farDate, closerDate: 0 }`）。
-- `order_insurance_list` 请求与页面默认一致：`{ pageSize: 10, pageNumber: page-1, queryFeeStatusList: [1, 2], clientType: 1, createBeginTime, createEndTime }`（1 待收费、2 收费成功，不含 3 收费取消；按创建时间筛选，不用 shippingBeginTime/EndTime）。
-- `data` 字段为 `EXPERIENCE_PLAN_FIELDS`：`headline`、`window`、`plan_status`、`today_fee_per_order_yuan`、`charged_order_count`、`compensated_order_count`、`items`、`total`、`page`、`hints`、`mall_id`（`mallIdOf(ctx)`，与其他 diagnose 一致）。`items[]` 为 `EXPERIENCE_PLAN_ITEM_FIELDS`；`batchSn`、`sn`、`mallId`、`uid` 不投影。
-- **枚举例外**：`plan_status` 输出上游 `configStatus` 原值（数字），不转中文标签。只见过样本 1 = 计划生效中，其余取值无标签证据；在取得证据前保持原值，headline 标注「平台原值」。这是「enums are output as Chinese labels」的显式例外，不适用于其他字段（`service_status` 按 1/2/3 标签输出，未登记码 `未知(<code>)`）。
-- 金额对象仅 `unit === 'YUAN'` 时按字符串精确解析（`parseYuanToFen`）；其他或缺失单位输出 null 并按单位去重写入 `meta.warnings`。该解析与 promo MoneyVO 语义不同，不共用。
-- 汇总计数与列表 `total` 原样分别输出，不互相校正；`count_caliber` 提示说明口径差异。任一端点失败整条命令失败。
-
-### 4. Tests Required
-
-`experience-plan-contract.test.js`（端点路径、请求体、成功码、白名单、缺形态拒绝）、`experience-plan.test.js`（请求参数、days → farDate、mall_id、days 校验）、`experience-plan-view.test.js`（字段集、金额单位、null、headline）、`experience-plan.e2e.test.js` 与 data-contract-v2（`''`、`window`、`items[]` 字段集）。
+`experience-plan-contract.test.js`（端点路径、请求体、成功码、白名单、缺形态拒绝）、`goods-profit-insurance.test.js`（分段、翻页、截断、失败、金额单位）、`page-api-success-guard.test.js`。
 
 ## Scenario: Goods Cost and Net Profit
 
-- services/goods-cost-input.js 单独拥有非负元金额、精确规格及字符串 ID 校验；goods-cost.js 编排本地预演/确认，goods-cost-import.js 原生解析 UTF-8 JSON 后整批校验（1 MiB / 5000 条）。未知列、重复商品/规格键、坏行全部拒绝，无先写好行行为。
-- goods.profit days 为 1–90，默认 30；按 group_time 成团时间统计上海最近 N 个完整自然日、不含当天，[start,end)；复用 collectOrdersForStaleAnalysis，显式 scope all、size 50、since=start/until=end-1。保留 truncation/rate-limit，按成团时间过滤、订单号内部去重，缺时间或冲突样本标不完整。
-- goods-profit-calculation.js 是纯函数：收入=order_amount+platform_discount，不重复加 shipping_amount 或扣 merchant_discount。未付款取消收入及所有成本 0；退款成功（5）收入/货本 0，已发货扣全部按单项，未发货为 0，发货时间缺失/无效时这些费用 null。10/11 正常计算并单列单数及收入；未知售后码/缺字段相关财务 null。
+- services/goods-cost-input.js 单独拥有非负元金额、精确规格及字符串 ID 校验；goods-cost.js 编排本地预演/确认，goods-cost-import.js 原生解析 UTF-8 JSON 后整批校验（1 MiB / 5000 条）。未知列、重复商品/规格键、坏行全部拒绝，无先写好行行为。成本项为货本、包材、快递、技术服务费（COST_NAMES），不含运费险：`insurance_yuan` 输入报 E_USAGE（字段 insurance_yuan，导入时进入 row_errors），set 无 `--insurance-yuan` 选项（commander 未知选项，退出码 2），list/set/remove 输出无 insurance_yuan。
+- goods.profit days 为 1–90，默认 30；按 confirm_time 成交时间（秒，等于支付时间）统计上海最近 N 个完整自然日、不含当天，[start,end)；orders.list 不返回 group_time，不为成团时间逐单调用订单详情。复用 collectOrdersForStaleAnalysis，显式 scope all、size 50、since=start/until=end-1（按下单时间覆盖窗口，成交晚于下单）。保留 truncation/rate-limit，按成交时间过滤、订单号内部去重（事实字段含 confirm_time）；confirm_time 为 0 的未付款取消静默排除，其余缺失、非数字或为 0 的样本及冲突样本标不完整（hint invalid_order_window）。
+- goods-profit-calculation.js 是纯函数：收入=order_amount+platform_discount，不重复加 shipping_amount 或扣 merchant_discount。未付款取消收入及所有成本 0；退款成功（5）收入/货本 0，已发货扣包材/快递/技术服务费，未发货为 0，发货时间缺失/无效时这些费用 null。5 以外的非空整数售后码（10/11 及未登记的 6/31 等）按售后处理中正常计算并单列单数及收入；售后码缺失或非整数时相关财务 null。
+- 运费险（insurance_fen）不属于成本录入（ADR 0004），PROFIT_COST_FIELDS 在 COST_NAMES 之外单独追加，取 goods-profit-insurance.js 采集的体验提升计划收费记录（`experiencePlan.orderInsuranceList`，queryFeeStatusList [1,2]，pageSize 100），按 order_sn 对齐、同单多条求和。采集窗口：createBeginTime = 窗口起点前 1 天，createEndTime = 窗口终点 - 1ms，按 ≤30 天分段；每段翻页取满 total，单段页数上限（默认 50）触顶记 truncated，空页提前结束或 total 漂移记不完整。逐单：未付款取消 0；「收费成功」计入（退款不扣回）；「待收费」退款为 0、正常/10/11 计入、未知售后状态 null；其他收费状态文案 null + warning；无记录 0（仅记录完整时）。金额仅 YUAN（planMoneyReader），其他单位 null + warning。采集失败（PddCliError，report.optional）或不完整：运费险、商家成本、毛利、净利 null，hint `insurance_unavailable` / `insurance_incomplete`，data_quality `insurance_complete` / `insurance_truncated`，退出码不变。运费补偿由平台支付给买家，不是商家成本，不计入。
 - 成本先精确 spec，后商品默认，无匹配则利润/率 null；货本乘 goods_number，按单项只扣一次，缺数量只影响依赖数量的项。cost_updated_at 是实际使用记录的最大时间，default_fallback_order_count 为非空规格未命中后实际回落单数；成本只有当前值，历史查询会重算。
 - goods-profit-promo.js 完整分页 entityReport，保留已删除推广历史，只按 goodsId 归属，无名称回退。商品花费按实体归属合计，全店 promo_spend_yuan 取 totals.spend，shop_promo_spend_yuan 为总计减归属合计；负差额为 null/hint，已知总计和按总计计算的净利润保留。totals 每页不累加；口径固定提示“仅含商品推广报表口径”，关注/询单覆盖留后续研究。
 - 推广失败/截断/限流相关花费与净利润 null；完整无该商品记录为 0，金额无效保留 null。窗口订单采集不完整时窗口财务 null，observed_order_count/observed_revenue_yuan 保留样本。summary 严格传播所需未知输入，禁止仅合计有成本商品。
-- view 白名单由 views/goods-cost.js / goods-profit.js 导出，中文 availability 表在 labels.js，利润 hints 归 goods-profit view 的报表声明所有。gross_margin_pct/net_margin_pct 为有符号百分数，可超过 ±100 且原样保留，零收入为 null。filter_goods_id 仅筛 items，summary 全店。固定提示当前成本重算与两项高估：仅退款不退货、商家共担补贴。
+- view 白名单由 views/goods-cost.js / goods-profit.js 导出，中文 availability 表在 labels.js，利润 hints 归 goods-profit view 的报表声明所有。gross_margin_pct/net_margin_pct 为有符号百分数，可超过 ±100 且原样保留，零收入为 null。filter_goods_id 仅筛 items，summary 全店。固定提示当前成本重算、运费险取平台逐单收费记录与两项高估：仅退款不退货、商家共担补贴。
 - 测试：goods-cost*、goods-profit* 服务/视图单测，orders-scope/orders-contract/promo-money 回归，两个 goods 成本/利润 fixture e2e 与五个命令的 data-contract-v2；共享 runner/存储改动执行 npm test。
 
 ## Scenario: Goods Estimated Receipt
@@ -396,7 +386,7 @@ CLI: `pdd orders list [--status all|pending_ship|shipped|received|after_sales]` 
 | `getOrderStatsView` local sample | `all` | refund counts need after-sales orders |
 | `collectOrdersInput` (diagnose orders / shop / compare) | `all` | same |
 | `getAfterSalesDiagnosis` | `all` | same |
-| `goods profit` | `all` | 成团时间完整窗口须包含退款、10/11 和未付款取消；显式覆盖 collector 的 valid 默认 |
+| `goods profit` | `all` | 成交时间完整窗口须包含退款和 10/11（未付款取消没有成交时间，过滤时排除）；显式覆盖 collector 的 valid 默认 |
 | `collectGoodsInput` (diagnose inventory), `goods segment` | `valid` (default) | sales = paid orders without after-sales, all shipping states |
 
 - Refund identification uses ONLY order `after_sales_status`: `5` → refunded (`refund_count`); any other non-null code → in progress (`after_sales_count`). String codes are compared numerically (`'5'` counts as refunded). `refund_status` / `refundStatus` / `after_sale_type` / `afterSaleType` do not exist upstream and MUST NOT be read.

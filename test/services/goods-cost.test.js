@@ -15,12 +15,12 @@ it.each([-1, '0.001', true, '1e2', 'NaN', 'Infinity', '999999999999999'])('rejec
 });
 
 it('validates zero, precision, default and exact spec without losing IDs', () => {
-  const normalized = validateCostEntry(input({ spec: ' red ', insurance_yuan: '0.01' }));
+  const normalized = validateCostEntry(input({ spec: ' red ', technical_service_yuan: '0.01' }));
   assert.equal(normalized.goods_id, '90071992547409999');
   assert.equal(normalized.spec, ' red ');
   assert.equal(normalized.packaging_fen, 0);
-  assert.equal(normalized.insurance_fen, 1);
-  assert.equal(normalized.technical_service_fen, 0);
+  assert.equal(normalized.technical_service_fen, 1);
+  assert.equal(validateCostEntry(input()).technical_service_fen, 0);
   for (const spec of ['', ' ', 'bad\0spec']) assert.throws(() => validateCostEntry(input({ spec })), { code: 'E_USAGE' });
 });
 
@@ -30,10 +30,10 @@ it('previews without changing timestamps, replaces all fields and deletes precis
   assert.equal(preview.entry.updated_at, null);
   assert.equal(preview.dry_run, true);
   assert.equal((await listGoodsCostView(ctx)).total, 0);
-  await setGoodsCostView(ctx, { ...input({ insurance_yuan: '1' }), confirm: true });
+  await setGoodsCostView(ctx, { ...input({ technical_service_yuan: '1' }), confirm: true });
   await setGoodsCostView(ctx, { ...input({ spec: ' red ' }), confirm: true });
   const saved = await setGoodsCostView(ctx, { ...input({ purchase_yuan: 0 }), confirm: true });
-  assert.equal(saved.entry.insurance_yuan, 0);
+  assert.equal(saved.entry.technical_service_yuan, 0);
   assert.equal(saved.entry.purchase_yuan, 0);
   assert.match(saved.entry.updated_at, /^\d{4}-\d{2}-\d{2} /);
   assert.equal((await removeGoodsCostView(ctx, { goods_id: input().goods_id })).matched_count, 1);

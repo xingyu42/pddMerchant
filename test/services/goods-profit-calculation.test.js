@@ -3,18 +3,22 @@ import assert from 'node:assert/strict';
 import { computeGoodsProfit } from '../../src/services/goods-profit-calculation.js';
 
 const entry = (overrides = {}) => ({ goods_id: '101', spec: null, purchase_fen: 800,
-  packaging_fen: 50, courier_fen: 300, insurance_fen: 30, technical_service_fen: 20,
+  packaging_fen: 50, courier_fen: 300, technical_service_fen: 20,
   updated_at: '2026-10-01T00:00:00Z', ...overrides });
-const order = (overrides = {}) => ({ goods_id: 101, goods_name: 'Tea', spec: 'red', goods_number: 2,
+const order = (overrides = {}) => ({ order_sn: 'SYN-1', goods_id: 101, goods_name: 'Tea', spec: 'red', goods_number: 2,
   order_amount: 2350, platform_discount: 50, merchant_discount: 100, shipping_amount: 200,
   after_sales_status: null, shipping_time: 1700000000, pay_status: 2, ...overrides });
 const promo = (overrides = {}) => ({ complete: true, byGoods: new Map([['101', 100]]), total_fen: 150,
   attributed_fen: 100, shop_fen: 50, ...overrides });
+// 收费记录：status 为 charged（收费成功）/ pending（待收费）/ unknown，fen 为平台逐单服务费（分）
+const insurance = (records = { 'SYN-1': [{ status: 'charged', fen: 30 }] }, complete = true) =>
+  ({ complete, byOrder: new Map(Object.entries(records)) });
 const calculate = (overrides = {}) => computeGoodsProfit({ orders: [order()], entries: [entry()], promo: promo(),
-  quality: { orders_complete: true }, ...overrides });
+  insurance: insurance(), quality: { orders_complete: true }, ...overrides });
 
 it('computes in fen, includes platform discount and does not double-deduct shipping or merchant discount', () => {
-  const input = { orders: [order()], entries: [entry()], promo: promo(), quality: { orders_complete: true } };
+  const input = { orders: [order()], entries: [entry()], promo: promo(), insurance: insurance(),
+    quality: { orders_complete: true } };
   const before = structuredClone(input);
   const result = computeGoodsProfit(input);
   assert.deepEqual(input, before);
@@ -41,7 +45,8 @@ it.each([5, '5'])('refunds revenue and goods while retaining shipped per-order c
 });
 
 it.each([0, '0', null, undefined, -1, 'invalid'])('handles refund shipping timestamp %s', (shippingTime) => {
-  const item = calculate({ orders: [order({ after_sales_status: 5, shipping_time: shippingTime })] }).items[0];
+  const item = calculate({ orders: [order({ after_sales_status: 5, shipping_time: shippingTime })],
+    insurance: insurance({}) }).items[0];
   assert.equal(item.purchase_fen, 0);
   assert.equal(item.merchant_cost_fen, shippingTime === 0 || shippingTime === '0' ? 0 : null);
 });
@@ -64,7 +69,7 @@ it('matches exact specs then defaults and reports only the max timestamp actuall
 
 it('propagates missing cost, required order fields, unknown sales status and missing promotion', () => {
   assert.equal(calculate({ entries: [] }).items[0].net_profit_fen, null);
-  for (const overrides of [{ goods_number: null }, { platform_discount: null }, { after_sales_status: 99 }]) {
+  for (const overrides of [{ goods_number: null }, { platform_discount: null }, { after_sales_status: 'x' }]) {
     assert.equal(calculate({ orders: [order(overrides)] }).items[0].net_profit_fen, null);
   }
   const missingStatus = order();
@@ -99,4 +104,61 @@ it('handles promo-only goods and missing identities without hiding unknown shop 
   const unattributed = calculate({ orders: [order({ goods_id: null })] });
   assert.equal(unattributed.summary.unattributed_order_count, 1);
   assert.equal(unattributed.summary.net_profit_fen, null);
+});
+
+it('takes insurance from the platform fee records of the order', () => {
+  const records = { 'SYN-1': [{ status: 'charged', fen: 111 }, { status: 'pending', fen: 12 }],
+    'SYN-OTHER': [{ status: 'charged', fen: 999 }] };
+  const item = calculate({ insurance: insurance(records) }).items[0];
+  assert.equal(item.insurance_fen, 123);
+  assert.equal(item.merchant_cost_fen, 2093);
+  assert.equal(item.gross_profit_fen, 307);
+});
+
+it('keeps charged fees on refunded orders but drops pending fees on refunded or cancelled orders', () => {
+  const pending = insurance({ 'SYN-1': [{ status: 'pending', fen: 30 }] });
+  for (const shippingTime of [1700000000, 0, null]) {
+    const refunded = order({ after_sales_status: 5, shipping_time: shippingTime });
+    assert.equal(calculate({ orders: [refunded] }).items[0].insurance_fen, 30);
+  }
+  assert.equal(calculate({ orders: [order({ after_sales_status: 5 })], insurance: pending }).items[0].insurance_fen, 0);
+  for (const status of ['charged', 'pending']) {
+    const records = insurance({ 'SYN-1': [{ status, fen: 30 }] });
+    assert.equal(calculate({ orders: [order({ pay_status: 0 })], insurance: records }).items[0].insurance_fen, 0);
+  }
+  for (const afterSales of [null, 10, 11]) {
+    const open = order({ after_sales_status: afterSales });
+    assert.equal(calculate({ orders: [open], insurance: pending }).items[0].insurance_fen, 30);
+  }
+});
+
+it('counts orders without a fee record as zero only when the records are complete', () => {
+  const none = calculate({ insurance: insurance({}) });
+  assert.equal(none.items[0].insurance_fen, 0);
+  assert.equal(none.items[0].merchant_cost_fen, 1970);
+  const incomplete = calculate({ insurance: insurance(undefined, false) });
+  for (const field of ['insurance_fen', 'merchant_cost_fen', 'gross_profit_fen', 'net_profit_fen']) {
+    assert.equal(incomplete.items[0][field], null, field);
+    assert.equal(incomplete.summary[field], null, field);
+  }
+  assert.equal(calculate({ insurance: null }).items[0].insurance_fen, null);
+});
+
+it('keeps an order fee unknown when its amount, fee status or after-sales status is unknown', () => {
+  const single = (record) => insurance({ 'SYN-1': [record] });
+  assert.equal(calculate({ insurance: single({ status: 'charged', fen: null }) }).items[0].insurance_fen, null);
+  assert.equal(calculate({ insurance: single({ status: 'unknown', fen: 30 }) }).items[0].insurance_fen, null);
+  assert.equal(calculate({ orders: [order({ after_sales_status: 'x' })], insurance: single({ status: 'pending', fen: 30 }) })
+    .items[0].insurance_fen, null);
+});
+
+// 与 orders.js 一致：5 = 退款成功，其他非空整数码 = 售后处理中（真实账号出现过 6、31）
+it.each([6, 10, 11, 31, 99])('treats after-sales code %s as in after-sales: revenue kept and counted separately', (code) => {
+  const item = calculate({ orders: [order({ after_sales_status: code })] }).items[0];
+  const normal = calculate({ orders: [order({ after_sales_status: null })] }).items[0];
+  assert.equal(item.after_sales_order_count, 1);
+  assert.equal(item.refunded_order_count, 0);
+  assert.equal(item.revenue_fen, normal.revenue_fen);
+  assert.equal(item.net_profit_fen, normal.net_profit_fen);
+  assert.notEqual(item.net_profit_fen, null);
 });
