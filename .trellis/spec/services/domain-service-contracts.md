@@ -353,7 +353,7 @@ CLI：`pdd diagnose experience-plan [--days 1|7|30] [--page 1]`，`needsAuth:tru
 ## Scenario: Goods Cost and Net Profit
 
 - services/goods-cost-input.js 单独拥有非负元金额、精确规格及字符串 ID 校验；goods-cost.js 编排本地预演/确认，goods-cost-import.js 原生解析 UTF-8 JSON 后整批校验（1 MiB / 5000 条）。未知列、重复商品/规格键、坏行全部拒绝，无先写好行行为。成本项为货本、包材、快递、技术服务费（COST_NAMES），不含运费险：`insurance_yuan` 输入报 E_USAGE（字段 insurance_yuan，导入时进入 row_errors），set 无 `--insurance-yuan` 选项（commander 未知选项，退出码 2），list/set/remove 输出无 insurance_yuan。
-- goods.profit days 为 1–90，默认 30；按 group_time 成团时间统计上海最近 N 个完整自然日、不含当天，[start,end)；复用 collectOrdersForStaleAnalysis，显式 scope all、size 50、since=start/until=end-1。保留 truncation/rate-limit，按成团时间过滤、订单号内部去重，缺时间或冲突样本标不完整。
+- goods.profit days 为 1–90，默认 30；按 confirm_time 成交时间（秒，等于支付时间）统计上海最近 N 个完整自然日、不含当天，[start,end)；orders.list 不返回 group_time，不为成团时间逐单调用订单详情。复用 collectOrdersForStaleAnalysis，显式 scope all、size 50、since=start/until=end-1（按下单时间覆盖窗口，成交晚于下单）。保留 truncation/rate-limit，按成交时间过滤、订单号内部去重（事实字段含 confirm_time）；confirm_time 为 0 的未付款取消静默排除，其余缺失、非数字或为 0 的样本及冲突样本标不完整（hint invalid_order_window）。
 - goods-profit-calculation.js 是纯函数：收入=order_amount+platform_discount，不重复加 shipping_amount 或扣 merchant_discount。未付款取消收入及所有成本 0；退款成功（5）收入/货本 0，已发货扣包材/快递/技术服务费，未发货为 0，发货时间缺失/无效时这些费用 null。10/11 正常计算并单列单数及收入；未知售后码/缺字段相关财务 null。
 - 运费险（insurance_fen）不属于成本录入（ADR 0004），PROFIT_COST_FIELDS 在 COST_NAMES 之外单独追加，取 goods-profit-insurance.js 采集的体验提升计划收费记录（`experiencePlan.orderInsuranceList`，queryFeeStatusList [1,2]，pageSize 100），按 order_sn 对齐、同单多条求和。采集窗口：createBeginTime = 窗口起点前 1 天，createEndTime = 窗口终点 - 1ms，按 ≤30 天分段；每段翻页取满 total，单段页数上限（默认 50）触顶记 truncated，空页提前结束或 total 漂移记不完整。逐单：未付款取消 0；「收费成功」计入（退款不扣回）；「待收费」退款为 0、正常/10/11 计入、未知售后状态 null；其他收费状态文案 null + warning；无记录 0（仅记录完整时）。金额仅 YUAN（planMoneyReader），其他单位 null + warning。采集失败（PddCliError，report.optional）或不完整：运费险、商家成本、毛利、净利 null，hint `insurance_unavailable` / `insurance_incomplete`，data_quality `insurance_complete` / `insurance_truncated`，退出码不变。运费补偿由平台支付给买家，不是商家成本，不计入。
 - 成本先精确 spec，后商品默认，无匹配则利润/率 null；货本乘 goods_number，按单项只扣一次，缺数量只影响依赖数量的项。cost_updated_at 是实际使用记录的最大时间，default_fallback_order_count 为非空规格未命中后实际回落单数；成本只有当前值，历史查询会重算。
@@ -397,7 +397,7 @@ CLI: `pdd orders list [--status all|pending_ship|shipped|received|after_sales]` 
 | `getOrderStatsView` local sample | `all` | refund counts need after-sales orders |
 | `collectOrdersInput` (diagnose orders / shop / compare) | `all` | same |
 | `getAfterSalesDiagnosis` | `all` | same |
-| `goods profit` | `all` | 成团时间完整窗口须包含退款、10/11 和未付款取消；显式覆盖 collector 的 valid 默认 |
+| `goods profit` | `all` | 成交时间完整窗口须包含退款和 10/11（未付款取消没有成交时间，过滤时排除）；显式覆盖 collector 的 valid 默认 |
 | `collectGoodsInput` (diagnose inventory), `goods segment` | `valid` (default) | sales = paid orders without after-sales, all shipping states |
 
 - Refund identification uses ONLY order `after_sales_status`: `5` → refunded (`refund_count`); any other non-null code → in progress (`after_sales_count`). String codes are compared numerically (`'5'` counts as refunded). `refund_status` / `refundStatus` / `after_sale_type` / `afterSaleType` do not exist upstream and MUST NOT be read.

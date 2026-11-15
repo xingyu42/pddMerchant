@@ -4,11 +4,11 @@ import { defineReport, reportHints } from '../operating-report.js';
 
 export const GOODS_PROFIT_REPORT = defineReport({
   days: { min: 1, max: 90, default: 30, separator: '–', message: '--days 需要 {range} 的整数，默认 {default}',
-    description: '成团时间窗口，{range} 个完整上海自然日' },
+    description: '成交时间窗口，{range} 个完整上海自然日' },
   hints: {
     orders_truncated: '订单量超出采集上限，窗口财务金额为 null，保留已观测样本',
     orders_ratelimited: '订单采集因限流中断，窗口财务金额为 null，保留已观测样本',
-    invalid_order_window: '成团时间缺失或重复订单事实冲突，订单采集不完整',
+    invalid_order_window: '成交时间缺失或重复订单事实冲突，订单采集不完整',
     promo_incomplete: '推广采集不完整，相关推广花费和净利润为 null',
     promo_unavailable: '推广数据拉取失败，相关推广花费和净利润为 null',
     negative_promo_difference: '推广报表总计减商品归属合计的差额为负，店铺级推广花费为 null',
