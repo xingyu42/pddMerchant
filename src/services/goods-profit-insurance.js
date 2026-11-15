@@ -11,7 +11,7 @@ const SPAN_MS = 30 * DAY_MS;
 const PAGE_SIZE = 100;
 const FEE_STATUS = Object.freeze({ 收费成功: 'charged', 待收费: 'pending' });
 
-// 订单先创建后成团：创建时间从窗口起点前 1 天起，到窗口终点（含）止，按 ≤30 天分段。
+// 订单先创建后成交：创建时间从窗口起点前 1 天起，到窗口终点（含）止，按 ≤30 天分段。
 function createSpans(window) {
   const spans = [];
   const end = (window.end * 1000) - 1;

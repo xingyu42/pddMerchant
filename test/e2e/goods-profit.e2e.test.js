@@ -170,14 +170,25 @@ it('uses a precise spec override and falls back for an unmatched spec', () => {
   } finally { cli.dispose(); }
 });
 
-it('keeps unpaid cancelled amounts zero and empty windows explicit', () => {
-  const cancelled = report(createProfitFixtures({ orders: createProfitOrders([{ pay_status: 0 }]) }));
-  assert.equal(cancelled.items[0].merchant_cost_yuan, 0);
-  assert.equal(cancelled.items[0].revenue_yuan, 0);
+it('excludes unpaid cancelled orders without a confirm_time and keeps empty windows explicit', () => {
+  const cancelled = report(createProfitFixtures({ orders: createProfitOrders([{}, { pay_status: 0, confirm_time: 0 }]) }));
+  assert.equal(cancelled.summary.observed_order_count, 1);
+  assert.equal(cancelled.summary.data_quality.orders_complete, true);
+  assert.equal(cancelled.items[0].net_profit_yuan, 3.1);
   const empty = report(createProfitFixtures({ orders: [], entities: [], totalSpend: 0 }));
   assert.equal(empty.total, 0);
   assert.equal(empty.summary.net_profit_yuan, 0);
   assert.equal(empty.summary.net_margin_pct, null);
+});
+
+it('marks orders carrying only group_time incomplete with a hint', () => {
+  // JSON fixture 会丢掉 undefined 字段：第二单只有成团时间（订单详情形态），没有成交时间
+  const orders = createProfitOrders([{}, { confirm_time: undefined, group_time: Math.floor(Date.now() / 1000) - 86400 }]);
+  const data = report(createProfitFixtures({ orders }));
+  assert.equal(data.summary.data_quality.orders_complete, false);
+  assert.equal(data.summary.observed_order_count, 1);
+  assert.equal(data.summary.net_profit_yuan, null);
+  assert.ok(data.hints.includes('成交时间缺失或重复订单事实冲突，订单采集不完整'), JSON.stringify(data.hints));
 });
 
 it('marks capped order scans incomplete instead of reporting a full-window profit', () => {
