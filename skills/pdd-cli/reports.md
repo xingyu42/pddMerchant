@@ -72,7 +72,7 @@
 ## goods profit
 
 - `--days` 1–90，默认 30。按成交时间（平台数据中心「成交」口径，等于支付时间）统计上海最近 N 个完整自然日，不含当天，`window.end_at` 为排他上界；未付款取消的订单没有成交时间，不计入任何窗口。`--goods-id` 只筛 `items`，`summary` 始终为全店。
-- 收入 = 实付 + 平台优惠。退款成功按全额退款且货已退回处理：货本与收入为 0，已发货仍扣包材、快递、技术服务费，未发货这些费用为 0；发货时间缺失时这些费用为 `null`。未付款取消的收入与成本为 0；售后处理中（10/11）正常计入，并单列 `after_sales_order_count` / `after_sales_revenue_yuan`。
+- 收入 = 实付 + 平台优惠。退款成功按全额退款且货已退回处理：货本与收入为 0，已发货仍扣包材、快递、技术服务费，未发货这些费用为 0；发货时间缺失时这些费用为 `null`。未付款取消的收入与成本为 0；售后处理中（5 以外的非空售后码，如 10/11，以及未登记的 6/31）正常计入，并单列 `after_sales_order_count` / `after_sales_revenue_yuan`。
 - `insurance_yuan`（运费险）是消费者体验提升计划收费记录里平台逐单报告的服务费，按订单号对齐，CLI 不按费率重算；`goods cost` 没有运费险字段。「收费成功」的服务费在订单退款后仍计入（平台规则：服务费收取后不退还）；「待收费」在订单退款或未付款取消时为 0，其余计入；收费记录中找不到的订单为 0（平台未收取，例如开通计划之前的订单）。运费补偿由平台支付给买家，不是商家成本，不计入利润。
 - 收费记录拉取失败或不完整时，`insurance_yuan`、`merchant_cost_yuan`、`gross_profit_yuan`、`net_profit_yuan` 为 `null` 并附 hint，`summary.data_quality.insurance_complete:false`（达到分页上限时 `insurance_truncated:true`），退出码不变。服务费金额单位不是元时该单运费险为 `null` 并写入 `meta.warnings`。
 - `gross_profit_yuan` 扣商家成本，`net_profit_yuan` 再扣推广。`gross_margin_pct` / `net_margin_pct` 是有符号百分数，可负、可超过 ±100；零收入时为 `null`。

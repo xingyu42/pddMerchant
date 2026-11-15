@@ -60,7 +60,8 @@ Layering (`commands → services → adapter → infra`) is enforced by review o
 - Rate limiting: HTTP 429 retries with delays `[1000, 2000, 4000] ms`; after `cooldownThreshold` (default 3) consecutive `E_RATE_LIMIT` results on the same endpoint, that endpoint cools down for `cooldownMs` (default 5 min). The cooldown is per endpoint and shared within the process
 - Mall context resolution probe chain: mock → state → url → cookie → storage → xhr → dom
 - `recentOrderList` filters: `orderType` 0=all, 1=pending ship, 2=shipped awaiting receipt, 3=received; `afterSaleType` 0=no filter, 1=only orders without after-sales, 2=after-sales in progress. Only use the verified combinations in `ORDER_LIST_SCOPES` (`src/adapter/endpoints/orders.js`); `orders list` defaults to `all` (0/0), sales statistics use internal `valid` (0/1). `pageSize=100` is rejected upstream (`单页数据量过大或非法`) while `50` works (values in between are unverified)
-- Refunds are identified only by order `after_sales_status` (`5` = refunded, `10`/`11` = after-sales in progress, `null` = none); `refund_status` / `afterSaleType` etc. do not exist on order items. If no order in the sample carries the field, refund counts/rates are `null`, never 0
+- Refunds are identified only by order `after_sales_status` (`5` = refunded, any other non-null integer such as `10`/`11` or the unregistered `6`/`31` = after-sales in progress, `null` = none); `refund_status` / `afterSaleType` etc. do not exist on order items. If no order in the sample carries the field, refund counts/rates are `null`, never 0
+- `recentOrderList` items have no `group_time` (only `orderDetail` does); use `confirm_time` (成交时间, equal to pay time; `0` for unpaid cancels, which carry `pay_status: 0`). Fixtures must use the real list shape, or tests pass while real accounts get 0 orders (the original `goods profit` bug)
 
 ## Agent skills
 

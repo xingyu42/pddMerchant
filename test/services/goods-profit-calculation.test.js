@@ -69,7 +69,7 @@ it('matches exact specs then defaults and reports only the max timestamp actuall
 
 it('propagates missing cost, required order fields, unknown sales status and missing promotion', () => {
   assert.equal(calculate({ entries: [] }).items[0].net_profit_fen, null);
-  for (const overrides of [{ goods_number: null }, { platform_discount: null }, { after_sales_status: 99 }]) {
+  for (const overrides of [{ goods_number: null }, { platform_discount: null }, { after_sales_status: 'x' }]) {
     assert.equal(calculate({ orders: [order(overrides)] }).items[0].net_profit_fen, null);
   }
   const missingStatus = order();
@@ -148,6 +148,17 @@ it('keeps an order fee unknown when its amount, fee status or after-sales status
   const single = (record) => insurance({ 'SYN-1': [record] });
   assert.equal(calculate({ insurance: single({ status: 'charged', fen: null }) }).items[0].insurance_fen, null);
   assert.equal(calculate({ insurance: single({ status: 'unknown', fen: 30 }) }).items[0].insurance_fen, null);
-  assert.equal(calculate({ orders: [order({ after_sales_status: 99 })], insurance: single({ status: 'pending', fen: 30 }) })
+  assert.equal(calculate({ orders: [order({ after_sales_status: 'x' })], insurance: single({ status: 'pending', fen: 30 }) })
     .items[0].insurance_fen, null);
+});
+
+// 与 orders.js 一致：5 = 退款成功，其他非空整数码 = 售后处理中（真实账号出现过 6、31）
+it.each([6, 10, 11, 31, 99])('treats after-sales code %s as in after-sales: revenue kept and counted separately', (code) => {
+  const item = calculate({ orders: [order({ after_sales_status: code })] }).items[0];
+  const normal = calculate({ orders: [order({ after_sales_status: null })] }).items[0];
+  assert.equal(item.after_sales_order_count, 1);
+  assert.equal(item.refunded_order_count, 0);
+  assert.equal(item.revenue_fen, normal.revenue_fen);
+  assert.equal(item.net_profit_fen, normal.net_profit_fen);
+  assert.notEqual(item.net_profit_fen, null);
 });

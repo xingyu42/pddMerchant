@@ -30,7 +30,8 @@ function classify(order) {
   if (order.after_sales_status === null) return 'normal';
   const code = Number(order.after_sales_status);
   if (code === 5) return 'refunded';
-  if (code === 10 || code === 11) return 'open';
+  // 与 orders.js 一致：其他非空整数码都算售后处理中（真实账号出现过 6、31，含义未登记）
+  if (Number.isInteger(code)) return 'open';
   return 'unknown';
 }
 
