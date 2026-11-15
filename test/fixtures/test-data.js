@@ -344,13 +344,17 @@ export function createProfitOrders(overrides = [{}]) {
   }));
 }
 
+// insurance：体验提升计划收费记录（按订单号对齐运费险），默认为空列表（全部订单运费险 0）。
 export function createProfitFixtures({ orders = createProfitOrders(),
-  entities = [{ goodsId: '101', goodsName: 'Tea', spend: 1, gmv: 24, impression: 10, click: 1 }], totalSpend = 1.5 } = {}) {
+  entities = [{ goodsId: '101', goodsName: 'Tea', spend: 1, gmv: 24, impression: 10, click: 1 }], totalSpend = 1.5,
+  insurance = [] } = {}) {
   return {
     'endpoints/orders.list.json': success({ totalItemNum: orders.length, pageItems: orders }),
     'endpoints/promo.entityReport.json': success({
       entityReportList: entities, totalSumReport: { spend: totalSpend, gmv: 24, impression: 10, click: 1 },
     }),
+    'endpoints/experiencePlan.orderInsuranceList.json': rfreightSuccess({ total: insurance.length,
+      orderInsurances: insurance }),
   };
 }
 

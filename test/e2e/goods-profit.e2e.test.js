@@ -1,18 +1,80 @@
 import { it } from 'vitest';
 import assert from 'node:assert/strict';
 import { createCostCli, costArgs } from '../helpers/goods-cost-cli.js';
-import { createProfitFixtures, createProfitOrders } from '../fixtures/test-data.js';
+import { createProfitFixtures, createProfitOrders, createUpstreamOrderInsurance } from '../fixtures/test-data.js';
 import { runCli } from '../helpers/isolated-cli.js';
 
-function report(fixtures, { costs = true, extraCosts = [], args = [] } = {}) {
+function profit(fixtures, { costs = true, extraCosts = [], args = [] } = {}) {
   const cli = createCostCli(fixtures);
   try {
     if (costs) assert.equal(cli.execute(['goods', 'cost', 'set', ...costArgs, ...extraCosts, '--confirm']).envelope.ok, true);
     const result = cli.execute(['goods', 'profit', ...args]);
     assert.equal(result.envelope.ok, true, JSON.stringify(result.envelope.error));
-    return result.envelope.data;
+    assert.equal(result.status, 0);
+    return result.envelope;
   } finally { cli.dispose(); }
 }
+
+function report(fixtures, options) {
+  return profit(fixtures, options).data;
+}
+
+// 收费记录按创建时间从窗口起点前 1 天查起：--days 29 时恰为一段 30 天的请求，fixture 不会被第二段重复读取。
+const fee = (orderSn, value, overrides = {}) => createUpstreamOrderInsurance({ orderSn, sn: `${orderSn}-MI`,
+  serviceAmountVO: { unit: 'YUAN', value, unitCode: 1 }, ...overrides });
+const insuranceReport = (insurance, { orders = createProfitOrders(), extraCosts = [] } = {}) =>
+  profit(createProfitFixtures({ orders, insurance }), { extraCosts, args: ['--days', '29'] });
+
+it('takes insurance from the platform fee records of each order and ignores the manual entry value', () => {
+  const { data } = insuranceReport([fee('SYN-PROFIT-0', '1.11'), fee('SYN-OTHER', '5.00')],
+    { extraCosts: ['--insurance-yuan', '9'] });
+  assert.equal(data.items[0].insurance_yuan, 1.11);
+  assert.equal(data.items[0].net_profit_yuan, 1.99);
+  assert.equal(data.summary.insurance_yuan, 1.11);
+  assert.equal(data.summary.data_quality.insurance_complete, true);
+  assert.equal(data.summary.data_quality.insurance_truncated, false);
+  assert.ok(data.hints.some((hint) => hint.includes('收费记录')));
+});
+
+it('keeps a charged fee on a refunded order and drops a pending one', () => {
+  const orders = createProfitOrders([{ after_sales_status: 5, shipping_time: 1700000000 }]);
+  assert.equal(insuranceReport([fee('SYN-PROFIT-0', '1.11')], { orders }).data.items[0].insurance_yuan, 1.11);
+  const pending = insuranceReport([fee('SYN-PROFIT-0', '1.11', { feeStatusDesc: '待收费' })], { orders });
+  assert.equal(pending.data.items[0].insurance_yuan, 0);
+});
+
+it('counts orders without a record, or an empty record list, as zero', () => {
+  assert.equal(insuranceReport([fee('SYN-OTHER', '1.11')]).data.items[0].insurance_yuan, 0);
+  const empty = report(createProfitFixtures());
+  assert.equal(empty.items[0].insurance_yuan, 0);
+  assert.equal(empty.summary.insurance_yuan, 0);
+  assert.equal(empty.items[0].net_profit_yuan, 3.1);
+});
+
+it('nulls insurance-dependent amounts with a hint when fee records fail or are incomplete, exit code 0', () => {
+  const failed = createProfitFixtures();
+  failed['endpoints/experiencePlan.orderInsuranceList.json'] = { __throws: true, __error: { code: 'E_NETWORK', exitCode: 5 } };
+  const short = createProfitFixtures({ insurance: [fee('SYN-PROFIT-0', '1.11')] });
+  short['endpoints/experiencePlan.orderInsuranceList.json'].result.total = 101;
+  for (const [fixtures, hint] of [[failed, '拉取失败'], [short, '不完整']]) {
+    const data = report(fixtures, { args: ['--days', '29'] });
+    for (const field of ['insurance_yuan', 'merchant_cost_yuan', 'gross_profit_yuan', 'net_profit_yuan']) {
+      assert.equal(data.items[0][field], null, field);
+      assert.equal(data.summary[field], null, field);
+    }
+    assert.equal(data.items[0].revenue_yuan, 24);
+    assert.equal(data.summary.data_quality.insurance_complete, false);
+    assert.equal(data.summary.data_quality.insurance_truncated, false);
+    assert.ok(data.hints.some((text) => text.includes('运费险') && text.includes(hint)), hint);
+  }
+});
+
+it('keeps a non-YUAN fee unknown with a warning', () => {
+  const envelope = insuranceReport([fee('SYN-PROFIT-0', '111', { serviceAmountVO: { unit: 'FEN', value: '111' } })]);
+  assert.equal(envelope.data.items[0].insurance_yuan, null);
+  assert.equal(envelope.data.items[0].net_profit_yuan, null);
+  assert.ok(envelope.meta.warnings.some((warning) => warning.includes('FEN')));
+});
 
 it('connects cost storage to revenue, attributed spend and full-shop totals without advice or raw data', () => {
   const data = report(createProfitFixtures());
@@ -51,7 +113,8 @@ it.each([0, 1700000000, null])('applies all per-order refund costs using shippin
     { extraCosts: ['--insurance-yuan', '0.3', '--technical-service-yuan', '0.2'] });
   assert.equal(data.items[0].revenue_yuan, 0);
   assert.equal(data.items[0].purchase_yuan, 0);
-  assert.equal(data.items[0].merchant_cost_yuan, shippingTime === null ? null : shippingTime === 0 ? 0 : 4);
+  // 运费险取收费记录（此处无记录为 0），手填 0.3 不计入
+  assert.equal(data.items[0].merchant_cost_yuan, shippingTime === null ? null : shippingTime === 0 ? 0 : 3.7);
 });
 
 it.each([10, 11])('reports open after-sales %s normally and separately', (status) => {

@@ -20,21 +20,22 @@ export const EXPERIENCE_PLAN_WINDOW_FIELDS = Object.freeze(['days', 'start_at', 
 export const EXPERIENCE_PLAN_FIELDS = Object.freeze(['headline', 'window', 'plan_status', 'today_fee_per_order_yuan',
   'charged_order_count', 'compensated_order_count', 'items', 'total', 'page', 'hints', 'mall_id']);
 
-// 金额对象 { unit, value }：仅 YUAN 按字符串精确转元，其他单位输出 null 并登记单位。
+// 金额对象 { unit, value }：仅 YUAN 按字符串精确转分 / 元，其他单位输出 null 并登记单位。
 // 与 promo 的 parseMoney（Number() 浮点、无 unit 按元、支持 FEN）和 promo-goods 的 amountFen（裸数字为厘、
-// 支持 PERCENT）语义不同：本模块只见过 YUAN 样本，故不复用、不推断其他单位。
-function moneyReader() {
+// 支持 PERCENT）语义不同：本模块只见过 YUAN 样本，故不复用、不推断其他单位。goods profit 运费险共用此解析。
+export function planMoneyReader() {
   const unknownUnits = new Set();
-  const read = (money) => {
+  const fen = (money) => {
     if (money == null || typeof money !== 'object') return null;
     if (money.unit !== 'YUAN') {
       unknownUnits.add(String(money.unit ?? '缺失'));
       return null;
     }
-    return yuanFromFen(parseYuanToFen(money.value));
+    return parseYuanToFen(money.value);
   };
+  const read = (money) => yuanFromFen(fen(money));
   const warnings = () => [...unknownUnits].map((unit) => `体验提升计划金额单位未知（${unit}），对应金额输出为 null`);
-  return { read, warnings };
+  return { fen, read, warnings };
 }
 
 function nonNegativeCount(value) {
@@ -64,7 +65,7 @@ function buildHeadline({ planStatus, fee, charged, compensated, total, page, ite
 }
 
 export function toExperiencePlanView({ status, available, profits, list }, { window, page, hints, mallId = null }) {
-  const money = moneyReader();
+  const money = planMoneyReader();
   const fee = money.read(available.price);
   const items = list.items.map((row) => toFeeRecordItem(row, money));
   const charged = nonNegativeCount(profits.orderCount);

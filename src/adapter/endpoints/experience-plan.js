@@ -44,8 +44,9 @@ export const PLAN_PROFITS = endpoint('profits', 'postpaid/profits', (raw) => {
 
 export const PLAN_ORDER_INSURANCE_LIST = {
   ...endpoint('orderInsuranceList', 'postpaid/order_insurance_list', orderInsuranceList,
-    // 与页面默认请求一致：收费状态 1 待收费 + 2 收费成功（3 收费取消不查），按创建时间（毫秒）筛选。
-    ({ page, createBeginTime, createEndTime }) => ({ pageSize: 10, pageNumber: page - 1,
+    // 收费状态 1 待收费 + 2 收费成功（3 收费取消不查），按创建时间（毫秒）筛选，与页面默认一致；
+    // pageSize 100 已经真实账号只读实测可用（页面默认 10），diagnose experience-plan 与 goods profit 共用。
+    ({ page, createBeginTime, createEndTime }) => ({ pageSize: 100, pageNumber: page - 1,
       queryFeeStatusList: [1, 2], clientType: 1, createBeginTime, createEndTime })),
   fixtureListKey: 'result.orderInsurances',
 };

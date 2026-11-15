@@ -61,7 +61,7 @@ pdd orders list --json      # AI 消费加 --json
 | `diagnose shop [--compare] [--days 7]` | 默认 7 天 | 订单 / 库存 / 推广 / 售后四维汇总与数值环比 |
 | `diagnose after-sales [--days 30]` | 默认 30 天 | 退款成功数/率、售后处理中数/占比（取代原 `diagnose funnel`） |
 | `diagnose experience [--days 7]` | 1–30 天 | 平台体验星级、行业排名、指标与下一星级门槛、每日趋势 |
-| `diagnose experience-plan [--days 7] [--page 1]` | 1 / 7 / 30 天（含今天） | 消费者体验提升计划状态、今日服务费费率、收费订单与运费补偿订单数、逐单收费记录（每页 10 条） |
+| `diagnose experience-plan [--days 7] [--page 1]` | 1 / 7 / 30 天（含今天） | 消费者体验提升计划状态、今日服务费费率、收费订单与运费补偿订单数、逐单收费记录（每页 100 条） |
 | `diagnose customer-service [--days 30]` | 1–63 天 | 「多多客服-客服数据（人工回复）」区间汇总；逐日趋势取页面加载的最近 31 天 |
 | `diagnose reviews [--days 30]` | 30 / 60 / 90 / 180 天 | 满意/不满意标签、五类问题计数、1–3 星中差评（最多 30 页，手机号掩码） |
 | `diagnose traffic [--days 30]` | 1–30 天 | 全店逐日访客、浏览、成交及同行均值/优秀值，另附今日截至当前的实时区块 `today`；访客汇总跨日存在重复 |
@@ -72,7 +72,7 @@ pdd orders list --json      # AI 消费加 --json
 口径说明：
 
 - `goods traffic` 的 `non_promo_*` 为商品总成交减去推广直接成交的差值，平台不提供该拆分；负差额或推广拉取失败时为 `null`。推广拆分口径来自第三方插件静态分析，尚未经有投放店铺实测。
-- `goods profit` 推广花费仅含商品推广报表口径；以下两种情况利润可能高估：仅退款不退货、商家共担平台补贴。`gross_margin_pct` / `net_margin_pct` 为有符号百分数，可负、可超过 ±100。
+- `goods profit` 推广花费仅含商品推广报表口径；运费险取消费者体验提升计划收费记录里平台逐单收取的服务费；以下两种情况利润可能高估：仅退款不退货、商家共担平台补贴。`gross_margin_pct` / `net_margin_pct` 为有符号百分数，可负、可超过 ±100。
 - `goods receipt` 原样报告「商品价格管理」页的平台估算值，CLI 不重算，也不含技术服务费或平台补贴。`--caliber regular`（默认，商家出资常规优惠）与 `all`（另含非公开优惠、多单立减、商家出资平台券）分别取各自场景，两种口径不混用。上游每页最多 10 个商品；列表只带回部分规格的商品会逐个补全全部 SKU。
 
 ## 商品成本与净利润
@@ -87,7 +87,7 @@ pdd goods cost remove --goods-id 101 --spec '红色 / 大号' --confirm --json
 pdd goods profit --days 30 --goods-id 101 --json
 ```
 
-- 货本按件扣除；包材、快递及可选 `--insurance-yuan`（运费险）、`--technical-service-yuan`（技术服务费）按单扣除。金额单位为元，最多两位小数。
+- 货本按件扣除；包材、快递及可选 `--insurance-yuan`（运费险）、`--technical-service-yuan`（技术服务费）按单扣除；`goods profit` 的运费险改取消费者体验提升计划收费记录里平台逐单收取的服务费，录入的 `--insurance-yuan` 不再参与计算。金额单位为元，最多两位小数。
 - `--spec` 按原文精确匹配，未命中时回落商品默认成本（`spec: null`）。
 - 写命令缺少 `--confirm` 时仅预演；成本命令均拒绝 `--all-accounts`。
 

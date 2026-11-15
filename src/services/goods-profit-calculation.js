@@ -36,22 +36,37 @@ function matchEntry(order, entries) {
   return { entry: exact ?? fallback ?? null, fallback: !exact && Boolean(fallback) && spec !== null };
 }
 
-function orderCosts(order, state, entry, quantity) {
+// 运费险取体验提升计划收费记录的平台逐单服务费，不读成本录入值（ADR 0004）：收费成功退款不扣回；
+// 待收费在退款或未付款取消时为 0；记录拉全时无记录为 0；记录不完整、金额或状态未知为 null。
+function insuranceFen(order, state, insurance) {
+  if (state === 'cancelled') return 0;
+  if (!insurance?.complete) return null;
+  const identity = order.order_sn ?? order.orderSn;
+  const records = identity == null ? [] : insurance.byOrder.get(String(identity)) ?? [];
+  return sumKnown(records.map((record) => {
+    if (record.status === 'charged') return record.fen;
+    if (record.status !== 'pending' || state === 'unknown') return null;
+    return state === 'refunded' ? 0 : record.fen;
+  }));
+}
+
+function orderCosts(order, state, entry, quantity, insurance) {
   if (state === 'cancelled') return Object.fromEntries(PROFIT_COST_FIELDS.map((field) => [field, 0]));
-  if (state === 'unknown') return Object.fromEntries(PROFIT_COST_FIELDS.map((field) => [field, null]));
   const refunded = state === 'refunded';
   const shippedAt = toFiniteNumber(order.shipping_time);
   const shipped = shippedAt === 0 ? false : shippedAt > 0 ? true : null;
   const costs = {};
   for (const field of PROFIT_COST_FIELDS) {
-    if (field === 'purchase_fen') costs[field] = refunded ? 0 : entry && quantity !== null ? entry[field] * quantity : null;
+    if (field === 'insurance_fen') costs[field] = insuranceFen(order, state, insurance);
+    else if (state === 'unknown') costs[field] = null;
+    else if (field === 'purchase_fen') costs[field] = refunded ? 0 : entry && quantity !== null ? entry[field] * quantity : null;
     else if (refunded && shipped === false) costs[field] = 0;
     else costs[field] = refunded && shipped === null ? null : entry?.[field] ?? null;
   }
   return costs;
 }
 
-function orderTotals(order, entryIndex) {
+function orderTotals(order, entryIndex, insurance) {
   const state = classify(order);
   const zero = state === 'cancelled' || state === 'refunded';
   const quantity = zero ? 0 : fen(order.goods_number);
@@ -60,7 +75,7 @@ function orderTotals(order, entryIndex) {
   const revenue = sumKnown([paid, platform]);
   const match = matchEntry(order, entryIndex);
   return {
-    ...orderCosts(order, state, match.entry, quantity),
+    ...orderCosts(order, state, match.entry, quantity, insurance),
     paid_amount_fen: paid, platform_discount_fen: platform, revenue_fen: revenue, observed_revenue_fen: revenue,
     observed_order_count: 1, quantity,
     refunded_order_count: state === 'unknown' ? null : Number(state === 'refunded'),
@@ -96,7 +111,7 @@ function finishTotals(totals, ordersComplete, spend) {
   return result;
 }
 
-function groupOrders(orders, entries, promo) {
+function groupOrders(orders, entries, promo, insurance) {
   const index = new Map(entries.map((entry) => [JSON.stringify([entry.goods_id, entry.spec]), entry]));
   const groups = new Map();
   for (const order of orders) {
@@ -104,7 +119,7 @@ function groupOrders(orders, entries, promo) {
     if (!groups.has(goodsId)) groups.set(goodsId, { ...emptyTotals(), goods_id: goodsId, goods_name: order.goods_name ?? null });
     const group = groups.get(goodsId);
     if (!group.goods_name && order.goods_name) group.goods_name = order.goods_name;
-    mergeTotals(group, orderTotals(order, index));
+    mergeTotals(group, orderTotals(order, index, insurance));
   }
   for (const goodsId of promo?.byGoods?.keys() ?? []) {
     if (!groups.has(goodsId)) groups.set(goodsId, { ...emptyTotals(), goods_id: goodsId, goods_name: null,
@@ -113,8 +128,8 @@ function groupOrders(orders, entries, promo) {
   return groups;
 }
 
-export function computeGoodsProfit({ orders = [], entries = [], promo = null, quality = {} }) {
-  const groups = groupOrders(orders, entries, promo);
+export function computeGoodsProfit({ orders = [], entries = [], promo = null, insurance = null, quality = {} }) {
+  const groups = groupOrders(orders, entries, promo, insurance);
   const summaryTotals = emptyTotals();
   const items = [];
   let unattributed = 0;

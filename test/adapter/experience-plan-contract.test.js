@@ -28,10 +28,10 @@ describe('experience plan fee page-api contracts', () => {
     assert.deepEqual(PLAN_AVAILABLE_INFO.buildPayload({ noise: 1 }), {});
     assert.deepEqual(PLAN_PROFITS.buildPayload({ farDate: 6, noise: 1 }), { farDate: 6, closerDate: 0 });
     assert.deepEqual(PLAN_PROFITS.buildPayload({ farDate: 0 }), { farDate: 0, closerDate: 0 });
-    // 页面默认：收费状态 1 待收费 + 2 收费成功，按创建时间筛选（毫秒）
+    // 页面默认：收费状态 1 待收费 + 2 收费成功，按创建时间筛选（毫秒）；pageSize 100 经真实账号实测可用
     assert.deepEqual(PLAN_ORDER_INSURANCE_LIST.buildPayload({
       page: 3, createBeginTime: 1762444800000, createEndTime: 1763049599999, noise: 1,
-    }), { pageSize: 10, pageNumber: 2, queryFeeStatusList: [1, 2], clientType: 1,
+    }), { pageSize: 100, pageNumber: 2, queryFeeStatusList: [1, 2], clientType: 1,
       createBeginTime: 1762444800000, createEndTime: 1763049599999 });
   });
 

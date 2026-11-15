@@ -22,7 +22,7 @@
 
 ## diagnose experience-plan
 
-- `--days` 取 1 / 7 / 30，默认 7（收费记录按创建时间筛选，上游限制跨度不超过一个月，故不提供 90），窗口为上海自然日、含今天（`window.start_at` 至 `window.end_at`）；`--page` 默认 1，收费记录每页 10 条。
+- `--days` 取 1 / 7 / 30，默认 7（收费记录按创建时间筛选，上游限制跨度不超过一个月，故不提供 90），窗口为上海自然日、含今天（`window.start_at` 至 `window.end_at`）；`--page` 默认 1，收费记录每页 100 条。
 - `plan_status` 是平台 `configStatus` 原值（已见样本 1 = 计划生效中，其余取值无标签证据），按原值转述。`today_fee_per_order_yuan` 是平台当日动态费率；`items[].service_fee_yuan` 是平台逐单报告的服务费，CLI 不按费率重算。
 - 收费记录与页面默认请求一致：只查收费状态「待收费」「收费成功」（不含「收费取消」），按记录创建时间落在窗口内筛选（不是发货时间）。
 - `charged_order_count` / `compensated_order_count` 取自平台数据概况；`total` 是上述筛选下的收费记录总数。两者口径可能不同（实测近 7 天 209 对 203），原样分别转述，不互相校正。
@@ -72,12 +72,14 @@
 ## goods profit
 
 - `--days` 1–90，默认 30。按成团时间统计上海最近 N 个完整自然日，不含当天，`window.end_at` 为排他上界。`--goods-id` 只筛 `items`，`summary` 始终为全店。
-- 收入 = 实付 + 平台优惠。退款成功按全额退款且货已退回处理：货本与收入为 0，已发货仍扣全部按单费用，未发货按单费用为 0；发货时间缺失时相关费用为 `null`。未付款取消的收入与成本为 0；售后处理中（10/11）正常计入，并单列 `after_sales_order_count` / `after_sales_revenue_yuan`。
+- 收入 = 实付 + 平台优惠。退款成功按全额退款且货已退回处理：货本与收入为 0，已发货仍扣包材、快递、技术服务费，未发货这些费用为 0；发货时间缺失时这些费用为 `null`。未付款取消的收入与成本为 0；售后处理中（10/11）正常计入，并单列 `after_sales_order_count` / `after_sales_revenue_yuan`。
+- `insurance_yuan`（运费险）是消费者体验提升计划收费记录里平台逐单报告的服务费，按订单号对齐，CLI 不按费率重算，也不读取 `goods cost` 录入的运费险。「收费成功」的服务费在订单退款后仍计入（平台规则：服务费收取后不退还）；「待收费」在订单退款或未付款取消时为 0，其余计入；收费记录中找不到的订单为 0（平台未收取，例如开通计划之前的订单）。运费补偿由平台支付给买家，不是商家成本，不计入利润。
+- 收费记录拉取失败或不完整时，`insurance_yuan`、`merchant_cost_yuan`、`gross_profit_yuan`、`net_profit_yuan` 为 `null` 并附 hint，`summary.data_quality.insurance_complete:false`（达到分页上限时 `insurance_truncated:true`），退出码不变。服务费金额单位不是元时该单运费险为 `null` 并写入 `meta.warnings`。
 - `gross_profit_yuan` 扣商家成本，`net_profit_yuan` 再扣推广。`gross_margin_pct` / `net_margin_pct` 是有符号百分数，可负、可超过 ±100；零收入时为 `null`。
 - 推广花费仅含商品推广报表口径：商品按 goodsId 归属；`summary.promo_spend_yuan` 取全店总计；`shop_promo_spend_yuan` 是未归属到商品的差额，只计入 summary，负差额为 `null` 并附 hint。
 - 缺成本或推广失败时利润为 `null`；完整拉取但无该商品推广记录时花费为 0。订单截断或限流时窗口财务为 `null`，保留 `observed_order_count` / `observed_revenue_yuan`，读取 `summary.data_quality` 与 `hints`。
 - `cost_updated_at` 是实际使用成本的最大更新时间；`default_fallback_order_count` 是规格未命中、回落默认成本的单数。成本只保留当前值，更新后历史窗口按新成本重算。
-- 转述利润时附三条说明：推广仅含商品推广报表口径；仅退款不退货时利润可能高估；商家共担平台补贴时收入与利润可能高估。
+- 转述利润时附四条说明：推广仅含商品推广报表口径；运费险取平台逐单收费记录；仅退款不退货时利润可能高估；商家共担平台补贴时收入与利润可能高估。
 
 ## goods receipt
 
