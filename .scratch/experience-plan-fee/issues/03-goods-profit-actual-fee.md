@@ -4,7 +4,7 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 决定（2026-11-15，用户确认）：
 - 收费记录拉全时，订单在记录中找不到 → 运费险记 0（平台未收，例如开通计划之前的订单）
@@ -28,18 +28,19 @@
 - 收费记录拉取失败或被截断：运费险、商家成本、毛利、净利为 `null`，写入 hint，退出码不变
 - `summary.data_quality` 增加 `insurance_complete`、`insurance_truncated`
 
-- [ ] ADR 0004 的 Costs 一节写明运费险来源、退款不扣回、无记录记 0、拉取失败为 null
-- [ ] fixture 模式下 `goods profit` 的 `insurance_yuan` 等于对应订单收费记录金额之和；手填 `insurance_yuan` 不再影响结果
-- [ ] 退款订单：收费成功的服务费仍计入；待收费的记 0
-- [ ] 无记录订单记 0；收费记录为空列表时全部为 0
-- [ ] 收费记录接口失败 / 截断时相关金额为 `null`、出现 hint、`data_quality` 标记正确，退出码 0
-- [ ] 窗口超过 30 天时请求按段拆分，每段 ≤ 30 天（测试断言请求体）
-- [ ] 非 YUAN 金额该单为 `null` 并有 warning
-- [ ] `diagnose experience-plan` 的输出不受 `pageSize` 改动影响（仍每页 10 条展示，或改为 100 条并同步文档，二选一并说明）
-- [ ] `skills/pdd-cli/reports.md`、`domain-service-contracts.md` 的 goods profit 口径同步；CHANGELOG 记录
-- [ ] `npm test` 通过
+- [x] ADR 0004 的 Costs 一节写明运费险来源、退款不扣回、无记录记 0、拉取失败为 null
+- [x] fixture 模式下 `goods profit` 的 `insurance_yuan` 等于对应订单收费记录金额之和；手填 `insurance_yuan` 不再影响结果
+- [x] 退款订单：收费成功的服务费仍计入；待收费的记 0
+- [x] 无记录订单记 0；收费记录为空列表时全部为 0
+- [x] 收费记录接口失败 / 截断时相关金额为 `null`、出现 hint、`data_quality` 标记正确，退出码 0
+- [x] 窗口超过 30 天时请求按段拆分，每段 ≤ 30 天（测试断言请求体）
+- [x] 非 YUAN 金额该单为 `null` 并有 warning
+- [x] `diagnose experience-plan` 的输出不受 `pageSize` 改动影响（仍每页 10 条展示，或改为 100 条并同步文档，二选一并说明）
+- [x] `skills/pdd-cli/reports.md`、`domain-service-contracts.md` 的 goods profit 口径同步；CHANGELOG 记录
+- [x] `npm test` 通过
 
 ## Comments
 
 - 2026-11-11：创建（needs-triage）。
 - 2026-11-15：按用户决定重写为 ready-for-agent。运费补偿（`compensation_list`）由平台承担、不是商家成本，不计入利润（用户确认）。
+- 2026-11-15：已合入 feat/auto-insurance-fee（5830f5f）。真实账号冒烟：收费记录采集完整（insurance_complete: true），但订单采集 0 单，原因见 05。diagnose experience-plan 改为每页 100 条。
