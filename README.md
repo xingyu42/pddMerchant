@@ -87,7 +87,7 @@ pdd goods cost remove --goods-id 101 --spec '红色 / 大号' --confirm --json
 pdd goods profit --days 30 --goods-id 101 --json
 ```
 
-- 货本按件扣除；包材、快递及可选 `--insurance-yuan`（运费险）、`--technical-service-yuan`（技术服务费）按单扣除；`goods profit` 的运费险改取消费者体验提升计划收费记录里平台逐单收取的服务费，录入的 `--insurance-yuan` 不再参与计算。金额单位为元，最多两位小数。
+- 货本按件扣除；包材、快递及可选 `--technical-service-yuan`（技术服务费）按单扣除。运费险无需录入，`goods profit` 取消费者体验提升计划收费记录里平台逐单收取的服务费；导入文件含 `insurance_yuan` 时整批拒绝。金额单位为元，最多两位小数。
 - `--spec` 按原文精确匹配，未命中时回落商品默认成本（`spec: null`）。
 - 写命令缺少 `--confirm` 时仅预演；成本命令均拒绝 `--all-accounts`。
 
@@ -96,7 +96,7 @@ pdd goods profit --days 30 --goods-id 101 --json
 ```json
 [
   { "goods_id": "101", "spec": null, "purchase_yuan": "8.20", "packaging_yuan": "0.50", "courier_yuan": "3.00" },
-  { "goods_id": "101", "spec": "红色 / 大号", "purchase_yuan": "9.20", "packaging_yuan": "0.50", "courier_yuan": "3.00", "insurance_yuan": "0.30", "technical_service_yuan": "0.20" }
+  { "goods_id": "101", "spec": "红色 / 大号", "purchase_yuan": "9.20", "packaging_yuan": "0.50", "courier_yuan": "3.00", "technical_service_yuan": "0.20" }
 ]
 ```
 

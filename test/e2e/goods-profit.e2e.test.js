@@ -25,9 +25,8 @@ const fee = (orderSn, value, overrides = {}) => createUpstreamOrderInsurance({ o
 const insuranceReport = (insurance, { orders = createProfitOrders(), extraCosts = [] } = {}) =>
   profit(createProfitFixtures({ orders, insurance }), { extraCosts, args: ['--days', '29'] });
 
-it('takes insurance from the platform fee records of each order and ignores the manual entry value', () => {
-  const { data } = insuranceReport([fee('SYN-PROFIT-0', '1.11'), fee('SYN-OTHER', '5.00')],
-    { extraCosts: ['--insurance-yuan', '9'] });
+it('takes insurance from the platform fee records of each order', () => {
+  const { data } = insuranceReport([fee('SYN-PROFIT-0', '1.11'), fee('SYN-OTHER', '5.00')]);
   assert.equal(data.items[0].insurance_yuan, 1.11);
   assert.equal(data.items[0].net_profit_yuan, 1.99);
   assert.equal(data.summary.insurance_yuan, 1.11);
@@ -110,10 +109,10 @@ it.each(['0', '100'])('preserves long IDs and signed profit with purchase cost %
 
 it.each([0, 1700000000, null])('applies all per-order refund costs using shipping_time=%s', (shippingTime) => {
   const data = report(createProfitFixtures({ orders: createProfitOrders([{ after_sales_status: 5, shipping_time: shippingTime }]) }),
-    { extraCosts: ['--insurance-yuan', '0.3', '--technical-service-yuan', '0.2'] });
+    { extraCosts: ['--technical-service-yuan', '0.2'] });
   assert.equal(data.items[0].revenue_yuan, 0);
   assert.equal(data.items[0].purchase_yuan, 0);
-  // 运费险取收费记录（此处无记录为 0），手填 0.3 不计入
+  // 运费险取收费记录（此处无记录为 0）
   assert.equal(data.items[0].merchant_cost_yuan, shippingTime === null ? null : shippingTime === 0 ? 0 : 3.7);
 });
 

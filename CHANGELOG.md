@@ -7,11 +7,12 @@
 ### Breaking
 
 - **数据库升级到 schema v3**（新增商品成本表）：新版首次运行自动升级；回退旧版需恢复升级前一致备份的数据库与配对 `master.key`，请勿手动降低 `user_version`。
+- **`goods cost` 去掉手填运费险**：`goods cost set` 不再接受 `--insurance-yuan`（未知选项，退出码 2）；`goods cost list` / `set` / `remove` 输出去掉 `insurance_yuan`；`goods cost import` 的记录含 `insurance_yuan` 时整批以 `E_COST_IMPORT_INVALID` 失败。运费险由 `goods profit` 按平台收费记录自动计算。数据库中已录入的运费险保留但不再读取或输出，无需迁移。
 - **`diagnose funnel` 由 `diagnose after-sales` 取代**：`diagnose shop` 的维度相应改为订单 / 库存 / 推广 / 售后。
 
 ### Added
 
-- **商品成本与净利润**：`goods cost set / list / remove / import <file>` 在本地 SQLite 录入成本（按账号、店铺、商品及可选规格隔离，写入需 `--confirm`）；`goods profit [--days 30] [--goods-id <id>]` 按成团时间统计窗口收入、商家成本、毛利、推广花费与净利润。`gross_margin_pct` / `net_margin_pct` 为有符号百分数，可负、可超过 ±100；仅退款不退货及商家共担补贴时利润可能高估。运费险（`insurance_yuan`）取消费者体验提升计划收费记录里平台逐单收取的服务费（收费成功的退款后不扣回，无记录为 0），不读取录入的运费险；收费记录拉取失败或不完整时运费险、商家成本与利润为 `null`，`summary.data_quality` 新增 `insurance_complete` / `insurance_truncated`。新错误码 `E_COST_IMPORT_INVALID`（退出码 2）。
+- **商品成本与净利润**：`goods cost set / list / remove / import <file>` 在本地 SQLite 录入成本（按账号、店铺、商品及可选规格隔离，写入需 `--confirm`）；`goods profit [--days 30] [--goods-id <id>]` 按成团时间统计窗口收入、商家成本、毛利、推广花费与净利润。`gross_margin_pct` / `net_margin_pct` 为有符号百分数，可负、可超过 ±100；仅退款不退货及商家共担补贴时利润可能高估。运费险（`insurance_yuan`）取消费者体验提升计划收费记录里平台逐单收取的服务费（收费成功的退款后不扣回，无记录为 0），`goods cost` 不录入运费险；收费记录拉取失败或不完整时运费险、商家成本与利润为 `null`，`summary.data_quality` 新增 `insurance_complete` / `insurance_truncated`。新错误码 `E_COST_IMPORT_INVALID`（退出码 2）。
 - **店铺综合体验星级**：`diagnose experience [--days 7]` 输出平台当前星级、行业排名、各指标与下一星级门槛及每日趋势。
 - **客服与评价**：`diagnose customer-service [--days 30]` 输出「多多客服-客服数据（人工回复）」区间汇总与逐日趋势；`diagnose reviews [--days 30|60|90|180]` 输出满意/不满意标签、问题分类计数与 1-3 星中差评（正文手机号掩码，昵称、头像、订单信息不输出）。
 - **商品预估实收**：`goods receipt [--goods-id <id>] [--page 1] [--size 1-10] [--caliber regular|all]` 按 SKU 原样输出「商品价格管理」页的平台预估实收（券前价 − 商家出资优惠），含单件与多件最低场景及各自的优惠明细，自动补全每个商品的全部 SKU。`--caliber all` 切换到「商家出资所有优惠」口径；`--goods-id` 可重复或逗号分隔，取值错误在参数解析阶段以退出码 2 拒绝。

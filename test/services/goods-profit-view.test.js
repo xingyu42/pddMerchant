@@ -12,7 +12,7 @@ it('projects only exact profit facts in yuan with signed rates and fixed disclos
   const analysis = computeGoodsProfit({ orders: [{ goods_id: '101', goods_number: 1, order_amount: 100,
     platform_discount: 0, after_sales_status: null, buyer_memo: 'SYN-SECRET' }],
   entries: [{ goods_id: '101', spec: null, purchase_fen: 400, packaging_fen: 0, courier_fen: 0,
-    insurance_fen: 0, technical_service_fen: 0, updated_at: '2026-10-01T00:00:00Z' }],
+    technical_service_fen: 0, updated_at: '2026-10-01T00:00:00Z' }],
   promo: { complete: true, byGoods: new Map(), total_fen: 0, attributed_fen: 0, shop_fen: 0 },
   insurance: { complete: true, byOrder: new Map() }, quality });
   const data = toGoodsProfitView(analysis, { window: resolveProfitWindow(30), quality, mallId: '900001' });
