@@ -340,7 +340,7 @@ export function createProfitOrders(overrides = [{}]) {
   const now = Math.floor(Date.now() / 1000);
   const end = Math.floor((now + 8 * 3600) / 86400) * 86400 - 8 * 3600;
   return overrides.map((fields, index) => createUpstreamOrder({
-    order_sn: `SYN-PROFIT-${index}`, group_time: end - 3600, order_time: end - 40 * 86400, pay_status: 2, ...fields,
+    order_sn: `SYN-PROFIT-${index}`, confirm_time: end - 3600, order_time: end - 40 * 86400, pay_status: 2, ...fields,
   }));
 }
 

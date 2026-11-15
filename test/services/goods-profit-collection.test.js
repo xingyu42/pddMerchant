@@ -15,36 +15,54 @@ it('uses Shanghai complete days across year boundaries and enforces 1–90', () 
   assert.equal(resolveProfitWindow(90).days, 90);
 });
 
-it('requests all orders with group-time boundaries and filters by group_time only', async () => {
+it('requests all orders by order time and filters by confirm_time with start inclusive and end exclusive', async () => {
   const window = resolveProfitWindow(30);
-  const valid = { order_sn: 'SYN-1', goods_id: '101', group_time: window.start, order_time: 1 };
-  runEndpoint.mockResolvedValue({ total: 3, orders: [valid, { ...valid, order_sn: 'SYN-2', group_time: window.end },
-    { ...valid, order_sn: 'SYN-3', group_time: window.start - 1 }] });
+  const valid = { order_sn: 'SYN-1', goods_id: '101', confirm_time: window.start, order_time: 1, pay_status: 2 };
+  runEndpoint.mockResolvedValue({ total: 3, orders: [valid, { ...valid, order_sn: 'SYN-2', confirm_time: window.end },
+    { ...valid, order_sn: 'SYN-3', confirm_time: window.start - 1 }] });
   const result = await collectProfitOrders(null, {}, { window });
   assert.deepEqual(result.orders, [valid]);
   assert.equal(result.complete, true);
   assert.deepEqual(runEndpoint.mock.calls.at(-1)[2], { page: 1, size: 50, since: window.start, until: window.end - 1, scope: 'all' });
 });
 
-it('marks a full capped page, rate limits and missing group_time incomplete', async () => {
+it('silently excludes unpaid cancelled orders whose confirm_time is 0', async () => {
   const window = resolveProfitWindow(30);
-  runEndpoint.mockResolvedValue({ orders: Array.from({ length: 50 }, (unused, index) => ({ order_sn: `SYN-${index}`, goods_id: '101', group_time: window.start })) });
+  const paid = { order_sn: 'SYN-1', goods_id: '101', confirm_time: window.start, pay_status: 2 };
+  runEndpoint.mockResolvedValue({ orders: [paid, { order_sn: 'SYN-2', goods_id: '101', confirm_time: 0, pay_status: 0 }] });
+  const result = await collectProfitOrders(null, {}, { window });
+  assert.deepEqual(result.orders, [paid]);
+  assert.equal(result.complete, true);
+  assert.deepEqual(result.hints, []);
+});
+
+it('marks a full capped page, rate limits and unusable confirm_time incomplete', async () => {
+  const window = resolveProfitWindow(30);
+  runEndpoint.mockResolvedValue({ orders: Array.from({ length: 50 }, (unused, index) => ({ order_sn: `SYN-${index}`, goods_id: '101', confirm_time: window.start })) });
   assert.equal((await collectProfitOrders(null, {}, { window, maxPages: 1 })).truncated, true);
   runEndpoint.mockRejectedValue(new PddCliError({ code: 'E_RATE_LIMIT', exitCode: 4 }));
   const limited = await collectProfitOrders(null, {}, { window });
   assert.equal(limited.ratelimited, true);
   assert.equal(limited.complete, false);
-  runEndpoint.mockResolvedValue({ orders: [{ goods_id: '101', group_time: null }] });
-  assert.equal((await collectProfitOrders(null, {}, { window })).complete, false);
+  // 只有成团时间、成交时间非数字、已付款却为 0：都无法确定成交窗口
+  for (const order of [{ group_time: window.start, pay_status: 2 }, { confirm_time: 'abc', pay_status: 2 },
+    { confirm_time: 0, pay_status: 2 }, { confirm_time: 0 }]) {
+    runEndpoint.mockResolvedValue({ orders: [{ order_sn: 'SYN-1', goods_id: '101', ...order }] });
+    const result = await collectProfitOrders(null, {}, { window });
+    assert.equal(result.complete, false, JSON.stringify(order));
+    assert.deepEqual(result.orders, []);
+  }
 });
 
 it('deduplicates orders and flags conflicting duplicate facts', async () => {
   const window = resolveProfitWindow(30);
-  const order = { order_sn: 'SYN-1', goods_id: '101', group_time: window.start, order_amount: 100 };
+  const order = { order_sn: 'SYN-1', goods_id: '101', confirm_time: window.start, order_amount: 100 };
   runEndpoint.mockResolvedValue({ orders: [order, { ...order }, { ...order, order_amount: 200 }] });
   const result = await collectProfitOrders(null, {}, { window });
   assert.equal(result.orders.length, 1);
   assert.equal(result.complete, false);
+  runEndpoint.mockResolvedValue({ orders: [order, { ...order, confirm_time: window.start + 1 }] });
+  assert.equal((await collectProfitOrders(null, {}, { window })).complete, false);
 });
 
 it('propagates main-source network failures', async () => {

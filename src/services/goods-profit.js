@@ -4,7 +4,7 @@ import { throwIfAborted } from '../infra/abort.js';
 import { listOrders } from './orders.js';
 import { collectOrdersForStaleAnalysis } from './diagnose/orders-collector.js';
 import { listGoodsCosts } from '../infra/goods-cost-store.js';
-import { computeGoodsProfit } from './goods-profit-calculation.js';
+import { computeGoodsProfit, isUnpaidCancelled } from './goods-profit-calculation.js';
 import { collectProfitPromo } from './goods-profit-promo.js';
 import { collectProfitInsurance } from './goods-profit-insurance.js';
 import { costScope, validateCostGoodsId } from './goods-cost-input.js';
@@ -15,21 +15,24 @@ import { completeShanghaiWindow } from './report-windows.js';
 export { GOODS_PROFIT_REPORT };
 
 const ORDER_FACT_FIELDS = ['goods_id', 'spec', 'goods_number', 'order_amount', 'platform_discount',
-  'after_sales_status', 'shipping_time', 'pay_status', 'group_time'];
+  'after_sales_status', 'shipping_time', 'pay_status', 'confirm_time'];
 
 export function resolveProfitWindow(days = GOODS_PROFIT_REPORT.days.default, now = Math.floor(Date.now() / 1000)) {
   validateReportDays(GOODS_PROFIT_REPORT, days);
   return completeShanghaiWindow(days, now);
 }
 
+// 统计窗口按成交时间 confirm_time（秒，等于支付时间）：订单列表不带成团时间 group_time。
+// 未付款取消的订单没有成交时间（0），不属于任何窗口；其余缺失或非法时间标记采集不完整。
 function filterOrders(orders, window) {
   const seen = new Map();
   const filtered = [];
   let invalid = false;
   for (const order of orders) {
-    const groupedAt = toFiniteNumber(order?.group_time);
-    if (!Number.isInteger(groupedAt) || groupedAt <= 0) { invalid = true; continue; }
-    if (groupedAt < window.start || groupedAt >= window.end) continue;
+    const confirmedAt = toFiniteNumber(order?.confirm_time);
+    if (confirmedAt === 0 && isUnpaidCancelled(order)) continue;
+    if (!Number.isInteger(confirmedAt) || confirmedAt <= 0) { invalid = true; continue; }
+    if (confirmedAt < window.start || confirmedAt >= window.end) continue;
     const identity = order.order_sn ?? order.orderSn;
     const facts = JSON.stringify(ORDER_FACT_FIELDS.map((field) => order[field]));
     if (identity != null && seen.has(String(identity))) {

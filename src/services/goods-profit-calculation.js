@@ -18,8 +18,13 @@ function emptyTotals() {
   return { ...Object.fromEntries(SUM_FIELDS.map((field) => [field, 0])), cost_updated_at: null, missing_entry: false };
 }
 
+// 未付款取消：pay_status 为 0。这类订单没有成交时间（confirm_time 为 0），金额与成本均按 0 计。
+export function isUnpaidCancelled(order) {
+  return order?.pay_status != null && Number(order.pay_status) === 0;
+}
+
 function classify(order) {
-  if (order.pay_status != null && Number(order.pay_status) === 0) return 'cancelled';
+  if (isUnpaidCancelled(order)) return 'cancelled';
   if (!Object.hasOwn(order, 'after_sales_status')) return 'unknown';
   if (order.after_sales_status === null) return 'normal';
   const code = Number(order.after_sales_status);

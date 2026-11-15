@@ -11,7 +11,7 @@
 
 ### Added
 
-- **商品成本与净利润**：`goods cost set / list / remove / import <file>` 在本地 SQLite 录入成本（按账号、店铺、商品及可选规格隔离，写入需 `--confirm`）；`goods profit [--days 30] [--goods-id <id>]` 按成团时间统计窗口收入、商家成本、毛利、推广花费与净利润。`gross_margin_pct` / `net_margin_pct` 为有符号百分数，可负、可超过 ±100；仅退款不退货及商家共担补贴时利润可能高估。运费险（`insurance_yuan`）取消费者体验提升计划收费记录里平台逐单收取的服务费（收费成功的退款后不扣回，无记录为 0），不读取录入的运费险；收费记录拉取失败或不完整时运费险、商家成本与利润为 `null`，`summary.data_quality` 新增 `insurance_complete` / `insurance_truncated`。新错误码 `E_COST_IMPORT_INVALID`（退出码 2）。
+- **商品成本与净利润**：`goods cost set / list / remove / import <file>` 在本地 SQLite 录入成本（按账号、店铺、商品及可选规格隔离，写入需 `--confirm`）；`goods profit [--days 30] [--goods-id <id>]` 按成交时间统计窗口收入、商家成本、毛利、推广花费与净利润。`gross_margin_pct` / `net_margin_pct` 为有符号百分数，可负、可超过 ±100；仅退款不退货及商家共担补贴时利润可能高估。运费险（`insurance_yuan`）取消费者体验提升计划收费记录里平台逐单收取的服务费（收费成功的退款后不扣回，无记录为 0），不读取录入的运费险；收费记录拉取失败或不完整时运费险、商家成本与利润为 `null`，`summary.data_quality` 新增 `insurance_complete` / `insurance_truncated`。新错误码 `E_COST_IMPORT_INVALID`（退出码 2）。
 - **店铺综合体验星级**：`diagnose experience [--days 7]` 输出平台当前星级、行业排名、各指标与下一星级门槛及每日趋势。
 - **客服与评价**：`diagnose customer-service [--days 30]` 输出「多多客服-客服数据（人工回复）」区间汇总与逐日趋势；`diagnose reviews [--days 30|60|90|180]` 输出满意/不满意标签、问题分类计数与 1-3 星中差评（正文手机号掩码，昵称、头像、订单信息不输出）。
 - **商品预估实收**：`goods receipt [--goods-id <id>] [--page 1] [--size 1-10] [--caliber regular|all]` 按 SKU 原样输出「商品价格管理」页的平台预估实收（券前价 − 商家出资优惠），含单件与多件最低场景及各自的优惠明细，自动补全每个商品的全部 SKU。`--caliber all` 切换到「商家出资所有优惠」口径；`--goods-id` 可重复或逗号分隔，取值错误在参数解析阶段以退出码 2 拒绝。
@@ -20,6 +20,10 @@
 - **库存规格明细与规格级告警**：`goods stock` 每项新增 `skus[]`（`sku_id`、`spec`、`quantity`、`on_sale`、`low_stock`）与 `low_stock_sku_count`；总库存高于阈值（或缺失）但有在售规格库存不高于阈值的商品也进入告警。`low_stock_count` 仍只计总库存不高于阈值的商品，可能少于 `items` 条数；规格数据缺失时 `skus` 与 `low_stock_sku_count` 为 `null`。
 - **全店今日实时**：`diagnose traffic` 新增 `today` 区块（流量看板实时访客 / 浏览，按小时累计的成交及 `hourly[]`，`snapshot_at` 为抓取时间）；今日数据拉取失败时 `today: null` 并附提示，逐日数据照常返回。
 - **消费者体验提升计划服务费**：`diagnose experience-plan [--days 1|7|30] [--page 1]` 只读输出计划状态码（平台原值）、今日服务费费率、窗口内收费订单数与运费补偿订单数，以及按创建时间筛选的待收费 / 收费成功逐单记录（每页 100 条）；金额为平台报告值，CLI 不按费率重算。
+
+### Fixed
+
+- **`goods profit` 统计窗口改按成交时间**：订单列表不返回成团时间 `group_time`，原实现在真实账号上采集到 0 单、`orders_complete: false`、利润全部为 `null`。现按订单列表的成交时间 `confirm_time`（等于支付时间，与平台数据中心「成交」口径一致）划定窗口；成团时间通常晚于成交 0–30 分钟，窗口边界附近的订单归属日可能随之变化。未付款取消的订单没有成交时间，不计入任何窗口，也不再标记采集不完整。
 
 ---
 
