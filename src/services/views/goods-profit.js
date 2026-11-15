@@ -13,6 +13,8 @@ export const GOODS_PROFIT_REPORT = defineReport({
     promo_unavailable: '推广数据拉取失败，相关推广花费和净利润为 null',
     negative_promo_difference: '推广报表总计减商品归属合计的差额为负，店铺级推广花费为 null',
     promo_amount_unknown: '推广金额缺失或单位无效，相关金额为 null',
+    insurance_unavailable: '运费险收费记录拉取失败，运费险、商家成本和利润为 null',
+    insurance_incomplete: '运费险收费记录不完整或超出采集上限，运费险、商家成本和利润为 null',
   },
 });
 const PROFIT_FIXED_HINTS = Object.freeze([
@@ -20,6 +22,7 @@ const PROFIT_FIXED_HINTS = Object.freeze([
   '退款成功按全额退款且货已退回处理；仅退款不退货时，利润可能高估',
   '平台优惠按全部结算给商家计入收入；商家共担补贴活动时，利润可能高估',
   '推广花费仅含商品推广报表口径',
+  '运费险取消费者体验提升计划收费记录的平台逐单服务费：收费成功的退款后不扣回，无收费记录记 0',
 ]);
 
 const COMMON_FIELDS = [
@@ -34,7 +37,7 @@ export const GOODS_PROFIT_ITEM_FIELDS = Object.freeze(['goods_id', 'goods_name',
 export const GOODS_PROFIT_SUMMARY_FIELDS = Object.freeze(['goods_count', ...COMMON_FIELDS,
   'attributed_promo_spend_yuan', 'shop_promo_spend_yuan', 'unattributed_order_count', 'data_quality']);
 export const GOODS_PROFIT_QUALITY_FIELDS = Object.freeze(['orders_complete', 'orders_truncated', 'orders_ratelimited',
-  'promo_complete', 'promo_truncated', 'promo_ratelimited']);
+  'promo_complete', 'promo_truncated', 'promo_ratelimited', 'insurance_complete', 'insurance_truncated']);
 
 function project(record, fields) {
   return Object.fromEntries(fields.map((field) => {

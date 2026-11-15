@@ -128,7 +128,7 @@ node bin/pdd.js goods cost remove --goods-id 101 [--spec <精确规格>] [--conf
 ```
 
 - 只读写本地 SQLite，需要已登记的商家账号，无需在线登录。成本按账号 + 店铺 + 商品 + 规格隔离；店铺取 `--mall` 或配置，否则取账号绑定店铺，核对输出的 `mall_id`。写命令同样先预演再 `--confirm`；均只作用于单个账号。
-- 货本按件，包材、快递、运费险、技术服务费按单；金额为元，允许 0。`set` 整条替换，省略的可选费用归零。`--spec` 按原文精确匹配，未命中时回落默认成本；`remove` 不带 `--spec` 只删默认行。
+- 货本按件，包材、快递、运费险、技术服务费按单（`goods profit` 的运费险取平台逐单收费记录，录入值不参与计算）；金额为元，允许 0。`set` 整条替换，省略的可选费用归零。`--spec` 按原文精确匹配，未命中时回落默认成本；`remove` 不带 `--spec` 只删默认行。
 - `import`：UTF-8 JSON 数组，最多 1 MiB / 5000 条，字段 `goods_id`、可选 `spec`、`purchase_yuan`、`packaging_yuan`、`courier_yuan`、可选 `insurance_yuan` / `technical_service_yuan`（模板见 README「商品成本与净利润」）。整批校验通过才写入；失败返回 `E_COST_IMPORT_INVALID`（退出码 2），`error.detail.row_errors` 按从 1 开始的记录序号定位，JSON 语法错误为 `row:null`。
 
 ### 推广

@@ -67,7 +67,7 @@ export function register(program, wireAction) {
   );
   wireAction(
     withReportDays(diagnose.command('experience-plan').description('消费者体验提升计划服务费与收费记录'), EXPERIENCE_PLAN_REPORT)
-      .option('--page <n>', '收费记录页码（每页 10 条）', integerArg(1), 1),
+      .option('--page <n>', '收费记录页码（每页 100 条）', integerArg(1), 1),
     'diagnose.experience-plan',
     experiencePlan.run
   );

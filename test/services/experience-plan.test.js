@@ -26,7 +26,7 @@ beforeEach(() => {
 it('requests the fee list like the page: pending + charged fees created within the Shanghai window', async () => {
   await getExperiencePlanView(ctx);
   assert.deepEqual(bodyOf('experiencePlan.orderInsuranceList'), {
-    pageSize: 10, pageNumber: 0, queryFeeStatusList: [1, 2], clientType: 1,
+    pageSize: 100, pageNumber: 0, queryFeeStatusList: [1, 2], clientType: 1,
     createBeginTime: Date.parse('2026-11-04T16:00:00Z'), createEndTime: Date.parse('2026-11-11T16:00:00Z') - 1,
   });
   assert.deepEqual(bodyOf('experiencePlan.profits'), { farDate: 6, closerDate: 0 });

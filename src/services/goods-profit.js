@@ -6,6 +6,7 @@ import { collectOrdersForStaleAnalysis } from './diagnose/orders-collector.js';
 import { listGoodsCosts } from '../infra/goods-cost-store.js';
 import { computeGoodsProfit } from './goods-profit-calculation.js';
 import { collectProfitPromo } from './goods-profit-promo.js';
+import { collectProfitInsurance } from './goods-profit-insurance.js';
 import { costScope, validateCostGoodsId } from './goods-cost-input.js';
 import { toGoodsProfitView, GOODS_PROFIT_REPORT } from './views/goods-profit.js';
 import { runReport, createReport, validateReportDays } from './operating-report.js';
@@ -88,12 +89,14 @@ export async function getGoodsProfitView(ctx, { days = GOODS_PROFIT_REPORT.days.
     const entries = listGoodsCosts(scope);
     const orders = await collectProfitOrders(ctx.page, ctx, { window });
     const promo = await collectProfitPromo(ctx.page, ctx, { window });
+    const insurance = await collectProfitInsurance(ctx.page, ctx, { window });
     const quality = { orders_complete: orders.complete, orders_truncated: orders.truncated, orders_ratelimited: orders.ratelimited,
-      promo_complete: promo.complete, promo_truncated: promo.truncated, promo_ratelimited: promo.ratelimited };
-    const input = { orders: orders.orders, entries, promo, quality };
+      promo_complete: promo.complete, promo_truncated: promo.truncated, promo_ratelimited: promo.ratelimited,
+      insurance_complete: insurance.complete, insurance_truncated: insurance.truncated };
+    const input = { orders: orders.orders, entries, promo, insurance, quality };
     const analysis = filterProfitItems(computeGoodsProfit(input), goodsId, input);
     return { data: toGoodsProfitView(analysis, { window, quality, mallId: scope.mallId, goodsId,
-      reasons: [...orders.hints, ...promo.hints] }), warnings: promo.warnings,
-    meta: { xhr_count: orders.request_count + promo.request_count } };
+      reasons: [...orders.hints, ...promo.hints, ...insurance.hints] }), warnings: [...promo.warnings, ...insurance.warnings],
+    meta: { xhr_count: orders.request_count + promo.request_count + insurance.request_count } };
   });
 }
