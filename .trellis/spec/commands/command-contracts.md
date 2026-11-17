@@ -106,6 +106,11 @@ src/services/<domain>.js           业务逻辑（被 handler 调用）
 - `goods receipt` 为普通 needsAuth + mall switch 只读命令，允许 `--all-accounts`。`--size` 用 `integerArg(1, GOODS_PRICE_MAX_PAGE_SIZE)`、`--caliber` 用 commander `Option.choices(Object.keys(RECEIPT_CALIBERS))`、`--goods-id` 用 `goodsIdListArg`（可重复 / 逗号分隔、去重、正整数），均在解析阶段拒绝（commander.invalidArgument → E_USAGE / exit 2，`xhr_count` 0，不启动浏览器）。可选值与上限只从 service 导出的 `RECEIPT_CALIBERS` / `GOODS_PRICE_MAX_PAGE_SIZE` 派生。
 - 验证：`test/commands/numeric-options.test.js`（解析器）、`test/e2e/goods-receipt.e2e.test.js`、`test/adapter/goods-price-contract.test.js`、`test/services/goods-receipt.test.js` 及两个口径的 data-contract-v2 用例。
 
+### Goods Reviews
+
+- `goods reviews` 为普通 needsAuth + mall switch 只读命令。`--days` 用 `withReportDays(GOODS_REVIEWS_REPORT)`（1–365 整数，默认 30）、`--goods-id` 用 `goodsIdArg`（单个正整数，返回字符串）、`--stars` 用 `starsArg`（1–5 逗号分隔，去重升序，返回字符串数组），均在解析阶段拒绝（E_USAGE / exit 2，`xhr_count` 0，不启动浏览器）。缺省为全店全部星级；采集与输出契约见 `services/domain-service-contracts.md` 的 Customer Service and Reviews。
+- 验证：`test/commands/numeric-options.test.js`、`test/e2e/reviews.e2e.test.js`、`test/services/reviews.test.js`、`test/services/reviews-view.test.js`、`test/adapter/reviews-contract.test.js` 及 `goods.reviews` 的 data-contract-v2 用例。
+
 | 输入条件                                                   | 结果                                                  |
 | ---------------------------------------------------------- | ----------------------------------------------------- |
 | missing required flag such as `--sn`                       | usage error，exit code 2                              |

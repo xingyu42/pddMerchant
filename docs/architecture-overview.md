@@ -67,7 +67,7 @@ core.js      → init / login / doctor
 config.js    → config show / set / unset / validate
 shops.js     → shops list / current
 orders.js    → orders list / detail / stats
-goods.js     → goods list / stock / segment / traffic / profit / receipt / templates / publish
+goods.js     → goods list / stock / segment / traffic / profit / receipt / reviews / templates / publish
                goods cost list / set / remove / import
                goods update status / price / stock / title / batch
 promo.js     → promo roi
@@ -93,7 +93,7 @@ console.js   → console link
 | `envelope-finalizer.js` | `finalizeSuccess` / `finalizeError` / `emitOnce`，产出 envelope |
 
 - **live 路径**：`withMerchantAuthUpdate`（账号租约）→ `withBrowser` → `checkMerchantSession`（被拒时尝试密码重登）→ 打开商家首页 → 解析/切换店铺 → `createPageSession` + 共享 endpoint client → `run(ctx)` → 关闭页面 → 复核并持久化登录态 → `finalizeSuccess`。
-- **解析期校验** (`option-parsers.js`)：`integerArg(min, max)`、`goodsIdListArg`、`withReportDays`、`Option.choices`；非法值在启动浏览器前以 `E_USAGE` 拒绝。
+- **解析期校验** (`option-parsers.js`)：`integerArg(min, max)`、`goodsIdArg`、`goodsIdListArg`、`starsArg`、`withReportDays`、`Option.choices`；非法值在启动浏览器前以 `E_USAGE` 拒绝。
 
 ### 3.3 服务层 (`src/services/`)
 

@@ -51,7 +51,7 @@ node bin/pdd.js <command> [options] --json   # 已 npm link 时可写 pdd <comma
 - `null` 表示未知或数据缺失，说「数据不可用」；分母为 0 的比率也是 `null`。
 - 诊断的 `status`（`数据完整` / `数据不完整`）只描述数据完整性；`hints`、`data_quality`、截断标记原样转述。
 - 输出是事实数字。经营判断、评分、保本 ROI 和建议留给用户自己做。
-- 报表的字段与口径细节见 [reports.md](reports.md)；转述 `diagnose *`、`goods traffic`、`goods profit`、`goods receipt` 结果前先读。
+- 报表的字段与口径细节见 [reports.md](reports.md)；转述 `diagnose *`、`goods traffic`、`goods profit`、`goods receipt`、`goods reviews` 结果前先读。
 
 ## 命令
 
@@ -93,6 +93,7 @@ node bin/pdd.js goods segment [--days 30] [--max-pages 10] [--no-promo]  # 销�
 node bin/pdd.js goods traffic [--days 30] [--goods-id <id>]          # 商品流量与推广拆分
 node bin/pdd.js goods profit [--days 30] [--goods-id <id>]           # 净利润（需先录入成本）
 node bin/pdd.js goods receipt [--goods-id <id>] [--caliber regular|all]  # SKU 预估实收（平台报告值），每页最多 10 个商品
+node bin/pdd.js goods reviews [--days 30] [--goods-id <id>] [--stars 4,5]  # 评价明细，1–365 天，默认全店全部星级，最多近 2000 条
 node bin/pdd.js goods templates                                      # 运费模板 ID
 ```
 

@@ -1,7 +1,7 @@
 import { it } from 'vitest';
 import assert from 'node:assert/strict';
 import { Command, InvalidArgumentError } from 'commander';
-import { goodsIdListArg, integerArg, reportDaysArg } from '../../src/commands/option-parsers.js';
+import { goodsIdArg, goodsIdListArg, integerArg, reportDaysArg, starsArg } from '../../src/commands/option-parsers.js';
 import { register as registerDiagnose } from '../../src/commands/registry/diagnose.js';
 import { register as registerGoods } from '../../src/commands/registry/goods.js';
 import { validateReportDays } from '../../src/services/operating-report.js';
@@ -90,4 +90,11 @@ it.each([
   assert.equal(result.status, 2);
   assert.equal(result.envelope.error.code, 'E_USAGE');
   assert.equal(result.envelope.meta.xhr_count ?? 0, 0);
+});
+
+it('parses a single goods id and a deduplicated ascending star list', () => {
+  assert.equal(goodsIdArg(' 101 '), '101');
+  for (const value of ['0', '-1', '1.5', 'abc', '', '101,102']) assert.throws(() => goodsIdArg(value), InvalidArgumentError);
+  assert.deepEqual(starsArg('5, 1,5'), ['1', '5']);
+  for (const value of ['0', '6', '1,,2', 'a', '', '1.5']) assert.throws(() => starsArg(value), InvalidArgumentError);
 });

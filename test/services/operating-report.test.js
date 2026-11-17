@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { PddCliError } from '../../src/infra/errors.js';
 import { createReport, defineReport, reportHints, runReport, validateReportDays } from '../../src/services/operating-report.js';
 import { CUSTOMER_SERVICE_REPORT, toCustomerServiceView } from '../../src/services/views/customer-service.js';
-import { REVIEWS_REPORT, toReviewsView } from '../../src/services/views/reviews.js';
+import { REVIEWS_REPORT, GOODS_REVIEWS_REPORT, toReviewsView, toGoodsReviewsView } from '../../src/services/views/reviews.js';
 import { EXPERIENCE_REPORT, toExperienceView } from '../../src/services/views/experience.js';
 import { TRAFFIC_REPORT } from '../../src/services/views/traffic.js';
 import { GOODS_TRAFFIC_REPORT, toGoodsTrafficView } from '../../src/services/views/goods-traffic.js';
 import { GOODS_PROFIT_REPORT, toGoodsProfitView } from '../../src/services/views/goods-profit.js';
 
-const definitions = [CUSTOMER_SERVICE_REPORT, REVIEWS_REPORT, EXPERIENCE_REPORT,
+const definitions = [CUSTOMER_SERVICE_REPORT, REVIEWS_REPORT, GOODS_REVIEWS_REPORT, EXPERIENCE_REPORT,
   TRAFFIC_REPORT, GOODS_TRAFFIC_REPORT, GOODS_PROFIT_REPORT];
 const failure = (code = 'E_NETWORK') => new PddCliError({ code, message: '测试数据源失败', exitCode: 5 });
 const rejectSource = async () => { throw failure(); };
@@ -155,6 +155,7 @@ it('fails loudly through report views rather than returning null or filtering un
   const views = [
     () => toCustomerServiceView({}, { window, hints }),
     () => toReviewsView({}, { days: 30, hints }),
+    () => toGoodsReviewsView({ items: [], total: 0, truncated: false }, { days: 30, hints }),
     () => toExperienceView({}, { hints }),
     () => toGoodsTrafficView([], { window, hints, promotions: new Map() }),
     () => toGoodsProfitView({ items: [], summary: {} }, { window, quality: {}, reasons: hints }),
@@ -165,6 +166,7 @@ it('fails loudly through report views rather than returning null or filtering un
 it.each([
   [CUSTOMER_SERVICE_REPORT, '--days 需为 1-63 的整数'],
   [REVIEWS_REPORT, '--days 需为 30、60、90 或 180'],
+  [GOODS_REVIEWS_REPORT, '--days 需为 1–365 的整数'],
   [EXPERIENCE_REPORT, '--days 需为 1–30 的整数'],
   [TRAFFIC_REPORT, '--days 需为 1-30 的整数'],
   [GOODS_TRAFFIC_REPORT, '--days 仅接受 1、7、30'],

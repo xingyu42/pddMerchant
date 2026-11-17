@@ -1,6 +1,6 @@
 # 经营报表口径
 
-转述 `diagnose *`、`goods traffic`、`goods profit`、`goods receipt` 结果前读本文件。通用规则见 SKILL.md「转述结果」：`headline` 优先、`null` 表示未知、`hints` 原样转述。
+转述 `diagnose *`、`goods traffic`、`goods profit`、`goods receipt`、`goods reviews` 结果前读本文件。通用规则见 SKILL.md「转述结果」：`headline` 优先、`null` 表示未知、`hints` 原样转述。
 
 ## diagnose shop / orders / inventory / promo
 
@@ -30,7 +30,7 @@
 ## diagnose reviews
 
 - `--days` 取 30 / 60 / 90 / 180，默认 30。
-- `keyword_tags`：平台满意/不满意标签及计数。`issue_types[]`：五类问题正负面计数和平台占比。`negative_reviews`：`{ items, total, truncated }`，为描述评分 1–3 星的中差评，每页 10 条、最多 30 页，翻满时 `truncated:true`。
+- `keyword_tags`：平台满意/不满意标签及计数。`issue_types[]`：五类问题正负面计数和平台占比。`negative_reviews`：`{ items, total, truncated }`，为描述评分 1–3 星的中差评，最多采集平台可查看的近 2000 条，超出时 `truncated:true`。逐条好评或单个商品的评价用 `goods reviews`。
 - 条目含商品 ID、评价时间、三项评分、正文、追评、标签、已回复状态和图片数；平台给出历史评分时三项评分为 `null`。正文中的手机号已掩码为 `138****5678`。
 - 三个数据源分别降级为 `null` 并提示，全部失败时命令失败。
 
@@ -80,3 +80,11 @@
 - 平台明确无优惠时优惠为 0、`discounts` 为空；`multi: null` 表示平台没给多件场景；`single: null` 同时有 `receipt_single_missing` 警告。
 - `meta.warnings`：`receipt_scene_ignored`（平台返回了其他口径的场景，已忽略）、`receipt_sku_incomplete`（补全后 SKU 数少于平台报告数，`sku_count` 可能偏少）。
 - 每页最多 10 个商品，CLI 不自动翻页；按 `total` 和 `--page` 读取其余页。查不到的商品 ID 返回空列表、`total` 为 0，不报错。
+
+## goods reviews
+
+- `--days` 1–365，默认 30，窗口为截至当前时刻的最近 N×24 小时。`--goods-id` 为单个商品 ID，缺省为全店；`--stars` 为 1–5 逗号分隔的描述评分星级，缺省为全部星级。
+- 输出 `{ items, total, truncated, window_days, goods_id, stars }`：`goods_id` 为 `null` 表示全店，`stars` 为 `null` 表示全部星级。`total` 是平台报告的筛选结果数。
+- 最多采集平台可查看的近 2000 条；`truncated:true` 时 `items` 少于 `total`，转述时说明已采集条数。
+- 条目字段与 `diagnose reviews` 的 `negative_reviews.items` 相同：商品 ID、评价时间、三项评分、正文、追评、标签、已回复状态和图片数；正文中的手机号已掩码。
+- 列表拉取失败时命令失败。

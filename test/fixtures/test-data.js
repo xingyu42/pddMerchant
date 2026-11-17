@@ -74,7 +74,9 @@ function syntheticReview(index) {
     goodsInfoUrl: 'SYN-REVIEW-PRIVATE', orderSnapshotInfo: { name: 'SYN-REVIEW-PRIVATE' } };
 }
 
-export function createReviewFixtures({ count = 11 } = {}) {
+const REVIEW_PAGE_SIZE = 40;
+
+export function createReviewFixtures({ count = 41 } = {}) {
   const fixtures = {
     'endpoints/reviews.keywordAgg.json': success({
       positiveKeywordList: [{ keywordName: '做工好', num: 4 }], negativeKeywordList: [{ keywordName: '描述不符', num: 2 }],
@@ -84,9 +86,9 @@ export function createReviewFixtures({ count = 11 } = {}) {
         ({ typeName, positive: index === 0 ? 4 : 0, negative: index === 1 ? 5 : 0, proportion: index === 0 ? 44 : 14 })),
     }),
   };
-  for (let pageNo = 1; pageNo <= Math.max(1, Math.ceil(count / 10)); pageNo += 1) {
-    const offset = (pageNo - 1) * 10;
-    const data = Array.from({ length: Math.min(10, count - offset) }, (_unused, index) => syntheticReview(offset + index));
+  for (let pageNo = 1; pageNo <= Math.max(1, Math.ceil(count / REVIEW_PAGE_SIZE)); pageNo += 1) {
+    const offset = (pageNo - 1) * REVIEW_PAGE_SIZE;
+    const data = Array.from({ length: Math.min(REVIEW_PAGE_SIZE, count - offset) }, (_unused, index) => syntheticReview(offset + index));
     const suffix = pageNo === 1 ? '' : `.page${pageNo}`;
     fixtures[`endpoints/reviews.list${suffix}.json`] = success({ totalRows: count, data });
   }

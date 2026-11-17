@@ -248,25 +248,31 @@ Correct：值存在时映射 `<field>NextStarRkDesc` 的 0/1；未知码或缺�
 ```js
 getCustomerServiceView(ctx, { days = 30 } = {})
 getReviewsView(ctx, { days = 30 } = {})
+getGoodsReviewsView(ctx, { days = 30, goodsId = null, stars = null } = {})
 ```
 
-CLI：`pdd diagnose customer-service [--days 30]`、`pdd diagnose reviews [--days 30]`，均为 `needsAuth:true`、`needsMall:'switch'`。
+CLI：`pdd diagnose customer-service [--days 30]`、`pdd diagnose reviews [--days 30]`、`pdd goods reviews [--days 30] [--goods-id <id>] [--stars 4,5]`，均为 `needsAuth:true`、`needsMall:'switch'`。
 
 ### 3. Contracts
 
 - 客服 days 为 1-63 的整数，窗口按上海日期取 `[今天-days, 昨天]`。`cs.overview` 使用 page-api POST `/desert/stat/mallServiceOverviewData`，请求 `{ startDate, endDate }`；`cs.monthTrend` 使用 legacy 导航与 `/desert\/stat\/mallMonthServiceData/` 被动捕获 GET，返回固定最近 31 天，按 `statDate` 过滤。导航页为 `/mms-chat/overview/service`；两者成功条件为 `success === true` 且 errorCode ∈ `SUCCESS_BUSINESS_CODES`（0/1000000）。
 - 客服 data：`{ headline, window, caliber, summary, trend, hints, mall_id }`，口径固定「多多客服-客服数据（人工回复）」。summary 与 trend 指标映射以 `views/customer-service.js` 的 `METRICS` 为准；比率乘 100，时长单位秒、保留 2 位小数，null 保留。trend 为 null 或 `{ items:[{ date, ...summary字段, category_top10_avg_response_seconds, category_avg_response_seconds }] }`，日期升序；客服账号名及比较字段由白名单过滤。
-- 评价 days 映射 `{30:1, 60:5, 90:4, 180:3}` 为 rangeType。endTime 为当前 Unix 秒，startTime=endTime-days*86400。标签和类型聚合的请求为 `{ startTime, endTime, rangeType }`；列表为 `{ startTime, endTime, pageNo, pageSize:10, descScore:['1','2','3'] }`，三个端点均为 page-api POST `/saturn/reviews/*`，导航页 `/goods/evaluation/index`。成功判定为 `success === true || errorCode === 1000000`。
-- 列表每页 10 条，最多 30 页；满 30 页标记 truncated 并提示。service 调用同时携带内部 `page` 和上游 `pageNo`，fixture 分页器使用前者，`buildPayload` 仅投影后者；fixture 使用 `totalRows` 和 `data`。
-- 评价 data：`{ headline, window_days, keyword_tags, issue_types, negative_reviews, hints, mall_id }`。标签 `{ name,count }`；类型 `{ name,positive_count,negative_count,share_pct }`，平台 proportion 已为 0-100。列表 `{ items,total,truncated }`，total 取 totalRows。item 字段以 `NEGATIVE_REVIEW_FIELDS` 为准；score 非零时输出 history_score，三项评分为 null。createTime 秒转上海时间；appendReview 字符串直接取，文本对象投影为文本。
+- 评价 days 映射 `{30:1, 60:5, 90:4, 180:3}` 为 rangeType。endTime 为当前 Unix 秒，startTime=endTime-days*86400。标签和类型聚合的请求为 `{ startTime, endTime, rangeType }`；列表为 `{ startTime, endTime, pageNo, pageSize:40, descScore?, goodsId? }`（`diagnose reviews` 固定 `descScore:['1','2','3']`；`goods reviews` 按 `--stars` / `--goods-id` 传入，缺省时省略对应键，上游返回全店全部星级），三个端点均为 page-api POST `/saturn/reviews/*`，导航页 `/goods/evaluation/index`。成功判定为 `success === true || errorCode === 1000000`。
+- 标签聚合的 `positiveKeywordList` / `negativeKeywordList` 为显式 `null` 时读取为空数组（真实账号实测：没有不满意标签的店铺 `negativeKeywordList` 为 `null`，满意标签照常返回）；缺键、`result` 为 null 仍为响应结构错误。`typeList` 与列表 `data` 的 `null` 仍为响应结构错误。
+- `goods reviews` 的 days 为 1-365 的整数，窗口同为 `[now-days*86400, now]` 的 Unix 秒，只调用列表端点。
+- 列表每页 `REVIEWS_PAGE_SIZE`=40 条（实测 pageSize 10-40 可用，49 起被上游以「仅支持查看近2000条评价」拒绝），最多采集 `REVIEWS_VIEW_LIMIT`=2000 条（50 页）。total 取首页 totalRows（越过末页时上游 totalRows 回落为 0）；翻满 50 页且 total 大于已采集条数时标记 truncated 并提示，恰好 2000 条为 `truncated:false`。两个命令共用 `collectReviews`。service 调用同时携带内部 `page` 和上游 `pageNo`，fixture 分页器使用前者，`buildPayload` 仅投影后者；fixture 使用 `totalRows` 和 `data`。
+- 评价 data：`{ headline, window_days, keyword_tags, issue_types, negative_reviews, hints, mall_id }`。标签 `{ name,count }`；类型 `{ name,positive_count,negative_count,share_pct }`，平台 proportion 已为 0-100。列表 `{ items,total,truncated }`，total 取 totalRows。item 字段以 `REVIEW_FIELDS` 为准（两个命令共用）；score 非零时输出 history_score，三项评分为 null。createTime 秒转上海时间；appendReview 字符串直接取，文本对象投影为文本。
 - 正文和追评手机号 `/1[3-9]\d{9}/g` 掩码为前三位加四星加后四位。昵称、头像、订单、规格、快照和媒体 URL 在 adapter 白名单过滤，仅保留回复状态、图片数量与文本标签。`REDACT_KEYS` 增加 cs_name、nickname、avatar、orderSn。
+- `goods reviews` data：`{ headline, items, total, truncated, window_days, goods_id, stars, hints, mall_id }`。`goods_id` 为字符串或 null（全店）；`stars` 为升序数字数组或 null（全部星级）；headline 首行形如「近 7 天商品 101 的 4、5 星评价 41 条」，截断时追加已采集条数。
 
 ### 4. Validation & Error Matrix
 
 | 条件 | 结果 |
 | --- | --- |
 | 客服 days 越界或评价 days 非指定值 | `E_USAGE` / exit 2，请求前校验 |
+| `goods reviews` 的 days 非 1-365 整数、goods-id 非正整数、stars 含 1-5 以外的值或空段 | 解析阶段 `E_USAGE` / exit 2，`xhr_count` 0 |
 | 客服 overview 失败 | 整体失败 |
+| `goods reviews` 列表失败 | 整体失败，原错误透传 |
 | 客服 trend 的可降级 PddCliError | `trend:null` 并追加 hint |
 | 任一评价源的可降级 PddCliError | 对应部分 null 并追加 hint；三源全失败抛最后一个错误 |
 | 程序异常、超时、取消 | 继续抛出 |
@@ -280,12 +286,12 @@ CLI：`pdd diagnose customer-service [--days 30]`、`pdd diagnose reviews [--day
 
 ### 6. Tests Required
 
-`customer-service-contract.test.js` / `reviews-contract.test.js` 覆盖 payload、成功判定和白名单；对应 view/service 测试覆盖字段、单位、窗口、null、掩码、分页与降级。两个同名 e2e 验证单行 envelope、隐私剔除、参数 exit 2、分页截断与数据源失败；`data-contract-v2.test.js` 用 entityFields 覆盖所有实体数组。
+`customer-service-contract.test.js` / `reviews-contract.test.js` 覆盖 payload、成功判定和白名单；对应 view/service 测试覆盖字段、单位、窗口、null、掩码、分页与降级。两个同名 e2e 验证单行 envelope、隐私剔除、参数 exit 2、分页截断与数据源失败；`reviews.e2e.test.js` 与 `reviews.test.js` / `reviews-view.test.js` 同时覆盖 `goods reviews` 的筛选透传、回显、headline 与 2000 条上限，`numeric-options.test.js` 覆盖 `goodsIdArg` / `starsArg`；`data-contract-v2.test.js` 用 entityFields 覆盖所有实体数组。
 
 ### 7. Wrong vs Correct
 
 Wrong：仅传 pageNo 给 fixture 分页器，重复读取第一页；将 descScore 发为数字数组。
-Correct：内部 page 与 pageNo 同步，buildPayload 保留精确请求格式；descScore 固定字符串数组 `['1','2','3']`。
+Correct：内部 page 与 pageNo 同步，buildPayload 保留精确请求格式；descScore 为字符串数组，`diagnose reviews` 固定 `['1','2','3']`，`goods reviews` 取 `starsArg` 的解析结果。
 
 ## Scenario: Traffic and Goods Traffic
 

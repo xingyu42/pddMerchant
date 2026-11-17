@@ -17,7 +17,9 @@ import * as costImport from '../goods/cost/import.js';
 import * as profit from '../goods/profit.js';
 import * as traffic from '../goods/traffic.js';
 import * as receipt from '../goods/receipt.js';
-import { goodsIdListArg, integerArg, withReportDays } from '../option-parsers.js';
+import * as reviews from '../goods/reviews.js';
+import { goodsIdArg, goodsIdListArg, integerArg, starsArg, withReportDays } from '../option-parsers.js';
+import { GOODS_REVIEWS_REPORT } from '../../services/reviews.js';
 import { GOODS_TRAFFIC_REPORT } from '../../services/goods-traffic.js';
 import { GOODS_PROFIT_REPORT } from '../../services/goods-profit.js';
 import { DEFAULT_RECEIPT_CALIBER, GOODS_PRICE_MAX_PAGE_SIZE, RECEIPT_CALIBERS, describeReceiptCalibers }
@@ -41,6 +43,10 @@ function registerCosts(goods, wireAction) {
 function registerReads(goods, wireAction) {
   wireAction(withReportDays(goods.command('traffic').description('商品区间流量与推广直接成交拆分'), GOODS_TRAFFIC_REPORT)
     .option('--goods-id <id>', '商品 ID'), 'goods.traffic', traffic.run);
+  wireAction(withReportDays(goods.command('reviews').description('评价明细（默认全店全部星级，可按商品与星级筛选）'),
+    GOODS_REVIEWS_REPORT)
+    .option('--goods-id <id>', '商品 ID，缺省为全店', goodsIdArg)
+    .option('--stars <list>', '星级筛选，1–5 逗号分隔，缺省为全部星级', starsArg), 'goods.reviews', reviews.run);
   wireAction(goods.command('receipt').description('SKU 预估实收（平台报告值，按商家出资口径）')
     .option('--goods-id <id>', '商品 ID，可重复或逗号分隔', goodsIdListArg)
     .option('--page <n>', '页码', integerArg(1), 1)

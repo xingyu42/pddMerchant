@@ -29,10 +29,28 @@ export function reportDaysArg(definition) {
   };
 }
 
+function isGoodsId(id) {
+  return /^[1-9]\d*$/.test(id) && Number.isSafeInteger(Number(id));
+}
+
+// 单个商品 ID：返回正整数字符串。
+export function goodsIdArg(value) {
+  const id = String(value).trim();
+  if (!isGoodsId(id)) throw new InvalidArgumentError('需为正整数商品 ID');
+  return id;
+}
+
+// 星级列表：逗号分隔的 1–5，去重并升序，返回字符串数组（上游 descScore 的形状）。
+export function starsArg(value) {
+  const stars = String(value).split(',').map((star) => star.trim());
+  if (stars.some((star) => !/^[1-5]$/.test(star))) throw new InvalidArgumentError('需为 1–5 的星级，可用逗号分隔');
+  return [...new Set(stars)].sort();
+}
+
 // 可重复的商品 ID 选项：每次出现可用逗号分隔多个 ID，累积去重；非正整数在解析阶段拒绝。
 export function goodsIdListArg(value, previous = []) {
   const ids = String(value).split(',').map((id) => id.trim());
-  if (ids.some((id) => !/^[1-9]\d*$/.test(id) || !Number.isSafeInteger(Number(id)))) {
+  if (!ids.every(isGoodsId)) {
     throw new InvalidArgumentError('需为正整数商品 ID，可重复传入或用逗号分隔');
   }
   return [...new Set([...previous, ...ids])];

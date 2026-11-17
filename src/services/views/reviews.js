@@ -7,13 +7,19 @@ export const REVIEWS_REPORT = defineReport({
     message: '--days 需为 {choices_or}', description: '评价窗口天数（{range}）' },
   hints: {
     keywords_unavailable: '评价标签聚合拉取失败', types_unavailable: '评价问题类型拉取失败',
-    reviews_unavailable: '中差评列表拉取失败', list_truncated: '中差评列表已达 30 页采集上限，结果已截断',
+    reviews_unavailable: '中差评列表拉取失败', list_truncated: '中差评列表已达平台可查看的近 2000 条上限，结果已截断',
   },
+});
+
+export const GOODS_REVIEWS_REPORT = defineReport({
+  days: { min: 1, max: 365, default: 30, separator: '–', message: '--days 需为 {range} 的整数',
+    description: '评价窗口天数（{range}，默认 {default}）' },
+  hints: { list_truncated: '评价列表已达平台可查看的近 2000 条上限，结果已截断' },
 });
 
 export const REVIEW_TAG_FIELDS = Object.freeze(['name', 'count']);
 export const ISSUE_TYPE_FIELDS = Object.freeze(['name', 'positive_count', 'negative_count', 'share_pct']);
-export const NEGATIVE_REVIEW_FIELDS = Object.freeze(['goods_id', 'reviewed_at', 'desc_score',
+export const REVIEW_FIELDS = Object.freeze(['goods_id', 'reviewed_at', 'desc_score',
   'logistics_score', 'service_score', 'history_score', 'comment', 'append_comment', 'tags', 'replied', 'picture_count']);
 
 function maskedText(value) {
@@ -49,18 +55,38 @@ function headlines(days, keywordTags, issueTypes, reviews) {
   const lines = reviews === null ? [] : [`近 ${days} 天中差评 ${reviews.total} 条`];
   const tags = [...(keywordTags?.negative ?? [])].sort((left, right) => (right.count ?? 0) - (left.count ?? 0)).slice(0, 3);
   if (tags.length) lines.push(`不满意标签前 3：${tags.map((tag) => `${tag.name}(${tag.count})`).join('、')}`);
-  const issues = [...(issueTypes ?? [])].filter((item) => item.negative_count !== null)
+  const issues = [...(issueTypes ?? [])].filter((item) => item.negative_count > 0)
     .sort((left, right) => right.negative_count - left.negative_count);
   if (issues.length) lines.push(`问题类型负面最多：${issues[0].name}`);
-  return lines.length ? lines : [`近 ${days} 天评价数据缺失`];
+  if (lines.length) return lines;
+  // 列表缺失且没有可报的负面项：已取到的聚合如实陈述为 0，全部缺失才报数据缺失。
+  const zeros = [keywordTags && '不满意标签 0 个',
+    issueTypes?.length && issueTypes.every((item) => item.negative_count === 0) && '各问题类型负面数均为 0'].filter(Boolean);
+  return [zeros.length ? `近 ${days} 天${zeros.join('，')}` : `近 ${days} 天评价数据缺失`];
+}
+
+function reviewList(reviews) {
+  return { items: reviews.items.map(reviewView), total: reviews.total, truncated: reviews.truncated };
 }
 
 export function toReviewsView({ keywords = null, types = null, reviews = null }, { days, hints = [], mallId = null }) {
   const keywordTags = keywordView(keywords);
   const issueTypes = issueView(types);
-  const negativeReviews = reviews === null ? null : { items: reviews.items.map(reviewView),
-    total: reviews.total, truncated: reviews.truncated };
+  const negativeReviews = reviews === null ? null : reviewList(reviews);
   return { headline: headlines(days, keywordTags, issueTypes, negativeReviews), window_days: days,
     keyword_tags: keywordTags, issue_types: issueTypes, negative_reviews: negativeReviews,
     hints: reportHints(REVIEWS_REPORT, hints), mall_id: mallId };
+}
+
+function starsLabel(stars) {
+  return stars ? ` ${stars.join('、')} 星` : '全部星级';
+}
+
+export function toGoodsReviewsView(reviews, { days, goodsId = null, stars = null, hints = [], mallId = null }) {
+  const list = reviewList(reviews);
+  const scope = goodsId ? `商品 ${goodsId} 的` : '';
+  const headline = [`近 ${days} 天${scope}${starsLabel(stars)}评价 ${list.total} 条`];
+  if (list.truncated) headline.push(`已采集 ${list.items.length} 条，结果已截断`);
+  return { headline, ...list, window_days: days, goods_id: goodsId, stars: stars ? stars.map(Number) : null,
+    hints: reportHints(GOODS_REVIEWS_REPORT, hints), mall_id: mallId };
 }

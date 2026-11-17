@@ -1,8 +1,9 @@
 import { it } from 'vitest';
 import assert from 'node:assert/strict';
-import { REVIEWS_LIST, REVIEWS_KEYWORD_AGG, REVIEWS_TYPE_AGG } from '../../src/adapter/endpoints/reviews.js';
+import { REVIEWS_LIST, REVIEWS_KEYWORD_AGG, REVIEWS_TYPE_AGG, REVIEWS_PAGE_SIZE, REVIEWS_VIEW_LIMIT }
+  from '../../src/adapter/endpoints/reviews.js';
 
-it('sends exact signed POST payloads including string score filters and page size ten', () => {
+it('sends exact signed POST payloads with page size forty and caller-supplied star and goods filters', () => {
   const params = { startTime: 100, endTime: 200, rangeType: 5, pageNo: 2, pageSize: 99, noise: 1 };
   for (const [spec, path] of [[REVIEWS_LIST, 'list'], [REVIEWS_KEYWORD_AGG, 'keywords/agg'],
     [REVIEWS_TYPE_AGG, 'type/agg']]) {
@@ -10,8 +11,12 @@ it('sends exact signed POST payloads including string score filters and page siz
     assert.equal(spec.nav.url, 'https://mms.pinduoduo.com/goods/evaluation/index');
     assert.equal(spec.apiUrl, `/saturn/reviews/${path}`);
   }
-  assert.deepEqual(REVIEWS_LIST.buildPayload(params), { startTime: 100, endTime: 200,
-    pageNo: 2, pageSize: 10, descScore: ['1', '2', '3'] });
+  // 缺省不带 descScore / goodsId：上游返回全店全部星级。
+  assert.deepEqual(REVIEWS_LIST.buildPayload(params), { startTime: 100, endTime: 200, pageNo: 2, pageSize: 40 });
+  assert.deepEqual(REVIEWS_LIST.buildPayload({ ...params, descScore: ['1', '2', '3'], goodsId: '101' }),
+    { startTime: 100, endTime: 200, pageNo: 2, pageSize: 40, descScore: ['1', '2', '3'], goodsId: '101' });
+  assert.equal(REVIEWS_LIST.buildPayload({ startTime: 100, endTime: 200 }).pageNo, 1);
+  assert.equal(REVIEWS_VIEW_LIMIT % REVIEWS_PAGE_SIZE, 0);
   for (const spec of [REVIEWS_KEYWORD_AGG, REVIEWS_TYPE_AGG]) {
     assert.deepEqual(spec.buildPayload(params), { startTime: 100, endTime: 200, rangeType: 5 });
   }
@@ -35,4 +40,17 @@ it('rejects missing collections and totals while accepting explicit empty result
   }
   assert.throws(() => REVIEWS_LIST.normalize({ result: { data: [] } }), { code: 'E_NETWORK' });
   assert.deepEqual(REVIEWS_LIST.normalize({ result: { totalRows: 0, data: [] } }), { totalRows: 0, data: [] });
+});
+
+// 真实账号实测：没有不满意标签的店铺 negativeKeywordList 为 null，满意标签照常返回。
+it('reads an explicit null keyword list as empty while still rejecting a missing one', () => {
+  const positiveKeywordList = [{ keywordName: '好', num: 2 }];
+  assert.deepEqual(REVIEWS_KEYWORD_AGG.normalize({ result: { positiveKeywordList, negativeKeywordList: null } }),
+    { positiveKeywordList, negativeKeywordList: [] });
+  assert.deepEqual(REVIEWS_KEYWORD_AGG.normalize({ result: { positiveKeywordList: null, negativeKeywordList: null } }),
+    { positiveKeywordList: [], negativeKeywordList: [] });
+  assert.throws(() => REVIEWS_KEYWORD_AGG.normalize({ result: { positiveKeywordList } }), { code: 'E_NETWORK' });
+  assert.throws(() => REVIEWS_KEYWORD_AGG.normalize({ result: null }), { code: 'E_NETWORK' });
+  assert.throws(() => REVIEWS_TYPE_AGG.normalize({ result: { typeList: null } }), { code: 'E_NETWORK' });
+  assert.throws(() => REVIEWS_LIST.normalize({ result: { totalRows: 0, data: null } }), { code: 'E_NETWORK' });
 });

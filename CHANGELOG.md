@@ -15,6 +15,7 @@
 - **商品成本与净利润**：`goods cost set / list / remove / import <file>` 在本地 SQLite 录入成本（按账号、店铺、商品及可选规格隔离，写入需 `--confirm`）；`goods profit [--days 30] [--goods-id <id>]` 按成交时间统计窗口收入、商家成本、毛利、推广花费与净利润。`gross_margin_pct` / `net_margin_pct` 为有符号百分数，可负、可超过 ±100；仅退款不退货及商家共担补贴时利润可能高估。运费险（`insurance_yuan`）取消费者体验提升计划收费记录里平台逐单收取的服务费（收费成功的退款后不扣回，无记录为 0），`goods cost` 不录入运费险；收费记录拉取失败或不完整时运费险、商家成本与利润为 `null`，`summary.data_quality` 新增 `insurance_complete` / `insurance_truncated`。新错误码 `E_COST_IMPORT_INVALID`（退出码 2）。
 - **店铺综合体验星级**：`diagnose experience [--days 7]` 输出平台当前星级、行业排名、各指标与下一星级门槛及每日趋势。
 - **客服与评价**：`diagnose customer-service [--days 30]` 输出「多多客服-客服数据（人工回复）」区间汇总与逐日趋势；`diagnose reviews [--days 30|60|90|180]` 输出满意/不满意标签、问题分类计数与 1-3 星中差评（正文手机号掩码，昵称、头像、订单信息不输出）。
+- **评价明细**：`goods reviews [--days 30] [--goods-id <id>] [--stars 4,5]` 逐条输出评价，窗口 1–365 天，默认全店全部星级，可按单个商品与星级筛选；条目字段与 `diagnose reviews` 的中差评一致，并回显 `window_days` / `goods_id` / `stars`。最多采集平台可查看的近 2000 条，超出时 `truncated: true` 并附提示；取值错误在参数解析阶段以退出码 2 拒绝。`diagnose reviews` 的中差评采集上限同步由 300 条提高到近 2000 条。
 - **商品预估实收**：`goods receipt [--goods-id <id>] [--page 1] [--size 1-10] [--caliber regular|all]` 按 SKU 原样输出「商品价格管理」页的平台预估实收（券前价 − 商家出资优惠），含单件与多件最低场景及各自的优惠明细，自动补全每个商品的全部 SKU。`--caliber all` 切换到「商家出资所有优惠」口径；`--goods-id` 可重复或逗号分隔，取值错误在参数解析阶段以退出码 2 拒绝。
 - **流量与商品明细**：`diagnose traffic [--days 30]` 输出全店逐日访客、浏览、成交及平台同行参考值；`goods traffic [--days 1|7|30] [--goods-id <id>]` 输出全店商品明细，并按商品拆分推广直接 / 间接成交与花费，`non_promo_*` 为总成交减推广直接成交的差值。推广拆分口径尚未经有投放店铺实测。
 - **订单收货地区**：`orders list` 每项与 `orders detail` 新增 `province` / `city` / `district`，只取平台返回的省 / 市 / 区名称，缺失为 `null`；街道、邮编、详细地址仍不输出。
@@ -22,6 +23,8 @@
 - **全店今日实时**：`diagnose traffic` 新增 `today` 区块（流量看板实时访客 / 浏览，按小时累计的成交及 `hourly[]`，`snapshot_at` 为抓取时间）；今日数据拉取失败时 `today: null` 并附提示，逐日数据照常返回。
 
 ### Fixed
+- **`diagnose reviews` 标签聚合**：店铺没有不满意标签时平台返回 `negativeKeywordList: null`，原实现把整段标签判为拉取失败（`keyword_tags: null` 并附提示）。现读取为空列表，满意标签照常输出，`keyword_tags.negative` 为 `[]`。
+- **`diagnose reviews` headline**：各问题类型负面数全为 0 时不再输出「问题类型负面最多：…」；中差评列表缺失而聚合已取到时，headline 陈述「不满意标签 0 个」「各问题类型负面数均为 0」。
 - **goods profit 未登记售后码**：售后码 6、31 等未登记的非空码按售后处理中计算（与 `orders` 统计一致），不再让所属商品和全店的收入、利润变成 null。
 
 - **`goods profit` 统计窗口改按成交时间**：订单列表不返回成团时间 `group_time`，原实现在真实账号上采集到 0 单、`orders_complete: false`、利润全部为 `null`。现按订单列表的成交时间 `confirm_time`（等于支付时间，与平台数据中心「成交」口径一致）划定窗口；成团时间通常晚于成交 0–30 分钟，窗口边界附近的订单归属日可能随之变化。未付款取消的订单没有成交时间，不计入任何窗口，也不再标记采集不完整。
