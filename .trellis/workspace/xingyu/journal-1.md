@@ -1552,3 +1552,41 @@ Topics: [.trellis/spec/services/domain-service-contracts.md](../../spec/services
 ### Status
 
 [OK] **Completed**
+
+
+## Session 51: goods reviews 评价明细命令与 diagnose reviews 标签聚合修复
+<!-- trellis-session: v=2 fp=809257056c4ace42 -->
+
+**Date**: 2026-11-18
+**Task**: goods reviews 评价明细命令与 diagnose reviews 标签聚合修复
+**Branch**: `main`
+
+### Summary
+
+接手完成 goods reviews（1-365 天、按商品与星级筛选、最多近 2000 条），真实账号复验后修复 diagnose reviews 标签聚合 null 列表与全零问题类型 headline。
+Topics: [.trellis/spec/services/domain-service-contracts.md](../../spec/services/domain-service-contracts.md), [.trellis/spec/commands/command-contracts.md](../../spec/commands/command-contracts.md)
+
+### Main Changes
+
+- 新增 goods reviews [--days 1-365] [--goods-id] [--stars]，与 diagnose reviews 共用 collectReviews；每页 40 条，上限 REVIEWS_VIEW_LIMIT=2000，total 取首页 totalRows
+- keywordAgg 的 positiveKeywordList / negativeKeywordList 显式 null 读取为空数组；缺键与 result 为 null 仍为响应结构错误
+- diagnose reviews headline：负面数全为 0 时省略「问题类型负面最多」；列表缺失而聚合已取到时陈述为 0
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2006790` | ✨ feat(goods): 新增 goods reviews 评价明细命令，评价采集上限提高到近 2000 条 |
+
+### Testing
+
+- [OK] npm run check：knip 通过，123 个测试文件，2134 通过，1 跳过
+- [OK] 真实账号「绘梦童坊」：goods reviews 默认 / --days 365（127 条跨 4 页）/ --stars 4 / --goods-id+--stars+--days 90 均通过；diagnose reviews 修复后输出 10 个满意标签、negative 为 []、hints 为空
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 2000 条截断路径与带不满意标签店铺的 negativeKeywordList 形状尚无真实样本
