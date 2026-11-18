@@ -23,7 +23,7 @@ const LEGACY_STORAGE_MESSAGE = '检测到旧版数据，已不再使用，可手
 async function checkChromium() {
   if (isMockEnabled()) return { ok: true, detail: { fixture: true } };
   try {
-    const execPath = getBrowserExecutablePath();
+    const execPath = await getBrowserExecutablePath();
     return { ok: Boolean(execPath) && existsSync(execPath), detail: { path: execPath || null } };
   } catch (err) {
     return { ok: false, detail: { error: err?.message || 'chromium 不可用' } };

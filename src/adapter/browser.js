@@ -1,4 +1,3 @@
-import { chromium } from 'patchright';
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { isMockEnabled, mockLaunchBrowser, mockCloseBrowser } from './mock-dispatcher.js';
@@ -98,8 +97,15 @@ export function unregisterBrowser(browser) {
   activeBrowsers.delete(browser);
 }
 
-export function getBrowserExecutablePath() {
-  return chromium.executablePath();
+// patchright 冷加载约 240ms：只在真正启动浏览器或查询可执行文件路径时加载，其余命令的启动不付这笔成本。
+let chromiumRuntime;
+async function loadChromium() {
+  chromiumRuntime ??= (await import('patchright')).chromium;
+  return chromiumRuntime;
+}
+
+export async function getBrowserExecutablePath() {
+  return (await loadChromium()).executablePath();
 }
 
 export function evaluateInMainWorld(page, pageFunction, arg) {
@@ -114,6 +120,7 @@ async function launchPreferredBrowser(headless, ownerTag) {
     ...(args.length ? { args } : {}),
   });
 
+  const chromium = await loadChromium();
   try {
     const browser = await chromium.launch(launchOptions('chrome'));
     return { browser, channel: 'chrome' };
