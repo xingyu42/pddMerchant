@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { createCliSandbox } from './isolated-cli.js';
+import { createCliSandbox, spawnNode } from './isolated-cli.js';
 import { assertEnvelopeShape } from './envelope-assertions.js';
 import { freeConsolePort } from './console-http.js';
 
@@ -25,7 +25,10 @@ export async function createDaemonSandbox() {
   const cli = (action) => parseDaemonResult(spawnSync(process.execPath, [cliPath, 'daemon', action, '--json'], {
     cwd: sandbox.root, env: sandbox.env, encoding: 'utf8', timeout: 25000, windowsHide: true,
   }));
-  return { ...sandbox, cli };
+  const cliAsync = async (action) => parseDaemonResult(await spawnNode([cliPath, 'daemon', action, '--json'], {
+    cwd: sandbox.root, env: sandbox.env, timeoutMs: 25000,
+  }));
+  return { ...sandbox, cli, cliAsync };
 }
 
 export function consoleLink(sandbox, args = []) {
@@ -52,9 +55,9 @@ export function foregroundDaemon(sandbox) {
   return { child, result };
 }
 
-export async function waitForDaemon(sandbox) {
+export async function waitForDaemon(sandbox, cli = sandbox.cli) {
   for (let attempt = 0; attempt < 30; attempt++) {
-    if (sandbox.cli('status').envelope.data.console_url) return;
+    if ((await cli('status')).envelope.data.console_url) return;
     await sleep(100);
   }
   assert.fail('foreground daemon did not acquire its lease');
@@ -64,13 +67,13 @@ export async function runDaemonContract(action) {
   const sandbox = await createDaemonSandbox();
   let foreground;
   try {
-    if (action !== 'run') return sandbox.cli(action);
+    if (action !== 'run') return await sandbox.cliAsync(action);
     foreground = foregroundDaemon(sandbox);
-    await waitForDaemon(sandbox);
-    sandbox.cli('stop');
+    await waitForDaemon(sandbox, sandbox.cliAsync);
+    await sandbox.cliAsync('stop');
     return await foreground.result;
   } finally {
-    sandbox.cli('stop');
+    await sandbox.cliAsync('stop');
     if (foreground && foreground.child.exitCode === null) foreground.child.kill();
     sandbox.dispose();
   }
@@ -79,7 +82,7 @@ export async function runDaemonContract(action) {
 export async function runConsoleLinkContract() {
   const sandbox = await createDaemonSandbox();
   try {
-    sandbox.cli('start');
-    return consoleLink(sandbox);
-  } finally { sandbox.cli('stop'); sandbox.dispose(); }
+    await sandbox.cliAsync('start');
+    return parseDaemonResult(await spawnNode([cliPath, 'console', 'link', '--json'], { cwd: sandbox.root, env: sandbox.env }));
+  } finally { await sandbox.cliAsync('stop'); sandbox.dispose(); }
 }

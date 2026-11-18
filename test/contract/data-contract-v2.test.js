@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { assertDataContractV2 } from '../helpers/data-contract.js';
 import { discoverRegisteredCommands } from '../helpers/registered-commands.js';
-import { runCli } from '../helpers/isolated-cli.js';
+import { runCliAsync } from '../helpers/isolated-cli.js';
 import {
   createAccounts, createFactFixtures, createPublishFixtures, createUpstreamGoods, createExperienceFixtures,
   createCustomerServiceFixtures, createReviewFixtures, createTrafficFixtures, createGoodsTrafficFixtures,
@@ -330,10 +330,11 @@ describe('output contract v2: registered command coverage', () => {
   });
 });
 
+// 每条用例各用独立沙箱与临时 DB，互不共享状态；并发运行让 CLI 子进程分摊到多核。
 describe.skipIf(V2_CASES.length === 0)('output contract v2: command data', () => {
   for (const testCase of V2_CASES) {
-    it(`${testCase.command} ${testCase.args.join(' ')}`, async () => {
-      const { envelope } = testCase.execute ? await testCase.execute() : runCli(testCase.args, {
+    it.concurrent(`${testCase.command} ${testCase.args.join(' ')}`, async () => {
+      const { envelope } = testCase.execute ? await testCase.execute() : await runCliAsync(testCase.args, {
         fixtures: testCase.fixtures, accounts: testCase.accounts, authState: testCase.authState,
       });
       assert.equal(envelope.ok, true, JSON.stringify(envelope.error));

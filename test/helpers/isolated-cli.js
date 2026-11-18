@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -46,7 +46,10 @@ export function createCliSandbox(fixtures = {}) {
   return { root, env, fixtureDir, dispose: () => rmSync(root, { recursive: true, force: true }) };
 }
 
-export function runCli(args, { fixtures, authInvalid = false, authIndeterminate = false, authState, accounts = [DEFAULT_ACCOUNT], authStates } = {}) {
+const CLI_TIMEOUT_MS = 15000;
+const CLI_MAX_BUFFER = 1024 * 1024;
+
+function seededSandbox({ fixtures, authInvalid = false, authIndeterminate = false, authState, accounts = [DEFAULT_ACCOUNT], authStates } = {}) {
   const sandbox = createCliSandbox(fixtures);
   try {
     if (authInvalid) sandbox.env.PDD_TEST_AUTH_INVALID = '1';
@@ -54,17 +57,67 @@ export function runCli(args, { fixtures, authInvalid = false, authIndeterminate 
     seedDb(sandbox.env.PDD_DB_PATH, { accounts, authStates: authStates ?? accounts.map((account) => ({
       slug: account.slug, state: authState ?? { cookies: [], origins: [] },
     })) });
-    const result = spawnSync(process.execPath, ['--import', preloadUrl, cliPath, ...args, '--json'], {
-      cwd: projectRoot, env: sandbox.env, encoding: 'utf8', timeout: 15000, maxBuffer: 1024 * 1024,
+    return sandbox;
+  } catch (error) {
+    sandbox.dispose();
+    throw error;
+  }
+}
+
+function cliArgs(args) {
+  return ['--import', preloadUrl, cliPath, ...args, '--json'];
+}
+
+function parseCliResult(result) {
+  assert.ifError(result.error);
+  assert.equal(result.signal, null, 'CLI must exit normally, not be killed');
+  assert.ok(result.stdout.trim(), `CLI produced no JSON (exit ${result.status}); stderr: ${result.stderr}`);
+  const lines = result.stdout.trim().split(/\r?\n/);
+  assert.equal(lines.length, 1, `Expected one JSON line; stderr: ${result.stderr}`);
+  const envelope = JSON.parse(lines[0]);
+  assertEnvelopeShape(envelope, { exitCode: result.status });
+  return { ...result, envelope };
+}
+
+export function runCli(args, options) {
+  const sandbox = seededSandbox(options);
+  try {
+    return parseCliResult(spawnSync(process.execPath, cliArgs(args), {
+      cwd: projectRoot, env: sandbox.env, encoding: 'utf8', timeout: CLI_TIMEOUT_MS, maxBuffer: CLI_MAX_BUFFER,
+    }));
+  } finally {
+    sandbox.dispose();
+  }
+}
+
+// 异步启动 node 子进程并收集输出，结果形状与 spawnSync 一致（stdout / stderr / status / signal / error）。
+// 等待期间事件循环保持空闲，it.concurrent 用例的子进程因此能分摊到多核。
+export function spawnNode(args, { cwd = projectRoot, env, timeoutMs = CLI_TIMEOUT_MS } = {}) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, args, { cwd, env, windowsHide: true });
+    const output = { stdout: '', stderr: '' };
+    let error;
+    for (const stream of ['stdout', 'stderr']) {
+      child[stream].setEncoding('utf8');
+      child[stream].on('data', (chunk) => {
+        output[stream] += chunk;
+        if (output[stream].length > CLI_MAX_BUFFER) child.kill();
+      });
+    }
+    const timer = setTimeout(() => child.kill(), timeoutMs);
+    child.once('error', (cause) => { error = cause; });
+    child.once('close', (status, signal) => {
+      clearTimeout(timer);
+      resolve({ ...output, status, signal, error });
     });
-    assert.ifError(result.error);
-    assert.equal(result.signal, null, 'CLI must exit normally, not be killed');
-    assert.ok(result.stdout.trim(), `CLI produced no JSON (exit ${result.status}); stderr: ${result.stderr}`);
-    const lines = result.stdout.trim().split(/\r?\n/);
-    assert.equal(lines.length, 1, `Expected one JSON line; stderr: ${result.stderr}`);
-    const envelope = JSON.parse(lines[0]);
-    assertEnvelopeShape(envelope, { exitCode: result.status });
-    return { ...result, envelope };
+  });
+}
+
+// 与 runCli 同一沙箱、同一断言，子进程异步等待。
+export async function runCliAsync(args, options) {
+  const sandbox = seededSandbox(options);
+  try {
+    return parseCliResult(await spawnNode(cliArgs(args), { env: sandbox.env }));
   } finally {
     sandbox.dispose();
   }
