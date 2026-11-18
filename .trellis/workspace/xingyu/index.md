@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 51
-- **Last Active**: 2026-11-18
+- **Total Sessions**: 52
+- **Last Active**: 2026-11-19
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1592 | Active |
+| `journal-1.md` | ~1636 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 52 | 2026-11-19 | 店透视接口盘点与四项缺口路线图，现有报表加深可开工 | `7d10b12`, `a6532ec`, `e73ad8c` | `main` |
 | 51 | 2026-11-18 | goods reviews 评价明细命令与 diagnose reviews 标签聚合修复 | `2006790` | `main` |
 | 50 | 2026-11-11 | 修订 D5：订单输出省市区 | `64bf883` | `feat/region-sku-stock` |
 | 49 | 2026-11-08 | knip 无用 export 清零，lint 纳入 exports/types/duplicates | `729f26c`, `da41602`, `6352107`, `4632d44`, `924464f`, `64319a6`, `e73be92`, `720e740` | `main` |

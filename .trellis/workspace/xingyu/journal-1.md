@@ -1590,3 +1590,47 @@ Topics: [.trellis/spec/services/domain-service-contracts.md](../../spec/services
 ### Next Steps
 
 - 2000 条截断路径与带不满意标签店铺的 negativeKeywordList 形状尚无真实样本
+
+
+## Session 52: 店透视接口盘点与四项缺口路线图，现有报表加深可开工
+<!-- trellis-session: v=2 fp=802d487bbe6ac48d -->
+
+**Date**: 2026-11-19
+**Task**: 店透视接口盘点与四项缺口路线图，现有报表加深可开工
+**Branch**: `main`
+
+### Summary
+
+盘点店透视 3.6.1 目录 145 个拼多多端点，CLI 已用 11 个（都在只读 108 个里）。访谈确定四个缺口各立需求，顺序为现有报表加深、今日实时、地域报告、字体解码；只读侦察了多多客服销售数据与数据中心评价数据两页；现有报表加深的 spec 和两张工单已到 ready-for-agent，本会话没有写代码。侦察记录在 docs/research/cs-sales-and-goods-evaluate-recon-2026-11-19.md，需求在 .scratch/report-deepening/。
+
+### Main Changes
+
+- 决定：零新增命令。diagnose customer-service 新增 sales 区块（口径「多多客服-销售数据」，自带窗口，天数沿用 --days，结束日为今天往前第 3 天）；diagnose reviews 新增 goods_scores 区块（固定近 30 日，口径「数据中心-评价数据」）。两个区块失败时为 null 并附 hint，原有数据与退出码不变
+- 排除：csCanImproveSalesAmount（平台推算的潜力值）、/chats/csReportDetail（含客服账号名）、数据中心客服两个接口（口径与现有客服报表不一致）；运费补偿并入利润沿用 2026-11-15 的既有决定，不做
+- 侦察事实：销售数据滞后 3 天，区间汇总等于逐日相加，逐日接口固定 31 行且由点击页签触发；queryGoodsEvaluateVO 为明文，pageSize 10 可用，50、100 被拒，20 到 40 未测，0 评价商品均分返回 0
+- GLOSSARY.md 新增 Inquiry Conversion（询单转化）、Customer-Service Sales（客服销售额）
+- 登记 .scratch/region-report 与 .scratch/spider-font-decoding（各一份 spec 和一张侦察工单，needs-triage）；今日实时沿用 .scratch/realtime-data，03、04 仍 needs-triage
+- 预先重构排查：不设 00 号工单；窗口滞后天数参数化、评价翻页采集复用分别留在 01、02 内做
+- 更正：.scratch/diagnose-reviews-keywords 的 01 立项有误，标签聚合 null 列表问题已在 2006790 修复，工单改为 resolved
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7d10b12` | 📝 docs: 记录客服销售数据与商品评价数据侦察，登记地域报告、字体解码与评价标签缺陷工单，术语表新增询单转化与客服销售额 |
+| `a6532ec` | 📝 docs: 新增现有报表加深 spec 与两张工单（客服销售区块、商品评分区块） |
+| `e73ad8c` | 📝 docs: 更正评价标签聚合工单，问题已在 2006790 修复 |
+
+### Testing
+
+- [OK] 本会话只改文档；访谈开始前重跑 npm run check 通过（123 个测试文件，2134 通过，1 跳过）
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 先执行 pdd login：侦察脚本运行后登录态失效（E_AUTH_EXPIRED），原因未确认，脚本没有把刷新后的 Cookie 写回账号存储
+- 实现 report-deepening 01、02，再用真实账号验证：销售数据自定义日期最早可选日、queryGoodsEvaluateVO 的 pageSize 20 到 40 与 goodsIdList
+- 工作区有另一会话对 test/helpers/isolated-cli.js、test/contract/data-contract-v2.test.js 等测试辅助代码的未提交改动，这是两张工单的主测试接缝，等它提交后再开工
