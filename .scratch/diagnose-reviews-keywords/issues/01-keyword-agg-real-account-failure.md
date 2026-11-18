@@ -4,7 +4,7 @@
 
 **Blocked by:** None（需要真实账号只读运行，执行前确认范围；当前登录态已失效，需先重新登录）
 
-**Status:** needs-triage
+**Status:** resolved
 
 ## 现象
 
@@ -42,3 +42,4 @@
 ## Comments
 
 - 2026-11-19：从 `goods reviews` 真实账号复验中发现并单独立项。
+- 2026-11-19 更正：立项有误，这个问题已在 `2006790` 修复。原因是店铺没有不满意标签时平台返回 `negativeKeywordList: null`，原实现判为结构异常并降级成提示；现按空列表读取（见 CHANGELOG「`diagnose reviews` 标签聚合」）。上面「现象」记录的是修复前的那次运行，「待查方向」已无需排查。修复后的真实账号结果记在 journal Session 51：满意标签 10 个、`keyword_tags.negative` 为 `[]`、`hints` 为空。清单里「可选采集降级时把错误码写入日志」一项没有做，需要时另行立项。
