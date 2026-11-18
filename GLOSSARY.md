@@ -102,6 +102,14 @@ _Avoid_: Bad review (unscoped), keyword mining, word frequency
 The upstream source that defines a customer-service reply metric such as the 3-minute manual reply rate. Pinduoduo exposes several calibers that disagree for the same shop and day; every reported value names its caliber, and values from different calibers are never mixed or compared as one series.
 _Avoid_: The reply rate, unified reply rate
 
+**Inquiry Conversion** (询单转化):
+The share of buyers who consulted customer service on a day and then completed a group purchase, as reported by 多多客服-销售数据: an order placed within 3 days of the consultation counts toward the consultation day, so the figure exists only for days at least 3 days old. A range value is the platform's own range summary, and with zero inquiring buyers the rate is unknown rather than 0.
+_Avoid_: Conversion rate (unscoped), payment conversion, CLI-computed conversion
+
+**Customer-Service Sales** (客服销售额):
+The transaction amount Pinduoduo attributes to customer-service consultations under the same 3-day attribution as Inquiry Conversion, reported verbatim. It is stated separately from the order revenue used in Goods Net Profit; the two are never added or subtracted.
+_Avoid_: Shop sales, order revenue, 客服可提升销售额 (a platform projection, outside the report)
+
 **Obfuscated Metric**:
 An upstream numeric value delivered as Private Use Area characters under a per-load remapped font. It counts as a fact only after decoding and a cross-check against a plaintext source; otherwise it is reported as unavailable.
 _Avoid_: Encrypted data, garbled number, best-effort decode
