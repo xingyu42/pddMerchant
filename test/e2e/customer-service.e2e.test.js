@@ -22,6 +22,57 @@ it('emits desert summary and daily consultations with nulls and no account names
   }
 });
 
+it('emits the sales block with its own caliber and window, upstream nulls and a headline line', () => {
+  const result = runCli(['diagnose', 'customer-service', '--days', '7'], { fixtures: createCustomerServiceFixtures() });
+  assert.equal(result.status, 0);
+  const { sales, headline, window, hints } = result.envelope.data;
+  assert.equal(sales.caliber, '多多客服-销售数据');
+  assert.equal(sales.window.days, 7);
+  // 销售窗口比咨询窗口早结束两天，且两者天数相同
+  assert.equal(Date.parse(window.end_date) - Date.parse(sales.window.end_date), 2 * 86400000);
+  assert.equal(Date.parse(window.start_date) - Date.parse(sales.window.start_date), 2 * 86400000);
+  assert.deepEqual(sales.summary, { inquiry_user_count: 12, group_user_count: 6,
+    inquiry_conversion_rate_pct: 50, cs_sales_amount_yuan: 153.67 });
+  const items = sales.trend.items;
+  assert.equal(items.length, 5);
+  assert.deepEqual(items.map((item) => item.date), items.map((item) => item.date).toSorted());
+  assert.equal(items.at(-1).date, sales.window.end_date);
+  const metrics = (item) => [item.inquiry_user_count, item.group_user_count,
+    item.inquiry_conversion_rate_pct, item.cs_sales_amount_yuan];
+  assert.deepEqual(items.map(metrics), [[12, 6, 50, 153.67], [null, null, null, null], [0, 0, null, null],
+    [2, 0, 0, null], [null, null, null, null]]);
+  assert.equal(items[1].category_top10_avg_inquiry_conversion_rate_pct, 81.71);
+  assert.equal(items[1].category_avg_inquiry_conversion_rate_pct, 27.83);
+  assert.equal(items[4].category_top10_avg_inquiry_conversion_rate_pct, null);
+  assert.equal(headline.length, 2);
+  assert.equal(headline[1], `${sales.window.start_date} 至 ${sales.window.end_date} 询单 12 人，成团 6 人，询单转化率 50%，客服销售额 153.67 元`);
+  assert.deepEqual(hints, []);
+  for (const forbidden of ['CanImprove', 'Compare', '23.14']) {
+    assert.equal(JSON.stringify(result.envelope.data).includes(forbidden), false, forbidden);
+  }
+  assert.equal(Object.hasOwn(sales.summary, 'category_avg_inquiry_conversion_rate_pct'), false);
+});
+
+it('keeps consultations when the sales summary fails and keeps the summary when only the daily sales fail', () => {
+  const failure = { __throws: true, __error: { code: 'E_BUSINESS', message: 'fixture unavailable', exitCode: 6 } };
+  const whole = runCli(['diagnose', 'customer-service'],
+    { fixtures: { ...createCustomerServiceFixtures(), 'endpoints/cs.salesOverview.json': failure } });
+  assert.equal(whole.status, 0);
+  assert.equal(whole.envelope.ok, true);
+  assert.equal(whole.envelope.data.sales, null);
+  assert.deepEqual(whole.envelope.data.hints, ['客服销售数据拉取失败']);
+  assert.equal(whole.envelope.data.headline.length, 1);
+  assert.equal(whole.envelope.data.summary.consult_user_count, 3);
+  assert.equal(whole.envelope.data.trend.items.length, 2);
+  const daily = runCli(['diagnose', 'customer-service'],
+    { fixtures: { ...createCustomerServiceFixtures(), 'endpoints/cs.monthSalesTrend.json': failure } });
+  assert.equal(daily.status, 0);
+  assert.equal(daily.envelope.data.sales.trend, null);
+  assert.equal(daily.envelope.data.sales.summary.inquiry_user_count, 12);
+  assert.deepEqual(daily.envelope.data.hints, ['客服销售逐日趋势拉取失败']);
+  assert.equal(daily.envelope.data.headline.length, 2);
+});
+
 it('returns exit two for days beyond sixty-three', () => {
   const result = runCli(['diagnose', 'customer-service', '--days', '64'], { fixtures: createCustomerServiceFixtures() });
   assert.equal(result.status, 2);

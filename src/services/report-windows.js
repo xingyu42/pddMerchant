@@ -9,9 +9,14 @@ export function windowEndingAt(days, endDate) {
   return { start_date: new Date(start).toISOString().slice(0, 10), end_date: endDate, days };
 }
 
-export function windowEndingYesterday(days, now = Date.now()) {
+// 截止日为上海今天往前第 lagDays 天；平台延迟出数的报表按各自的滞后天数取窗口。
+export function windowEndingDaysAgo(days, lagDays, now = Date.now()) {
   const today = Date.parse(`${toLocalDate(now)}T00:00:00Z`);
-  return windowEndingAt(days, new Date(today - DAY_MS).toISOString().slice(0, 10));
+  return windowEndingAt(days, new Date(today - lagDays * DAY_MS).toISOString().slice(0, 10));
+}
+
+export function windowEndingYesterday(days, now = Date.now()) {
+  return windowEndingDaysAgo(days, 1, now);
 }
 
 // 上海今天 00:00:00 的毫秒时间戳；所有上海自然日窗口共用这一处日界计算。

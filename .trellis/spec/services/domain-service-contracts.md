@@ -256,7 +256,9 @@ CLI：`pdd diagnose customer-service [--days 30]`、`pdd diagnose reviews [--day
 ### 3. Contracts
 
 - 客服 days 为 1-63 的整数，窗口按上海日期取 `[今天-days, 昨天]`。`cs.overview` 使用 page-api POST `/desert/stat/mallServiceOverviewData`，请求 `{ startDate, endDate }`；`cs.monthTrend` 使用 legacy 导航与 `/desert\/stat\/mallMonthServiceData/` 被动捕获 GET，返回固定最近 31 天，按 `statDate` 过滤。导航页为 `/mms-chat/overview/service`；两者成功条件为 `success === true` 且 errorCode ∈ `SUCCESS_BUSINESS_CODES`（0/1000000）。
-- 客服 data：`{ headline, window, caliber, summary, trend, hints, mall_id }`，口径固定「多多客服-客服数据（人工回复）」。summary 与 trend 指标映射以 `views/customer-service.js` 的 `METRICS` 为准；比率乘 100，时长单位秒、保留 2 位小数，null 保留。trend 为 null 或 `{ items:[{ date, ...summary字段, category_top10_avg_response_seconds, category_avg_response_seconds }] }`，日期升序；客服账号名及比较字段由白名单过滤。
+- 客服 data：`{ headline, window, caliber, summary, trend, sales, hints, mall_id }`，口径固定「多多客服-客服数据（人工回复）」。summary 与 trend 指标映射以 `views/customer-service.js` 的 `METRICS` 为准；比率乘 100，时长单位秒、保留 2 位小数，null 保留。trend 为 null 或 `{ items:[{ date, ...summary字段, category_top10_avg_response_seconds, category_avg_response_seconds }] }`，日期升序；客服账号名及比较字段由白名单过滤。
+- 客服销售区块 `sales`：口径「多多客服-销售数据」，平台只提供 3 天之前的数据（询单后 3 日内的下单计入询单当日）。窗口为 `windowEndingDaysAgo(min(days, 62), 3)`，即 `[今天-3-(n-1), 今天-3]`；62 来自销售数据页自定义日期的可选范围 `[今天-64, 今天-3]`（真实账号 2026-11-20 实测；更长的区间请求不报错，返回值与 62 天相同）。`cs.salesOverview` 使用 page-api POST `/desert/stat/mallSalesOverviewData`，请求 `{ startDate, endDate }`；`cs.monthSalesTrend` 为 `/desert\/stat\/mallMonthSalesData/` 被动捕获的无参 GET，由点击「销售数据」页签触发（`requiredTrigger:true`），固定返回 `[今天-33, 今天-3]` 共 31 行，按 `statDate` 过滤。
+- `sales` 形状：`{ caliber, window, summary, trend }`。summary 为 `{ inquiry_user_count, group_user_count, inquiry_conversion_rate_pct, cs_sales_amount_yuan }`，取区间汇总接口（不由逐日相加）；trend 为 null 或 `{ items:[{ date, ...summary字段, category_top10_avg_inquiry_conversion_rate_pct, category_avg_inquiry_conversion_rate_pct }] }`，日期升序。转化率乘 100，金额为元、保留 2 位小数。null 按上游原值保留：询单 0 人时转化率 null，成团 0 人时客服销售额 null，尚未出数的日期整行 null（含类目均值），无询单记录的日期四项 null 而类目均值有值。客服可提升销售额（`csCanImproveSalesAmount`）与各 `*Compare` 字段由白名单过滤。headline 在原有行之后追加「<start> 至 <end> 询单 N 人，成团 N 人，询单转化率 N%，客服销售额 N 元」，null 的部分略去，询单人数为 null 时为「<区间> 无询单数据」，`sales` 为 null 时不追加。
 - 评价 days 映射 `{30:1, 60:5, 90:4, 180:3}` 为 rangeType。endTime 为当前 Unix 秒，startTime=endTime-days*86400。标签和类型聚合的请求为 `{ startTime, endTime, rangeType }`；列表为 `{ startTime, endTime, pageNo, pageSize:40, descScore?, goodsId? }`（`diagnose reviews` 固定 `descScore:['1','2','3']`；`goods reviews` 按 `--stars` / `--goods-id` 传入，缺省时省略对应键，上游返回全店全部星级），三个端点均为 page-api POST `/saturn/reviews/*`，导航页 `/goods/evaluation/index`。成功判定为 `success === true || errorCode === 1000000`。
 - 标签聚合的 `positiveKeywordList` / `negativeKeywordList` 为显式 `null` 时读取为空数组（真实账号实测：没有不满意标签的店铺 `negativeKeywordList` 为 `null`，满意标签照常返回）；缺键、`result` 为 null 仍为响应结构错误。`typeList` 与列表 `data` 的 `null` 仍为响应结构错误。
 - `goods reviews` 的 days 为 1-365 的整数，窗口同为 `[now-days*86400, now]` 的 Unix 秒，只调用列表端点。
@@ -274,6 +276,8 @@ CLI：`pdd diagnose customer-service [--days 30]`、`pdd diagnose reviews [--day
 | 客服 overview 失败 | 整体失败 |
 | `goods reviews` 列表失败 | 整体失败，原错误透传 |
 | 客服 trend 的可降级 PddCliError | `trend:null` 并追加 hint |
+| 客服销售区间汇总的可降级 PddCliError | `sales:null` 并追加「客服销售数据拉取失败」，不再请求逐日接口；`summary`、`trend` 照常 |
+| 客服销售逐日（含页签点击失败）的可降级 PddCliError | 仅 `sales.trend:null` 并追加「客服销售逐日趋势拉取失败」 |
 | 任一评价源的可降级 PddCliError | 对应部分 null 并追加 hint；三源全失败抛最后一个错误 |
 | 程序异常、超时、取消 | 继续抛出 |
 | 上游集合或列表 totalRows 缺失 | adapter 抛 `E_NETWORK` |
@@ -281,12 +285,13 @@ CLI：`pdd diagnose customer-service [--days 30]`、`pdd diagnose reviews [--day
 ### 5. Good/Base/Bad Cases
 
 - Good：回复率 0.666666 输出 66.67，响应 14.666 秒输出 14.67，无咨询日仍保留类目均值。
+- Good：`--days 63` 时 `window.days` 为 63、`sales.window.days` 为 62，两个窗口各自如实标注。
 - Base：评价列表为空时输出空 items 和 total 0，其余数据源独立存在。
 - Bad：把人工回复序列与星级口径合并、自行分词、输出完整评价原始对象。
 
 ### 6. Tests Required
 
-`customer-service-contract.test.js` / `reviews-contract.test.js` 覆盖 payload、成功判定和白名单；对应 view/service 测试覆盖字段、单位、窗口、null、掩码、分页与降级。两个同名 e2e 验证单行 envelope、隐私剔除、参数 exit 2、分页截断与数据源失败；`reviews.e2e.test.js` 与 `reviews.test.js` / `reviews-view.test.js` 同时覆盖 `goods reviews` 的筛选透传、回显、headline 与 2000 条上限，`numeric-options.test.js` 覆盖 `goodsIdArg` / `starsArg`；`data-contract-v2.test.js` 用 entityFields 覆盖所有实体数组。
+`customer-service-contract.test.js` / `reviews-contract.test.js` 覆盖 payload、成功判定和白名单；对应 view/service 测试覆盖字段、单位、窗口、null、掩码、分页与降级；客服销售区块另覆盖 3 天滞后窗口与 62 天上限、四种逐日空值形态、两级降级和 headline 三种写法。两个同名 e2e 验证单行 envelope、隐私剔除、参数 exit 2、分页截断与数据源失败；`reviews.e2e.test.js` 与 `reviews.test.js` / `reviews-view.test.js` 同时覆盖 `goods reviews` 的筛选透传、回显、headline 与 2000 条上限，`numeric-options.test.js` 覆盖 `goodsIdArg` / `starsArg`；`data-contract-v2.test.js` 用 entityFields 覆盖所有实体数组。
 
 ### 7. Wrong vs Correct
 

@@ -54,11 +54,29 @@ export function createCustomerServiceFixtures() {
   const empty = Object.fromEntries(Object.keys(summary).map((key) => [key, null]));
   const reference = { avgReplyTimeTop10: 5.555, avgReplyTimeTotal: 20,
     cs_name: 'SYN-CS-PRIVATE', consultUserCntCompare: 99, reply30sRateStapleRank: 5 };
+  // 销售数据截至今天往前第 3 天；逐日四种空值形态照实测：无询单记录、询单 0 人、成团 0 人、尚未出数。
+  const daysAgo = (count) => toLocalDate(Date.now() - count * 86400000);
+  const salesNoise = { csCanImproveSalesAmount: 23.14, inquiryOrderUserCntCompare: 0.5 };
+  const salesAverages = { inquiryConfirmRateTop10Avg: 0.817113, inquiryConfirmRateTotalAvg: 0.278309 };
+  const salesRow = (count, values, averages = salesAverages) => ({ statDate: daysAgo(count),
+    inquiryOrderUserCnt: null, groupUserCnt: null, inquiryOrderTransformRate: null, csSalesAmount: null,
+    csCanImproveSalesAmount: 0, ...averages, ...values });
   return {
     'endpoints/cs.overview.json': success({ ...summary, ...reference }),
     'endpoints/cs.monthTrend.json': success([
-      { ...empty, ...reference, statDate: toLocalDate(Date.now() - 2 * 86400000) },
-      { ...summary, ...reference, statDate: toLocalDate(Date.now() - 86400000) },
+      { ...empty, ...reference, statDate: daysAgo(2) },
+      { ...summary, ...reference, statDate: daysAgo(1) },
+    ]),
+    'endpoints/cs.salesOverview.json': success({ inquiryOrderUserCnt: 12, groupUserCnt: 6,
+      inquiryOrderTransformRate: 0.5, csSalesAmount: 153.666, ...salesNoise }),
+    'endpoints/cs.monthSalesTrend.json': success([
+      salesRow(7, { inquiryOrderUserCnt: 12, groupUserCnt: 6, inquiryOrderTransformRate: 0.5,
+        csSalesAmount: 153.666, csCanImproveSalesAmount: 23.14 }),
+      salesRow(6, {}),
+      salesRow(5, { inquiryOrderUserCnt: 0, groupUserCnt: 0 }),
+      salesRow(4, { inquiryOrderUserCnt: 2, groupUserCnt: 0, inquiryOrderTransformRate: 0 }),
+      salesRow(3, { csCanImproveSalesAmount: null },
+        { inquiryConfirmRateTop10Avg: null, inquiryConfirmRateTotalAvg: null }),
     ]),
   };
 }

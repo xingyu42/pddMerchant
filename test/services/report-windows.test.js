@@ -1,7 +1,8 @@
 import { it, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import {
-  completeShanghaiWindow, rollingSecondsWindow, shanghaiDaysThroughToday, windowEndingAt, windowEndingYesterday,
+  completeShanghaiWindow, rollingSecondsWindow, shanghaiDaysThroughToday, windowEndingAt, windowEndingDaysAgo,
+  windowEndingYesterday,
 } from '../../src/services/report-windows.js';
 
 it.each(['UTC', 'Asia/Shanghai', 'Pacific/Honolulu'])('keeps calendar windows independent of host TZ=%s', (timezone) => {
@@ -16,6 +17,15 @@ it('keeps Shanghai midnight and yesterday inclusive with the original date-windo
     { start_date: '2025-12-31', end_date: '2025-12-31', days: 1 });
   assert.deepEqual(windowEndingYesterday(1, Date.parse('2026-01-01T16:00:00Z')),
     { start_date: '2026-01-01', end_date: '2026-01-01', days: 1 });
+});
+
+it('ends lagged windows the given number of Shanghai dates before today', () => {
+  assert.deepEqual(windowEndingDaysAgo(3, 3, Date.parse('2024-03-02T16:00:00Z')),
+    { start_date: '2024-02-27', end_date: '2024-02-29', days: 3 });
+  assert.deepEqual(windowEndingDaysAgo(1, 3, Date.parse('2026-01-01T15:59:59Z')),
+    { start_date: '2025-12-29', end_date: '2025-12-29', days: 1 });
+  assert.deepEqual(windowEndingDaysAgo(30, 1, Date.parse('2026-10-30T16:30:00Z')),
+    windowEndingYesterday(30, Date.parse('2026-10-30T16:30:00Z')));
 });
 
 it('keeps complete-day seconds exclusive at the end with the original profit-window keys', () => {

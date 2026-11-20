@@ -26,6 +26,9 @@
 - `summary` 覆盖整个区间；`trend.items[]` 来自页面加载的最近 31 天中落在窗口内的日期，带类目响应时长参考。
 - 比率后缀 `_pct`，响应时长后缀 `_seconds`；无咨询日为 `null`。
 - 汇总失败时命令失败；趋势失败时 `trend:null` 并附 hint。
+- `sales`：口径「多多客服-销售数据」，带自己的 `window`——平台只提供 3 天之前的销售数据（询单后 3 日内的下单都计入询单当日），所以结束日为今天往前第 3 天；天数沿用 `--days`，平台可查范围是 62 天，`--days 63` 时 `sales.window.days` 为 62。`sales.summary` 含询单人数、成团人数、询单转化率（`_pct`）、客服销售额（`_yuan`），取平台的区间汇总；`sales.trend.items[]` 为窗口内最近 31 天的逐日值，另带同类目前 10% 与整体的询单转化率均值。
+- `sales` 的空值按平台原值：询单 0 人时转化率为 `null`，成团 0 人时客服销售额为 `null`，尚未出数的日期整行为 `null`。客服销售额与 `goods profit` 的订单收入口径各自独立。
+- 销售汇总失败时 `sales:null` 并附 hint；只有逐日失败时 `sales.trend:null` 并附 hint；原有 `summary`、`trend` 照常返回。
 
 ## diagnose reviews
 

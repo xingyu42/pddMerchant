@@ -28,7 +28,8 @@ import { GOODS_COST_ENTRY_FIELDS } from '../../src/services/views/goods-cost.js'
 import { GOODS_PROFIT_ITEM_FIELDS, GOODS_PROFIT_SUMMARY_FIELDS, GOODS_PROFIT_QUALITY_FIELDS } from '../../src/services/views/goods-profit.js';
 import { EXPERIENCE_INDICATOR_FIELDS, EXPERIENCE_TREND_ITEM_FIELDS,
   EXPERIENCE_SNAPSHOT_FIELDS } from '../../src/services/views/experience.js';
-import { CS_SUMMARY_FIELDS, CS_TREND_ITEM_FIELDS } from '../../src/services/views/customer-service.js';
+import { CS_SUMMARY_FIELDS, CS_TREND_ITEM_FIELDS, CS_SALES_SUMMARY_FIELDS,
+  CS_SALES_TREND_ITEM_FIELDS } from '../../src/services/views/customer-service.js';
 import { REVIEW_TAG_FIELDS, ISSUE_TYPE_FIELDS, REVIEW_FIELDS } from '../../src/services/views/reviews.js';
 import { TRAFFIC_ITEM_FIELDS, TRAFFIC_SUMMARY_FIELDS, TRAFFIC_TODAY_FIELDS,
   TRAFFIC_TODAY_HOURLY_FIELDS } from '../../src/services/views/traffic.js';
@@ -93,7 +94,9 @@ const V2_CASES = [
     entityFields: GOODS_RECEIPT_ENTITY_FIELDS,
     checkData: (data) => assert.equal(data.caliber, '商家出资所有优惠') },
   { command: 'diagnose.customer-service', args: ['diagnose', 'customer-service'], fixtures: createCustomerServiceFixtures(),
-    entityFields: { summary: CS_SUMMARY_FIELDS, 'trend.items[]': CS_TREND_ITEM_FIELDS } },
+    entityFields: { summary: CS_SUMMARY_FIELDS, 'trend.items[]': CS_TREND_ITEM_FIELDS,
+      sales: ['caliber', 'window', 'summary', 'trend'], 'sales.summary': CS_SALES_SUMMARY_FIELDS,
+      'sales.trend.items[]': CS_SALES_TREND_ITEM_FIELDS } },
   { command: 'diagnose.reviews', args: ['diagnose', 'reviews'], fixtures: createReviewFixtures(),
     entityFields: { 'keyword_tags.positive[]': REVIEW_TAG_FIELDS, 'keyword_tags.negative[]': REVIEW_TAG_FIELDS,
       'issue_types[]': ISSUE_TYPE_FIELDS, 'negative_reviews.items[]': REVIEW_FIELDS } },
