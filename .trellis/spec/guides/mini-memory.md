@@ -35,6 +35,8 @@ python3 ./.trellis/scripts/add_session.py \
 
 Use the actual topic path; omit `--topic` for a handoff without a topic. The script writes journal/index and a relative topic link; it does not edit the topic. Verify the files before reporting completion. Skip ordinary changes and unconfirmed ideas. New notes follow the discussion language; updates keep the original document's language.
 
+Retry a partial recording with the same arguments. The recorder resumes pending topic-linked records across the v2-to-v3 upgrade and accepts matching legacy index rows with literal pipes. Fenced Markdown examples in a journal are ignored when checking or assigning session numbers.
+
 Promote durable boundaries into `.trellis/spec/` and link them from the matching `index.md`. Cold research can move into `.trellis/research/archive/`. When a whole note is replaced, leave a superseded mark on the old note pointing at the new path instead of deleting history:
 
 ```markdown
