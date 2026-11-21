@@ -112,3 +112,33 @@
 - 因此 `today_fee_per_order_yuan` 只代表当天下单的订单；按订单计算服务费时取下单日费率，或直接用收费记录里的逐单金额
 
 另：`order_insurance_list` 按创建时间筛选时跨度上限为一个月，`--days 90` 返回 `运费补贴生效时间跨度不能超过一个月`；`--days` 已去掉 90。
+
+## 七、客服今日分时与商品实时补测（2026-11-22，`realtime-data` 05 与 03/04 复核）
+
+> 2026-11-22 04:20 前后，默认真实账号只读实测（经 `withCommand` 单实例浏览器上下文原生捕获与 `page-api` 重放，严格串行，无 429 / 40002 / 54001）。
+> 脱敏：店铺 ID、商品 ID、商品名、客服账号名、买家信息均已剥离。
+
+### 7.1 客服今日实时与分时接口（`realtime-data` 05）
+
+页面：`/mms-chat/overview/service`，页面模块标题与提示文案：
+- 卡片标题：`实时数据`、`需人工回复的咨询人数(人)`、`人工接待人数(人)`、`3分钟人工回复率`、`平均人工响应时长`、`分时咨询数据`
+- 页面横幅提示：`统计方式变更` 提到「咨询人数统计时间范围改为全天（原统计时间为 08-23 点）」
+
+| 端点 | 方法 / 请求 | 实测响应结构（脱敏） | 口径与空值表现 |
+| --- | --- | --- | --- |
+| `/desert/stat/mallServiceRealTimeData` | `GET`，无参 | `{ success: true, errorCode: 1000000, result: { consultUserCnt, replyRate3Min, replyRate3MinThreshold, manuReceiveUserCnt, needReplyUserCnt } }` | 口径「多多客服-实时数据」。凌晨无咨询时 `consultUserCnt` / `replyRate3Min` / `manuReceiveUserCnt` 为 `null`，`needReplyUserCnt` 为 `0`，`replyRate3MinThreshold` 为 `0.5` |
+| `/chats/cs/unreplyUser/count` | `GET`，无参 | `{ success: true, errorCode: 1000000, result: { unreply_num: 0 } }` | 当前待回复买家数，整数 |
+| `/desert/stat/getMallHourConsultData` | `POST` `{ startDate, endDate }`（页面默认近 7 日，实测传 `{ startDate: today, endDate: today }`） | `{ success: true, errorCode: 1000000, result: { total: 24, list: [{ hour, replyUser3Min, unReplyUser3Min }] } }`（`hasPua: false`） | **传今天可用**，返回 `hour` 为整数 `0..23` 的 24 小时序列；凌晨无咨询时各小时计数值为 `0` |
+| `/sydney/api/customer/querySpecifiedDayServiceQuality` | `POST` `{ queryDate: today \| yesterday }` | `{ success: true, errorCode: 0, result: { customerServiceTrendVO: { rplyUsrRto5min1d, in3minRplyUsrRto1d, avgRplyTime1d, cfmOrdrAmt3d, inqorUsrCnt1dRatio, statDate }, cmprP1d*, isCmprP1d*Percentage } }`（`hasPua: false`） | 属于「数据中心-客服数据」体系（`queryDate: yesterday` 时 `cmprP1d*` 出现 `-1` 哨兵；`queryDate: today` 返回 `0`）。与 `desert` 实时口径各自独立 |
+
+**06 定稿建议**：
+- `diagnose customer-service` `today` 仅接入 `/desert/stat/mallServiceRealTimeData`、`/chats/cs/unreplyUser/count` 与 `/desert/stat/getMallHourConsultData`（传 `{ startDate: today, endDate: today }`），保持单一 `Reply-Rate Caliber`（`多多客服-实时数据（3 分钟人工回复率）`）。
+- 排除 `/sydney/api/customer/querySpecifiedDayServiceQuality`，避免将「数据中心-客服数据」口径与 `desert` 实时口径混合，也避免 `-1` 哨兵值进入报表。
+- 上述两个 `GET` 端点若走 `page-api`，需为 `page-api-client` / `endpoint-client` 补充 `method: 'GET'` 支持（对应 `client.get(url)`）。
+
+### 7.2 商品今日实时接口复核（`realtime-data` 03 / 04）
+
+| 端点 | 请求 | 实测补充 |
+| --- | --- | --- |
+| `/sydney/api/goodsDataShow/queryGoodsPageRT` | `POST {}`（`hasPua: false`） | 共 13 键：6 个今日键（`payOrdrAmtRt`、`payOrdrCntRt`、`payUvRtoRt`、`gpvRt`、`guvRt`、`vstGoodsCntRt`）、6 个昨日同名无 `Rt` 键及 `newMerchant`。实测今日访客 `"0"` 时 **`payUvRtoRt` 为显式 `null`**（`guvRt: "0"`、`payOrdrCntRt: "0"`），显式 `null` 属于正常无数据，仅对无法解析的非 `null` 格式字符串写入 `meta.warnings` |
+| `/sydney/api/goodsDataShow/queryGoodsStatDtr` | `POST { goodsId }`（`hasPua: false`） | 返回 `todayGoodsDetail`、`yesterdayGoodsDetail`、`todayGoodsDetailList`、`yesterdayGoodsDetailList`。每行 15 个键：`statDate`、`statHr`、`payOrdrAmt`、`payOrdrAmtCent`、`payOrdrCnt`、`payOrdrUsrCnt`、`payOrdrGoodsQty`、`goodsUv`、`goodsPv`、`ordrVstrRto`、`payOrdrRto`、`goodsVcr`、`goodsFavCnt`、`imprUsrCnt`、`cnsltUsrQty`。凌晨 04:24 实测中 `todayGoodsDetail` 的 15 个字段全为 `null`（含 `statDate` / `statHr`），而 `todayGoodsDetailList` 已返回 `"00".."03"` 四行（`statDate` 为今天，指标字段为 `null`）。normalizer 与视图需允许全 `null` 的 `todayGoodsDetail` 及指标为 `null` 的小时行 |

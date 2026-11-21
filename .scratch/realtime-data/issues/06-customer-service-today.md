@@ -4,7 +4,7 @@
 
 **Blocked by:** 02, 05
 
-**Status:** needs-triage
+**Status:** ready-for-agent
 
 - [ ] `today` 含 `snapshot_at`、回复率及显式 `Reply-Rate Caliber`、待回复人数及 `05` 确认的分时咨询数据，不与逐日趋势和 `sales` 混合
 - [ ] headline 新增今日实时客服行（遵循多区块 headline 约定，`today: null` 时省略）
@@ -17,3 +17,8 @@
 ## Comments
 
 - 2026-11-22：原 `04-customer-service-today.md` 在拆细 `goods traffic`（03/04）与单列客服分时补测（05）后重编为 06，待 05 侦察完成后细化为 `ready-for-agent`。
+- 2026-11-22：05 侦察完成（`docs/research/realtime-and-fee-recon-2026-11-11.md` 第七节），定稿接入以下三个端点并置状态为 `ready-for-agent`：
+  - `cs.todayRealtime`：`GET /desert/stat/mallServiceRealTimeData`（`page-api` `method: 'GET'`，字段 `consultUserCnt`、`needReplyUserCnt`、`manuReceiveUserCnt`、`replyRate3Min`、`replyRate3MinThreshold`）
+  - `cs.todayUnreply`：`GET /chats/cs/unreplyUser/count`（`page-api` `method: 'GET'`，字段 `unreply_num` → `unreply_user_count`）
+  - `cs.todayHourConsult`：`POST /desert/stat/getMallHourConsultData` `{ startDate: date, endDate: date }`（`hour` 0..23 格式化为 `"00".."23"`，`replyUser3Min` / `unReplyUser3Min`）
+  - `caliber` 显式标注 `'多多客服-实时数据（3 分钟人工回复率）'`；不接入 `querySpecifiedDayServiceQuality`。
