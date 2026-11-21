@@ -1,5 +1,6 @@
 import { runEndpoint } from '../adapter/run-endpoint.js';
-import { GOODS_TRAFFIC_LIST } from '../adapter/endpoints/traffic.js';
+import { GOODS_TRAFFIC_LIST, TRAFFIC_GOODS_TODAY_OVERVIEW,
+  TRAFFIC_GOODS_TODAY_STAT } from '../adapter/endpoints/traffic.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { throwIfAborted } from '../infra/abort.js';
 import { mallIdOf } from './views/_shared.js';
@@ -7,6 +8,7 @@ import { toGoodsTrafficView, GOODS_TRAFFIC_REPORT } from './views/goods-traffic.
 import { runReport } from './operating-report.js';
 import { collectGoodsTrafficPromo } from './goods-traffic-promo.js';
 import { readTrafficWindow } from './traffic.js';
+import { collectToday } from './today.js';
 
 export { GOODS_TRAFFIC_REPORT };
 
@@ -42,7 +44,13 @@ export async function getGoodsTrafficView(ctx, { days = GOODS_TRAFFIC_REPORT.day
     report.hint('non_promo_caliber');
     if (truncated) report.hint('goods_truncated');
     const promo = await collectGoodsTrafficPromo(ctx, rows, window, report.hints);
-    return toGoodsTrafficView(rows, { window, goodsId, total, quality: { goods_truncated: truncated, promo_complete: promo.complete },
-      promotions: promo.map, hints: report.hints, mallId: mallIdOf(ctx) });
+    const today = await collectToday(report, async () => (goodsId
+      ? { kind: 'single', stat: await runEndpoint(ctx.page, TRAFFIC_GOODS_TODAY_STAT, { goodsId }, ctx) }
+      : { kind: 'overview', overview: await runEndpoint(ctx.page, TRAFFIC_GOODS_TODAY_OVERVIEW, {}, ctx) }));
+    const warnings = [];
+    const data = toGoodsTrafficView(rows, { window, goodsId, total, today,
+      quality: { goods_truncated: truncated, promo_complete: promo.complete },
+      promotions: promo.map, hints: report.hints, mallId: mallIdOf(ctx), warnings });
+    return { data, warnings };
   });
 }

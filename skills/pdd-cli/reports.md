@@ -29,6 +29,7 @@
 - `sales`：口径「多多客服-销售数据」，带自己的 `window`——平台只提供 3 天之前的销售数据（询单后 3 日内的下单都计入询单当日），所以结束日为今天往前第 3 天；天数沿用 `--days`，平台可查范围是 62 天，`--days 63` 时 `sales.window.days` 为 62。`sales.summary` 含询单人数、成团人数、询单转化率（`_pct`）、客服销售额（`_yuan`），取平台的区间汇总；`sales.trend.items[]` 为窗口内最近 31 天的逐日值，另带同类目前 10% 与整体的询单转化率均值。
 - `sales` 的空值按平台原值：询单 0 人时转化率为 `null`，成团 0 人时客服销售额为 `null`，尚未出数的日期整行为 `null`。客服销售额与 `goods profit` 的订单收入口径各自独立。
 - 销售汇总失败时 `sales:null` 并附 hint；只有逐日失败时 `sales.trend:null` 并附 hint；原有 `summary`、`trend` 照常返回。
+- `today`：今日实时区块，独立于逐日趋势与 `sales`。`caliber` 固定为「多多客服-实时数据（3 分钟人工回复率）」，含 `snapshot_at`（CLI 抓取时间）、实时咨询 / 需人工回复 / 人工接待人数、3 分钟人工回复率及阈值、`unreply_user_count`（当前待回复人数），以及按小时（`"00".."23"` 升序）的 `hourly[]`（`reply_3min_user_count`、`unreply_3min_user_count`）。凌晨无咨询时回复率、咨询人数与接待人数可能为 `null`。今日实时拉取失败时 `today: null` 并附 hint，历史数据照常返回。
 
 ## diagnose reviews
 
@@ -55,13 +56,14 @@
 
 ## goods traffic
 
-- `--days` 取 1 / 7 / 30，默认 30，截至上海昨天，平台原生区间口径；`--goods-id` 按字符串传递。商品明细最多 20 页，截断时 `data_quality.goods_truncated:true`。
+- `--days` 取 1 / 7 / 30，默认 30，截至平台就绪日期，平台原生区间口径；`--goods-id` 按字符串传递。商品明细最多 20 页，截断时 `data_quality.goods_truncated:true`。
 - 推广按商品汇总稳定成本推广和全店托管计划，分别给出直接、间接成交、花费和点击。
 - `non_promo_order_count` / `non_promo_amount_yuan` = 商品总成交 − 推广直接成交，是 CLI 推算值，平台不提供该拆分。负差额为 `null` 并附提示。
 - 推广拉取失败或达到分页上限：推广字段和差值均为 `null`，`data_quality.promo_complete:false`。完整查询中无投放记录的商品推广字段为 0。
 - 推广金额单位无法识别时，对应金额为 `null` 并附提示。
 - 推广拆分口径来自第三方插件静态分析，尚未经有投放店铺实测；转述拆分结果时附上这句。
 - 明文接口失败或返回字体混淆数据时命令报错。
+- `today`：今日实时区块，独立于历史区间 `items`，含 `snapshot_at`（CLI 抓取时间）。未传 `--goods-id` 时输出全店商品今日实时概况（`goods_visitor_count`、`goods_page_view_count`、`visited_goods_count`、`pay_order_count`、`pay_amount_yuan`、`pay_conversion_pct`）；上游正常无数据时可为显式 `null`，遇到无法解析的非空格式串时输出 `null` 并写入 `meta.warnings`。传入 `--goods-id` 时输出该单商品今日实时汇总、`as_of_hour`（暂无小时累计行时为 `null`）及升序 `hourly[]`。今日实时拉取或字体混淆校验失败时 `today: null` 并附 hint，历史明细照常返回，退出码保持 0。
 
 ## goods profit
 

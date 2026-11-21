@@ -24,6 +24,13 @@ beforeEach(() => {
     if (name === 'traffic.todayFlow') return { muvRt: 1 };
     if (name === 'traffic.todayTrade') return [];
     if (name === 'traffic.goodsDetailList') return { total: 1, items: [goods] };
+    if (name === 'traffic.goodsTodayOverview') return {
+      guvRt: '10', gpvRt: '20', vstGoodsCntRt: '1', payOrdrCntRt: '2', payOrdrAmtRt: '25.50', payUvRtoRt: '20%',
+    };
+    if (name === 'traffic.goodsTodayStat') return {
+      detail: { goodsUv: 10, payOrdrCnt: 2, payOrdrAmt: 25.5 },
+      hourly: [{ statHr: '01', goodsUv: 10, payOrdrCnt: 2, payOrdrAmt: 25.5 }],
+    };
     return { items: [promo] };
   };
 });
@@ -46,33 +53,39 @@ it.each([14, 0, 31, '7', null])('rejects goods days %s before requests', async (
 });
 
 it.each([[1, 0, '2024-03-01'], [7, 1, '2024-02-24'], [30, 2, '2024-02-01']])('uses native %s day query ending at platform ready date', async (days, type, start) => {
-  const view = await getGoodsTrafficView(ctx, { days, goodsId: '101' });
+  const { data: view } = await getGoodsTrafficView(ctx, { days, goodsId: '101' });
   assert.deepEqual(view.window, { start_date: start, end_date: '2024-03-01', days });
   assert.equal(mock.calls[0].name, 'traffic.readyTime');
   assert.deepEqual(mock.calls[1].params, { startDate: start, endDate: '2024-03-01', queryType: type, page: 1, goodsId: '101' });
   assert.deepEqual(mock.calls.filter((call) => call.name === 'promo.goodsPromotionList').map((call) => call.params.scenesMode), [1, 3]);
+  assert.equal(mock.calls.some((call) => call.name === 'traffic.goodsTodayStat' && call.params.goodsId === '101'), true);
+  assert.equal(mock.calls.some((call) => call.name === 'traffic.goodsTodayOverview'), false);
   assert.equal(view.items[0].promo_direct_order_count, 4);
   assert.equal(view.items[0].non_promo_order_count, 6);
   assert.equal(view.items[0].promo_direct_amount_yuan, 2.46);
   assert.equal(view.items[0].non_promo_amount_yuan, 17.54);
+  assert.equal(view.today.as_of_hour, '01');
 });
 
 it('distinguishes no campaigns, missing metrics, failure, and negative difference', async () => {
-  mock.handler = (name) => name === 'traffic.goodsDetailList' ? { total: 1, items: [goods] } : { items: [] };
-  assert.equal((await getGoodsTrafficView(ctx)).items[0].promo_direct_order_count, 0);
-  mock.handler = (name) => name === 'traffic.goodsDetailList' ? { total: 1, items: [goods] } : { items: [{ ...promo, directOrderNum: null }] };
-  assert.equal((await getGoodsTrafficView(ctx)).items[0].non_promo_order_count, null);
+  mock.handler = (name) => name === 'traffic.goodsDetailList' ? { total: 1, items: [goods] }
+    : (name === 'traffic.goodsTodayOverview' ? {} : { items: [] });
+  assert.equal((await getGoodsTrafficView(ctx)).data.items[0].promo_direct_order_count, 0);
+  mock.handler = (name) => name === 'traffic.goodsDetailList' ? { total: 1, items: [goods] }
+    : (name === 'traffic.goodsTodayOverview' ? {} : { items: [{ ...promo, directOrderNum: null }] });
+  assert.equal((await getGoodsTrafficView(ctx)).data.items[0].non_promo_order_count, null);
   mock.handler = (name) => {
     if (name === 'traffic.goodsDetailList') return { total: 1, items: [goods] };
+    if (name === 'traffic.goodsTodayOverview') return {};
     throw new PddCliError({ code: 'E_NETWORK', message: 'synthetic', exitCode: 5 });
   };
-  const failed = await getGoodsTrafficView(ctx);
+  const { data: failed } = await getGoodsTrafficView(ctx);
   assert.equal(failed.data_quality.promo_complete, false);
   assert.equal(failed.items[0].promo_direct_order_count, null);
   assert.equal(failed.items[0].non_promo_amount_yuan, null);
   mock.handler = (name) => name === 'traffic.goodsDetailList' ? { total: 1, items: [goods] }
-    : { items: [{ ...promo, directOrderNum: 20, directAmountFen: 3000 }] };
-  const negative = await getGoodsTrafficView(ctx);
+    : (name === 'traffic.goodsTodayOverview' ? {} : { items: [{ ...promo, directOrderNum: 20, directAmountFen: 3000 }] });
+  const { data: negative } = await getGoodsTrafficView(ctx);
   assert.equal(negative.items[0].non_promo_order_count, null);
   assert.equal(negative.items[0].non_promo_amount_yuan, null);
   assert.ok(negative.hints.some((hint) => hint.includes('负')));
@@ -80,8 +93,8 @@ it('distinguishes no campaigns, missing metrics, failure, and negative differenc
 
 it('surfaces unknown promo money units as a hint and null non-promo amount', async () => {
   mock.handler = (name) => name === 'traffic.goodsDetailList' ? { total: 1, items: [goods] }
-    : { items: [{ ...promo, directAmountFen: null }], unknownUnits: ['WAN'] };
-  const view = await getGoodsTrafficView(ctx);
+    : (name === 'traffic.goodsTodayOverview' ? {} : { items: [{ ...promo, directAmountFen: null }], unknownUnits: ['WAN'] });
+  const { data: view } = await getGoodsTrafficView(ctx);
   assert.equal(view.items[0].promo_direct_amount_yuan, null);
   assert.equal(view.items[0].non_promo_amount_yuan, null);
   assert.equal(view.items[0].non_promo_order_count, 6);
@@ -90,8 +103,8 @@ it('surfaces unknown promo money units as a hint and null non-promo amount', asy
 
 it('caps goods and promo pagination, marks incomplete and does not reuse partial promo', async () => {
   mock.handler = (name) => name === 'traffic.goodsDetailList' ? { total: 1001, items: Array(50).fill(goods) }
-    : { items: Array(50).fill(promo) };
-  const result = await getGoodsTrafficView(ctx);
+    : (name === 'traffic.goodsTodayOverview' ? {} : { items: Array(50).fill(promo) });
+  const { data: result } = await getGoodsTrafficView(ctx);
   assert.equal(result.data_quality.goods_truncated, true);
   assert.equal(result.data_quality.promo_complete, false);
   assert.equal(result.items[0].non_promo_order_count, null);
@@ -103,28 +116,51 @@ it('only attributes promotion to the requested batch even if upstream ignores it
     if (name === 'traffic.goodsDetailList') return { total: 51,
       items: Array.from({ length: params.page === 1 ? 50 : 1 }, (_unused, index) =>
         ({ ...goods, goodsId: String(101 + (params.page - 1) * 50 + index) })) };
+    if (name === 'traffic.goodsTodayOverview') return {};
     return { items: [promo, { ...promo, goodsId: '151' }] };
   };
-  const view = await getGoodsTrafficView(ctx);
+  const { data: view } = await getGoodsTrafficView(ctx);
   assert.equal(view.items[0].promo_direct_order_count, 4);
   assert.equal(view.items[50].promo_direct_order_count, 4);
   assert.equal(view.data_quality.goods_truncated, false);
 });
 
 it('treats a successful empty goods list as complete', async () => {
-  mock.handler = () => ({ total: 0, items: [] });
-  const view = await getGoodsTrafficView(ctx);
+  mock.handler = (name) => (name === 'traffic.goodsTodayOverview' ? {} : { total: 0, items: [] });
+  const { data: view } = await getGoodsTrafficView(ctx);
   assert.equal(view.total, 0);
   assert.deepEqual(view.items, []);
   assert.equal(view.data_quality.goods_truncated, false);
 });
 
 it('keeps early empty-page collection visible as truncated', async () => {
-  mock.handler = (name) => name === 'traffic.goodsDetailList' ? { total: 1, items: [] } : { items: [] };
-  const view = await getGoodsTrafficView(ctx);
+  mock.handler = (name) => name === 'traffic.goodsDetailList' ? { total: 1, items: [] }
+    : (name === 'traffic.goodsTodayOverview' ? {} : { items: [] });
+  const { data: view } = await getGoodsTrafficView(ctx);
   assert.equal(view.data_quality.goods_truncated, true);
   assert.equal(view.total, 1);
   assert.ok(view.hints.some((hint) => hint.includes('提前空页')));
+});
+
+it('degrades goods today business/network failures to null while propagating timeouts and bugs', async () => {
+  mock.handler = (name) => {
+    if (name === 'traffic.goodsDetailList') return { total: 1, items: [goods] };
+    if (name === 'promo.goodsPromotionList') return { items: [promo] };
+    if (name === 'traffic.goodsTodayOverview') throw new PddCliError({ code: 'E_BUSINESS', message: 'pua', exitCode: 6 });
+    return {};
+  };
+  const { data: degraded } = await getGoodsTrafficView(ctx);
+  assert.equal(degraded.today, null);
+  assert.ok(degraded.hints.some((hint) => hint.includes('今日实时数据拉取失败')));
+  assert.equal(degraded.items.length, 1);
+
+  const timeout = new PddCliError({ code: 'E_TIMEOUT', message: 'timeout', exitCode: 5 });
+  mock.handler = (name) => {
+    if (name === 'traffic.goodsDetailList') return { total: 1, items: [goods] };
+    if (name === 'promo.goodsPromotionList') return { items: [promo] };
+    throw timeout;
+  };
+  await assert.rejects(getGoodsTrafficView(ctx, { goodsId: '101' }), (err) => err === timeout);
 });
 
 

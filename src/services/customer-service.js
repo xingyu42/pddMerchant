@@ -1,8 +1,10 @@
 import { runEndpoint } from '../adapter/run-endpoint.js';
-import { CS_OVERVIEW, CS_MONTH_TREND, CS_SALES_OVERVIEW, CS_MONTH_SALES_TREND } from '../adapter/endpoints/customer-service.js';
+import { CS_OVERVIEW, CS_MONTH_TREND, CS_SALES_OVERVIEW, CS_MONTH_SALES_TREND,
+  CS_TODAY_REALTIME, CS_TODAY_UNREPLY, CS_TODAY_HOUR_CONSULT } from '../adapter/endpoints/customer-service.js';
 import { mallIdOf } from './views/_shared.js';
 import { toCustomerServiceView, CUSTOMER_SERVICE_REPORT } from './views/customer-service.js';
 import { runReport } from './operating-report.js';
+import { collectToday } from './today.js';
 import { windowEndingDaysAgo, windowEndingYesterday } from './report-windows.js';
 
 export { CUSTOMER_SERVICE_REPORT };
@@ -35,6 +37,11 @@ export async function getCustomerServiceView(ctx, { days = CUSTOMER_SERVICE_REPO
       return { items: items.filter(withinWindow(window)) };
     });
     const sales = await report.optional('sales_unavailable', () => collectSales(ctx, report, window.days));
-    return toCustomerServiceView(info, { window, trend, sales, hints, mallId: mallIdOf(ctx) });
+    const today = await collectToday(report, async ({ date }) => ({
+      realtime: await runEndpoint(ctx.page, CS_TODAY_REALTIME, {}, ctx),
+      unreply: await runEndpoint(ctx.page, CS_TODAY_UNREPLY, {}, ctx),
+      hourly: await runEndpoint(ctx.page, CS_TODAY_HOUR_CONSULT, { startDate: date, endDate: date }, ctx),
+    }));
+    return toCustomerServiceView(info, { window, trend, sales, today, hints, mallId: mallIdOf(ctx) });
   });
 }

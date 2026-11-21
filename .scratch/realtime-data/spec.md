@@ -1,6 +1,8 @@
 # 今日实时数据
 
-Status: needs-triage
+Status: resolved
+
+> 已完成 `issues/01`–`06` 全部工单实现与默认真实账号只读验证（`diagnose traffic`、`goods traffic` 默认与 `--goods-id`、`diagnose customer-service`）。
 
 ## 现象
 
@@ -54,4 +56,5 @@ Status: needs-triage
 
 - `issues/01`：侦察（阻塞其余）
 - `issues/02`：`diagnose traffic` 的 `today` 区块，同时确立共用写法
-- `issues/03`、`04`：`goods traffic`、`diagnose customer-service` 的 `today` 区块，依赖 01 和 02，二者彼此独立
+- `issues/03`、`04`：`goods traffic` 全店今日与单商品今日小时趋势
+- `issues/05`、`06`：客服分时参数补测与 `diagnose customer-service` `today` 区块

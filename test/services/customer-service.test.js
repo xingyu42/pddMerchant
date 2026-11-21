@@ -24,7 +24,11 @@ beforeEach(() => {
   'cs.salesOverview': { inquiryOrderUserCnt: 12, groupUserCnt: 6, inquiryOrderTransformRate: 0.5, csSalesAmount: 153.67 },
   'cs.monthSalesTrend': [{ statDate: '2026-09-28', inquiryOrderUserCnt: 9 },
     { statDate: '2026-10-28' }, { statDate: '2026-09-29', inquiryOrderUserCnt: 1 },
-    { statDate: '2026-10-29', inquiryOrderUserCnt: 9 }] };
+    { statDate: '2026-10-29', inquiryOrderUserCnt: 9 }],
+  'cs.todayRealtime': { consultUserCnt: 18, needReplyUserCnt: 2, manuReceiveUserCnt: 16,
+    replyRate3Min: 0.875, replyRate3MinThreshold: 0.5 },
+  'cs.todayUnreply': { unreply_num: 1 },
+  'cs.todayHourConsult': [{ hour: 10, replyUser3Min: 4, unReplyUser3Min: 1 }, { hour: 0, replyUser3Min: 0, unReplyUser3Min: 0 }] };
 });
 
 it('defaults to thirty Shanghai dates ending yesterday and filters the fixed month trend', async () => {
@@ -33,8 +37,14 @@ it('defaults to thirty Shanghai dates ending yesterday and filters the fixed mon
   assert.deepEqual(fixtures.calls, [{ name: 'cs.overview', params: { startDate: '2026-10-01', endDate: '2026-10-30' } },
     { name: 'cs.monthTrend', params: {} },
     { name: 'cs.salesOverview', params: { startDate: '2026-09-29', endDate: '2026-10-28' } },
-    { name: 'cs.monthSalesTrend', params: {} }]);
+    { name: 'cs.monthSalesTrend', params: {} },
+    { name: 'cs.todayRealtime', params: {} },
+    { name: 'cs.todayUnreply', params: {} },
+    { name: 'cs.todayHourConsult', params: { startDate: '2026-10-31', endDate: '2026-10-31' } }]);
   assert.deepEqual(view.trend.items.map((item) => item.date), ['2026-10-01', '2026-10-30']);
+  assert.equal(view.today.snapshot_at, '2026-10-31 00:30:00');
+  assert.equal(view.today.unreply_user_count, 1);
+  assert.deepEqual(view.today.hourly.map((h) => h.hour), ['00', '10']);
   assert.equal(view.mall_id, '900001');
 });
 
@@ -87,7 +97,7 @@ it('drops the whole sales block when the interval summary fails and skips the da
   const view = await getCustomerServiceView(ctx);
   assert.equal(view.sales, null);
   assert.deepEqual(view.hints, ['客服销售数据拉取失败']);
-  assert.equal(view.headline.length, 1);
+  assert.equal(view.headline.length, 2);
   assert.equal(view.summary.consult_user_count, 3);
   assert.equal(view.trend.items.length, 2);
   assert.equal(fixtures.calls.some((call) => call.name === 'cs.monthSalesTrend'), false);
@@ -99,16 +109,32 @@ it('keeps the sales summary when only the daily sales trend fails', async () => 
   assert.equal(view.sales.trend, null);
   assert.equal(view.sales.summary.inquiry_user_count, 12);
   assert.deepEqual(view.hints, ['客服销售逐日趋势拉取失败']);
-  assert.equal(view.headline.length, 2);
+  assert.equal(view.headline.length, 3);
 });
 
-it('rethrows timeouts and program errors raised while collecting sales', async () => {
+it('degrades today failures to null while retaining summary, trend and sales', async () => {
+  fixtures.errors['cs.todayUnreply'] = new PddCliError({ code: 'E_NETWORK', message: 'today failed', exitCode: 5 });
+  const view = await getCustomerServiceView(ctx);
+  assert.equal(view.today, null);
+  assert.deepEqual(view.hints, ['今日实时客服数据拉取失败，today 为 null，历史数据不受影响']);
+  assert.equal(view.headline.length, 2);
+  assert.equal(view.summary.consult_user_count, 3);
+  assert.equal(view.sales.summary.inquiry_user_count, 12);
+});
+
+it('rethrows timeouts and program errors raised while collecting sales or today', async () => {
   const timeout = new PddCliError({ code: 'E_TIMEOUT', message: 'fixture timeout', exitCode: 5 });
   fixtures.errors['cs.salesOverview'] = timeout;
   await assert.rejects(getCustomerServiceView(ctx), (actual) => actual === timeout);
   delete fixtures.errors['cs.salesOverview'];
+  fixtures.errors['cs.todayHourConsult'] = timeout;
+  await assert.rejects(getCustomerServiceView(ctx), (actual) => actual === timeout);
+  delete fixtures.errors['cs.todayHourConsult'];
   const bug = new TypeError('fixture bug');
   fixtures.errors['cs.monthSalesTrend'] = bug;
+  await assert.rejects(getCustomerServiceView(ctx), (actual) => actual === bug);
+  delete fixtures.errors['cs.monthSalesTrend'];
+  fixtures.errors['cs.todayRealtime'] = bug;
   await assert.rejects(getCustomerServiceView(ctx), (actual) => actual === bug);
 });
 

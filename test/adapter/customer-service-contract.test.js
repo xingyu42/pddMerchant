@@ -1,7 +1,8 @@
 import { it } from 'vitest';
 import assert from 'node:assert/strict';
 import { CS_OVERVIEW, CS_MONTH_TREND, CS_SALES_OVERVIEW,
-  CS_MONTH_SALES_TREND } from '../../src/adapter/endpoints/customer-service.js';
+  CS_MONTH_SALES_TREND, CS_TODAY_REALTIME, CS_TODAY_UNREPLY,
+  CS_TODAY_HOUR_CONSULT } from '../../src/adapter/endpoints/customer-service.js';
 import { resolveEndpointStrategy } from '../../src/adapter/endpoint-strategy-resolver.js';
 
 it('uses page-api for the interval and passive legacy capture for the month', () => {
@@ -78,4 +79,46 @@ it('projects confirmed sales metrics and drops the improvable amount and compari
   assert.deepEqual(CS_SALES_OVERVIEW.normalize({ result: explicitNullSales }), explicitNullSales);
   assert.deepEqual(CS_MONTH_SALES_TREND.normalize({ result: [{ statDate: '2026-11-16', ...explicitNullSales }] }),
     [{ statDate: '2026-11-16', ...explicitNullSales }]);
+});
+
+it('uses page-api GET/POST for cs today realtime, unreply count and hourly consultations', () => {
+  assert.equal(CS_TODAY_REALTIME.strategy, 'page-api');
+  assert.equal(CS_TODAY_REALTIME.method, 'GET');
+  assert.equal(CS_TODAY_REALTIME.apiUrl, '/desert/stat/mallServiceRealTimeData');
+  assert.deepEqual(CS_TODAY_REALTIME.buildPayload({}), {});
+
+  assert.equal(CS_TODAY_UNREPLY.strategy, 'page-api');
+  assert.equal(CS_TODAY_UNREPLY.method, 'GET');
+  assert.equal(CS_TODAY_UNREPLY.apiUrl, '/chats/cs/unreplyUser/count');
+  assert.deepEqual(CS_TODAY_UNREPLY.buildPayload({}), {});
+
+  assert.equal(CS_TODAY_HOUR_CONSULT.strategy, 'page-api');
+  assert.equal(CS_TODAY_HOUR_CONSULT.method, undefined);
+  assert.equal(CS_TODAY_HOUR_CONSULT.apiUrl, '/desert/stat/getMallHourConsultData');
+  assert.deepEqual(CS_TODAY_HOUR_CONSULT.buildPayload({ startDate: '2026-11-22', endDate: '2026-11-22', extra: 1 }),
+    { startDate: '2026-11-22', endDate: '2026-11-22' });
+
+  for (const spec of [CS_TODAY_REALTIME, CS_TODAY_UNREPLY, CS_TODAY_HOUR_CONSULT]) {
+    assert.equal(spec.nav.url, 'https://mms.pinduoduo.com/mms-chat/overview/service');
+    assert.equal(spec.errorMap, 'upstream');
+  }
+
+  assert.deepEqual(CS_TODAY_REALTIME.normalize({ result: { consultUserCnt: null, needReplyUserCnt: 0,
+    manuReceiveUserCnt: null, replyRate3Min: null, replyRate3MinThreshold: 0.5, cs_name: 'PRIVATE' } }),
+  { consultUserCnt: null, needReplyUserCnt: 0, manuReceiveUserCnt: null,
+    replyRate3Min: null, replyRate3MinThreshold: 0.5 });
+  assert.deepEqual(CS_TODAY_UNREPLY.normalize({ result: { unreply_num: 2, extra: 'PRIVATE' } }), { unreply_num: 2 });
+  assert.deepEqual(CS_TODAY_HOUR_CONSULT.normalize({ result: { total: 1,
+    list: [{ hour: 8, replyUser3Min: 3, unReplyUser3Min: 0, extra: 'PRIVATE' }] } }),
+  [{ hour: 8, replyUser3Min: 3, unReplyUser3Min: 0 }]);
+
+  assert.throws(() => CS_TODAY_REALTIME.normalize({ result: { consultUserCnt: 1 } }), { code: 'E_NETWORK' });
+  assert.throws(() => CS_TODAY_UNREPLY.normalize({ result: {} }), { code: 'E_NETWORK' });
+  assert.throws(() => CS_TODAY_HOUR_CONSULT.normalize({ result: { list: null } }), { code: 'E_NETWORK' });
+  assert.throws(() => CS_TODAY_HOUR_CONSULT.normalize({ result: { list: [{ hour: 24, replyUser3Min: 0, unReplyUser3Min: 0 }] } }),
+    { code: 'E_NETWORK' });
+  assert.throws(() => CS_TODAY_HOUR_CONSULT.normalize({ result: { list: [{ hour: '08', replyUser3Min: 0, unReplyUser3Min: 0 }] } }),
+    { code: 'E_NETWORK' });
+  assert.throws(() => CS_TODAY_HOUR_CONSULT.normalize({ result: { list: [{ hour: 8, replyUser3Min: 0 }] } }),
+    { code: 'E_NETWORK' });
 });

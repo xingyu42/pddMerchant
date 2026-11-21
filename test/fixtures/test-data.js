@@ -44,6 +44,28 @@ export function createGoodsTrafficFixtures({ promo = true, count = 3 } = {}) {
     { goodsId: '103', reportInfo2: { directOrderNum: 10, indirectOrderNum: 0, directGmv: 30000,
       indirectGmv: 0, spend: 1000, click: 20 } },
   ] } : { adInfos: null, totalAdNum: 0 });
+  fixtures['endpoints/traffic.goodsTodayOverview.json'] = success({
+    payOrdrAmt: '99.99', payOrdrCnt: '9', payUvRto: '8.88%', gpv: '999', guv: '888', vstGoodsCnt: '5',
+    payOrdrAmtRt: '1,203.64', payOrdrCntRt: '39', payUvRtoRt: '9.55%', gpvRt: '801', guvRt: '350',
+    vstGoodsCntRt: '2', newMerchant: false,
+  });
+  fixtures['endpoints/traffic.goodsTodayStat.json'] = success({
+    todayGoodsDetail: {
+      statDate: '2026-10-31', statHr: null, payOrdrAmt: 745.364, payOrdrAmtCent: 74536, payOrdrCnt: 39,
+      payOrdrUsrCnt: 37, payOrdrGoodsQty: 42, goodsUv: 350, goodsPv: 801, ordrVstrRto: 0.12,
+      payOrdrRto: 0.85, goodsVcr: 0.1057, goodsFavCnt: 14, imprUsrCnt: 1200, cnsltUsrQty: 6,
+    },
+    yesterdayGoodsDetail: { payOrdrAmt: 8888, payOrdrCnt: 999 },
+    todayGoodsDetailList: [
+      { statDate: '2026-10-31', statHr: '02', payOrdrAmt: 200.5, payOrdrAmtCent: 20050, payOrdrCnt: 10,
+        payOrdrUsrCnt: 10, payOrdrGoodsQty: 11, goodsUv: 120, goodsPv: 300, ordrVstrRto: 0.1,
+        payOrdrRto: 0.8, goodsVcr: 0.0833, goodsFavCnt: 5, imprUsrCnt: 500, cnsltUsrQty: 2 },
+      { statDate: '2026-10-31', statHr: '00', payOrdrAmt: null, payOrdrAmtCent: null, payOrdrCnt: null,
+        payOrdrUsrCnt: null, payOrdrGoodsQty: null, goodsUv: 15, goodsPv: 25, ordrVstrRto: null,
+        payOrdrRto: null, goodsVcr: null, goodsFavCnt: 1, imprUsrCnt: 40, cnsltUsrQty: 0 },
+    ],
+    yesterdayGoodsDetailList: [{ statDate: '2026-10-30', statHr: '23', payOrdrAmt: 9999 }],
+  });
   return fixtures;
 }
 
@@ -78,6 +100,17 @@ export function createCustomerServiceFixtures() {
       salesRow(3, { csCanImproveSalesAmount: null },
         { inquiryConfirmRateTop10Avg: null, inquiryConfirmRateTotalAvg: null }),
     ]),
+    'endpoints/cs.todayRealtime.json': success({ consultUserCnt: 18, needReplyUserCnt: 2,
+      manuReceiveUserCnt: 16, replyRate3Min: 0.875, replyRate3MinThreshold: 0.5, cs_name: 'SYN-CS-PRIVATE' }),
+    'endpoints/cs.todayUnreply.json': success({ unreply_num: 1, cs_name: 'SYN-CS-PRIVATE' }),
+    'endpoints/cs.todayHourConsult.json': success({
+      total: 3,
+      list: [
+        { hour: 10, replyUser3Min: 4, unReplyUser3Min: 1, extra: 'SYN-CS-PRIVATE' },
+        { hour: 0, replyUser3Min: 0, unReplyUser3Min: 0 },
+        { hour: 9, replyUser3Min: 3, unReplyUser3Min: 0 },
+      ],
+    }),
   };
 }
 

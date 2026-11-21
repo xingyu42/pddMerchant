@@ -2,7 +2,9 @@ import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import { toTrafficView, TRAFFIC_ITEM_FIELDS, TRAFFIC_SUMMARY_FIELDS, TRAFFIC_TODAY_FIELDS,
   TRAFFIC_TODAY_HOURLY_FIELDS } from '../../src/services/views/traffic.js';
-import { toGoodsTrafficItem, toGoodsTrafficView, GOODS_TRAFFIC_ITEM_FIELDS, GOODS_TRAFFIC_PROMO_FIELDS } from '../../src/services/views/goods-traffic.js';
+import { toGoodsTrafficItem, toGoodsTrafficView, GOODS_TRAFFIC_ITEM_FIELDS, GOODS_TRAFFIC_PROMO_FIELDS,
+  GOODS_TRAFFIC_TODAY_OVERVIEW_FIELDS, GOODS_TRAFFIC_TODAY_SINGLE_FIELDS,
+  GOODS_TRAFFIC_TODAY_HOURLY_FIELDS } from '../../src/services/views/goods-traffic.js';
 
 it('projects daily flow, peer metrics, percentages and additive summaries only', () => {
   const view = toTrafficView([{ statDate: '2026-10-30', uv: 10, payOrdrCnt: 2, payOrdrAmt: 1.005,
@@ -50,8 +52,10 @@ it('assembles goods traffic data with promo fen conversion, absent promo as null
     window: { start_date: '2026-10-02', end_date: '2026-10-31', days: 30 }, goodsId: null, total: 2,
     quality: { goods_truncated: false, promo_complete: true }, promotions,
     hints: ['promo_caliber', 'negative_difference', 'negative_difference'], mallId: '1' });
-  assert.deepEqual(Object.keys(view), ['headline', 'window', 'filter_goods_id', 'items', 'total', 'data_quality', 'hints', 'mall_id']);
+  assert.deepEqual(Object.keys(view), ['headline', 'window', 'filter_goods_id', 'items', 'total', 'today', 'data_quality', 'hints', 'mall_id']);
   assert.equal(view.filter_goods_id, null);
+  assert.equal(view.today, null);
+  assert.equal(view.headline.length, 1);
   assert.deepEqual(view.items.map((item) => Object.keys(item)), [GOODS_TRAFFIC_ITEM_FIELDS, GOODS_TRAFFIC_ITEM_FIELDS]);
   assert.deepEqual(GOODS_TRAFFIC_PROMO_FIELDS.map((key) => view.items[0][key]), [2, 0, 2.46, 0, 10.05, 7, 2, 17.54]);
   assert.ok(GOODS_TRAFFIC_PROMO_FIELDS.every((key) => view.items[1][key] === null));
@@ -98,5 +102,97 @@ describe('today block projection', () => {
     assert.equal(view.today, null);
     assert.equal(view.headline.length, 1);
     assert.ok(view.hints.some((hint) => hint.includes('今日实时数据拉取失败')));
+  });
+});
+
+describe('goods traffic today view projection', () => {
+  const window = { start_date: '2026-10-02', end_date: '2026-10-31', days: 30 };
+  const baseArgs = (today, warnings = []) => ({
+    window, total: 1, quality: { goods_truncated: false, promo_complete: true },
+    promotions: new Map(), hints: [], mallId: '1', today, warnings,
+  });
+
+  it('parses formatted comma and percent strings into overview v2 metrics without warnings', () => {
+    const warnings = [];
+    const view = toGoodsTrafficView([{ goodsId: 101 }], {
+      ...baseArgs({ snapshotAt: '2026-11-22 10:00:00', sources: { kind: 'overview', overview: {
+        guvRt: '1,234', gpvRt: '2,500', vstGoodsCntRt: '12',
+        payOrdrCntRt: '39', payOrdrAmtRt: '1,203.645', payUvRtoRt: '9.55%',
+      } } }, warnings),
+    });
+    assert.deepEqual(Object.keys(view.today), GOODS_TRAFFIC_TODAY_OVERVIEW_FIELDS);
+    assert.deepEqual(view.today, {
+      snapshot_at: '2026-11-22 10:00:00', goods_visitor_count: 1234, goods_page_view_count: 2500,
+      visited_goods_count: 12, pay_order_count: 39, pay_amount_yuan: 1203.65, pay_conversion_pct: 9.55,
+    });
+    assert.deepEqual(warnings, []);
+    assert.equal(view.headline[1], '今日全店商品访客 1234 人，有访问商品 12 个，成交 1203.65 元、39 单');
+  });
+
+  it('treats explicit null silently while warning on unparseable formatted values', () => {
+    const warnings = [];
+    const view = toGoodsTrafficView([{ goodsId: 101 }], {
+      ...baseArgs({ snapshotAt: '2026-11-22 04:20:00', sources: { kind: 'overview', overview: {
+        guvRt: '0', gpvRt: '--', vstGoodsCntRt: '1,23',
+        payOrdrCntRt: '', payOrdrAmtRt: '9.55', payUvRtoRt: null,
+      } } }, warnings),
+    });
+    assert.equal(view.today.goods_visitor_count, 0);
+    assert.equal(view.today.goods_page_view_count, null);
+    assert.equal(view.today.visited_goods_count, null);
+    assert.equal(view.today.pay_order_count, null);
+    assert.equal(view.today.pay_amount_yuan, 9.55);
+    assert.equal(view.today.pay_conversion_pct, null);
+    assert.deepEqual(warnings.map((w) => w.field), ['goods_page_view_count', 'visited_goods_count', 'pay_order_count']);
+
+    const badPctWarnings = [];
+    const badPct = toGoodsTrafficView([{ goodsId: 101 }], {
+      ...baseArgs({ snapshotAt: '2026-11-22 04:20:00', sources: { kind: 'overview', overview: {
+        guvRt: '0', gpvRt: '0', vstGoodsCntRt: '0',
+        payOrdrCntRt: '0', payOrdrAmtRt: '0', payUvRtoRt: '9.55',
+      } } }, badPctWarnings),
+    });
+    assert.equal(badPct.today.pay_conversion_pct, null);
+    assert.equal(badPctWarnings.length, 1);
+    assert.equal(badPctWarnings[0].field, 'pay_conversion_pct');
+  });
+
+  it('projects single goods today summary, ascending hourly list, empty hours and degradation', () => {
+    const view = toGoodsTrafficView([{ goodsId: 101 }], {
+      ...baseArgs({ snapshotAt: '2026-11-22 10:00:00', sources: { kind: 'single', stat: {
+        detail: { goodsUv: 350, goodsPv: 801, goodsFavCnt: 14, imprUsrCnt: 1200, ordrVstrRto: 0.12,
+          goodsVcr: 0.1057, payOrdrRto: 0.85, payOrdrCnt: 39, payOrdrGoodsQty: 42, payOrdrUsrCnt: 37,
+          payOrdrAmt: 745.364, cnsltUsrQty: 6 },
+        hourly: [
+          { statHr: '02', goodsUv: 120, payOrdrCnt: 10, payOrdrAmt: 200.5, goodsVcr: 0.0833 },
+          { statHr: '00', goodsUv: 15, payOrdrCnt: null, payOrdrAmt: null, goodsVcr: null },
+        ],
+      } } }),
+      goodsId: '101',
+    });
+    assert.deepEqual(Object.keys(view.today), GOODS_TRAFFIC_TODAY_SINGLE_FIELDS);
+    assert.equal(view.today.as_of_hour, '02');
+    assert.equal(view.today.pay_amount_yuan, 745.36);
+    assert.equal(view.today.pay_conversion_pct, 10.57);
+    assert.deepEqual(view.today.hourly.map((row) => row.hour), ['00', '02']);
+    assert.deepEqual(Object.keys(view.today.hourly[0]), GOODS_TRAFFIC_TODAY_HOURLY_FIELDS);
+    assert.equal(view.today.hourly[0].pay_amount_yuan, null);
+    assert.equal(view.headline[1], '商品 101 今日截至 02 时累计访客 350 人，成交 745.36 元、39 单');
+
+    const empty = toGoodsTrafficView([{ goodsId: 101 }], {
+      ...baseArgs({ snapshotAt: '2026-11-22 04:20:00', sources: { kind: 'single', stat: { detail: null, hourly: [] } } }),
+      goodsId: '101',
+    });
+    assert.equal(empty.today.as_of_hour, null);
+    assert.deepEqual(empty.today.hourly, []);
+    assert.equal(empty.today.visitor_count, null);
+    assert.equal(empty.headline[1], '商品 101 今日暂无小时累计数据，访客 未知');
+
+    const degraded = toGoodsTrafficView([{ goodsId: 101 }], {
+      ...baseArgs(null), goodsId: '101', hints: ['today_unavailable'],
+    });
+    assert.equal(degraded.today, null);
+    assert.equal(degraded.headline.length, 1);
+    assert.ok(degraded.hints.some((hint) => hint.includes('今日实时数据拉取失败')));
   });
 });

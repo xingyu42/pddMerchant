@@ -83,3 +83,20 @@ it('normalizes a successful retry and clears previous rate-limit failures', asyn
   assert.equal(executePageApiRequest.mock.calls.length, 2);
   assert.equal(cooldownState.map.size, 0);
 });
+
+it('forwards GET or default POST method for page-api specs and rejects unsupported methods', async () => {
+  executePageApiRequest.mockResolvedValue({ status: 200, raw: { success: true, errorCode: 0, result: { ok: 1 } } });
+  const client = new PlaywrightEndpointClient();
+  const ctx = { page: { url: () => 'https://mms.pinduoduo.com/' }, log: { debug() {} } };
+  const baseSpec = { name: 'test.pageApiMethod', strategy: 'page-api', apiUrl: '/desert/test',
+    buildPayload: () => ({ a: 1 }), normalize: (raw) => raw.result };
+
+  await client.execute(baseSpec, {}, ctx);
+  await client.execute({ ...baseSpec, method: 'get' }, {}, ctx);
+  assert.equal(executePageApiRequest.mock.calls[0][1].method, 'POST');
+  assert.equal(executePageApiRequest.mock.calls[1][1].method, 'GET');
+
+  await assert.rejects(client.execute({ ...baseSpec, method: 'DELETE' }, {}, ctx),
+    { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
+  assert.equal(executePageApiRequest.mock.calls.length, 2);
+});

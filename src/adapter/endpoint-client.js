@@ -264,6 +264,17 @@ export class PlaywrightEndpointClient {
         exitCode: ExitCodes.USAGE,
       });
     }
+    const rawMethod = meta.method ?? 'POST';
+    const method = typeof rawMethod === 'string' ? rawMethod.toUpperCase() : '';
+    if (method !== 'GET' && method !== 'POST') {
+      throw new PddCliError({
+        code: 'E_USAGE',
+        message: `${meta.name}: unsupported page-api HTTP method`,
+        hint: 'page-api 端点仅支持 GET 或 POST 方法',
+        detail: { endpoint: meta.name, method: meta.method },
+        exitCode: ExitCodes.USAGE,
+      });
+    }
     const payload = meta.buildPayload(params, ctx);
     await this._preparePageApi(page, meta, ctx, navUrl);
     throwIfAborted(ctx.signal);
@@ -274,7 +285,7 @@ export class PlaywrightEndpointClient {
     try {
       result = await executePageApiRequest(
         page,
-        { apiUrl: meta.apiUrl, payload },
+        { apiUrl: meta.apiUrl, method, payload },
         { signal: ctx.signal, timeoutMs: requestBudgetMs },
       );
     } catch (err) {

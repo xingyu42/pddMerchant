@@ -1,9 +1,10 @@
 import { it } from 'vitest';
 import assert from 'node:assert/strict';
 import { TRAFFIC_READY_TIME, TRAFFIC_OVERVIEW, GOODS_TRAFFIC_LIST, TRAFFIC_TODAY_FLOW,
-  TRAFFIC_TODAY_TRADE } from '../../src/adapter/endpoints/traffic.js';
+  TRAFFIC_TODAY_TRADE, TRAFFIC_GOODS_TODAY_OVERVIEW,
+  TRAFFIC_GOODS_TODAY_STAT } from '../../src/adapter/endpoints/traffic.js';
 import { GOODS_PROMOTION_LIST } from '../../src/adapter/endpoints/promo-goods.js';
-import { createTrafficFixtures } from '../fixtures/test-data.js';
+import { createTrafficFixtures, createGoodsTrafficFixtures } from '../fixtures/test-data.js';
 
 it('uses page-api with explicit navigation and exact plain goods payload', () => {
   for (const spec of [TRAFFIC_READY_TIME, TRAFFIC_OVERVIEW, GOODS_TRAFFIC_LIST]) {
@@ -105,4 +106,58 @@ it('treats empty aliases as missing while retaining explicit zero', () => {
   assert.deepEqual(GOODS_PROMOTION_LIST.buildPayload({ page: 2, scenesMode: 3, goodsIds: ['101', '102'], beginDate: 'a', endDate: 'b' }),
     { beginDate: 'a', endDate: 'b', blockType: 3, clientType: 1, pageNumber: 2, pageSize: 50,
       filter: { searchKeyV2: '101,102' }, sortBy: 9999, orderBy: 9999, scenesMode: 3, withTagsInfo: true });
+});
+
+it('projects goods today *Rt fields while dropping yesterday keys and guarding PUA glyphs', () => {
+  assert.equal(TRAFFIC_GOODS_TODAY_OVERVIEW.strategy, 'page-api');
+  assert.equal(TRAFFIC_GOODS_TODAY_OVERVIEW.nav.url, GOODS_TRAFFIC_LIST.nav.url);
+  assert.equal(TRAFFIC_GOODS_TODAY_OVERVIEW.apiUrl, '/sydney/api/goodsDataShow/queryGoodsPageRT');
+  assert.deepEqual(TRAFFIC_GOODS_TODAY_OVERVIEW.buildPayload({}), {});
+  const fixture = createGoodsTrafficFixtures()['endpoints/traffic.goodsTodayOverview.json'];
+  assert.deepEqual(TRAFFIC_GOODS_TODAY_OVERVIEW.normalize(fixture), {
+    guvRt: '350', gpvRt: '801', vstGoodsCntRt: '2',
+    payOrdrCntRt: '39', payOrdrAmtRt: '1,203.64', payUvRtoRt: '9.55%',
+  });
+  const nullRate = { result: { ...fixture.result, guvRt: '0', payUvRtoRt: null } };
+  assert.equal(TRAFFIC_GOODS_TODAY_OVERVIEW.normalize(nullRate).payUvRtoRt, null);
+  const missingKey = { ...fixture.result };
+  delete missingKey.payUvRtoRt;
+  assert.throws(() => TRAFFIC_GOODS_TODAY_OVERVIEW.normalize({ result: missingKey }), { code: 'E_NETWORK' });
+  assert.throws(() => TRAFFIC_GOODS_TODAY_OVERVIEW.normalize({ result: null }), { code: 'E_NETWORK' });
+  assert.throws(() => TRAFFIC_GOODS_TODAY_OVERVIEW.normalize({ result: { ...fixture.result, payOrdrAmtRt: '\uE001' } }),
+    { code: 'E_BUSINESS' });
+});
+
+it('projects single goods today detail and hourly trend without yesterday blocks', () => {
+  assert.equal(TRAFFIC_GOODS_TODAY_STAT.strategy, 'page-api');
+  assert.equal(TRAFFIC_GOODS_TODAY_STAT.nav.url, GOODS_TRAFFIC_LIST.nav.url);
+  assert.equal(TRAFFIC_GOODS_TODAY_STAT.apiUrl, '/sydney/api/goodsDataShow/queryGoodsStatDtr');
+  assert.deepEqual(TRAFFIC_GOODS_TODAY_STAT.buildPayload({ goodsId: '101', extra: 1 }), { goodsId: '101' });
+  const fixture = createGoodsTrafficFixtures()['endpoints/traffic.goodsTodayStat.json'];
+  const normalized = TRAFFIC_GOODS_TODAY_STAT.normalize(fixture);
+  assert.equal(normalized.detail.payOrdrAmt, 745.364);
+  assert.equal(normalized.hourly.length, 2);
+  assert.equal(normalized.hourly[0].statHr, '02');
+  assert.equal(JSON.stringify(normalized).includes('8888'), false);
+  assert.equal(JSON.stringify(normalized).includes('9999'), false);
+  const allNullDetail = Object.fromEntries(Object.keys(fixture.result.todayGoodsDetail).map((k) => [k, null]));
+  assert.equal(TRAFFIC_GOODS_TODAY_STAT.normalize({
+    result: { todayGoodsDetail: allNullDetail, todayGoodsDetailList: null },
+  }).hourly.length, 0);
+  assert.equal(TRAFFIC_GOODS_TODAY_STAT.normalize({
+    result: { todayGoodsDetail: null, todayGoodsDetailList: [] },
+  }).detail, null);
+});
+
+it.each([
+  [{ result: null }, 'E_NETWORK'],
+  [{ result: { todayGoodsDetail: {} } }, 'E_NETWORK'],
+  [{ result: { todayGoodsDetailList: [] } }, 'E_NETWORK'],
+  [{ result: { todayGoodsDetail: {}, todayGoodsDetailList: {} } }, 'E_NETWORK'],
+  [{ result: { todayGoodsDetail: {}, todayGoodsDetailList: [{ statHr: '24' }] } }, 'E_NETWORK'],
+  [{ result: { todayGoodsDetail: {}, todayGoodsDetailList: [{ statHr: 1 }] } }, 'E_NETWORK'],
+  [{ result: { todayGoodsDetail: { goodsUv: '\uE002' }, todayGoodsDetailList: [] } }, 'E_BUSINESS'],
+  [{ result: { todayGoodsDetail: {}, todayGoodsDetailList: [{ statHr: '01', payOrdrCnt: '\uE003' }] } }, 'E_BUSINESS'],
+])('rejects single goods today shape drift or PUA %j', (raw, code) => {
+  assert.throws(() => TRAFFIC_GOODS_TODAY_STAT.normalize(raw), { code });
 });

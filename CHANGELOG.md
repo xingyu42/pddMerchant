@@ -23,6 +23,10 @@
 - **订单收货地区**：`orders list` 每项与 `orders detail` 新增 `province` / `city` / `district`，只取平台返回的省 / 市 / 区名称，缺失为 `null`；街道、邮编、详细地址仍不输出。
 - **库存规格明细与规格级告警**：`goods stock` 每项新增 `skus[]`（`sku_id`、`spec`、`quantity`、`on_sale`、`low_stock`）与 `low_stock_sku_count`；总库存高于阈值（或缺失）但有在售规格库存不高于阈值的商品也进入告警。`low_stock_count` 仍只计总库存不高于阈值的商品，可能少于 `items` 条数；规格数据缺失时 `skus` 与 `low_stock_sku_count` 为 `null`。
 - **全店今日实时**：`diagnose traffic` 新增 `today` 区块（流量看板实时访客 / 浏览，按小时累计的成交及 `hourly[]`，`snapshot_at` 为抓取时间）；今日数据拉取失败时 `today: null` 并附提示，逐日数据照常返回。
+- **商品与客服今日实时**：
+  - `goods traffic` 新增 `today` 区块：默认输出全店商品今日实时概况（`queryGoodsPageRT`，解析千分位与百分号字符串，无法解析的非空格式写 `meta.warnings` 而不记显式 `null`）；传入 `--goods-id` 时输出该单商品今日实时汇总与按小时升序 `hourly[]`（`queryGoodsStatDtr`，隔离昨日对照字段）。
+  - `diagnose customer-service` 新增 `today` 区块：输出实时 3 分钟人工回复率（显式标注口径「多多客服-实时数据（3 分钟人工回复率）」）、待回复人数与今日按小时咨询序列 `hourly[]`（`"00".."23"`）。
+  - 以上 `today` 均走可选降级：上游失败时 `today: null` 并附提示，原有历史区间与推广拆分照常返回，退出码保持 0。
 
 ### Fixed
 - **`diagnose reviews` 标签聚合**：店铺没有不满意标签时平台返回 `negativeKeywordList: null`，原实现把整段标签判为拉取失败（`keyword_tags: null` 并附提示）。现读取为空列表，满意标签照常输出，`keyword_tags.negative` 为 `[]`。

@@ -50,10 +50,11 @@ async function waitForEvaluation(evaluation, { signal, timeoutMs } = {}) {
 
 export async function executePageApiRequest(
   page,
-  { apiUrl, payload, discovery },
+  { apiUrl, method = 'POST', payload, discovery },
   { signal, timeoutMs } = {},
 ) {
-  const evaluation = evaluateInMainWorld(page, async ({ url, body, discovery: wait }) => {
+  const normalizedMethod = typeof method === 'string' ? method.toUpperCase() : 'POST';
+  const evaluation = evaluateInMainWorld(page, async ({ url, method: requestMethod, body, discovery: wait }) => {
     function looksLikeMmsRequestClient(exports) {
       return exports
         && typeof exports === 'object'
@@ -168,7 +169,9 @@ export async function executePageApiRequest(
     }
 
     try {
-      const data = await client.post(url, body);
+      const data = requestMethod === 'GET'
+        ? await (body && Object.keys(body).length > 0 ? client.get(url, body) : client.get(url))
+        : await client.post(url, body);
       return { ok: true, status: 200, data };
     } catch (error) {
       const statusCandidate = error?.status ?? error?.response?.status;
@@ -182,7 +185,7 @@ export async function executePageApiRequest(
         transportError: errorCode == null && !(status != null && status >= 400),
       };
     }
-  }, { url: apiUrl, body: payload, discovery: normalizeDiscovery(discovery) });
+  }, { url: apiUrl, method: normalizedMethod, body: payload, discovery: normalizeDiscovery(discovery) });
   const result = await waitForEvaluation(evaluation, { signal, timeoutMs });
 
   if (result?.unavailable) {

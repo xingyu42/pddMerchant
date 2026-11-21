@@ -90,7 +90,7 @@ node bin/pdd.js orders stats [--size 50]   # 本地样本 P50/P95、退款与售
 node bin/pdd.js goods list [--page 1] [--size 10] [--status onsale|offline]
 node bin/pdd.js goods stock [--threshold 10]                         # 低库存 / 缺货
 node bin/pdd.js goods segment [--days 30] [--max-pages 10] [--no-promo]  # 销量与库存统计
-node bin/pdd.js goods traffic [--days 30] [--goods-id <id>]          # 商品流量与推广拆分
+node bin/pdd.js goods traffic [--days 30] [--goods-id <id>]          # 商品流量、推广拆分与今日实时 today
 node bin/pdd.js goods profit [--days 30] [--goods-id <id>]           # 净利润（需先录入成本）
 node bin/pdd.js goods receipt [--goods-id <id>] [--caliber regular|all]  # SKU 预估实收（平台报告值），每页最多 10 个商品
 node bin/pdd.js goods reviews [--days 30] [--goods-id <id>] [--stars 4,5]  # 评价明细，1–365 天，默认全店全部星级，最多近 2000 条
@@ -145,7 +145,7 @@ node bin/pdd.js diagnose shop [--compare] [--days 7]   # 订单/库存/推广/�
 node bin/pdd.js diagnose orders|inventory|promo        # 单维度统计
 node bin/pdd.js diagnose after-sales [--days 30]       # 退款成功与售后处理中
 node bin/pdd.js diagnose experience [--days 7]         # 店铺综合体验星级，1–30 天
-node bin/pdd.js diagnose customer-service [--days 30]  # 客服人工回复与询单转化（sales），1–63 天；逐日趋势最多最近 31 天
+node bin/pdd.js diagnose customer-service [--days 30]  # 客服人工回复、询单转化（sales）与今日实时（today），1–63 天；逐日趋势最多最近 31 天
 node bin/pdd.js diagnose reviews [--days 30]           # 评价标签、中差评与近 30 日商品评分（goods_scores），30/60/90/180 天
 node bin/pdd.js diagnose traffic [--days 30]           # 全店逐日流量，1–30 天
 ```

@@ -29,12 +29,13 @@ import { GOODS_PROFIT_ITEM_FIELDS, GOODS_PROFIT_SUMMARY_FIELDS, GOODS_PROFIT_QUA
 import { EXPERIENCE_INDICATOR_FIELDS, EXPERIENCE_TREND_ITEM_FIELDS,
   EXPERIENCE_SNAPSHOT_FIELDS } from '../../src/services/views/experience.js';
 import { CS_SUMMARY_FIELDS, CS_TREND_ITEM_FIELDS, CS_SALES_FIELDS, CS_SALES_SUMMARY_FIELDS,
-  CS_SALES_TREND_ITEM_FIELDS } from '../../src/services/views/customer-service.js';
+  CS_SALES_TREND_ITEM_FIELDS, CS_TODAY_FIELDS, CS_TODAY_HOURLY_FIELDS } from '../../src/services/views/customer-service.js';
 import { REVIEW_TAG_FIELDS, ISSUE_TYPE_FIELDS, REVIEW_FIELDS,
   GOODS_SCORES_FIELDS, GOODS_SCORE_FIELDS } from '../../src/services/views/reviews.js';
 import { TRAFFIC_ITEM_FIELDS, TRAFFIC_SUMMARY_FIELDS, TRAFFIC_TODAY_FIELDS,
   TRAFFIC_TODAY_HOURLY_FIELDS } from '../../src/services/views/traffic.js';
-import { GOODS_TRAFFIC_ITEM_FIELDS } from '../../src/services/views/goods-traffic.js';
+import { GOODS_TRAFFIC_ITEM_FIELDS, GOODS_TRAFFIC_TODAY_OVERVIEW_FIELDS,
+  GOODS_TRAFFIC_TODAY_SINGLE_FIELDS, GOODS_TRAFFIC_TODAY_HOURLY_FIELDS } from '../../src/services/views/goods-traffic.js';
 import { GOODS_RECEIPT_ITEM_FIELDS, GOODS_RECEIPT_SKU_FIELDS, GOODS_RECEIPT_SINGLE_FIELDS, GOODS_RECEIPT_MULTI_FIELDS,
   GOODS_RECEIPT_DISCOUNT_FIELDS } from '../../src/services/views/goods-receipt.js';
 
@@ -87,7 +88,10 @@ const V2_CASES = [
     entityFields: { 'items[]': TRAFFIC_ITEM_FIELDS, summary: TRAFFIC_SUMMARY_FIELDS,
       today: TRAFFIC_TODAY_FIELDS, 'today.hourly[]': TRAFFIC_TODAY_HOURLY_FIELDS } },
   { command: 'goods.traffic', args: ['goods', 'traffic'], fixtures: createGoodsTrafficFixtures(),
-    entityFields: { 'items[]': GOODS_TRAFFIC_ITEM_FIELDS } },
+    entityFields: { 'items[]': GOODS_TRAFFIC_ITEM_FIELDS, today: GOODS_TRAFFIC_TODAY_OVERVIEW_FIELDS } },
+  { command: 'goods.traffic', args: ['goods', 'traffic', '--goods-id', '101'], fixtures: createGoodsTrafficFixtures(),
+    entityFields: { 'items[]': GOODS_TRAFFIC_ITEM_FIELDS, today: GOODS_TRAFFIC_TODAY_SINGLE_FIELDS,
+      'today.hourly[]': GOODS_TRAFFIC_TODAY_HOURLY_FIELDS } },
   { command: 'goods.receipt', args: ['goods', 'receipt'], fixtures: createGoodsReceiptFixtures(),
     entityFields: GOODS_RECEIPT_ENTITY_FIELDS },
   { command: 'goods.receipt', args: ['goods', 'receipt', '--caliber', 'all'],
@@ -97,7 +101,8 @@ const V2_CASES = [
   { command: 'diagnose.customer-service', args: ['diagnose', 'customer-service'], fixtures: createCustomerServiceFixtures(),
     entityFields: { summary: CS_SUMMARY_FIELDS, 'trend.items[]': CS_TREND_ITEM_FIELDS,
       sales: CS_SALES_FIELDS, 'sales.summary': CS_SALES_SUMMARY_FIELDS,
-      'sales.trend.items[]': CS_SALES_TREND_ITEM_FIELDS } },
+      'sales.trend.items[]': CS_SALES_TREND_ITEM_FIELDS,
+      today: CS_TODAY_FIELDS, 'today.hourly[]': CS_TODAY_HOURLY_FIELDS } },
   { command: 'diagnose.reviews', args: ['diagnose', 'reviews'], fixtures: createReviewFixtures(),
     entityFields: { 'keyword_tags.positive[]': REVIEW_TAG_FIELDS, 'keyword_tags.negative[]': REVIEW_TAG_FIELDS,
       'issue_types[]': ISSUE_TYPE_FIELDS, 'negative_reviews.items[]': REVIEW_FIELDS,

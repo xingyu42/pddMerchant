@@ -44,8 +44,13 @@ it('emits the sales block with its own caliber and window, upstream nulls and a 
   assert.equal(items[1].category_top10_avg_inquiry_conversion_rate_pct, 81.71);
   assert.equal(items[1].category_avg_inquiry_conversion_rate_pct, 27.83);
   assert.equal(items[4].category_top10_avg_inquiry_conversion_rate_pct, null);
-  assert.equal(headline.length, 2);
+  assert.equal(headline.length, 3);
   assert.equal(headline[1], `${sales.window.start_date} 至 ${sales.window.end_date} 询单 12 人，成团 6 人，询单转化率 50%，客服销售额 153.67 元`);
+  assert.equal(headline[2], '今日实时客服：3 分钟人工回复率 87.5%，需人工回复 2 人，当前待回复 1 人');
+  const { today } = result.envelope.data;
+  assert.equal(today.caliber, '多多客服-实时数据（3 分钟人工回复率）');
+  assert.equal(today.unreply_user_count, 1);
+  assert.deepEqual(today.hourly.map((h) => h.hour), ['00', '09', '10']);
   assert.deepEqual(hints, []);
   for (const forbidden of ['CanImprove', 'Compare', '23.14']) {
     assert.equal(JSON.stringify(result.envelope.data).includes(forbidden), false, forbidden);
@@ -61,7 +66,7 @@ it('keeps consultations when the sales summary fails and keeps the summary when 
   assert.equal(whole.envelope.ok, true);
   assert.equal(whole.envelope.data.sales, null);
   assert.deepEqual(whole.envelope.data.hints, ['客服销售数据拉取失败']);
-  assert.equal(whole.envelope.data.headline.length, 1);
+  assert.equal(whole.envelope.data.headline.length, 2);
   assert.equal(whole.envelope.data.summary.consult_user_count, 3);
   assert.equal(whole.envelope.data.trend.items.length, 2);
   const daily = runCli(['diagnose', 'customer-service'],
@@ -70,7 +75,21 @@ it('keeps consultations when the sales summary fails and keeps the summary when 
   assert.equal(daily.envelope.data.sales.trend, null);
   assert.equal(daily.envelope.data.sales.summary.inquiry_user_count, 12);
   assert.deepEqual(daily.envelope.data.hints, ['客服销售逐日趋势拉取失败']);
-  assert.equal(daily.envelope.data.headline.length, 2);
+  assert.equal(daily.envelope.data.headline.length, 3);
+});
+
+it('degrades cs today failures to null with hint while keeping summary, trend and sales', () => {
+  const failure = { __throws: true, __error: { code: 'E_NETWORK', message: 'today unavailable', exitCode: 5 } };
+  for (const endpoint of ['endpoints/cs.todayRealtime.json', 'endpoints/cs.todayHourConsult.json']) {
+    const result = runCli(['diagnose', 'customer-service'],
+      { fixtures: { ...createCustomerServiceFixtures(), [endpoint]: failure } });
+    assert.equal(result.status, 0);
+    assert.equal(result.envelope.data.today, null);
+    assert.equal(result.envelope.data.summary.consult_user_count, 3);
+    assert.equal(result.envelope.data.sales.summary.inquiry_user_count, 12);
+    assert.equal(result.envelope.data.headline.length, 2);
+    assert.deepEqual(result.envelope.data.hints, ['今日实时客服数据拉取失败，today 为 null，历史数据不受影响']);
+  }
 });
 
 it('returns exit two for days beyond sixty-three', () => {

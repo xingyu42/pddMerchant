@@ -1,5 +1,6 @@
 import { responseShapeError } from '../../infra/errors.js';
 import { TIMEOUTS } from '../../infra/timeouts.js';
+import { resultObject } from './_shared.js';
 
 const FIELDS = ['consultUserCnt', 'needManuReplyConsultUserCnt', 'receiveUserCnt',
   'manuReplyRate3Min', 'manuReplyRate30s', 'artificialResponseTime', 'unsatisfiedServeScoreCnt',
@@ -7,6 +8,9 @@ const FIELDS = ['consultUserCnt', 'needManuReplyConsultUserCnt', 'receiveUserCnt
 const TREND_FIELDS = ['statDate', ...FIELDS, 'avgReplyTimeTop10', 'avgReplyTimeTotal'];
 const SALES_FIELDS = ['inquiryOrderUserCnt', 'groupUserCnt', 'inquiryOrderTransformRate', 'csSalesAmount'];
 const SALES_TREND_FIELDS = ['statDate', ...SALES_FIELDS, 'inquiryConfirmRateTop10Avg', 'inquiryConfirmRateTotalAvg'];
+const TODAY_REALTIME_FIELDS = ['consultUserCnt', 'needReplyUserCnt', 'manuReceiveUserCnt',
+  'replyRate3Min', 'replyRate3MinThreshold'];
+const HOUR_CONSULT_FIELDS = ['replyUser3Min', 'unReplyUser3Min'];
 const NAV = { url: 'https://mms.pinduoduo.com/mms-chat/overview/service' };
 
 function project(result, fields, endpoint) {
@@ -71,6 +75,44 @@ export const CS_MONTH_SALES_TREND = {
       }
       requireFields(item, SALES_FIELDS, 'cs.monthSalesTrend');
       return project(item, SALES_TREND_FIELDS, 'cs.monthSalesTrend');
+    });
+  },
+};
+
+export const CS_TODAY_REALTIME = {
+  ...COMMON, name: 'cs.todayRealtime', strategy: 'page-api', method: 'GET',
+  apiUrl: '/desert/stat/mallServiceRealTimeData',
+  buildPayload: () => ({}),
+  normalize(raw) {
+    requireFields(raw?.result, TODAY_REALTIME_FIELDS, 'cs.todayRealtime');
+    return project(raw.result, TODAY_REALTIME_FIELDS, 'cs.todayRealtime');
+  },
+};
+
+export const CS_TODAY_UNREPLY = {
+  ...COMMON, name: 'cs.todayUnreply', strategy: 'page-api', method: 'GET',
+  apiUrl: '/chats/cs/unreplyUser/count',
+  buildPayload: () => ({}),
+  normalize(raw) {
+    requireFields(raw?.result, ['unreply_num'], 'cs.todayUnreply');
+    return project(raw.result, ['unreply_num'], 'cs.todayUnreply');
+  },
+};
+
+export const CS_TODAY_HOUR_CONSULT = {
+  ...COMMON, name: 'cs.todayHourConsult', strategy: 'page-api',
+  apiUrl: '/desert/stat/getMallHourConsultData',
+  buildPayload: ({ startDate, endDate }) => ({ startDate, endDate }),
+  normalize(raw) {
+    const result = resultObject(raw, 'cs.todayHourConsult');
+    if (!Array.isArray(result.list)) throw responseShapeError('cs.todayHourConsult', 'result.list array');
+    return result.list.map((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)
+        || !Number.isInteger(item.hour) || item.hour < 0 || item.hour > 23) {
+        throw responseShapeError('cs.todayHourConsult', 'hour 0..23');
+      }
+      requireFields(item, HOUR_CONSULT_FIELDS, 'cs.todayHourConsult');
+      return project(item, ['hour', ...HOUR_CONSULT_FIELDS], 'cs.todayHourConsult');
     });
   },
 };

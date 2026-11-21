@@ -69,6 +69,16 @@ export const GOODS_TRAFFIC_LIST = {
 // 今日实时：两个接口刷新时点不同（交易累计约落后 1 小时），上游均不返回快照时间。
 const TODAY_FLOW_FIELDS = ['muvRt', 'mpvRt', 'guvRt', 'gpvRt'];
 const TODAY_TRADE_FIELDS = ['payOrdrAmt', 'payOrdrCnt', 'payOrdrUsrCnt', 'payOrdrAup', 'payUvRto'];
+const GOODS_TODAY_OVERVIEW_FIELDS = ['guvRt', 'gpvRt', 'vstGoodsCntRt', 'payOrdrCntRt', 'payOrdrAmtRt', 'payUvRtoRt'];
+const GOODS_TODAY_STAT_FIELDS = ['goodsUv', 'goodsPv', 'goodsFavCnt', 'imprUsrCnt', 'cnsltUsrQty',
+  'payOrdrCnt', 'payOrdrUsrCnt', 'payOrdrGoodsQty', 'payOrdrAmt', 'ordrVstrRto', 'payOrdrRto', 'goodsVcr'];
+const HOUR_TEXT = /^(?:[01]\d|2[0-3])$/;
+
+function requireFields(obj, required, endpointName) {
+  for (const field of required) {
+    if (!Object.hasOwn(obj, field)) throw responseShapeError(endpointName, field);
+  }
+}
 
 export const TRAFFIC_TODAY_FLOW = endpoint('traffic.todayFlow', '/sydney/api/mallFlow/queryMallFlowRtData',
   '/sycm/search_data/plate', (raw) => project(raw?.result, TODAY_FLOW_FIELDS, TODAY_FLOW_FIELDS, 'traffic.todayFlow'),
@@ -80,9 +90,36 @@ export const TRAFFIC_TODAY_TRADE = endpoint('traffic.todayTrade', '/sydney/api/m
     const rows = resultObject(raw, 'traffic.todayTrade').todayRtList ?? [];
     if (!Array.isArray(rows)) throw responseShapeError('traffic.todayTrade', 'todayRtList array');
     return rows.map((row) => {
-      if (typeof row?.hr !== 'string' || !/^(?:[01]\d|2[0-3])$/.test(row.hr)) {
+      if (typeof row?.hr !== 'string' || !HOUR_TEXT.test(row.hr)) {
         throw responseShapeError('traffic.todayTrade', 'todayRtList[].hr "00".."23"');
       }
       return project(row, ['hr', ...TODAY_TRADE_FIELDS], TODAY_TRADE_FIELDS, 'traffic.todayTrade');
     });
   }, ({ queryDate }) => ({ queryType: 6, queryDate }));
+
+// 全店商品今日实时（queryGoodsPageRT）：保留 *Rt 今日汇总字段（允许显式 null），排除昨日同名无 Rt 后缀字段。
+export const TRAFFIC_GOODS_TODAY_OVERVIEW = endpoint('traffic.goodsTodayOverview',
+  '/sydney/api/goodsDataShow/queryGoodsPageRT', '/sycm/goods_effect', (raw) => {
+    const result = resultObject(raw, 'traffic.goodsTodayOverview');
+    requireFields(result, GOODS_TODAY_OVERVIEW_FIELDS, 'traffic.goodsTodayOverview');
+    return project(result, GOODS_TODAY_OVERVIEW_FIELDS, GOODS_TODAY_OVERVIEW_FIELDS, 'traffic.goodsTodayOverview');
+  }, () => ({}));
+
+// 单商品今日实时与小时累计趋势（queryGoodsStatDtr）：仅投影 todayGoodsDetail 与 todayGoodsDetailList，排除昨日对照块。
+export const TRAFFIC_GOODS_TODAY_STAT = endpoint('traffic.goodsTodayStat',
+  '/sydney/api/goodsDataShow/queryGoodsStatDtr', '/sycm/goods_effect', (raw) => {
+    const result = resultObject(raw, 'traffic.goodsTodayStat');
+    requireFields(result, ['todayGoodsDetail', 'todayGoodsDetailList'], 'traffic.goodsTodayStat');
+    const detail = result.todayGoodsDetail === null
+      ? null
+      : project(result.todayGoodsDetail, GOODS_TODAY_STAT_FIELDS, GOODS_TODAY_STAT_FIELDS, 'traffic.goodsTodayStat');
+    const rows = result.todayGoodsDetailList ?? [];
+    if (!Array.isArray(rows)) throw responseShapeError('traffic.goodsTodayStat', 'todayGoodsDetailList array');
+    const hourly = rows.map((row) => {
+      if (typeof row?.statHr !== 'string' || !HOUR_TEXT.test(row.statHr)) {
+        throw responseShapeError('traffic.goodsTodayStat', 'todayGoodsDetailList[].statHr "00".."23"');
+      }
+      return project(row, ['statHr', ...GOODS_TODAY_STAT_FIELDS], GOODS_TODAY_STAT_FIELDS, 'traffic.goodsTodayStat');
+    });
+    return { detail, hourly };
+  }, ({ goodsId }) => ({ goodsId }));

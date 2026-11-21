@@ -1,7 +1,8 @@
 import { it } from 'vitest';
 import assert from 'node:assert/strict';
 import { toCustomerServiceView, CS_SUMMARY_FIELDS, CS_TREND_ITEM_FIELDS, CS_SALES_FIELDS,
-  CS_SALES_SUMMARY_FIELDS, CS_SALES_TREND_ITEM_FIELDS } from '../../src/services/views/customer-service.js';
+  CS_SALES_SUMMARY_FIELDS, CS_SALES_TREND_ITEM_FIELDS, CS_TODAY_FIELDS,
+  CS_TODAY_HOURLY_FIELDS } from '../../src/services/views/customer-service.js';
 
 const window = { start_date: '2026-10-01', end_date: '2026-10-30', days: 30 };
 const salesWindow = { start_date: '2026-11-10', end_date: '2026-11-16', days: 7 };
@@ -98,4 +99,51 @@ it('coerces numeric count strings and preserves missing counts in summary and tr
   assert.equal(view.summary.manual_receive_user_count, 0);
   assert.equal(view.summary.service_refund_count, null);
   assert.equal(view.trend.items[0].consult_user_count, 3);
+});
+
+it('projects cs today block with explicit caliber, padded ascending hours and early-morning nulls', () => {
+  const view = toCustomerServiceView({ consultUserCnt: 3 }, {
+    window,
+    sales: { window: salesWindow, summary: salesSummary, trend: null },
+    today: {
+      snapshotAt: '2026-11-22 10:00:00',
+      sources: {
+        realtime: { consultUserCnt: 18, needReplyUserCnt: 2, manuReceiveUserCnt: 16,
+          replyRate3Min: 0.875, replyRate3MinThreshold: 0.5 },
+        unreply: { unreply_num: 1 },
+        hourly: [{ hour: 10, replyUser3Min: 4, unReplyUser3Min: 1 }, { hour: 0, replyUser3Min: 0, unReplyUser3Min: 0 }],
+      },
+    },
+  });
+  assert.deepEqual(Object.keys(view.today), CS_TODAY_FIELDS);
+  assert.equal(view.today.caliber, '多多客服-实时数据（3 分钟人工回复率）');
+  assert.equal(view.today.manual_reply_3min_rate_pct, 87.5);
+  assert.equal(view.today.manual_reply_3min_threshold_pct, 50);
+  assert.equal(view.today.unreply_user_count, 1);
+  assert.deepEqual(view.today.hourly.map((h) => h.hour), ['00', '10']);
+  assert.deepEqual(Object.keys(view.today.hourly[0]), CS_TODAY_HOURLY_FIELDS);
+  assert.equal(view.headline[2], '今日实时客服：3 分钟人工回复率 87.5%，需人工回复 2 人，当前待回复 1 人');
+
+  const earlyMorning = toCustomerServiceView({ consultUserCnt: 3 }, {
+    window,
+    today: {
+      snapshotAt: '2026-11-22 04:20:00',
+      sources: {
+        realtime: { consultUserCnt: null, needReplyUserCnt: 0, manuReceiveUserCnt: null,
+          replyRate3Min: null, replyRate3MinThreshold: 0.5 },
+        unreply: { unreply_num: 0 },
+        hourly: [],
+      },
+    },
+  });
+  assert.equal(earlyMorning.today.manual_reply_3min_rate_pct, null);
+  assert.equal(earlyMorning.today.need_manual_reply_user_count, 0);
+  assert.deepEqual(earlyMorning.today.hourly, []);
+  assert.equal(earlyMorning.headline[1], '今日实时客服：需人工回复 0 人，当前待回复 0 人');
+
+  const emptyHeadline = toCustomerServiceView({ consultUserCnt: 3 }, {
+    window,
+    today: { snapshotAt: '2026-11-22 04:20:00', sources: { realtime: {}, unreply: {}, hourly: [] } },
+  });
+  assert.equal(emptyHeadline.headline[1], '今日实时客服暂无数据');
 });

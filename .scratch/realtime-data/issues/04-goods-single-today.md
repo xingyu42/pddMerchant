@@ -4,17 +4,19 @@
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `today` 含 `snapshot_at`、`as_of_hour`、单品今日汇总字段与升序 `hourly[]`，按 `data` 契约 v2 归一（`_yuan`、`_pct`、缺失为 `null`）
-- [ ] 上游昨日对照块（`yesterdayGoodsDetail` / `yesterdayGoodsDetailList`）不混入 `today`
-- [ ] 尚无小时累计行时 `as_of_hour: null`、`hourly: []`
-- [ ] headline 新增单商品今日实时行（`today: null` 时省略）；不带 `--goods-id` 保持 03 全店今日概况行为
-- [ ] 失败降级为 `today: null` 并写入 hint，退出码 0（超时、内部错误与取消照旧失败）
-- [ ] `data-contract-v2` 新增 `goods traffic --goods-id` 用例覆盖 `today` 与 `today.hourly[]`
-- [ ] 合成 fixture、adapter/view/service/e2e 测试覆盖单品今日汇总、小时趋势、空趋势与降级分支
-- [ ] 报表文档、CHANGELOG、`.trellis/spec` 服务契约已同步
-- [ ] `npm run check` 通过
-- [ ] 真实账号只读验证（执行前确认范围）：单品今日数据与小时趋势与后台一致；结果写入 Comments
+- [x] `today` 含 `snapshot_at`、`as_of_hour`、单品今日汇总字段与升序 `hourly[]`，按 `data` 契约 v2 归一（`_yuan`、`_pct`、缺失为 `null`）
+- [x] 上游昨日对照块（`yesterdayGoodsDetail` / `yesterdayGoodsDetailList`）不混入 `today`
+- [x] 尚无小时累计行时 `as_of_hour: null`、`hourly: []`
+- [x] headline 新增单商品今日实时行（`today: null` 时省略）；不带 `--goods-id` 保持 03 全店今日概况行为
+- [x] 失败降级为 `today: null` 并写入 hint，退出码 0（超时、内部错误与取消照旧失败）
+- [x] `data-contract-v2` 新增 `goods traffic --goods-id` 用例覆盖 `today` 与 `today.hourly[]`
+- [x] 合成 fixture、adapter/view/service/e2e 测试覆盖单品今日汇总、小时趋势、空趋势与降级分支
+- [x] 报表文档、CHANGELOG、`.trellis/spec` 服务契约已同步
+- [x] `npm run check` 通过
+- [x] 真实账号只读验证（执行前确认范围）：单品今日数据与小时趋势与后台一致；结果写入 Comments
 
 ## Comments
+
+- 2026-11-22：默认真实账号只读验证通过：`node bin/pdd.js goods traffic --days 7 --goods-id <单品> --json`（商品 ID 与商品名已脱敏）返回 `ok: true`、`exit_code: 0`、`meta.warnings: []`，`today`（`2026-11-22 04:43:15`）输出 `as_of_hour: "03"` 与 `"00".."03"` 升序 `hourly[]`（凌晨汇总与分时指标保持 `null`，昨日块已剔除），`headline` 输出单品今日概括行。`npm run check` 通过。

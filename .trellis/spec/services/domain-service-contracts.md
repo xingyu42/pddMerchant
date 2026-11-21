@@ -256,9 +256,10 @@ CLI：`pdd diagnose customer-service [--days 30]`、`pdd diagnose reviews [--day
 ### 3. Contracts
 
 - 客服 days 为 1-63 的整数，窗口按上海日期取 `[今天-days, 昨天]`。`cs.overview` 使用 page-api POST `/desert/stat/mallServiceOverviewData`，请求 `{ startDate, endDate }`；`cs.monthTrend` 使用 legacy 导航与 `/desert\/stat\/mallMonthServiceData/` 被动捕获 GET，返回固定最近 31 天，按 `statDate` 过滤。导航页为 `/mms-chat/overview/service`；两者成功条件为 `success === true` 且 errorCode ∈ `SUCCESS_BUSINESS_CODES`（0/1000000）。
-- 客服 data：`{ headline, window, caliber, summary, trend, sales, hints, mall_id }`，口径固定「多多客服-客服数据（人工回复）」。summary 与 trend 指标映射以 `views/customer-service.js` 的 `METRICS` 为准；比率乘 100，时长单位秒、保留 2 位小数，null 保留。trend 为 null 或 `{ items:[{ date, ...summary字段, category_top10_avg_response_seconds, category_avg_response_seconds }] }`，日期升序；客服账号名及比较字段由白名单过滤。
+- 客服 data：`{ headline, window, caliber, summary, trend, sales, today, hints, mall_id }`，口径固定「多多客服-客服数据（人工回复）」。summary 与 trend 指标映射以 `views/customer-service.js` 的 `METRICS` 为准；比率乘 100，时长单位秒、保留 2 位小数，null 保留。trend 为 null 或 `{ items:[{ date, ...summary字段, category_top10_avg_response_seconds, category_avg_response_seconds }] }`，日期升序；客服账号名及比较字段由白名单过滤。
 - 客服销售区块 `sales`：口径「多多客服-销售数据」，平台只提供 3 天之前的数据（询单后 3 日内的下单计入询单当日）。窗口为 `windowEndingDaysAgo(min(days, 62), 3)`，即 `[今天-3-(n-1), 今天-3]`；62 来自销售数据页自定义日期的可选范围 `[今天-64, 今天-3]`（真实账号 2026-11-20 实测；更长的区间请求不报错，返回值与 62 天相同）。`cs.salesOverview` 使用 page-api POST `/desert/stat/mallSalesOverviewData`，请求 `{ startDate, endDate }`；`cs.monthSalesTrend` 为 `/desert\/stat\/mallMonthSalesData/` 被动捕获的无参 GET，由点击「销售数据」页签触发（`requiredTrigger:true`），固定返回 `[今天-33, 今天-3]` 共 31 行，按 `statDate` 过滤。
 - `sales` 形状：`{ caliber, window, summary, trend }`。summary 为 `{ inquiry_user_count, group_user_count, inquiry_conversion_rate_pct, cs_sales_amount_yuan }`，取区间汇总接口（不由逐日相加）；trend 为 null 或 `{ items:[{ date, ...summary字段, category_top10_avg_inquiry_conversion_rate_pct, category_avg_inquiry_conversion_rate_pct }] }`，日期升序。转化率乘 100，金额为元、保留 2 位小数。null 按上游原值保留：询单 0 人时转化率 null，成团 0 人时客服销售额 null，尚未出数的日期整行 null（含类目均值），无询单记录的日期四项 null 而类目均值有值。客服可提升销售额（`csCanImproveSalesAmount`）与各 `*Compare` 字段由白名单过滤。headline 在原有行之后追加「<start> 至 <end> 询单 N 人，成团 N 人，询单转化率 N%，客服销售额 N 元」，null 的部分略去，询单人数为 null 时为「<区间> 无询单数据」，`sales` 为 null 时不追加。
+- 客服今日实时区块 `today`（2026-11, `.scratch/realtime-data/issues/06-customer-service-today.md`）：经 `collectToday(report, collect)` 依次调用 `cs.todayRealtime`（page-api `GET /desert/stat/mallServiceRealTimeData`）、`cs.todayUnreply`（page-api `GET /chats/cs/unreplyUser/count`）与 `cs.todayHourConsult`（page-api `POST /desert/stat/getMallHourConsultData`，`{ startDate: today, endDate: today }`），不接入 `querySpecifiedDayServiceQuality`。`today` 形状为 `CS_TODAY_FIELDS`：`snapshot_at`、`caliber`（固定「多多客服-实时数据（3 分钟人工回复率）」）、实时指标、`unreply_user_count`、按 `"00".."23"` 升序的 `hourly[]`（`CS_TODAY_HOURLY_FIELDS`）。headline 追加「今日实时客服：…」行，`today` 为 null 时不追加；可降级失败走 `today_unavailable`，原有 `summary`、`trend`、`sales` 不受影响。
 - 评价 days 映射 `{30:1, 60:5, 90:4, 180:3}` 为 rangeType。endTime 为当前 Unix 秒，startTime=endTime-days*86400。标签和类型聚合的请求为 `{ startTime, endTime, rangeType }`；列表为 `{ startTime, endTime, pageNo, pageSize:40, descScore?, goodsId? }`（`diagnose reviews` 固定 `descScore:['1','2','3']`；`goods reviews` 按 `--stars` / `--goods-id` 传入，缺省时省略对应键，上游返回全店全部星级），三个端点均为 page-api POST `/saturn/reviews/*`，导航页 `/goods/evaluation/index`。成功判定为 `success === true || errorCode === 1000000`。
 - 标签聚合的 `positiveKeywordList` / `negativeKeywordList` 为显式 `null` 时读取为空数组（真实账号实测：没有不满意标签的店铺 `negativeKeywordList` 为 `null`，满意标签照常返回）；缺键、`result` 为 null 仍为响应结构错误。`typeList` 与列表 `data` 的 `null` 仍为响应结构错误。
 - `goods reviews` 的 days 为 1-365 的整数，窗口同为 `[now-days*86400, now]` 的 Unix 秒，只调用列表端点。
@@ -279,7 +280,7 @@ CLI：`pdd diagnose customer-service [--days 30]`、`pdd diagnose reviews [--day
 | 客服 trend 的可降级 PddCliError | `trend:null` 并追加 hint |
 | 客服销售区间汇总的可降级 PddCliError | `sales:null` 并追加「客服销售数据拉取失败」，不再请求逐日接口；`summary`、`trend` 照常 |
 | 客服销售逐日（含页签点击失败）的可降级 PddCliError | 仅 `sales.trend:null` 并追加「客服销售逐日趋势拉取失败」 |
-| 任一评价源的可降级 PddCliError | 对应部分 null 并追加 hint；原三源全失败抛最后一个错误 |
+| 客服今日或任一评价源的可降级 PddCliError | 对应部分 null 并追加 hint；原评价三源全失败抛最后一个错误 |
 | `reviews.goodsScores` 出现可降级 PddCliError 或字体混淆 `E_BUSINESS` | `goods_scores:null` 并追加「商品评分拉取失败」，不追加商品评分 headline，不影响命令整体成败 |
 | 程序异常、超时、取消 | 继续抛出 |
 | 上游集合、商品评分结构或列表 totalRows 缺失 | adapter 抛 `E_NETWORK` |
@@ -293,7 +294,7 @@ CLI：`pdd diagnose customer-service [--days 30]`、`pdd diagnose reviews [--day
 
 ### 6. Tests Required
 
-`customer-service-contract.test.js` / `reviews-contract.test.js` 覆盖 payload、成功判定、白名单与商品评分 PUA 混淆检测；对应 view/service 测试覆盖字段、单位、窗口、null、掩码、分页与降级；客服销售区块另覆盖 3 天滞后窗口与 62 天上限、四种逐日空值形态、两级降级和 headline 三种写法；商品评分区块另覆盖固定 30 日窗口、200 上限截断、0 评价均分 null 与独立降级。两个同名 e2e 验证单行 envelope、隐私剔除、参数 exit 2、分页截断与数据源失败；`reviews.e2e.test.js` 与 `reviews.test.js` / `reviews-view.test.js` 同时覆盖 `goods reviews` 的筛选透传、回显、headline 与 2000 条上限，`numeric-options.test.js` 覆盖 `goodsIdArg` / `starsArg`；`data-contract-v2.test.js` 用 entityFields 覆盖所有实体数组（含 `goods_scores` 与 `goods_scores.items[]`）。
+`customer-service-contract.test.js` / `reviews-contract.test.js` 覆盖 payload、方法（含 page-api GET）、成功判定、白名单与商品评分 PUA 混淆检测；对应 view/service 测试覆盖字段、单位、窗口、null、掩码、分页与降级；客服销售区块另覆盖 3 天滞后窗口与 62 天上限、四种逐日空值形态、两级降级和 headline 三种写法；客服今日实时另覆盖三端点、`Reply-Rate Caliber`、小时零填充升序与 `today_unavailable` 降级；商品评分区块另覆盖固定 30 日窗口、200 上限截断、0 评价均分 null 与独立降级。两个同名 e2e 验证单行 envelope、隐私剔除、参数 exit 2、分页截断与数据源失败；`reviews.e2e.test.js` 与 `reviews.test.js` / `reviews-view.test.js` 同时覆盖 `goods reviews` 的筛选透传、回显、headline 与 2000 条上限，`numeric-options.test.js` 覆盖 `goodsIdArg` / `starsArg`；`data-contract-v2.test.js` 用 entityFields 覆盖所有实体数组（含 `goods_scores`、`goods_scores.items[]`、`today` 与 `today.hourly[]`）。
 
 ### 7. Wrong vs Correct
 
@@ -318,10 +319,11 @@ Correct：内部 page 与 pageNo 同步，buildPayload 保留精确请求格式�
 - `promo.goodsPromotionList` 复用 fetch 请求体合并策略，保留页面生成签名。POST `/mms-gateway/venus/api/goods/promotion/v3/list`：beginDate/endDate/blockType:3/clientType:1/pageNumber/pageSize:50/filter.searchKeyV2（当前批商品 ID 逗号拼接）/sortBy:9999/orderBy:9999/scenesMode:1 或 3/withTagsInfo:true。每批最多 50 个商品，每场景最多 20 页；只累加当前批的商品，阻止上游忽略过滤条件时重复归属。
 - adapter 依次展开 optimizationMessage/reportInfo/reportInfo2；空串视为缺失，金额对象读取 value（无 unit/YUAN 按元，FEN 除 100，PERCENT 除 unitCode 或 100；其他单位输出 null 并追加 promo_unknown_unit 提示，与 promo.js MoneyVO 一致），裸数字厘除 1000，转整数分后累计。adInfos:null 且 totalAdNum:0 为未开通；未知金额传播 null。
 - non_promo_* = 商品总量减去推广直接成交；间接成交单列。负差额 null/hint；推广可降级 PddCliError 或分页上限使全部推广和差值 null，promo_complete:false；完整无记录为 0。所有输出保留固定口径及尚未经有投放店铺实测的提示。
+- 商品今日实时区块（2026-11, `.scratch/realtime-data/issues/03-goods-today.md`, `04-goods-single-today.md`）：推广采集之后经 `collectToday(report, collect)` 采集 `today`，`getGoodsTrafficView` 返回 `{ data, warnings }`（由 runner 合入 `meta.warnings`）。未传 `--goods-id` 调用 `traffic.goodsTodayOverview`（POST `/sydney/api/goodsDataShow/queryGoodsPageRT`，白名单投影 6 个 `*Rt` 字段并排除昨日无 `Rt` 字段；检测 PUA；显式 `null` 静默输出 `null`，无法解析的非空格式化字符串或百分号字符串置 `null` 并写入 `goods_today_parse_failed` warning；shape 为 `GOODS_TRAFFIC_TODAY_OVERVIEW_FIELDS`）。传入 `--goods-id` 调用 `traffic.goodsTodayStat`（POST `/sydney/api/goodsDataShow/queryGoodsStatDtr` `{ goodsId }`，仅投影 `todayGoodsDetail` 与 `todayGoodsDetailList` 并排除 `yesterdayGoodsDetail*`；允许全 `null` 的 `todayGoodsDetail` 与指标为 `null` 的小时行；shape 为 `GOODS_TRAFFIC_TODAY_SINGLE_FIELDS` 与按 `statHr` 升序的 `hourly[]` `GOODS_TRAFFIC_TODAY_HOURLY_FIELDS`）。`today` 走 `report.optional('today_unavailable')`，PUA/业务/网络/限流失败降级 `today: null` 与 hint、退出码 0，历史明细与推广照常输出；超时与程序异常继续抛出。
 
 ### 4. Validation & Error Matrix
 
-days 越界 / 非法 goods-id → E_USAGE / exit 2，请求前验证；主流量/明细失败 → 整体失败；逐日 statDate 缺失或日期无效 → E_NETWORK，避免窗口过滤静默丢行；推广普通 PddCliError → 降级；超时、取消、程序异常 → 传播。商品提前空页且尚未达到总量也标记 goods_truncated。
+days 越界 / 非法 goods-id → E_USAGE / exit 2，请求前验证；主流量/明细失败 → 整体失败；逐日 statDate 缺失或日期无效 → E_NETWORK，避免窗口过滤静默丢行；推广普通 PddCliError → 降级；今日实时 PddCliError（含 PUA 混淆） → `today: null` + `today_unavailable` hint；超时、取消、程序异常 → 传播。商品提前空页且尚未达到总量也标记 goods_truncated。
 
 ### 5. Good/Base/Bad Cases
 
@@ -329,7 +331,7 @@ Good：两场景直接成交 1.23 元各一条，合计 2.46 元，再从商品�
 
 ### 6. Tests Required
 
-`traffic-contract.test.js`：请求、PUA、缺集合、金额形态、空串回退、未开通、今日两端点。`traffic-view.test.js`：白名单、百分数、金额、null、同行映射、today 区块。`today.test.js`：上海日期、抓取时间、降级与透传。`traffic.test.js`：窗口、原生 queryType、双场景、跨批归属、分页、失败降级和异常传播。两条 fixture e2e 和 data-contract-v2 的 items[] 字段集覆盖最终 JSON。
+`traffic-contract.test.js`：请求、PUA、缺集合、金额形态、空串回退、未开通、全店与商品今日端点。`traffic-view.test.js`：白名单、百分数、金额、格式化字符串与 parse warning、null、同行映射、全店与商品 today 区块。`today.test.js`：上海日期、抓取时间、降级与透传。`traffic.test.js`：窗口、原生 queryType、双场景、跨批归属、分页、失败降级和异常传播。两条 fixture e2e 和 data-contract-v2 的实体字段集覆盖最终 JSON（含全店与 `--goods-id` 的 `today` 与 `today.hourly[]`）。
 
 ### 7. Wrong vs Correct
 
