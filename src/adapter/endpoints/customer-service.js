@@ -1,6 +1,6 @@
 import { responseShapeError } from '../../infra/errors.js';
 import { TIMEOUTS } from '../../infra/timeouts.js';
-import { resultObject } from './_shared.js';
+import { requireFields, resultObject } from './_shared.js';
 
 const FIELDS = ['consultUserCnt', 'needManuReplyConsultUserCnt', 'receiveUserCnt',
   'manuReplyRate3Min', 'manuReplyRate30s', 'artificialResponseTime', 'unsatisfiedServeScoreCnt',
@@ -19,15 +19,6 @@ function project(result, fields, endpoint) {
   }
   return Object.fromEntries(fields.filter((field) => Object.hasOwn(result, field))
     .map((field) => [field, result[field]]));
-}
-
-function requireFields(result, required, endpoint) {
-  if (!result || typeof result !== 'object' || Array.isArray(result)) {
-    throw responseShapeError(endpoint, 'result object');
-  }
-  for (const field of required) {
-    if (!Object.hasOwn(result, field)) throw responseShapeError(endpoint, field);
-  }
 }
 
 const COMMON = {

@@ -63,7 +63,7 @@
 - 推广金额单位无法识别时，对应金额为 `null` 并附提示。
 - 推广拆分口径来自第三方插件静态分析，尚未经有投放店铺实测；转述拆分结果时附上这句。
 - 明文接口失败或返回字体混淆数据时命令报错。
-- `today`：今日实时区块，独立于历史区间 `items`，含 `snapshot_at`（CLI 抓取时间）。未传 `--goods-id` 时输出全店商品今日实时概况（`goods_visitor_count`、`goods_page_view_count`、`visited_goods_count`、`pay_order_count`、`pay_amount_yuan`、`pay_conversion_pct`）；上游正常无数据时可为显式 `null`，遇到无法解析的非空格式串时输出 `null` 并写入 `meta.warnings`。传入 `--goods-id` 时输出该单商品今日实时汇总、`as_of_hour`（暂无小时累计行时为 `null`）及升序 `hourly[]`。今日实时拉取或字体混淆校验失败时 `today: null` 并附 hint，历史明细照常返回，退出码保持 0。
+- `today`：今日实时区块，独立于历史区间 `items`，含 `snapshot_at`（CLI 抓取时间）。未传 `--goods-id` 时输出全店商品今日实时概况（`goods_visitor_count`、`goods_page_view_count`、`visited_goods_count`、`pay_order_count`、`pay_amount_yuan`、`pay_conversion_pct`）；上游正常无数据时可为显式 `null`，遇到无法解析的非 `null` 格式串或值时输出 `null` 并写入 `meta.warnings`。传入 `--goods-id` 时输出该单商品今日实时汇总（来自 `todayGoodsDetail`）与按小时升序的 `hourly[]` / `as_of_hour`（来自 `todayGoodsDetailList`，暂无小时累计行时 `as_of_hour: null`）；两组上游数据源刷新时点独立，headline 分别陈述。今日实时拉取或字体混淆校验失败时 `today: null` 并附 hint，历史明细照常返回，退出码保持 0。
 
 ## goods profit
 

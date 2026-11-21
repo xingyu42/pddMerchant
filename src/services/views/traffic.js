@@ -1,6 +1,7 @@
 import { round } from '../../infra/units.js';
 import { metricTable, sumKnown } from '../../infra/metrics.js';
 import { defineReport, reportHints } from '../operating-report.js';
+import { valueWithUnit } from './_shared.js';
 
 export const TRAFFIC_REPORT = defineReport({
   days: { min: 1, max: 30, default: 30, message: '--days 需为 {range} 的整数',
@@ -52,8 +53,6 @@ function toTodayView(today) {
     ...TODAY_TRADE_METRICS.project(latest),
     hourly: hourly.map((row) => ({ hour: row.hr, ...TODAY_HOURLY_METRICS.project(row) })) };
 }
-
-const valueWithUnit = (value, unit) => (value === null ? '未知' : `${value} ${unit}`);
 
 function todayHeadline(today) {
   const visitors = `店铺访客 ${valueWithUnit(today.shop_visitor_count, '人')}`;

@@ -10,7 +10,7 @@ import {
   remainingMs,
   timeoutError,
 } from '../infra/abort.js';
-import { resolveEndpointStrategy } from './endpoint-strategy-resolver.js';
+import { resolveEndpointStrategy, normalizePageApiMethod } from './endpoint-strategy-resolver.js';
 import { executeAttempt } from './endpoint-attempt.js';
 import { executePageApiRequest } from './page-api-client.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
@@ -158,6 +158,9 @@ export class PlaywrightEndpointClient {
 
   // 传输只提供 HTTP 状态和上游响应体，fixture 与浏览器共用后续判定、归一化和冷却记账。
   async send(spec, params, ctx) {
+    if (resolveEndpointStrategy(spec).strategy === 'page-api') {
+      this._validatePageApiSpec(spec);
+    }
     if (isMockEnabled()) {
       const raw = await mockRunEndpoint(spec, params);
       return { status: 200, raw, response: { status: () => 200 } };
@@ -251,7 +254,7 @@ export class PlaywrightEndpointClient {
     }
   }
 
-  async _attemptPageApi(page, meta, params, ctx, navUrl) {
+  _validatePageApiSpec(meta) {
     const missingFields = [];
     if (typeof meta.buildPayload !== 'function') missingFields.push('buildPayload');
     if (typeof meta.apiUrl !== 'string' || meta.apiUrl.length === 0) missingFields.push('apiUrl');
@@ -264,9 +267,8 @@ export class PlaywrightEndpointClient {
         exitCode: ExitCodes.USAGE,
       });
     }
-    const rawMethod = meta.method ?? 'POST';
-    const method = typeof rawMethod === 'string' ? rawMethod.toUpperCase() : '';
-    if (method !== 'GET' && method !== 'POST') {
+    const method = normalizePageApiMethod(meta.method);
+    if (!method) {
       throw new PddCliError({
         code: 'E_USAGE',
         message: `${meta.name}: unsupported page-api HTTP method`,
@@ -275,29 +277,10 @@ export class PlaywrightEndpointClient {
         exitCode: ExitCodes.USAGE,
       });
     }
-    const payload = meta.buildPayload(params, ctx);
-    await this._preparePageApi(page, meta, ctx, navUrl);
-    throwIfAborted(ctx.signal);
-    const requestBudgetMs = remainingMs(ctx);
-    if (requestBudgetMs === 0) throw timeoutError();
+    return method;
+  }
 
-    let result;
-    try {
-      result = await executePageApiRequest(
-        page,
-        { apiUrl: meta.apiUrl, method, payload },
-        { signal: ctx.signal, timeoutMs: requestBudgetMs },
-      );
-    } catch (err) {
-      if (err instanceof PddCliError) throw err;
-      throw new PddCliError({
-        code: 'E_NETWORK',
-        message: `${meta.name}: page API execution failed: ${err?.message ?? 'unknown error'}`,
-        hint: '页面执行上下文或网络请求失败；请重试并检查登录态与网络连通性',
-        detail: { endpoint: meta.name },
-        exitCode: ExitCodes.NETWORK,
-      });
-    }
+  _buildPageApiResponse(page, meta, result) {
     if (result.unavailable) {
       throw new PddCliError({
         code: 'E_NETWORK',
@@ -331,6 +314,34 @@ export class PlaywrightEndpointClient {
       json: async () => result.raw,
       text: async () => JSON.stringify(result.raw),
     };
+  }
+
+  async _attemptPageApi(page, meta, params, ctx, navUrl) {
+    const method = this._validatePageApiSpec(meta);
+    const payload = meta.buildPayload(params, ctx);
+    await this._preparePageApi(page, meta, ctx, navUrl);
+    throwIfAborted(ctx.signal);
+    const requestBudgetMs = remainingMs(ctx);
+    if (requestBudgetMs === 0) throw timeoutError();
+
+    let result;
+    try {
+      result = await executePageApiRequest(
+        page,
+        { apiUrl: meta.apiUrl, method, payload },
+        { signal: ctx.signal, timeoutMs: requestBudgetMs },
+      );
+    } catch (err) {
+      if (err instanceof PddCliError) throw err;
+      throw new PddCliError({
+        code: 'E_NETWORK',
+        message: `${meta.name}: page API execution failed: ${err?.message ?? 'unknown error'}`,
+        hint: '页面执行上下文或网络请求失败；请重试并检查登录态与网络连通性',
+        detail: { endpoint: meta.name },
+        exitCode: ExitCodes.NETWORK,
+      });
+    }
+    return this._buildPageApiResponse(page, meta, result);
   }
 
   async _attemptFetch(page, meta, params, ctx, log, navUrl) {

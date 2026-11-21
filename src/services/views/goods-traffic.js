@@ -1,6 +1,7 @@
 import { round, toFiniteNumber } from '../../infra/units.js';
 import { metricTable } from '../../infra/metrics.js';
 import { defineReport, reportHints } from '../operating-report.js';
+import { valueWithUnit } from './_shared.js';
 
 export const GOODS_TRAFFIC_REPORT = defineReport({
   days: { choices: { 1: 0, 7: 1, 30: 2 }, default: 30, message: '--days 仅接受 {range}',
@@ -117,18 +118,15 @@ function toGoodsTodayView(today, warnings) {
   return toOverviewTodayView(today.snapshotAt, today.sources?.overview, warnings);
 }
 
-const valueWithUnit = (value, unit) => (value === null ? '未知' : `${value} ${unit}`);
-
 function todayHeadline(today, goodsId) {
   if (!goodsId) {
     return `今日全店商品访客 ${valueWithUnit(today.goods_visitor_count, '人')}，`
       + `有访问商品 ${valueWithUnit(today.visited_goods_count, '个')}，`
       + `成交 ${valueWithUnit(today.pay_amount_yuan, '元')}、${valueWithUnit(today.pay_order_count, '单')}`;
   }
-  const visitors = `访客 ${valueWithUnit(today.visitor_count, '人')}`;
-  if (today.as_of_hour === null) return `商品 ${goodsId} 今日暂无小时累计数据，${visitors}`;
-  return `商品 ${goodsId} 今日截至 ${today.as_of_hour} 时累计${visitors}，`
+  const summary = `商品 ${goodsId} 今日实时访客 ${valueWithUnit(today.visitor_count, '人')}，`
     + `成交 ${valueWithUnit(today.pay_amount_yuan, '元')}、${valueWithUnit(today.pay_order_count, '单')}`;
+  return today.as_of_hour === null ? `${summary}，暂无小时累计数据` : `${summary}，小时序列截至 ${today.as_of_hour} 时`;
 }
 
 export function toGoodsTrafficItem(row, promo = {}) {

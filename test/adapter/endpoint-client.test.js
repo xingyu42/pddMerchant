@@ -1,14 +1,24 @@
-import { beforeEach, it, vi } from 'vitest';
+import { afterEach, beforeEach, it, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import { PlaywrightEndpointClient } from '../../src/adapter/endpoint-client.js';
 import { executePageApiRequest } from '../../src/adapter/page-api-client.js';
+import { clearFixtureCache } from '../../src/adapter/mock-dispatcher.js';
 import { TRAFFIC_READY_TIME } from '../../src/adapter/endpoints/traffic.js';
 import { PddCliError, ExitCodes } from '../../src/infra/errors.js';
+import { createCliSandbox } from '../helpers/isolated-cli.js';
 
 vi.mock('../../src/adapter/page-api-client.js', () => ({ executePageApiRequest: vi.fn() }));
+
+let sandbox;
 beforeEach(() => {
   vi.stubEnv('PDD_TEST_ADAPTER', '');
   executePageApiRequest.mockReset();
+  clearFixtureCache();
+});
+afterEach(() => {
+  clearFixtureCache();
+  sandbox?.dispose();
+  sandbox = null;
 });
 
 it('preserves the default 40002 classification and hint through the traffic spec', async () => {
@@ -99,4 +109,14 @@ it('forwards GET or default POST method for page-api specs and rejects unsupport
   await assert.rejects(client.execute({ ...baseSpec, method: 'DELETE' }, {}, ctx),
     { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
   assert.equal(executePageApiRequest.mock.calls.length, 2);
+
+  sandbox = createCliSandbox({
+    'endpoints/test.pageApiMethod.json': { success: true, errorCode: 1000000, result: { ok: 2 } },
+  });
+  vi.stubEnv('PDD_TEST_ADAPTER', 'fixture');
+  vi.stubEnv('PDD_TEST_FIXTURE_DIR', sandbox.fixtureDir);
+  const fixtureRes = await client.execute({ ...baseSpec, method: 'GET' }, {}, { log: ctx.log });
+  assert.deepEqual(fixtureRes.data, { ok: 2 });
+  await assert.rejects(client.execute({ ...baseSpec, method: 'DELETE' }, {}, { log: ctx.log }),
+    { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
 });

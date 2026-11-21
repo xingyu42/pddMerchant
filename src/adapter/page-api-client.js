@@ -1,5 +1,6 @@
 import { evaluateInMainWorld } from './browser.js';
 import { throwIfAborted, timeoutError } from '../infra/abort.js';
+import { normalizePageApiMethod } from './endpoint-strategy-resolver.js';
 
 const DEFAULT_DISCOVERY_ATTEMPTS = 15;
 const DEFAULT_DISCOVERY_INTERVAL_MS = 200;
@@ -53,7 +54,7 @@ export async function executePageApiRequest(
   { apiUrl, method = 'POST', payload, discovery },
   { signal, timeoutMs } = {},
 ) {
-  const normalizedMethod = typeof method === 'string' ? method.toUpperCase() : 'POST';
+  const normalizedMethod = normalizePageApiMethod(method) ?? 'POST';
   const evaluation = evaluateInMainWorld(page, async ({ url, method: requestMethod, body, discovery: wait }) => {
     function looksLikeMmsRequestClient(exports) {
       return exports
@@ -170,7 +171,7 @@ export async function executePageApiRequest(
 
     try {
       const data = requestMethod === 'GET'
-        ? await (body && Object.keys(body).length > 0 ? client.get(url, body) : client.get(url))
+        ? await client.get(url)
         : await client.post(url, body);
       return { ok: true, status: 200, data };
     } catch (error) {

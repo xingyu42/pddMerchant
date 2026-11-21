@@ -120,7 +120,7 @@ it('projects cs today block with explicit caliber, padded ascending hours and ea
   assert.equal(view.today.manual_reply_3min_rate_pct, 87.5);
   assert.equal(view.today.manual_reply_3min_threshold_pct, 50);
   assert.equal(view.today.unreply_user_count, 1);
-  assert.deepEqual(view.today.hourly.map((h) => h.hour), ['00', '10']);
+  assert.deepEqual(view.today.hourly.map((entry) => entry.hour), ['00', '10']);
   assert.deepEqual(Object.keys(view.today.hourly[0]), CS_TODAY_HOURLY_FIELDS);
   assert.equal(view.headline[2], '今日实时客服：3 分钟人工回复率 87.5%，需人工回复 2 人，当前待回复 1 人');
 

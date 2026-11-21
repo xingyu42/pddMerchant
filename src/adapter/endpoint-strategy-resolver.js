@@ -64,3 +64,9 @@ export function resolveEndpointStrategy(spec) {
 
   return { strategy: 'legacy', explicit: false, ambiguous: true };
 }
+
+export function normalizePageApiMethod(method = 'POST') {
+  if (typeof method !== 'string') return null;
+  const upper = method.toUpperCase();
+  return upper === 'GET' || upper === 'POST' ? upper : null;
+}

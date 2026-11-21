@@ -143,7 +143,8 @@ describe('goods traffic today view projection', () => {
     assert.equal(view.today.pay_order_count, null);
     assert.equal(view.today.pay_amount_yuan, 9.55);
     assert.equal(view.today.pay_conversion_pct, null);
-    assert.deepEqual(warnings.map((w) => w.field), ['goods_page_view_count', 'visited_goods_count', 'pay_order_count']);
+    assert.deepEqual(warnings.map((warning) => warning.field),
+      ['goods_page_view_count', 'visited_goods_count', 'pay_order_count']);
 
     const badPctWarnings = [];
     const badPct = toGoodsTrafficView([{ goodsId: 101 }], {
@@ -177,7 +178,7 @@ describe('goods traffic today view projection', () => {
     assert.deepEqual(view.today.hourly.map((row) => row.hour), ['00', '02']);
     assert.deepEqual(Object.keys(view.today.hourly[0]), GOODS_TRAFFIC_TODAY_HOURLY_FIELDS);
     assert.equal(view.today.hourly[0].pay_amount_yuan, null);
-    assert.equal(view.headline[1], '商品 101 今日截至 02 时累计访客 350 人，成交 745.36 元、39 单');
+    assert.equal(view.headline[1], '商品 101 今日实时访客 350 人，成交 745.36 元、39 单，小时序列截至 02 时');
 
     const empty = toGoodsTrafficView([{ goodsId: 101 }], {
       ...baseArgs({ snapshotAt: '2026-11-22 04:20:00', sources: { kind: 'single', stat: { detail: null, hourly: [] } } }),
@@ -186,7 +187,15 @@ describe('goods traffic today view projection', () => {
     assert.equal(empty.today.as_of_hour, null);
     assert.deepEqual(empty.today.hourly, []);
     assert.equal(empty.today.visitor_count, null);
-    assert.equal(empty.headline[1], '商品 101 今日暂无小时累计数据，访客 未知');
+    assert.equal(empty.headline[1], '商品 101 今日实时访客 未知，成交 未知、未知，暂无小时累计数据');
+
+    const earlyRealtimeOnly = toGoodsTrafficView([{ goodsId: 101 }], {
+      ...baseArgs({ snapshotAt: '2026-11-22 04:20:00', sources: { kind: 'single', stat: {
+        detail: { goodsUv: 12, payOrdrAmt: 25.5, payOrdrCnt: 1 }, hourly: [],
+      } } }),
+      goodsId: '101',
+    });
+    assert.equal(earlyRealtimeOnly.headline[1], '商品 101 今日实时访客 12 人，成交 25.5 元、1 单，暂无小时累计数据');
 
     const degraded = toGoodsTrafficView([{ goodsId: 101 }], {
       ...baseArgs(null), goodsId: '101', hints: ['today_unavailable'],

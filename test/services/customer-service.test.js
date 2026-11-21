@@ -44,7 +44,7 @@ it('defaults to thirty Shanghai dates ending yesterday and filters the fixed mon
   assert.deepEqual(view.trend.items.map((item) => item.date), ['2026-10-01', '2026-10-30']);
   assert.equal(view.today.snapshot_at, '2026-10-31 00:30:00');
   assert.equal(view.today.unreply_user_count, 1);
-  assert.deepEqual(view.today.hourly.map((h) => h.hour), ['00', '10']);
+  assert.deepEqual(view.today.hourly.map((entry) => entry.hour), ['00', '10']);
   assert.equal(view.mall_id, '900001');
 });
 

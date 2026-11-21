@@ -50,7 +50,7 @@ it('emits the sales block with its own caliber and window, upstream nulls and a 
   const { today } = result.envelope.data;
   assert.equal(today.caliber, '多多客服-实时数据（3 分钟人工回复率）');
   assert.equal(today.unreply_user_count, 1);
-  assert.deepEqual(today.hourly.map((h) => h.hour), ['00', '09', '10']);
+  assert.deepEqual(today.hourly.map((entry) => entry.hour), ['00', '09', '10']);
   assert.deepEqual(hints, []);
   for (const forbidden of ['CanImprove', 'Compare', '23.14']) {
     assert.equal(JSON.stringify(result.envelope.data).includes(forbidden), false, forbidden);

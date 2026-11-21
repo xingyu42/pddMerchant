@@ -34,9 +34,10 @@ it('outputs single-goods today summary and ascending hourly list under --goods-i
   const { today, headline } = result.envelope.data;
   assert.equal(today.as_of_hour, '02');
   assert.equal(today.pay_amount_yuan, 745.36);
-  assert.deepEqual(today.hourly.map((h) => h.hour), ['00', '02']);
+  assert.deepEqual(today.hourly.map((entry) => entry.hour), ['00', '02']);
   assert.equal(today.hourly[0].pay_amount_yuan, null);
   assert.equal(headline.length, 2);
+  assert.equal(headline[1], '商品 101 今日实时访客 350 人，成交 745.36 元、39 单，小时序列截至 02 时');
   assert.equal(JSON.stringify(result.envelope.data).includes('8888'), false);
 });
 

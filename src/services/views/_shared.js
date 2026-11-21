@@ -26,3 +26,8 @@ export function yuanText(value, missing = '金额未记录') {
 export function mallIdOf(ctx) {
   return ctx?.mallCtx?.activeId ?? null;
 }
+
+// 报表 headline 数值+单位格式化；缺失为 '未知'
+export function valueWithUnit(value, unit) {
+  return value === null ? '未知' : `${value} ${unit}`;
+}

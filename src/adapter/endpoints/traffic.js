@@ -1,6 +1,6 @@
 import { ExitCodes, PddCliError, responseShapeError } from '../../infra/errors.js';
 import { toFiniteNumber } from '../../infra/units.js';
-import { resultObject } from './_shared.js';
+import { requireFields, resultObject } from './_shared.js';
 
 const FLOW_FIELDS = ['uv', 'pv', 'guv', 'gpv', 'payOrdrUsrCnt', 'payOrdrCnt', 'payOrdrAmt', 'payUvRto', 'payOrdrAup', 'uvCfmVal'];
 const FLOW_METRIC_FIELDS = FLOW_FIELDS.flatMap((key) => [key, `${key}1dPln`, `${key}1dOst`]);
@@ -73,12 +73,6 @@ const GOODS_TODAY_OVERVIEW_FIELDS = ['guvRt', 'gpvRt', 'vstGoodsCntRt', 'payOrdr
 const GOODS_TODAY_STAT_FIELDS = ['goodsUv', 'goodsPv', 'goodsFavCnt', 'imprUsrCnt', 'cnsltUsrQty',
   'payOrdrCnt', 'payOrdrUsrCnt', 'payOrdrGoodsQty', 'payOrdrAmt', 'ordrVstrRto', 'payOrdrRto', 'goodsVcr'];
 const HOUR_TEXT = /^(?:[01]\d|2[0-3])$/;
-
-function requireFields(obj, required, endpointName) {
-  for (const field of required) {
-    if (!Object.hasOwn(obj, field)) throw responseShapeError(endpointName, field);
-  }
-}
 
 export const TRAFFIC_TODAY_FLOW = endpoint('traffic.todayFlow', '/sydney/api/mallFlow/queryMallFlowRtData',
   '/sycm/search_data/plate', (raw) => project(raw?.result, TODAY_FLOW_FIELDS, TODAY_FLOW_FIELDS, 'traffic.todayFlow'),

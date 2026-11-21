@@ -140,7 +140,7 @@ it('projects single goods today detail and hourly trend without yesterday blocks
   assert.equal(normalized.hourly[0].statHr, '02');
   assert.equal(JSON.stringify(normalized).includes('8888'), false);
   assert.equal(JSON.stringify(normalized).includes('9999'), false);
-  const allNullDetail = Object.fromEntries(Object.keys(fixture.result.todayGoodsDetail).map((k) => [k, null]));
+  const allNullDetail = Object.fromEntries(Object.keys(fixture.result.todayGoodsDetail).map((field) => [field, null]));
   assert.equal(TRAFFIC_GOODS_TODAY_STAT.normalize({
     result: { todayGoodsDetail: allNullDetail, todayGoodsDetailList: null },
   }).hourly.length, 0);

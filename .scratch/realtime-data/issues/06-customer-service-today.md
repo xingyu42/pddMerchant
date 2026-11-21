@@ -1,6 +1,6 @@
 # 06: `diagnose customer-service` 增加今日实时区块
 
-**What to build:** 在 `diagnose customer-service` 的 `data` 中新增 `today` 区块，输出今日 08–23 点 3 分钟人工回复率、当前待回复人数、`snapshot_at` 及 `05` 确认可用的分时咨询序列；每个回复率值显式标注 `Reply-Rate Caliber`，独立于原有逐日趋势与 `sales` 区块。
+**What to build:** 在 `diagnose customer-service` 的 `data` 中新增 `today` 区块，输出今日 3 分钟人工回复率（全天分时，原 08–23 点统计方式平台已调整为全天）、当前待回复人数、`snapshot_at` 及 `05` 确认可用的分时咨询序列；每个回复率值显式标注 `Reply-Rate Caliber`，独立于原有逐日趋势与 `sales` 区块。
 
 **Blocked by:** 02, 05
 

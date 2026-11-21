@@ -11,3 +11,13 @@ export function resultObject(raw, endpoint) {
   if (!result || typeof result !== 'object' || Array.isArray(result)) throw responseShapeError(endpoint, 'result object');
   return result;
 }
+
+// 要求目标对象存在且具备全部必填自有属性（允许属性值为显式 null）。
+export function requireFields(obj, required, endpoint, shapeLabel = 'result object') {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+    throw responseShapeError(endpoint, shapeLabel);
+  }
+  for (const field of required) {
+    if (!Object.hasOwn(obj, field)) throw responseShapeError(endpoint, field);
+  }
+}
