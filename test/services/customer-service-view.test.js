@@ -1,7 +1,7 @@
 import { it } from 'vitest';
 import assert from 'node:assert/strict';
-import { toCustomerServiceView, CS_SUMMARY_FIELDS, CS_TREND_ITEM_FIELDS, CS_SALES_SUMMARY_FIELDS,
-  CS_SALES_TREND_ITEM_FIELDS } from '../../src/services/views/customer-service.js';
+import { toCustomerServiceView, CS_SUMMARY_FIELDS, CS_TREND_ITEM_FIELDS, CS_SALES_FIELDS,
+  CS_SALES_SUMMARY_FIELDS, CS_SALES_TREND_ITEM_FIELDS } from '../../src/services/views/customer-service.js';
 
 const window = { start_date: '2026-10-01', end_date: '2026-10-30', days: 30 };
 const salesWindow = { start_date: '2026-11-10', end_date: '2026-11-16', days: 7 };
@@ -48,7 +48,7 @@ it('maps the sales block to percent and yuan with its own caliber, window and he
     { ...salesSummary, statDate: '2026-11-16', inquiryConfirmRateTop10Avg: 0.817113, inquiryConfirmRateTotalAvg: 0.278309 },
     { statDate: '2026-11-10', inquiryOrderUserCnt: 0, groupUserCnt: 0, inquiryOrderTransformRate: null,
       csSalesAmount: null, inquiryConfirmRateTop10Avg: 0.823169 }] });
-  assert.deepEqual(Object.keys(view.sales), ['caliber', 'window', 'summary', 'trend']);
+  assert.deepEqual(Object.keys(view.sales), CS_SALES_FIELDS);
   assert.equal(view.sales.caliber, '多多客服-销售数据');
   assert.deepEqual(view.sales.window, salesWindow);
   assert.deepEqual(view.sales.summary, { inquiry_user_count: 12, group_user_count: 6,

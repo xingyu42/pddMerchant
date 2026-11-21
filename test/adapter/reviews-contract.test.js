@@ -81,6 +81,8 @@ it('builds default page-10 payloads and whitelists goods score rows', () => {
 });
 
 it('rejects malformed goods scores shapes and PUA obfuscated metrics or goodsId', () => {
+  const fullRow = { goodsId: 201, goodsName: '商品', goodsUnfkUndfltRevCnt1m: 1,
+    avgDescRevScr1m: 5, avgLgstRevScr1m: 5, avgServRevScr1m: 5 };
   for (const raw of [{}, { result: null }, { result: { mallOprGoodsCntStd: 0 } },
     { result: { goodsEvaluates: [] } }, { result: { mallOprGoodsCntStd: -1, goodsEvaluates: [] } },
     { result: { mallOprGoodsCntStd: 1.5, goodsEvaluates: [] } }, { result: { mallOprGoodsCntStd: 1, goodsEvaluates: [null] } },
@@ -88,6 +90,16 @@ it('rejects malformed goods scores shapes and PUA obfuscated metrics or goodsId'
     { result: { mallOprGoodsCntStd: 1, goodsEvaluates: [{ goodsId: '  ' }] } }]) {
     assert.throws(() => REVIEWS_GOODS_SCORES.normalize(raw), { code: 'E_NETWORK' });
   }
+  for (const missingField of ['goodsUnfkUndfltRevCnt1m', 'avgDescRevScr1m', 'avgLgstRevScr1m', 'avgServRevScr1m']) {
+    const partial = { ...fullRow };
+    delete partial[missingField];
+    assert.throws(() => REVIEWS_GOODS_SCORES.normalize({ result: { mallOprGoodsCntStd: 1, goodsEvaluates: [partial] } }),
+      { code: 'E_NETWORK' });
+  }
+  const explicitNulls = { goodsId: 202, goodsName: '空值商品', goodsUnfkUndfltRevCnt1m: null,
+    avgDescRevScr1m: null, avgLgstRevScr1m: null, avgServRevScr1m: null };
+  assert.deepEqual(REVIEWS_GOODS_SCORES.normalize({ result: { mallOprGoodsCntStd: 1, goodsEvaluates: [explicitNulls] } }),
+    { totalRows: 1, data: [explicitNulls] });
   for (const field of ['goodsId', 'goodsUnfkUndfltRevCnt1m', 'avgDescRevScr1m', 'avgLgstRevScr1m', 'avgServRevScr1m']) {
     const row = { goodsId: '201', goodsName: '正常商品', goodsUnfkUndfltRevCnt1m: 38,
       avgDescRevScr1m: 4.8, avgLgstRevScr1m: 4.8, avgServRevScr1m: 4.8, [field]: '\uE123' };

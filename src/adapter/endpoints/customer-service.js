@@ -17,6 +17,15 @@ function project(result, fields, endpoint) {
     .map((field) => [field, result[field]]));
 }
 
+function requireFields(result, required, endpoint) {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    throw responseShapeError(endpoint, 'result object');
+  }
+  for (const field of required) {
+    if (!Object.hasOwn(result, field)) throw responseShapeError(endpoint, field);
+  }
+}
+
 const COMMON = {
   nav: NAV,
   errorMap: 'upstream',
@@ -41,7 +50,10 @@ export const CS_SALES_OVERVIEW = {
   ...COMMON, name: 'cs.salesOverview', strategy: 'page-api',
   apiUrl: '/desert/stat/mallSalesOverviewData',
   buildPayload: ({ startDate, endDate }) => ({ startDate, endDate }),
-  normalize: (raw) => project(raw?.result, SALES_FIELDS, 'cs.salesOverview'),
+  normalize(raw) {
+    requireFields(raw?.result, SALES_FIELDS, 'cs.salesOverview');
+    return project(raw.result, SALES_FIELDS, 'cs.salesOverview');
+  },
 };
 
 export const CS_MONTH_SALES_TREND = {
@@ -53,6 +65,12 @@ export const CS_MONTH_SALES_TREND = {
   },
   normalize(raw) {
     if (!Array.isArray(raw?.result)) throw responseShapeError('cs.monthSalesTrend', 'result array');
-    return raw.result.map((item) => project(item, SALES_TREND_FIELDS, 'cs.monthSalesTrend'));
+    return raw.result.map((item) => {
+      if (typeof item?.statDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(item.statDate)) {
+        throw responseShapeError('cs.monthSalesTrend', 'statDate YYYY-MM-DD');
+      }
+      requireFields(item, SALES_FIELDS, 'cs.monthSalesTrend');
+      return project(item, SALES_TREND_FIELDS, 'cs.monthSalesTrend');
+    });
   },
 };

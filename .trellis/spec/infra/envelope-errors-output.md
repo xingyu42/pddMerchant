@@ -61,7 +61,7 @@ Exit codes：
 - Only `meta.warnings` MAY grow for additive warnings; do not add arbitrary top-level fields。
 - `meta.v` MUST be `2`: single constant `ENVELOPE_VERSION` in `src/infra/output.js`; `buildEnvelope` writes it after merging caller meta, so commands cannot override it. Single-command, batch, error and commander usage-error envelopes all carry `v: 2`。
 - `meta` carries technical fields only (`v`, `exit_code`, `latency_ms`, `xhr_count`, `warnings`, `correlation_id`, `account*`, batch flag). Business context (`total`, `mall_id`, `threshold` …) belongs in `data`。
-- Successful `data` MUST be a plain object with `headline: string[]` (1–3 factual Chinese sentences: counts, states, missing data; no advice, scores or good/bad judgements)。
+- Successful `data` MUST be a plain object with `headline: string[]` (1–3 factual Chinese sentences: counts, states, missing data; no advice, scores or good/bad judgements; multi-block reports such as `diagnose reviews` adding `goods_scores` MAY extend up to 4 sentences so existing lines stay intact)。
 - List-like commands MUST use `{ headline, items, total, ...context }`; `data` is never a top-level array。
 - Upstream objects MUST NOT reach `data`; services project them through whitelist views in `src/services/views/`。
 - `data` MUST NOT use `data` / `meta` / `warnings` as top-level keys (reserved by `normalizeRunResult`); warnings travel via the `{ data, warnings }` return shape。

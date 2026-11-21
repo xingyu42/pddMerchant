@@ -80,6 +80,9 @@ function goodsScore(row) {
   if (!row || typeof row !== 'object' || Array.isArray(row) || row.goodsId == null || String(row.goodsId).trim() === '') {
     throw responseShapeError('reviews.goodsScores', 'goodsEvaluates[].goodsId');
   }
+  if (GOODS_SCORE_NUMBERS.some((field) => !Object.hasOwn(row, field))) {
+    throw responseShapeError('reviews.goodsScores', 'goodsEvaluates[] required fields');
+  }
   if (['goodsId', ...GOODS_SCORE_NUMBERS].some((field) => typeof row[field] === 'string' && /[\uE000-\uF8FF]/.test(row[field]))) {
     throw new PddCliError({ code: 'E_BUSINESS', message: '平台返回字体混淆数据',
       hint: '明文商品评价接口已变化，请核验平台接口', exitCode: ExitCodes.BUSINESS });

@@ -32,6 +32,7 @@ const CS_SALES_REFERENCE_METRICS = metricTable([
 ]);
 export const CS_SUMMARY_FIELDS = CS_METRICS.fields;
 export const CS_TREND_ITEM_FIELDS = Object.freeze(['date', ...CS_SUMMARY_FIELDS, ...CS_REFERENCE_METRICS.fields]);
+export const CS_SALES_FIELDS = Object.freeze(['caliber', 'window', 'summary', 'trend']);
 export const CS_SALES_SUMMARY_FIELDS = CS_SALES_METRICS.fields;
 export const CS_SALES_TREND_ITEM_FIELDS = Object.freeze(['date', ...CS_SALES_SUMMARY_FIELDS,
   ...CS_SALES_REFERENCE_METRICS.fields]);

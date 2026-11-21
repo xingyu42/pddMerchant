@@ -63,5 +63,19 @@ it('projects confirmed sales metrics and drops the improvable amount and compari
   for (const spec of [CS_SALES_OVERVIEW, CS_MONTH_SALES_TREND]) {
     assert.throws(() => spec.normalize({}), { code: 'E_NETWORK' });
   }
+  assert.throws(() => CS_SALES_OVERVIEW.normalize({ result: {} }), { code: 'E_NETWORK' });
   assert.throws(() => CS_MONTH_SALES_TREND.normalize({ result: [null] }), { code: 'E_NETWORK' });
+  assert.throws(() => CS_MONTH_SALES_TREND.normalize({ result: [{}] }), { code: 'E_NETWORK' });
+  assert.throws(() => CS_MONTH_SALES_TREND.normalize({ result: [{ ...result, statDate: 'invalid' }] }), { code: 'E_NETWORK' });
+  for (const field of ['inquiryOrderUserCnt', 'groupUserCnt', 'inquiryOrderTransformRate', 'csSalesAmount']) {
+    const missingOverview = { ...result };
+    delete missingOverview[field];
+    assert.throws(() => CS_SALES_OVERVIEW.normalize({ result: missingOverview }), { code: 'E_NETWORK' });
+    assert.throws(() => CS_MONTH_SALES_TREND.normalize({ result: [missingOverview] }), { code: 'E_NETWORK' });
+  }
+  const explicitNullSales = { inquiryOrderUserCnt: null, groupUserCnt: null,
+    inquiryOrderTransformRate: null, csSalesAmount: null };
+  assert.deepEqual(CS_SALES_OVERVIEW.normalize({ result: explicitNullSales }), explicitNullSales);
+  assert.deepEqual(CS_MONTH_SALES_TREND.normalize({ result: [{ statDate: '2026-11-16', ...explicitNullSales }] }),
+    [{ statDate: '2026-11-16', ...explicitNullSales }]);
 });

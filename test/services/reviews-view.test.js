@@ -105,4 +105,10 @@ it('projects goods scores with caliber, rounded averages, zero-review nulls and 
   const withoutScores = toReviewsView({ reviews: { total: 0, truncated: false, items: [] }, goodsScores: null }, { days: 30 });
   assert.equal(withoutScores.goods_scores, null);
   assert.deepEqual(withoutScores.headline, ['近 30 天中差评 0 条']);
+  const nullCountView = toReviewsView({ reviews: { total: 0, truncated: false, items: [] },
+    goodsScores: { total: 1, truncated: false, items: [{ goodsId: '203', goodsName: '缺失计数',
+      goodsUnfkUndfltRevCnt1m: null, avgDescRevScr1m: 0, avgLgstRevScr1m: 0, avgServRevScr1m: 0 }] } }, { days: 30 });
+  assert.deepEqual(nullCountView.goods_scores.items[0], { goods_id: '203', goods_name: '缺失计数', review_count: null,
+    desc_score_avg: null, logistics_score_avg: null, service_score_avg: null });
+  assert.deepEqual(nullCountView.headline, ['近 30 天中差评 0 条', '近 30 日有效评价商品 0 个']);
 });

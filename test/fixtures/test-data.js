@@ -109,6 +109,15 @@ function syntheticGoodsScore(index) {
     avgDescRevScr1m: 4.89473684, avgLgstRevScr1m: 4.756, avgServRevScr1m: 4.912, ...excluded };
 }
 
+function addPagedFixtures(fixtures, endpointName, total, pageSize, buildPayload) {
+  for (let pageNo = 1; pageNo <= Math.max(1, Math.ceil(total / pageSize)); pageNo += 1) {
+    const offset = (pageNo - 1) * pageSize;
+    const size = Math.min(pageSize, total - offset);
+    const suffix = pageNo === 1 ? '' : `.page${pageNo}`;
+    fixtures[`endpoints/${endpointName}${suffix}.json`] = success(buildPayload(offset, size));
+  }
+}
+
 export function createReviewFixtures({ count = 41, goodsScoresCount = 2 } = {}) {
   const fixtures = {
     'endpoints/reviews.keywordAgg.json': success({
@@ -119,19 +128,14 @@ export function createReviewFixtures({ count = 41, goodsScoresCount = 2 } = {}) 
         ({ typeName, positive: index === 0 ? 4 : 0, negative: index === 1 ? 5 : 0, proportion: index === 0 ? 44 : 14 })),
     }),
   };
-  for (let pageNo = 1; pageNo <= Math.max(1, Math.ceil(count / REVIEW_PAGE_SIZE)); pageNo += 1) {
-    const offset = (pageNo - 1) * REVIEW_PAGE_SIZE;
-    const data = Array.from({ length: Math.min(REVIEW_PAGE_SIZE, count - offset) }, (_unused, index) => syntheticReview(offset + index));
-    const suffix = pageNo === 1 ? '' : `.page${pageNo}`;
-    fixtures[`endpoints/reviews.list${suffix}.json`] = success({ totalRows: count, data });
-  }
-  for (let pageNo = 1; pageNo <= Math.max(1, Math.ceil(goodsScoresCount / GOODS_SCORES_PAGE_SIZE)); pageNo += 1) {
-    const offset = (pageNo - 1) * GOODS_SCORES_PAGE_SIZE;
-    const goodsEvaluates = Array.from({ length: Math.min(GOODS_SCORES_PAGE_SIZE, goodsScoresCount - offset) },
-      (_unused, index) => syntheticGoodsScore(offset + index));
-    const suffix = pageNo === 1 ? '' : `.page${pageNo}`;
-    fixtures[`endpoints/reviews.goodsScores${suffix}.json`] = success({ mallOprGoodsCntStd: goodsScoresCount, goodsEvaluates });
-  }
+  addPagedFixtures(fixtures, 'reviews.list', count, REVIEW_PAGE_SIZE, (offset, size) => ({
+    totalRows: count,
+    data: Array.from({ length: size }, (_unused, index) => syntheticReview(offset + index)),
+  }));
+  addPagedFixtures(fixtures, 'reviews.goodsScores', goodsScoresCount, GOODS_SCORES_PAGE_SIZE, (offset, size) => ({
+    mallOprGoodsCntStd: goodsScoresCount,
+    goodsEvaluates: Array.from({ length: size }, (_unused, index) => syntheticGoodsScore(offset + index)),
+  }));
   return fixtures;
 }
 

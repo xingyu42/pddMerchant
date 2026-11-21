@@ -76,7 +76,7 @@ function headlines(days, keywordTags, issueTypes, reviews) {
 // 平台对没有有效评价的商品返回均分 0，按缺失输出 null。
 function goodsScoreView(item) {
   const count = toFiniteNumber(item.goodsUnfkUndfltRevCnt1m);
-  const average = (value) => (count === 0 ? null : round(value));
+  const average = (value) => (count === null || count === 0 ? null : round(value));
   return { goods_id: text(item.goodsId), goods_name: text(item.goodsName), review_count: count,
     desc_score_avg: average(item.avgDescRevScr1m), logistics_score_avg: average(item.avgLgstRevScr1m),
     service_score_avg: average(item.avgServRevScr1m) };
