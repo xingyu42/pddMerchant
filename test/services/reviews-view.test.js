@@ -1,6 +1,7 @@
 import { it } from 'vitest';
 import assert from 'node:assert/strict';
-import { toReviewsView, toGoodsReviewsView, REVIEW_TAG_FIELDS, ISSUE_TYPE_FIELDS, REVIEW_FIELDS } from '../../src/services/views/reviews.js';
+import { toReviewsView, toGoodsReviewsView, REVIEW_TAG_FIELDS, ISSUE_TYPE_FIELDS, REVIEW_FIELDS,
+  GOODS_SCORES_FIELDS, GOODS_SCORE_FIELDS } from '../../src/services/views/reviews.js';
 
 it('projects aggregates, keeps platform shares and masks phones in review and append text', () => {
   const view = toReviewsView({ keywords: { positiveKeywordList: [{ keywordName: '好', num: 2 }],
@@ -72,4 +73,36 @@ it('projects the goods review list with scope, stars and truncation headlines', 
   const all = toGoodsReviewsView({ total: 0, truncated: false, items: [] }, { days: 30 });
   assert.deepEqual(all.headline, ['近 30 天全部星级评价 0 条']);
   assert.deepEqual([all.goods_id, all.stars, all.items], [null, null, []]);
+});
+
+it('projects goods scores with caliber, rounded averages, zero-review nulls and headline', () => {
+  const goodsScores = {
+    total: 2,
+    truncated: false,
+    items: [
+      { goodsId: 201, goodsName: '商品A', goodsUnfkUndfltRevCnt1m: 38,
+        avgDescRevScr1m: 4.89473684, avgLgstRevScr1m: 4.756, avgServRevScr1m: 4.912 },
+      { goodsId: '202', goodsName: '零评价商品', goodsUnfkUndfltRevCnt1m: 0,
+        avgDescRevScr1m: 0, avgLgstRevScr1m: 0, avgServRevScr1m: 0 },
+    ],
+  };
+  const view = toReviewsView({ reviews: { total: 0, truncated: false, items: [] }, goodsScores }, { days: 60 });
+  assert.deepEqual(Object.keys(view.goods_scores), GOODS_SCORES_FIELDS);
+  assert.deepEqual(Object.keys(view.goods_scores.items[0]), GOODS_SCORE_FIELDS);
+  assert.deepEqual(view.goods_scores, {
+    caliber: '数据中心-评价数据',
+    window_days: 30,
+    total: 2,
+    truncated: false,
+    items: [
+      { goods_id: '201', goods_name: '商品A', review_count: 38,
+        desc_score_avg: 4.89, logistics_score_avg: 4.76, service_score_avg: 4.91 },
+      { goods_id: '202', goods_name: '零评价商品', review_count: 0,
+        desc_score_avg: null, logistics_score_avg: null, service_score_avg: null },
+    ],
+  });
+  assert.deepEqual(view.headline, ['近 60 天中差评 0 条', '近 30 日有效评价商品 1 个']);
+  const withoutScores = toReviewsView({ reviews: { total: 0, truncated: false, items: [] }, goodsScores: null }, { days: 30 });
+  assert.equal(withoutScores.goods_scores, null);
+  assert.deepEqual(withoutScores.headline, ['近 30 天中差评 0 条']);
 });

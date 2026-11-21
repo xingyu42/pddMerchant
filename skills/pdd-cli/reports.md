@@ -35,7 +35,8 @@
 - `--days` 取 30 / 60 / 90 / 180，默认 30。
 - `keyword_tags`：平台满意/不满意标签及计数。`issue_types[]`：五类问题正负面计数和平台占比。`negative_reviews`：`{ items, total, truncated }`，为描述评分 1–3 星的中差评，最多采集平台可查看的近 2000 条，超出时 `truncated:true`。逐条好评或单个商品的评价用 `goods reviews`。
 - 条目含商品 ID、评价时间、三项评分、正文、追评、标签、已回复状态和图片数；平台给出历史评分时三项评分为 `null`。正文中的手机号已掩码为 `138****5678`。
-- 三个数据源分别降级为 `null` 并提示，全部失败时命令失败。
+- `goods_scores`：口径固定「数据中心-评价数据」，窗口固定近 30 日（`window_days: 30`），在任何 `--days` 下均输出，与 `negative_reviews.total` 各自陈述。`items[]` 含 `goods_id`、`goods_name`、`review_count`（近 30 日有效评价数）以及 `desc_score_avg` / `logistics_score_avg` / `service_score_avg`（保留 2 位小数）；评价数为 0 的商品三项平均分为 `null`。每页 10 条、最多 20 页（200 个商品），`total` 取首页总数，超出时 `truncated:true` 并附提示；headline 新增「近 30 日有效评价商品 N 个」（统计 `review_count > 0` 的商品数）。
+- 原有三个数据源（标签聚合、问题类型、中差评列表）分别降级为 `null` 并提示，全部失败时命令失败。`goods_scores` 独立走可选降级：拉取失败时 `goods_scores: null` 并附提示，不新增商品评分 headline 行，命令仍成功且退出码不变。
 
 ## diagnose traffic
 

@@ -1,6 +1,7 @@
 import { it } from 'vitest';
 import assert from 'node:assert/strict';
-import { REVIEWS_LIST, REVIEWS_KEYWORD_AGG, REVIEWS_TYPE_AGG, REVIEWS_PAGE_SIZE, REVIEWS_VIEW_LIMIT }
+import { REVIEWS_LIST, REVIEWS_KEYWORD_AGG, REVIEWS_TYPE_AGG, REVIEWS_PAGE_SIZE, REVIEWS_VIEW_LIMIT,
+  REVIEWS_GOODS_SCORES, GOODS_SCORES_PAGE_SIZE, GOODS_SCORES_MAX_PAGES }
   from '../../src/adapter/endpoints/reviews.js';
 
 it('sends exact signed POST payloads with page size forty and caller-supplied star and goods filters', () => {
@@ -53,4 +54,44 @@ it('reads an explicit null keyword list as empty while still rejecting a missing
   assert.throws(() => REVIEWS_KEYWORD_AGG.normalize({ result: null }), { code: 'E_NETWORK' });
   assert.throws(() => REVIEWS_TYPE_AGG.normalize({ result: { typeList: null } }), { code: 'E_NETWORK' });
   assert.throws(() => REVIEWS_LIST.normalize({ result: { totalRows: 0, data: null } }), { code: 'E_NETWORK' });
+});
+
+it('builds default page-10 payloads and whitelists goods score rows', () => {
+  assert.equal(REVIEWS_GOODS_SCORES.strategy, 'page-api');
+  assert.equal(REVIEWS_GOODS_SCORES.nav.url, 'https://mms.pinduoduo.com/sycm/goods_quality/comment');
+  assert.equal(REVIEWS_GOODS_SCORES.apiUrl, '/sydney/api/saleQuality/queryGoodsEvaluateVO');
+  assert.equal(REVIEWS_GOODS_SCORES.fixtureListKey, 'result.goodsEvaluates');
+  assert.equal(GOODS_SCORES_PAGE_SIZE, 10);
+  assert.equal(GOODS_SCORES_MAX_PAGES, 20);
+  assert.deepEqual(REVIEWS_GOODS_SCORES.buildPayload({}), { pageSize: 10, pageNo: 1, sortCol: 5, sortType: 1 });
+  assert.deepEqual(REVIEWS_GOODS_SCORES.buildPayload({ pageNo: 2, noise: 1 }),
+    { pageSize: 10, pageNo: 2, sortCol: 5, sortType: 1 });
+  const row = { goodsId: 201, goodsName: '商品名\uE100', goodsUnfkUndfltRevCnt1m: 38,
+    avgDescRevScr1m: 4.8947, avgLgstRevScr1m: 4.756, avgServRevScr1m: 4.912,
+    todayEvaluationCount: 3, avgDescRank: 12, avgLgstRank: 15, avgServRank: 18,
+    starless4OrdrDfltRevCnt1m: 4, avgUapplDescRevScr1m: 4.8947, avgAntiDescCtgrpRevScrPct1m: 0,
+    hdThumbUrl: 'https://img.example.test/SYN.jpg', goodsStatus: 1 };
+  assert.deepEqual(REVIEWS_GOODS_SCORES.normalize({ result: { mallOprGoodsCntStd: 1, goodsEvaluates: [row] } }), {
+    totalRows: 1,
+    data: [{ goodsId: 201, goodsName: '商品名\uE100', goodsUnfkUndfltRevCnt1m: 38,
+      avgDescRevScr1m: 4.8947, avgLgstRevScr1m: 4.756, avgServRevScr1m: 4.912 }],
+  });
+  assert.deepEqual(REVIEWS_GOODS_SCORES.normalize({ result: { mallOprGoodsCntStd: 0, goodsEvaluates: null } }),
+    { totalRows: 0, data: [] });
+});
+
+it('rejects malformed goods scores shapes and PUA obfuscated metrics or goodsId', () => {
+  for (const raw of [{}, { result: null }, { result: { mallOprGoodsCntStd: 0 } },
+    { result: { goodsEvaluates: [] } }, { result: { mallOprGoodsCntStd: -1, goodsEvaluates: [] } },
+    { result: { mallOprGoodsCntStd: 1.5, goodsEvaluates: [] } }, { result: { mallOprGoodsCntStd: 1, goodsEvaluates: [null] } },
+    { result: { mallOprGoodsCntStd: 1, goodsEvaluates: [[]] } },
+    { result: { mallOprGoodsCntStd: 1, goodsEvaluates: [{ goodsId: '  ' }] } }]) {
+    assert.throws(() => REVIEWS_GOODS_SCORES.normalize(raw), { code: 'E_NETWORK' });
+  }
+  for (const field of ['goodsId', 'goodsUnfkUndfltRevCnt1m', 'avgDescRevScr1m', 'avgLgstRevScr1m', 'avgServRevScr1m']) {
+    const row = { goodsId: '201', goodsName: '正常商品', goodsUnfkUndfltRevCnt1m: 38,
+      avgDescRevScr1m: 4.8, avgLgstRevScr1m: 4.8, avgServRevScr1m: 4.8, [field]: '\uE123' };
+    assert.throws(() => REVIEWS_GOODS_SCORES.normalize({ result: { mallOprGoodsCntStd: 1, goodsEvaluates: [row] } }),
+      { code: 'E_BUSINESS' });
+  }
 });

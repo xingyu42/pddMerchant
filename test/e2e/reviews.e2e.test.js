@@ -20,8 +20,23 @@ it('collects two pages, platform tags and five issue types while excluding priva
   assert.equal(view.negative_reviews.items[0].picture_count, 2);
   assert.equal(view.negative_reviews.items[1].history_score, 3);
   assert.equal(view.negative_reviews.items[1].desc_score, null);
+  assert.deepEqual(view.goods_scores, {
+    caliber: '数据中心-评价数据',
+    window_days: 30,
+    total: 2,
+    truncated: false,
+    items: [
+      { goods_id: '201', goods_name: '合成商品1', review_count: 38,
+        desc_score_avg: 4.89, logistics_score_avg: 4.76, service_score_avg: 4.91 },
+      { goods_id: '202', goods_name: '零评价商品', review_count: 0,
+        desc_score_avg: null, logistics_score_avg: null, service_score_avg: null },
+    ],
+  });
+  assert.ok(view.headline.includes('近 30 日有效评价商品 1 个'));
   for (const forbidden of ['13812345678', '13987654321', 'SYN-REVIEW-PRIVATE', 'avatar', 'orderSn',
-    'orderId', 'specs', 'thumbUrl', 'goodsInfoUrl', 'orderSnapshotInfo', 'pictures', 'video']) {
+    'orderId', 'specs', 'thumbUrl', 'goodsInfoUrl', 'orderSnapshotInfo', 'pictures', 'video',
+    'todayEvaluationCount', 'avgDescRank', 'avgLgstRank', 'avgServRank', 'starless4OrdrDfltRevCnt1m',
+    'avgUapplDescRevScr1m', 'avgAntiDescCtgrpRevScrPct1m', 'hdThumbUrl', 'SYN-GOODS-THUMB', 'goodsStatus']) {
     assert.equal(JSON.stringify(view).includes(forbidden), false, forbidden);
   }
   for (const review of view.negative_reviews.items) assert.equal(Object.hasOwn(review, 'name'), false);
@@ -65,6 +80,33 @@ it.each([30, 60, 90, 180])('accepts days %s', (days) => {
   const result = runCli(['diagnose', 'reviews', '--days', String(days)], { fixtures: createReviewFixtures() });
   assert.equal(result.status, 0);
   assert.equal(result.envelope.data.window_days, days);
+  assert.equal(result.envelope.data.goods_scores.window_days, 30);
+  assert.equal(result.envelope.data.goods_scores.items.length, 2);
+  assert.equal(result.envelope.data.goods_scores.items[0].goods_id, '201');
+});
+
+it('caps goods scores at two hundred items with a truncation hint', () => {
+  const { status, envelope } = runCli(['diagnose', 'reviews'], { fixtures: createReviewFixtures({ goodsScoresCount: 205 }) });
+  assert.equal(status, 0);
+  assert.equal(envelope.data.goods_scores.items.length, 200);
+  assert.equal(envelope.data.goods_scores.total, 205);
+  assert.equal(envelope.data.goods_scores.truncated, true);
+  assert.ok(envelope.data.hints.includes('商品评分列表已达 200 个商品上限，结果已截断'));
+});
+
+it('degrades goods scores failure without failing the report', () => {
+  const fixtures = { ...createReviewFixtures(), 'endpoints/reviews.goodsScores.json': {
+    __throws: true, __error: { code: 'E_NETWORK', message: 'goods score unavailable', exitCode: 5 },
+  } };
+  const result = runCli(['diagnose', 'reviews'], { fixtures });
+  assert.equal(result.status, 0);
+  assert.equal(result.envelope.ok, true);
+  assert.equal(result.envelope.data.goods_scores, null);
+  assert.deepEqual(result.envelope.data.hints, ['商品评分拉取失败']);
+  assert.equal(result.envelope.data.headline.some((line) => line.includes('近 30 日有效评价商品')), false);
+  assert.notEqual(result.envelope.data.keyword_tags, null);
+  assert.notEqual(result.envelope.data.issue_types, null);
+  assert.notEqual(result.envelope.data.negative_reviews, null);
 });
 
 it('rejects forty-five days with exit two', () => {

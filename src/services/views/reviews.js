@@ -1,4 +1,4 @@
-import { toLocalDateTime, toFiniteNumber } from '../../infra/units.js';
+import { toLocalDateTime, toFiniteNumber, round } from '../../infra/units.js';
 import { text } from './_shared.js';
 import { defineReport, reportHints } from '../operating-report.js';
 
@@ -8,6 +8,7 @@ export const REVIEWS_REPORT = defineReport({
   hints: {
     keywords_unavailable: '评价标签聚合拉取失败', types_unavailable: '评价问题类型拉取失败',
     reviews_unavailable: '中差评列表拉取失败', list_truncated: '中差评列表已达平台可查看的近 2000 条上限，结果已截断',
+    goods_scores_unavailable: '商品评分拉取失败', goods_scores_truncated: '商品评分列表已达 200 个商品上限，结果已截断',
   },
 });
 
@@ -21,6 +22,13 @@ export const REVIEW_TAG_FIELDS = Object.freeze(['name', 'count']);
 export const ISSUE_TYPE_FIELDS = Object.freeze(['name', 'positive_count', 'negative_count', 'share_pct']);
 export const REVIEW_FIELDS = Object.freeze(['goods_id', 'reviewed_at', 'desc_score',
   'logistics_score', 'service_score', 'history_score', 'comment', 'append_comment', 'tags', 'replied', 'picture_count']);
+
+// 商品评分取自数据中心「近30日存在有效评价的商品」，窗口由平台固定，与 --days 无关。
+const GOODS_SCORES_CALIBER = '数据中心-评价数据';
+const GOODS_SCORES_WINDOW_DAYS = 30;
+export const GOODS_SCORES_FIELDS = Object.freeze(['caliber', 'window_days', 'items', 'total', 'truncated']);
+export const GOODS_SCORE_FIELDS = Object.freeze(['goods_id', 'goods_name', 'review_count',
+  'desc_score_avg', 'logistics_score_avg', 'service_score_avg']);
 
 function maskedText(value) {
   return typeof value === 'string' ? value.replace(/1[3-9]\d{9}/g,
@@ -65,16 +73,36 @@ function headlines(days, keywordTags, issueTypes, reviews) {
   return [zeros.length ? `近 ${days} 天${zeros.join('，')}` : `近 ${days} 天评价数据缺失`];
 }
 
+// 平台对没有有效评价的商品返回均分 0，按缺失输出 null。
+function goodsScoreView(item) {
+  const count = toFiniteNumber(item.goodsUnfkUndfltRevCnt1m);
+  const average = (value) => (count === 0 ? null : round(value));
+  return { goods_id: text(item.goodsId), goods_name: text(item.goodsName), review_count: count,
+    desc_score_avg: average(item.avgDescRevScr1m), logistics_score_avg: average(item.avgLgstRevScr1m),
+    service_score_avg: average(item.avgServRevScr1m) };
+}
+
+function goodsScoresView(scores) {
+  return scores === null ? null : { caliber: GOODS_SCORES_CALIBER, window_days: GOODS_SCORES_WINDOW_DAYS,
+    items: scores.items.map(goodsScoreView), total: scores.total, truncated: scores.truncated };
+}
+
 function reviewList(reviews) {
   return { items: reviews.items.map(reviewView), total: reviews.total, truncated: reviews.truncated };
 }
 
-export function toReviewsView({ keywords = null, types = null, reviews = null }, { days, hints = [], mallId = null }) {
+export function toReviewsView({ keywords = null, types = null, reviews = null, goodsScores = null },
+  { days, hints = [], mallId = null }) {
   const keywordTags = keywordView(keywords);
   const issueTypes = issueView(types);
   const negativeReviews = reviews === null ? null : reviewList(reviews);
-  return { headline: headlines(days, keywordTags, issueTypes, negativeReviews), window_days: days,
-    keyword_tags: keywordTags, issue_types: issueTypes, negative_reviews: negativeReviews,
+  const scores = goodsScoresView(goodsScores);
+  const headline = headlines(days, keywordTags, issueTypes, negativeReviews);
+  if (scores) {
+    headline.push(`近 ${GOODS_SCORES_WINDOW_DAYS} 日有效评价商品 ${scores.items.filter((item) => item.review_count > 0).length} 个`);
+  }
+  return { headline, window_days: days,
+    keyword_tags: keywordTags, issue_types: issueTypes, negative_reviews: negativeReviews, goods_scores: scores,
     hints: reportHints(REVIEWS_REPORT, hints), mall_id: mallId };
 }
 

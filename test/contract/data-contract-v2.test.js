@@ -30,7 +30,8 @@ import { EXPERIENCE_INDICATOR_FIELDS, EXPERIENCE_TREND_ITEM_FIELDS,
   EXPERIENCE_SNAPSHOT_FIELDS } from '../../src/services/views/experience.js';
 import { CS_SUMMARY_FIELDS, CS_TREND_ITEM_FIELDS, CS_SALES_SUMMARY_FIELDS,
   CS_SALES_TREND_ITEM_FIELDS } from '../../src/services/views/customer-service.js';
-import { REVIEW_TAG_FIELDS, ISSUE_TYPE_FIELDS, REVIEW_FIELDS } from '../../src/services/views/reviews.js';
+import { REVIEW_TAG_FIELDS, ISSUE_TYPE_FIELDS, REVIEW_FIELDS,
+  GOODS_SCORES_FIELDS, GOODS_SCORE_FIELDS } from '../../src/services/views/reviews.js';
 import { TRAFFIC_ITEM_FIELDS, TRAFFIC_SUMMARY_FIELDS, TRAFFIC_TODAY_FIELDS,
   TRAFFIC_TODAY_HOURLY_FIELDS } from '../../src/services/views/traffic.js';
 import { GOODS_TRAFFIC_ITEM_FIELDS } from '../../src/services/views/goods-traffic.js';
@@ -99,7 +100,8 @@ const V2_CASES = [
       'sales.trend.items[]': CS_SALES_TREND_ITEM_FIELDS } },
   { command: 'diagnose.reviews', args: ['diagnose', 'reviews'], fixtures: createReviewFixtures(),
     entityFields: { 'keyword_tags.positive[]': REVIEW_TAG_FIELDS, 'keyword_tags.negative[]': REVIEW_TAG_FIELDS,
-      'issue_types[]': ISSUE_TYPE_FIELDS, 'negative_reviews.items[]': REVIEW_FIELDS } },
+      'issue_types[]': ISSUE_TYPE_FIELDS, 'negative_reviews.items[]': REVIEW_FIELDS,
+      goods_scores: GOODS_SCORES_FIELDS, 'goods_scores.items[]': GOODS_SCORE_FIELDS } },
   { command: 'goods.reviews', args: ['goods', 'reviews'], fixtures: createReviewFixtures(),
     entityFields: { 'items[]': REVIEW_FIELDS } },
   { command: 'diagnose.experience', args: ['diagnose', 'experience'], fixtures: createExperienceFixtures(),

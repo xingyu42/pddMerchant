@@ -2,12 +2,13 @@ import { beforeEach, it, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import { PddCliError } from '../../src/infra/errors.js';
 
-const fixtures = vi.hoisted(() => ({ calls: [], responses: {}, errors: {}, pages: null }));
+const fixtures = vi.hoisted(() => ({ calls: [], responses: {}, errors: {}, pages: null, goodsScorePages: null }));
 vi.mock('../../src/adapter/run-endpoint.js', async (importOriginal) => ({ ...(await importOriginal()),
   async runEndpoint(_page, spec, params) {
     fixtures.calls.push({ name: spec.name, params });
     if (fixtures.errors[spec.name]) throw fixtures.errors[spec.name];
     if (spec.name === 'reviews.list' && fixtures.pages) return fixtures.pages(params.pageNo);
+    if (spec.name === 'reviews.goodsScores' && fixtures.goodsScorePages) return fixtures.goodsScorePages(params.pageNo);
     return fixtures.responses[spec.name];
   },
 }));
@@ -20,8 +21,10 @@ beforeEach(() => {
   fixtures.calls = [];
   fixtures.errors = {};
   fixtures.pages = null;
+  fixtures.goodsScorePages = null;
   fixtures.responses = { 'reviews.keywordAgg': { positiveKeywordList: [], negativeKeywordList: [] },
-    'reviews.typeAgg': { typeList: [] }, 'reviews.list': { data: [], totalRows: 0 } };
+    'reviews.typeAgg': { typeList: [] }, 'reviews.list': { data: [], totalRows: 0 },
+    'reviews.goodsScores': { data: [], totalRows: 0 } };
 });
 
 it.each([[30, 1], [60, 5], [90, 4], [180, 3]])('maps %s days to rangeType %s and second timestamps', async (days, rangeType) => {
@@ -71,7 +74,7 @@ it.each([['reviews.keywordAgg', 'keyword_tags'], ['reviews.typeAgg', 'issue_type
   const view = await getReviewsView(ctx);
   assert.equal(view[field], null);
   assert.equal(view.hints.length, 1);
-  assert.equal(fixtures.calls.length, 3);
+  assert.equal(fixtures.calls.length, 4);
 });
 
 it('throws the last typed error when all three sources fail', async () => {
@@ -79,6 +82,46 @@ it('throws the last typed error when all three sources fail', async () => {
     fixtures.errors[name] = new PddCliError({ code: 'E_NETWORK', message: name, exitCode: 5 });
   }
   await assert.rejects(getReviewsView(ctx), (error) => error === fixtures.errors['reviews.list']);
+  assert.equal(fixtures.calls.some((call) => call.name === 'reviews.goodsScores'), false);
+});
+
+it('collects multi-page goods scores, caps at twenty pages and isolates failures across all days choices', async () => {
+  const row = (id) => ({ goodsId: id, goodsName: `商品${id}`, goodsUnfkUndfltRevCnt1m: 1,
+    avgDescRevScr1m: 5, avgLgstRevScr1m: 5, avgServRevScr1m: 5 });
+  fixtures.goodsScorePages = (page) => ({ totalRows: page === 1 ? 21 : 0,
+    data: Array.from({ length: page === 3 ? 1 : 10 }, (_unused, index) => row((page - 1) * 10 + index + 1)) });
+  const view = await getReviewsView(ctx);
+  assert.deepEqual([view.goods_scores.items.length, view.goods_scores.total, view.goods_scores.truncated, view.goods_scores.window_days],
+    [21, 21, false, 30]);
+  assert.deepEqual(fixtures.calls.filter((call) => call.name === 'reviews.goodsScores').map((call) => call.params),
+    [{ page: 1, pageNo: 1 }, { page: 2, pageNo: 2 }, { page: 3, pageNo: 3 }]);
+
+  fixtures.goodsScorePages = () => ({ totalRows: 205, data: Array.from({ length: 10 }, (_u, idx) => row(idx + 1)) });
+  const capped = await getReviewsView(ctx);
+  assert.deepEqual([capped.goods_scores.items.length, capped.goods_scores.total, capped.goods_scores.truncated], [200, 205, true]);
+  assert.ok(capped.hints.includes('商品评分列表已达 200 个商品上限，结果已截断'));
+
+  fixtures.goodsScorePages = () => ({ totalRows: 200, data: Array.from({ length: 10 }, (_u, idx) => row(idx + 1)) });
+  const exact = await getReviewsView(ctx);
+  assert.deepEqual([exact.goods_scores.items.length, exact.goods_scores.total, exact.goods_scores.truncated, exact.hints],
+    [200, 200, false, []]);
+
+  fixtures.goodsScorePages = null;
+  fixtures.errors['reviews.goodsScores'] = new PddCliError({ code: 'E_NETWORK', message: 'goods score down', exitCode: 5 });
+  const failed = await getReviewsView(ctx);
+  assert.equal(failed.goods_scores, null);
+  assert.deepEqual(failed.hints, ['商品评分拉取失败']);
+  assert.notEqual(failed.negative_reviews, null);
+
+  fixtures.errors = {};
+  fixtures.responses['reviews.goodsScores'] = { totalRows: 1, data: [row(1)] };
+  for (const days of [30, 60, 90, 180]) {
+    fixtures.calls = [];
+    const res = await getReviewsView(ctx, { days });
+    const scoreCall = fixtures.calls.find((call) => call.name === 'reviews.goodsScores');
+    assert.deepEqual(scoreCall.params, { page: 1, pageNo: 1 });
+    assert.equal(res.goods_scores.window_days, 30);
+  }
 });
 
 it('stops without truncation when the list holds exactly the view limit', async () => {

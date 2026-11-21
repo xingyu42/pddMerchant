@@ -93,8 +93,23 @@ function syntheticReview(index) {
 }
 
 const REVIEW_PAGE_SIZE = 40;
+const GOODS_SCORES_PAGE_SIZE = 10;
 
-export function createReviewFixtures({ count = 41 } = {}) {
+function syntheticGoodsScore(index) {
+  const excluded = {
+    todayEvaluationCount: 3, avgDescRank: 12, avgLgstRank: 15, avgServRank: 18,
+    starless4OrdrDfltRevCnt1m: 4, avgUapplDescRevScr1m: 4.8947, avgAntiDescCtgrpRevScrPct1m: 0,
+    hdThumbUrl: 'https://img.example.test/SYN-GOODS-THUMB.jpg', goodsStatus: 1,
+  };
+  if (index === 1) {
+    return { goodsId: 202, goodsName: '零评价商品', goodsUnfkUndfltRevCnt1m: 0,
+      avgDescRevScr1m: 0, avgLgstRevScr1m: 0, avgServRevScr1m: 0, ...excluded };
+  }
+  return { goodsId: 201 + index, goodsName: `合成商品${index + 1}`, goodsUnfkUndfltRevCnt1m: 38,
+    avgDescRevScr1m: 4.89473684, avgLgstRevScr1m: 4.756, avgServRevScr1m: 4.912, ...excluded };
+}
+
+export function createReviewFixtures({ count = 41, goodsScoresCount = 2 } = {}) {
   const fixtures = {
     'endpoints/reviews.keywordAgg.json': success({
       positiveKeywordList: [{ keywordName: '做工好', num: 4 }], negativeKeywordList: [{ keywordName: '描述不符', num: 2 }],
@@ -109,6 +124,13 @@ export function createReviewFixtures({ count = 41 } = {}) {
     const data = Array.from({ length: Math.min(REVIEW_PAGE_SIZE, count - offset) }, (_unused, index) => syntheticReview(offset + index));
     const suffix = pageNo === 1 ? '' : `.page${pageNo}`;
     fixtures[`endpoints/reviews.list${suffix}.json`] = success({ totalRows: count, data });
+  }
+  for (let pageNo = 1; pageNo <= Math.max(1, Math.ceil(goodsScoresCount / GOODS_SCORES_PAGE_SIZE)); pageNo += 1) {
+    const offset = (pageNo - 1) * GOODS_SCORES_PAGE_SIZE;
+    const goodsEvaluates = Array.from({ length: Math.min(GOODS_SCORES_PAGE_SIZE, goodsScoresCount - offset) },
+      (_unused, index) => syntheticGoodsScore(offset + index));
+    const suffix = pageNo === 1 ? '' : `.page${pageNo}`;
+    fixtures[`endpoints/reviews.goodsScores${suffix}.json`] = success({ mallOprGoodsCntStd: goodsScoresCount, goodsEvaluates });
   }
   return fixtures;
 }

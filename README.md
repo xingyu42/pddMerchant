@@ -62,7 +62,7 @@ pdd orders list --json      # AI 消费加 --json
 | `diagnose after-sales [--days 30]` | 默认 30 天 | 退款成功数/率、售后处理中数/占比（取代原 `diagnose funnel`） |
 | `diagnose experience [--days 7]` | 1–30 天 | 平台体验星级、行业排名、指标与下一星级门槛、每日趋势 |
 | `diagnose customer-service [--days 30]` | 1–63 天 | 「多多客服-客服数据（人工回复）」区间汇总；逐日趋势取页面加载的最近 31 天；`sales` 区块为「多多客服-销售数据」的询单人数、成团人数、询单转化率、客服销售额（截至 3 天前） |
-| `diagnose reviews [--days 30]` | 30 / 60 / 90 / 180 天 | 满意/不满意标签、五类问题计数、1–3 星中差评（最多近 2000 条，手机号掩码） |
+| `diagnose reviews [--days 30]` | 30 / 60 / 90 / 180 天 | 满意/不满意标签、五类问题计数、1–3 星中差评（最多近 2000 条，手机号掩码），另附固定近 30 日商品评分 `goods_scores` |
 | `goods reviews [--days 30] [--goods-id <id>] [--stars 4,5]` | 1–365 天 | 评价明细：默认全店全部星级，可按商品与星级筛选（最多近 2000 条，手机号掩码） |
 | `diagnose traffic [--days 30]` | 1–30 天 | 全店逐日访客、浏览、成交及同行均值/优秀值，另附今日截至当前的实时区块 `today`；访客汇总跨日存在重复 |
 | `goods traffic [--days 30] [--goods-id <id>]` | 1 / 7 / 30 天 | 全店商品明细，并按商品拆分推广直接/间接成交与花费 |

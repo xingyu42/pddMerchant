@@ -1,5 +1,6 @@
-import { responseShapeError } from '../../infra/errors.js';
-import { pickFields } from './_shared.js';
+import { ExitCodes, PddCliError, responseShapeError } from '../../infra/errors.js';
+import { toFiniteNumber } from '../../infra/units.js';
+import { pickFields, resultObject } from './_shared.js';
 
 function collection(result, key, endpoint) {
   if (!Array.isArray(result?.[key]) || result[key].some((item) => !item || typeof item !== 'object')) {
@@ -67,4 +68,40 @@ export const REVIEWS_LIST = {
   // descScore 为字符串星级数组，缺省时上游返回全部星级；goodsId 缺省时为全店。
   buildPayload: ({ startTime, endTime, pageNo = 1, descScore, goodsId }) => ({ startTime, endTime, pageNo,
     pageSize: REVIEWS_PAGE_SIZE, ...(descScore ? { descScore } : {}), ...(goodsId ? { goodsId } : {}) }),
+};
+
+// 数据中心-评价数据页「近30日存在有效评价的商品」。实测 pageSize 10 可用，50 / 100 被拒（「分页参数异常」）；
+// 排序取页面默认值（sortCol 5 / sortType 1）。
+export const GOODS_SCORES_PAGE_SIZE = 10;
+export const GOODS_SCORES_MAX_PAGES = 20;
+const GOODS_SCORE_NUMBERS = ['goodsUnfkUndfltRevCnt1m', 'avgDescRevScr1m', 'avgLgstRevScr1m', 'avgServRevScr1m'];
+
+function goodsScore(row) {
+  if (!row || typeof row !== 'object' || Array.isArray(row) || row.goodsId == null || String(row.goodsId).trim() === '') {
+    throw responseShapeError('reviews.goodsScores', 'goodsEvaluates[].goodsId');
+  }
+  if (['goodsId', ...GOODS_SCORE_NUMBERS].some((field) => typeof row[field] === 'string' && /[\uE000-\uF8FF]/.test(row[field]))) {
+    throw new PddCliError({ code: 'E_BUSINESS', message: '平台返回字体混淆数据',
+      hint: '明文商品评价接口已变化，请核验平台接口', exitCode: ExitCodes.BUSINESS });
+  }
+  return pickFields(row, ['goodsId', 'goodsName', ...GOODS_SCORE_NUMBERS]);
+}
+
+export const REVIEWS_GOODS_SCORES = {
+  name: 'reviews.goodsScores', strategy: 'page-api',
+  nav: { url: 'https://mms.pinduoduo.com/sycm/goods_quality/comment' },
+  apiUrl: '/sydney/api/saleQuality/queryGoodsEvaluateVO',
+  buildPayload: ({ pageNo = 1 }) => ({ pageSize: GOODS_SCORES_PAGE_SIZE, pageNo, sortCol: 5, sortType: 1 }),
+  errorMap: 'upstream',
+  fixtureListKey: 'result.goodsEvaluates',
+  // 越过末页时 goodsEvaluates 为 null、mallOprGoodsCntStd 回落为 0；缺键仍按结构异常处理。
+  normalize(raw) {
+    const result = resultObject(raw, 'reviews.goodsScores');
+    const total = toFiniteNumber(result.mallOprGoodsCntStd);
+    const rows = result.goodsEvaluates === null ? [] : result.goodsEvaluates;
+    if (!Array.isArray(rows) || total === null || total < 0 || !Number.isInteger(total)) {
+      throw responseShapeError('reviews.goodsScores', 'result.goodsEvaluates / mallOprGoodsCntStd');
+    }
+    return { totalRows: total, data: rows.map(goodsScore) };
+  },
 };

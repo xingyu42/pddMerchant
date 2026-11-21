@@ -263,7 +263,8 @@ CLI：`pdd diagnose customer-service [--days 30]`、`pdd diagnose reviews [--day
 - 标签聚合的 `positiveKeywordList` / `negativeKeywordList` 为显式 `null` 时读取为空数组（真实账号实测：没有不满意标签的店铺 `negativeKeywordList` 为 `null`，满意标签照常返回）；缺键、`result` 为 null 仍为响应结构错误。`typeList` 与列表 `data` 的 `null` 仍为响应结构错误。
 - `goods reviews` 的 days 为 1-365 的整数，窗口同为 `[now-days*86400, now]` 的 Unix 秒，只调用列表端点。
 - 列表每页 `REVIEWS_PAGE_SIZE`=40 条（实测 pageSize 10-40 可用，49 起被上游以「仅支持查看近2000条评价」拒绝），最多采集 `REVIEWS_VIEW_LIMIT`=2000 条（50 页）。total 取首页 totalRows（越过末页时上游 totalRows 回落为 0）；翻满 50 页且 total 大于已采集条数时标记 truncated 并提示，恰好 2000 条为 `truncated:false`。两个命令共用 `collectReviews`。service 调用同时携带内部 `page` 和上游 `pageNo`，fixture 分页器使用前者，`buildPayload` 仅投影后者；fixture 使用 `totalRows` 和 `data`。
-- 评价 data：`{ headline, window_days, keyword_tags, issue_types, negative_reviews, hints, mall_id }`。标签 `{ name,count }`；类型 `{ name,positive_count,negative_count,share_pct }`，平台 proportion 已为 0-100。列表 `{ items,total,truncated }`，total 取 totalRows。item 字段以 `REVIEW_FIELDS` 为准（两个命令共用）；score 非零时输出 history_score，三项评分为 null。createTime 秒转上海时间；appendReview 字符串直接取，文本对象投影为文本。
+- 评价 data：`{ headline, window_days, keyword_tags, issue_types, negative_reviews, goods_scores, hints, mall_id }`。标签 `{ name,count }`；类型 `{ name,positive_count,negative_count,share_pct }`，平台 proportion 已为 0-100。列表 `{ items,total,truncated }`，total 取 totalRows。item 字段以 `REVIEW_FIELDS` 为准（两个命令共用）；score 非零时输出 history_score，三项评分为 null。createTime 秒转上海时间；appendReview 字符串直接取，文本对象投影为文本。
+- 商品评分区块 `goods_scores`：端点 `reviews.goodsScores` 使用 page-api POST `/sydney/api/saleQuality/queryGoodsEvaluateVO`（导航页 `/sycm/goods_quality/comment`），请求 `{ pageSize:10, pageNo, sortCol:5, sortType:1 }`；`goodsEvaluates: null` 且 `mallOprGoodsCntStd` 为非负整数时读取为空列表，缺键仍报结构错误；对 `goodsId` 及四个数值字段检测 PUA 字体混淆字符（商品名不检测）。与 `collectReviews` 共用 `collectPages`，最多采集 20 页（200 个商品），`total` 取首页 `mallOprGoodsCntStd`；超出 20 页标记 `truncated:true` 并附 hint「商品评分列表已达 200 个商品上限，结果已截断」。`goods_scores` 形状：`{ caliber:'数据中心-评价数据', window_days:30, items, total, truncated }`（固定近 30 日，在任意 `--days` 下均输出）；item 字段以 `GOODS_SCORE_FIELDS` 为准，`review_count` 为 0 时三项平均分输出 `null`，否则保留 2 位小数；`todayEvaluationCount`、排名字段、未确认含义字段、图片 URL 与商品状态由白名单过滤。headline 在原有行之后追加「近 30 日有效评价商品 N 个」（N 为 `review_count > 0` 的商品数）；`goods_scores` 为 `null` 时不追加。
 - 正文和追评手机号 `/1[3-9]\d{9}/g` 掩码为前三位加四星加后四位。昵称、头像、订单、规格、快照和媒体 URL 在 adapter 白名单过滤，仅保留回复状态、图片数量与文本标签。`REDACT_KEYS` 增加 cs_name、nickname、avatar、orderSn。
 - `goods reviews` data：`{ headline, items, total, truncated, window_days, goods_id, stars, hints, mall_id }`。`goods_id` 为字符串或 null（全店）；`stars` 为升序数字数组或 null（全部星级）；headline 首行形如「近 7 天商品 101 的 4、5 星评价 41 条」，截断时追加已采集条数。
 
@@ -278,20 +279,21 @@ CLI：`pdd diagnose customer-service [--days 30]`、`pdd diagnose reviews [--day
 | 客服 trend 的可降级 PddCliError | `trend:null` 并追加 hint |
 | 客服销售区间汇总的可降级 PddCliError | `sales:null` 并追加「客服销售数据拉取失败」，不再请求逐日接口；`summary`、`trend` 照常 |
 | 客服销售逐日（含页签点击失败）的可降级 PddCliError | 仅 `sales.trend:null` 并追加「客服销售逐日趋势拉取失败」 |
-| 任一评价源的可降级 PddCliError | 对应部分 null 并追加 hint；三源全失败抛最后一个错误 |
+| 任一评价源的可降级 PddCliError | 对应部分 null 并追加 hint；原三源全失败抛最后一个错误 |
+| `reviews.goodsScores` 出现可降级 PddCliError 或字体混淆 `E_BUSINESS` | `goods_scores:null` 并追加「商品评分拉取失败」，不追加商品评分 headline，不影响命令整体成败 |
 | 程序异常、超时、取消 | 继续抛出 |
-| 上游集合或列表 totalRows 缺失 | adapter 抛 `E_NETWORK` |
+| 上游集合、商品评分结构或列表 totalRows 缺失 | adapter 抛 `E_NETWORK` |
 
 ### 5. Good/Base/Bad Cases
 
 - Good：回复率 0.666666 输出 66.67，响应 14.666 秒输出 14.67，无咨询日仍保留类目均值。
 - Good：`--days 63` 时 `window.days` 为 63、`sales.window.days` 为 62，两个窗口各自如实标注。
-- Base：评价列表为空时输出空 items 和 total 0，其余数据源独立存在。
-- Bad：把人工回复序列与星级口径合并、自行分词、输出完整评价原始对象。
+- Base：评价列表为空时输出空 items 和 total 0，其余数据源独立存在；商品评分评价数为 0 时三项均分输出 `null`。
+- Bad：把人工回复序列与星级口径合并、自行分词、输出完整评价原始对象、把商品评分 0 评价均分原样输出为 0。
 
 ### 6. Tests Required
 
-`customer-service-contract.test.js` / `reviews-contract.test.js` 覆盖 payload、成功判定和白名单；对应 view/service 测试覆盖字段、单位、窗口、null、掩码、分页与降级；客服销售区块另覆盖 3 天滞后窗口与 62 天上限、四种逐日空值形态、两级降级和 headline 三种写法。两个同名 e2e 验证单行 envelope、隐私剔除、参数 exit 2、分页截断与数据源失败；`reviews.e2e.test.js` 与 `reviews.test.js` / `reviews-view.test.js` 同时覆盖 `goods reviews` 的筛选透传、回显、headline 与 2000 条上限，`numeric-options.test.js` 覆盖 `goodsIdArg` / `starsArg`；`data-contract-v2.test.js` 用 entityFields 覆盖所有实体数组。
+`customer-service-contract.test.js` / `reviews-contract.test.js` 覆盖 payload、成功判定、白名单与商品评分 PUA 混淆检测；对应 view/service 测试覆盖字段、单位、窗口、null、掩码、分页与降级；客服销售区块另覆盖 3 天滞后窗口与 62 天上限、四种逐日空值形态、两级降级和 headline 三种写法；商品评分区块另覆盖固定 30 日窗口、200 上限截断、0 评价均分 null 与独立降级。两个同名 e2e 验证单行 envelope、隐私剔除、参数 exit 2、分页截断与数据源失败；`reviews.e2e.test.js` 与 `reviews.test.js` / `reviews-view.test.js` 同时覆盖 `goods reviews` 的筛选透传、回显、headline 与 2000 条上限，`numeric-options.test.js` 覆盖 `goodsIdArg` / `starsArg`；`data-contract-v2.test.js` 用 entityFields 覆盖所有实体数组（含 `goods_scores` 与 `goods_scores.items[]`）。
 
 ### 7. Wrong vs Correct
 

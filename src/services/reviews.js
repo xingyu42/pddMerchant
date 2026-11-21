@@ -1,6 +1,6 @@
 import { runEndpoint } from '../adapter/run-endpoint.js';
-import { REVIEWS_KEYWORD_AGG, REVIEWS_TYPE_AGG, REVIEWS_LIST, REVIEWS_PAGE_SIZE, REVIEWS_VIEW_LIMIT }
-  from '../adapter/endpoints/reviews.js';
+import { REVIEWS_KEYWORD_AGG, REVIEWS_TYPE_AGG, REVIEWS_LIST, REVIEWS_PAGE_SIZE, REVIEWS_VIEW_LIMIT,
+  REVIEWS_GOODS_SCORES, GOODS_SCORES_PAGE_SIZE, GOODS_SCORES_MAX_PAGES } from '../adapter/endpoints/reviews.js';
 import { throwIfAborted } from '../infra/abort.js';
 import { mallIdOf } from './views/_shared.js';
 import { toReviewsView, toGoodsReviewsView, REVIEWS_REPORT, GOODS_REVIEWS_REPORT } from './views/reviews.js';
@@ -10,22 +10,28 @@ import { rollingSecondsWindow } from './report-windows.js';
 export { REVIEWS_REPORT, GOODS_REVIEWS_REPORT };
 
 const NEGATIVE_STARS = Object.freeze(['1', '2', '3']);
-const MAX_PAGES = REVIEWS_VIEW_LIMIT / REVIEWS_PAGE_SIZE;
+const REVIEW_PAGING = Object.freeze({ pageSize: REVIEWS_PAGE_SIZE, maxPages: REVIEWS_VIEW_LIMIT / REVIEWS_PAGE_SIZE });
+const GOODS_SCORE_PAGING = Object.freeze({ pageSize: GOODS_SCORES_PAGE_SIZE, maxPages: GOODS_SCORES_MAX_PAGES });
 
-// 越过末页时上游 totalRows 回落为 0，总数取首页。
-async function collectReviews(ctx, params) {
+// 评价列表与商品评分列表共用的翻页采集：越过末页时上游总数回落为 0，总数取首页；
+// 短页或取满即停，翻满 maxPages 仍有剩余时标记截断。
+async function collectPages(ctx, spec, { pageSize, maxPages }, params = {}) {
   const items = [];
   let total = 0;
-  for (let pageNo = 1; pageNo <= MAX_PAGES; pageNo += 1) {
+  for (let pageNo = 1; pageNo <= maxPages; pageNo += 1) {
     throwIfAborted(ctx.signal);
-    const result = await runEndpoint(ctx.page, REVIEWS_LIST, { ...params, page: pageNo, pageNo }, ctx);
+    const result = await runEndpoint(ctx.page, spec, { ...params, page: pageNo, pageNo }, ctx);
     throwIfAborted(ctx.signal);
     if (pageNo === 1) total = result.totalRows;
     items.push(...result.data);
-    if (result.data.length < REVIEWS_PAGE_SIZE || items.length >= total) break;
-    if (pageNo === MAX_PAGES) return { items, total, truncated: true };
+    if (result.data.length < pageSize || items.length >= total) break;
+    if (pageNo === maxPages) return { items, total, truncated: true };
   }
   return { items, total, truncated: false };
+}
+
+function collectReviews(ctx, params) {
+  return collectPages(ctx, REVIEWS_LIST, REVIEW_PAGING, params);
 }
 
 export async function getReviewsView(ctx, { days = REVIEWS_REPORT.days.default } = {}) {
@@ -41,7 +47,11 @@ export async function getReviewsView(ctx, { days = REVIEWS_REPORT.days.default }
       collectReviews(ctx, { ...params, descScore: NEGATIVE_STARS }), unavailable);
     if (keywords === null && types === null && reviews === null) throw lastError;
     if (reviews?.truncated) report.hint('list_truncated');
-    return toReviewsView({ keywords, types, reviews }, { days, hints: report.hints, mallId: mallIdOf(ctx) });
+    // 商品评分固定为近 30 日，与 days 无关；它的成败不影响命令整体成败。
+    const goodsScores = await report.optional('goods_scores_unavailable', async () =>
+      collectPages(ctx, REVIEWS_GOODS_SCORES, GOODS_SCORE_PAGING));
+    if (goodsScores?.truncated) report.hint('goods_scores_truncated');
+    return toReviewsView({ keywords, types, reviews, goodsScores }, { days, hints: report.hints, mallId: mallIdOf(ctx) });
   });
 }
 
