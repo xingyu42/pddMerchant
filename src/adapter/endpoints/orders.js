@@ -1,7 +1,7 @@
 import { readBusinessError } from '../response-interpreter.js';
 import { ExitCodes, PddCliError, responseShapeError } from '../../infra/errors.js';
 import { PDD_HOME } from '../auth-state.js';
-import { assertNoPua, pickFields, requireFields, resultObject } from './_shared.js';
+import { assertNoPua, isCalendarDate, pickFields, requireFields, resultObject } from './_shared.js';
 
 function readListResult(raw) {
   const result = raw?.result;
@@ -141,12 +141,6 @@ export const ORDER_STATS = {
 
 const REGION_NUMERIC_FIELDS = ['cfmOrdrAmt', 'cfmOrdrCnt', 'cfmOrdrUsrCnt', 'cfmOrdrAup', 'cfmOrdrAop'];
 const REGION_FIELDS = ['provinceName', 'statDate', ...REGION_NUMERIC_FIELDS];
-const DATE_TEXT = /^\d{4}-\d{2}-\d{2}$/;
-
-function isCalendarDate(value) {
-  return typeof value === 'string' && DATE_TEXT.test(value)
-    && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
-}
 
 export const ORDER_REGION_DISTRIBUTION = {
   name: 'orders.regionDistribution',
@@ -154,7 +148,7 @@ export const ORDER_REGION_DISTRIBUTION = {
   nav: { url: 'https://mms.pinduoduo.com/sycm/stores_data/operation' },
   apiUrl: '/sydney/api/mallCoreData/queryMallGeographyDistributionList',
   errorMap: 'upstream',
-  buildPayload: ({ queryType = 1 } = {}) => ({ queryType }),
+  buildPayload: () => ({ queryType: 1 }),
   normalize(raw) {
     const result = resultObject(raw, 'orders.regionDistribution');
     requireFields(result, ['geographyDistributionVOList'], 'orders.regionDistribution');

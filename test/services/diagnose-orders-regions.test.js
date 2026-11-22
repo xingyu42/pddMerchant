@@ -33,15 +33,18 @@ describe('orders diagnosis regions view', () => {
       regions: {
         delayData: 1,
         items: [
-          { provinceName: '浙江', statDate: '2026-11-21', cfmOrdrAmt: 25.4, cfmOrdrCnt: 1,
-            cfmOrdrUsrCnt: 1, cfmOrdrAup: 25.4, cfmOrdrAop: 25.4 },
-          { provinceName: '广东', statDate: '2026-11-21', cfmOrdrAmt: 820.4, cfmOrdrCnt: 44,
-            cfmOrdrUsrCnt: 37, cfmOrdrAup: 22.1729, cfmOrdrAop: 18.6454 },
+          { provinceName: '浙江', provinceId: 31, statDate: '2026-11-21', cfmOrdrAmt: 25.4, cfmOrdrCnt: 1,
+            cfmOrdrUsrCnt: 1, cfmOrdrAup: 25.4, cfmOrdrAop: 25.4, receive_name: 'SYN-SECRET' },
+          { provinceName: '广东', provinceId: 6, statDate: '2026-11-21', cfmOrdrAmt: 820.4, cfmOrdrCnt: 44,
+            cfmOrdrUsrCnt: 37, cfmOrdrAup: 22.1729, cfmOrdrAop: 18.6454, extraNoise: 'SYN-NOISE' },
         ],
       },
     });
     assert.deepEqual(Object.keys(view.regions), ORDER_REGIONS_FIELDS);
     assert.deepEqual(Object.keys(view.regions.items[0]), ORDER_REGION_ITEM_FIELDS);
+    for (const forbidden of ['provinceId', 'SYN-SECRET', 'SYN-NOISE', 'extraNoise']) {
+      assert.equal(JSON.stringify(view).includes(forbidden), false, forbidden);
+    }
     assert.equal(view.regions.caliber, '数据中心-地域分布（成团订单）');
     assert.deepEqual(view.regions.window, { start_date: '2026-11-15', end_date: '2026-11-21', days: 7 });
     assert.equal(view.regions.window_days, 7);
@@ -62,15 +65,40 @@ describe('orders diagnosis regions view', () => {
     assert.match(rendered, /广东/);
   });
 
-  it('handles empty province list and null regions degradation cleanly', () => {
-    const emptyView = toOrdersDiagnosisView(baseSummary, { regions: { delayData: 0, items: [] } });
+  it('handles empty province list, missing amounts/delayData and null regions degradation cleanly', () => {
+    const emptyView = toOrdersDiagnosisView(baseSummary, { regions: { delayData: null, items: [] } });
     assert.equal(emptyView.regions.window, null);
-    assert.equal(emptyView.regions.delayed, false);
+    assert.equal(emptyView.regions.delayed, null);
     assert.equal(emptyView.regions.province_count, 0);
     assert.deepEqual(emptyView.regions.items, []);
+    assert.deepEqual(emptyView.hints, []);
     assert.equal(emptyView.headline.at(-1), '近 7 天成团地域分布无成团省份');
 
-    const degradedView = toOrdersDiagnosisView(baseSummary, { regions: null, extraHints: ['省级成团地域分布拉取失败，regions 为 null'] });
+    const nullMetricsView = toOrdersDiagnosisView(baseSummary, {
+      regions: {
+        delayData: 0,
+        items: [
+          { provinceName: '江苏', statDate: '2026-11-21', cfmOrdrAmt: null, cfmOrdrCnt: null,
+            cfmOrdrUsrCnt: null, cfmOrdrAup: null, cfmOrdrAop: null },
+          { provinceName: '浙江', statDate: '2026-11-21', cfmOrdrAmt: 25.4, cfmOrdrCnt: 1,
+            cfmOrdrUsrCnt: null, cfmOrdrAup: null, cfmOrdrAop: 25.4 },
+        ],
+      },
+    });
+    assert.equal(nullMetricsView.regions.items[0].province, '浙江');
+    assert.equal(nullMetricsView.regions.items[1].confirmed_order_amount_yuan, null);
+    assert.equal(nullMetricsView.regions.items[1].confirmed_buyer_count, null);
+
+    const allNullAmountsView = toOrdersDiagnosisView(baseSummary, {
+      regions: {
+        delayData: 0,
+        items: [{ provinceName: '浙江', statDate: '2026-11-21', cfmOrdrAmt: null, cfmOrdrCnt: 1,
+          cfmOrdrUsrCnt: 1, cfmOrdrAup: null, cfmOrdrAop: null }],
+      },
+    });
+    assert.equal(allNullAmountsView.headline.at(-1), '近 7 天成团分布覆盖 1 个省（成团金额缺失）');
+
+    const degradedView = toOrdersDiagnosisView(baseSummary, { regions: null, regionReason: 'regions_unavailable' });
     assert.equal(degradedView.regions, null);
     assert.equal(degradedView.headline.length, 2);
     assert.deepEqual(degradedView.hints, ['省级成团地域分布拉取失败，regions 为 null']);
@@ -106,12 +134,16 @@ describe('getOrdersDiagnosis regions collection', () => {
     assert.equal(data.regions.province_count, 1);
 
     mockState.errors['orders.regionDistribution'] = new PddCliError({
-      code: 'E_BUSINESS', message: '平台返回字体混淆数据', exitCode: 6,
+      code: 'E_BUSINESS', message: '平台返回字体混淆数据', detail: { reason: 'pua_obfuscated', field: 'cfmOrdrAmt' }, exitCode: 6,
     });
     const { data: puaDegraded } = await getOrdersDiagnosis(ctx);
     assert.equal(puaDegraded.regions, null);
     assert.equal(puaDegraded.status, '数据完整');
     assert.ok(puaDegraded.hints.includes('省级成团地域分布返回字体混淆数据，regions 为 null'));
+
+    const authExpired = new PddCliError({ code: 'E_AUTH_EXPIRED', message: 'auth expired', exitCode: 3 });
+    mockState.errors['orders.regionDistribution'] = authExpired;
+    await assert.rejects(getOrdersDiagnosis(ctx), (actual) => actual === authExpired);
 
     const timeout = new PddCliError({ code: 'E_TIMEOUT', message: 'timeout', exitCode: 5 });
     mockState.errors['orders.regionDistribution'] = timeout;

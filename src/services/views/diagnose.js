@@ -164,13 +164,23 @@ export function toShopView(result, { mallId = null } = {}) {
   };
 }
 
+const REGION_HINT_LABEL = Object.freeze({
+  regions_obfuscated: '省级成团地域分布返回字体混淆数据，regions 为 null',
+  regions_unavailable: '省级成团地域分布拉取失败，regions 为 null',
+});
+
+function compareNullableDesc(left, right) {
+  if (left == null && right == null) return 0;
+  if (left == null) return 1;
+  if (right == null) return -1;
+  return right - left;
+}
+
 function compareRegionItems(left, right) {
-  const leftAmount = left.confirmed_order_amount_yuan ?? -1;
-  const rightAmount = right.confirmed_order_amount_yuan ?? -1;
-  if (rightAmount !== leftAmount) return rightAmount - leftAmount;
-  const leftCount = left.confirmed_order_count ?? -1;
-  const rightCount = right.confirmed_order_count ?? -1;
-  if (rightCount !== leftCount) return rightCount - leftCount;
+  const amountDiff = compareNullableDesc(left.confirmed_order_amount_yuan, right.confirmed_order_amount_yuan);
+  if (amountDiff !== 0) return amountDiff;
+  const countDiff = compareNullableDesc(left.confirmed_order_count, right.confirmed_order_count);
+  if (countDiff !== 0) return countDiff;
   return left.province.localeCompare(right.province);
 }
 
@@ -194,16 +204,20 @@ function toOrderRegionsView(rawRegions) {
 function regionsHeadline(regions) {
   if (regions.province_count === 0) return `近 ${regions.window_days} 天成团地域分布无成团省份`;
   const top = regions.items[0];
+  if (top.confirmed_order_amount_yuan === null) {
+    return `近 ${regions.window_days} 天成团分布覆盖 ${regions.province_count} 个省（成团金额缺失）`;
+  }
   return `近 ${regions.window_days} 天成团分布覆盖 ${regions.province_count} 个省，`
     + `${top.province}成团额最高（${valueWithUnit(top.confirmed_order_amount_yuan, '元')}、`
     + `${valueWithUnit(top.confirmed_order_count, '单')}）`;
 }
 
 // diagnose.orders 在单维订单诊断之外附带独立的省级成团分布 regions 区块（近 7 天，成团口径）。
-export function toOrdersDiagnosisView(result, { regions = null, mallId = null, extraHints = [] } = {}) {
+export function toOrdersDiagnosisView(result, { regions = null, mallId = null, regionReason = null } = {}) {
   const base = toDimensionView('orders', result);
   const regionsView = toOrderRegionsView(regions);
   const headline = [...base.headline, ...(regionsView ? [regionsHeadline(regionsView)] : [])];
-  const hints = [...base.hints, ...extraHints, ...(regionsView?.delayed ? ['平台标记地域分布数据延迟'] : [])];
+  const unavailableHint = regionReason ? [REGION_HINT_LABEL[regionReason] ?? REGION_HINT_LABEL.regions_unavailable] : [];
+  const hints = [...base.hints, ...unavailableHint, ...(regionsView?.delayed ? ['平台标记地域分布数据延迟'] : [])];
   return { ...base, headline, hints, regions: regionsView, mall_id: mallId };
 }

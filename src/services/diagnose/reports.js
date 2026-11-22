@@ -1,6 +1,6 @@
 // diagnose.* 命令级结果（输出契约 v2）：采集 → summarize（内部代码）→ 视图（标签 + headline）。
 import { getLogger } from '../../infra/logger.js';
-import { PddCliError } from '../../infra/errors.js';
+import { ExitCodes, PddCliError } from '../../infra/errors.js';
 import { throwIfAborted } from '../../infra/abort.js';
 import { runEndpoint } from '../../adapter/run-endpoint.js';
 import { ORDER_REGION_DISTRIBUTION } from '../../adapter/endpoints/orders.js';
@@ -25,27 +25,28 @@ async function collectOrderRegions(ctx) {
   try {
     const regions = await runEndpoint(ctx.page, ORDER_REGION_DISTRIBUTION, { queryType: 1 }, ctx);
     throwIfAborted(ctx.signal);
-    return { regions, hint: null };
+    return { regions, regionReason: null };
   } catch (err) {
     throwIfAborted(ctx.signal);
-    if (['E_TIMEOUT', 'E_INTERNAL'].includes(err?.code) || err?.name === 'AbortError' || !(err instanceof PddCliError)) {
+    if (['E_TIMEOUT', 'E_INTERNAL'].includes(err?.code)
+      || err?.exitCode === ExitCodes.AUTH
+      || err?.name === 'AbortError'
+      || !(err instanceof PddCliError)) {
       throw err;
     }
     (ctx.log ?? getLogger()).debug({ err: err?.message, code: err?.code }, 'diagnose.orders: regions collection failed');
-    const hint = err.code === 'E_BUSINESS' && String(err.message).includes('字体混淆')
-      ? '省级成团地域分布返回字体混淆数据，regions 为 null'
-      : '省级成团地域分布拉取失败，regions 为 null';
-    return { regions: null, hint };
+    const regionReason = err.detail?.reason === 'pua_obfuscated' ? 'regions_obfuscated' : 'regions_unavailable';
+    return { regions: null, regionReason };
   }
 }
 
 export async function getOrdersDiagnosis(ctx) {
   const input = await collectOrdersInput(ctx.page, { ...ctx, mallId: mallIdOf(ctx) });
-  const { regions, hint } = await collectOrderRegions(ctx);
+  const { regions, regionReason } = await collectOrderRegions(ctx);
   const data = toOrdersDiagnosisView(summarizeOrders(input || {}), {
     regions,
     mallId: mallIdOf(ctx),
-    extraHints: hint ? [hint] : [],
+    regionReason,
   });
   return { data, warnings: [] };
 }

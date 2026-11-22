@@ -136,7 +136,7 @@ describe('order request and business errors', () => {
     assert.equal(ORDER_REGION_DISTRIBUTION.nav.url, 'https://mms.pinduoduo.com/sycm/stores_data/operation');
     assert.equal(ORDER_REGION_DISTRIBUTION.errorMap, 'upstream');
     assert.deepEqual(ORDER_REGION_DISTRIBUTION.buildPayload(), { queryType: 1 });
-    assert.deepEqual(ORDER_REGION_DISTRIBUTION.buildPayload({ queryType: 2, noise: 1 }), { queryType: 2 });
+    assert.deepEqual(ORDER_REGION_DISTRIBUTION.buildPayload({ queryType: 2, noise: 1 }), { queryType: 1 });
 
     const raw = {
       success: true,
@@ -177,6 +177,6 @@ describe('order request and business errors', () => {
     }), isNetworkError);
     assert.throws(() => ORDER_REGION_DISTRIBUTION.normalize({
       result: { geographyDistributionVOList: [{ ...validRow, cfmOrdrAmt: '\uE001' }] },
-    }), { code: 'E_BUSINESS' });
+    }), (error) => error.code === 'E_BUSINESS' && error.detail?.reason === 'pua_obfuscated');
   });
 });

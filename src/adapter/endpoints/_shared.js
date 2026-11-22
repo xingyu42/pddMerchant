@@ -1,6 +1,13 @@
 import { ExitCodes, PddCliError, responseShapeError } from '../../infra/errors.js';
 
 const PUA_GLYPH = /[\uE000-\uF8FF]/;
+const DATE_TEXT = /^\d{4}-\d{2}-\d{2}$/;
+
+// 校验 YYYY-MM-DD 格式与实际日历日期（拒绝 2026-02-30 等无效日期）。
+export function isCalendarDate(value) {
+  return typeof value === 'string' && DATE_TEXT.test(value)
+    && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+}
 
 // 白名单投影：只保留上游对象自身带有的字段，缺失字段不补键。
 export function pickFields(item, fields) {
@@ -32,6 +39,7 @@ export function assertNoPua(row, fields, hint) {
         code: 'E_BUSINESS',
         message: '平台返回字体混淆数据',
         hint,
+        detail: { reason: 'pua_obfuscated', field },
         exitCode: ExitCodes.BUSINESS,
       });
     }
