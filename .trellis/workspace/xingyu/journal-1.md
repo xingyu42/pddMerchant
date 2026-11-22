@@ -1651,3 +1651,34 @@ Topics: [README.md](../../../README.md), [.trellis/spec/standards/testing.md](..
 ### Git Commits
 
 (No associated commits)
+
+
+## Session 54: 售后单与退款原因查询（orders after-sales 与 orders detail 联动）交付合并
+<!-- trellis-session: v=3 fp=68e7525148cca048 -->
+
+**Date**: 2026-11-23
+**Task**: 售后单与退款原因查询（orders after-sales 与 orders detail 联动）交付合并
+**Branch**: `main`
+
+### Summary
+
+通过 implement-spec 流水线完成 .scratch/orders-after-sales/ 全部三张工单、双轴评审修复与默认账号只读验收并合入 main。新增 pdd orders after-sales（滚动/精确起止时间窗、--sn/--goods-id/--status/--type、2000 条截断提示、原因分布汇总与 queryParams 降级），修复 pdd orders detail 的中文售后状态映射（含正常订单「无售后」+ null 状态码映射为 null）并增加条件触发的 after_sales_cases 联动。
+Topics: [docs/adr/0006-after-sales-case-and-reason-reporting.md](../../../docs/adr/0006-after-sales-case-and-reason-reporting.md), [docs/research/after-sales-refund-reason-recon-2026-11-22.md](../../../docs/research/after-sales-refund-reason-recon-2026-11-22.md), [.trellis/spec/services/domain-service-contracts.md](../../spec/services/domain-service-contracts.md), [.trellis/spec/commands/command-contracts.md](../../spec/commands/command-contracts.md), [.trellis/spec/adapter/endpoint-xhr-contracts.md](../../spec/adapter/endpoint-xhr-contracts.md), [.trellis/spec/infra/envelope-errors-output.md](../../spec/infra/envelope-errors-output.md)
+
+### Main Changes
+
+- 新增 after_sales.list / after_sales.params page-api 端点；经实测锁定 afterSalesType 为标量整数（1-5，数组返回 400、afterSalesTypeList 被忽略）
+- 新增 pdd orders after-sales 命令、18 字段白名单 AFTER_SALES_CASE_FIELDS、reason_summary[] 聚合与解析期参数校验（--days/--since/--until/--sn/--goods-id/--status/--type）
+- 修复 toOrderDetailView 在 after_sales_status 无有效数字时回退 after_sales_status_code（含正常订单「无售后」→ null），条件触发 getOrderAfterSalesCases 联动且普通订单零额外请求，保持 orders.stats / diagnose.after-sales / goods.profit 口径独立
+- 双轴评审（Gemini 4 Neon Standards + Spec）修复：单视图枚举迁回 views/after-sales.js、isCalendarDate 抽至 infra/units.js、恢复 README 精简边界、修复第 20 页短页截断误判、保留平台首页 total、服务层统计 detail xhr_count；三张工单已 resolved，ADR 0006 已 Accepted
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5e8f5b7` | merge: orders after-sales case and reason reporting |
+
+### Testing
+
+- PDD_TEST_ADAPTER=fixture npm run check 通过：Knip 0 问题；Vitest 135 个文件、2289 通过、1 跳过、0 失败
+- 经授权默认账号只读验收 7 项全过（--days 30、2026-10 区间、--type return_refund、--sn 全历史、涉售后与无售后 orders detail、解析期互斥 E_USAGE），均 ok:true、warnings:[]，脱敏摘要已记入工单 03
