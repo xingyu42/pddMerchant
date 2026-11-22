@@ -1,11 +1,27 @@
-import { AFTER_SALES_VIEW_LIMIT } from '../../adapter/endpoints/after-sales.js';
 import { labelOf, toFiniteNumber, toLocalDateTime, toPct, yuanFromFen } from '../../infra/units.js';
 import { defineReport, reportHints } from '../operating-report.js';
 import { text } from './_shared.js';
-import {
-  AFTER_SALES_CASE_STATUS_LABEL, AFTER_SALES_FILTER_STATUS_LABEL, AFTER_SALES_FILTER_TYPE_LABEL,
-  AFTER_SALES_SHIPPING_STATUS_LABEL, AFTER_SALES_TYPE_LABEL,
-} from './labels.js';
+
+// 售后工作台的售后单状态独立于订单状态；重叠码取细分状态。
+const AFTER_SALES_TYPE_LABEL = Object.freeze({
+  1: '退款', 2: '退款退货', 3: '换货', 4: '补寄', 5: '维修',
+});
+const AFTER_SALES_SHIPPING_STATUS_LABEL = Object.freeze({ 0: '未发货', 1: '已发货' });
+const AFTER_SALES_CASE_STATUS_LABEL = Object.freeze({
+  1: '待商家处理', 14: '待商家处理', 21: '待商家处理', 32: '待商家处理',
+  9: '待消费者发货', 10: '待消费者发货', 15: '待消费者发货', 22: '待消费者发货',
+  11: '待商家收货',
+  2: '平台处理中', 3: '平台处理中', 7: '平台处理中',
+  4: '进行中售后单', 18: '进行中售后单', 27: '进行中售后单', 31: '进行中售后单',
+  5: '退款成功', 6: '退款关闭', 12: '退款关闭', 16: '换货/补寄成功', 17: '换货/补寄关闭',
+  25: '维修成功', 24: '维修关闭',
+});
+const AFTER_SALES_FILTER_STATUS_LABEL = Object.freeze({
+  all: '全部', open: '进行中', refunded: '退款成功', closed: '已关闭',
+});
+const AFTER_SALES_FILTER_TYPE_LABEL = Object.freeze({
+  all: '全部', refund: '退款', return_refund: '退款退货', exchange: '换货', resend: '补寄', repair: '维修',
+});
 
 export const AFTER_SALES_CASE_FIELDS = Object.freeze([
   'after_sales_id', 'order_sn', 'goods_name', 'spec', 'quantity', 'type', 'status',
@@ -28,7 +44,8 @@ export const AFTER_SALES_REPORT = defineReport({
   hints: {
     cases_unavailable: '关联售后单拉取失败，售后原因暂不可用',
     params_unavailable: '售后参数字典拉取失败，售后原因大类暂不可用',
-    list_truncated: `售后单已达单次 ${AFTER_SALES_VIEW_LIMIT} 条上限，结果已截断，建议配合 --since/--until 缩小区间分段拉取`,
+    list_truncated: '售后单已达单次 2000 条上限，结果已截断，建议配合 --since/--until 缩小区间分段拉取',
+    detail_cases_truncated: '关联售后单检索已达单次 2000 条上限，结果可能不完整',
   },
 });
 

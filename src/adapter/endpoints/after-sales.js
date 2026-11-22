@@ -4,7 +4,6 @@ import { resultObject } from './_shared.js';
 
 export const AFTER_SALES_PAGE_SIZE = 100;
 export const AFTER_SALES_MAX_PAGES = 20;
-export const AFTER_SALES_VIEW_LIMIT = AFTER_SALES_PAGE_SIZE * AFTER_SALES_MAX_PAGES;
 
 export const AFTER_SALES_STATUS_FILTERS = {
   all: null,

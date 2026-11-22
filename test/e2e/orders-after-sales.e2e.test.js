@@ -127,7 +127,7 @@ describe('orders after-sales fixture CLI', () => {
     assert.ok(data.headline[0].startsWith(scope));
     assert.match(data.headline[0], /订单号 SYN-1/);
     assert.deepEqual(data.items.map((item) => item.order_sn), ['SYN-1']);
-    assert.equal(data.total, 1);
+    assert.equal(data.total, 2);
     assert.equal(data.fetched_count, 1);
     assert.deepEqual(data.reason_summary, [{
       reason_desc: '不想要了', reason_category: '七天无理由退货', count: 1, share_pct: 100, refund_amount_yuan: 17.78,
@@ -140,11 +140,11 @@ describe('orders after-sales fixture CLI', () => {
     { id: 3, afterSalesStatus: 17, afterSalesType: 3 },
     { id: 4, afterSalesStatus: 9, afterSalesType: 4 },
     { id: 5, afterSalesStatus: 24, afterSalesType: 5 },
-    { id: 6, afterSalesStatus: 16, afterSalesType: 2 },
     { id: 7, afterSalesStatus: 5, afterSalesType: 2 },
   ].map((fields) => createUpstreamAfterSalesCase({
     afterSalesReasonDesc: `原因 ${fields.id}`, refundAmount: fields.id * 100, ...fields,
   }));
+  const statusFixtureIds = { refunded: [1, 7], open: [2, 4], closed: [3, 5] };
 
   it.each([
     ['refunded', '退款成功', 'refund', '退款', 1],
@@ -152,17 +152,18 @@ describe('orders after-sales fixture CLI', () => {
     ['closed', '已关闭', 'exchange', '换货', 3],
     ['open', '进行中', 'resend', '补寄', 4],
     ['closed', '已关闭', 'repair', '维修', 5],
-  ])('combines %s (%s) with %s (%s) and recomputes the report', (status, statusLabel, type, typeLabel, id) => {
+  ])('combines %s (%s) with %s (%s) and keeps the platform total', (status, statusLabel, type, typeLabel, id) => {
+    const items = filterItems.filter((item) => statusFixtureIds[status].includes(item.id));
     const { envelope } = runCli([
       ...command, '--goods-id', '101', '--since', '2023-11-15', '--until', '2023-11-15', '--status', status, '--type', type,
-    ], { fixtures: createAfterSalesFixtures({ items: filterItems }) });
+    ], { fixtures: createAfterSalesFixtures({ items }) });
     assert.equal(envelope.ok, true);
     const { data } = envelope;
     assert.deepEqual(data.window, { start_at: '2023-11-15 00:00:00', end_at: '2023-11-15 23:59:59', days: null });
     assert.deepEqual(data.filters, { sn: null, goods_id: '101', status: statusLabel, type: typeLabel });
     for (const label of ['商品 ID 101', `状态：${statusLabel}`, `类型：${typeLabel}`]) assert.ok(data.headline[0].includes(label));
     assert.deepEqual(data.items.map((item) => item.after_sales_id), [String(id)]);
-    assert.equal(data.total, 1);
+    assert.equal(data.total, 2);
     assert.equal(data.fetched_count, 1);
     assert.deepEqual(data.reason_summary, [{
       reason_desc: `原因 ${id}`, reason_category: '七天无理由退货', count: 1, share_pct: 100, refund_amount_yuan: id,
