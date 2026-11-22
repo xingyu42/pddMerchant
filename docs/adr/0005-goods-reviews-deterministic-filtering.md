@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted - 2026-11-22 (offline implementation and fixture acceptance verified; real-account read-only check pending user confirmation)
+Accepted - 2026-11-22 (implementation, fixture acceptance, and default-account read-only verification completed)
 
 ## Context
 
