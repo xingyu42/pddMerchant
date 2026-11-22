@@ -2,13 +2,13 @@
 
 ## Status
 
-Proposed - 2026-11-22 (design aligned via `grill-with-docs` and upstream read-only recon verified in `docs/research/after-sales-refund-reason-recon-2026-11-22.md`). The after-sales list, reason distribution, exact historical windows and filters are implemented. Order-detail enrichment remains pending (Ticket 03).
+Accepted - 2026-11-22. All three slices are implemented: case listing and reason distribution, exact historical windows and filters, and order-detail status mapping and enrichment. Upstream read-only recon is documented in [the recon report](../research/after-sales-refund-reason-recon-2026-11-22.md); live CLI verification is tracked separately in the Ticket 03 closeout.
 
 ## Context
 
-`pdd-cli` currently exposes `orders list`, `orders detail`, `orders stats`, and `diagnose after-sales`, none of which report why buyers requested refunds or after-sales service. Live read-only recon on 2026-11-22 verified that:
+Before this change, `pdd-cli` exposed order details and order-level after-sales statistics without the reasons buyers requested after-sales service. Live read-only recon on 2026-11-22 verified that:
 
-- `/mangkhut/mms/recentOrderList` and `/mangkhut/mms/orderDetail` carry `after_sales_id` and status codes without any refund reason field. Moreover, `orderDetail` returns `after_sales_status` as a Chinese string and places the numeric code in `after_sales_status_code`, causing `toOrderDetailView` to output `未知(<中文文案>)`.
+- `/mangkhut/mms/recentOrderList` and `/mangkhut/mms/orderDetail` carry `after_sales_id` and status codes without any refund reason field. Moreover, `orderDetail` returns `after_sales_status` as a Chinese string and places the numeric code in `after_sales_status_code`, which previously caused `toOrderDetailView` to output `未知(<中文文案>)`.
 - Pinduoduo's merchant workbench endpoints `/mercury/mms/afterSales/queryList` and `/mercury/mms/afterSales/queryParams` are plaintext JSON `page-api` endpoints callable directly from `PDD_HOME`, exposing per-case `afterSalesReasonCode`, `afterSalesReasonDesc`, type, status, amounts in fen, and application/close timestamps.
 - Additional context such as buyer free-text `questionRemarks`, `afterSalesFlows` timelines, and `qualityReasonRefund` / `isNoReason` flags resides inside the Next.js SSR HTML payload of `/aftersales-ssr/detail` alongside extensive receiver/address/image PII, while Data Center `/sydney/api/saleQuality/*` provides aggregate shop/goods metrics (quality refunds, dispute refunds, platform intervention rates) without per-reason breakdowns.
 
@@ -28,9 +28,9 @@ Proposed - 2026-11-22 (design aligned via `grill-with-docs` and upstream read-on
   - Support filters `--sn <order_sn>` and `--goods-id <id>` (mutually exclusive via `E_USAGE` because upstream shares one `searchText` field; `--sn` queries also apply a local `order_sn === sn` exact filter), `--status <all|open|refunded|closed>` (default `all`, mapping `refunded` to `[5]`, `closed` to `[6, 12, 17, 24]`, and `open` to in-progress status codes), and `--type <all|refund|return_refund|exchange|resend|repair>` (default `all`). Omit `--reason` filtering in v1.
   - Collect up to `20` pages at `pageSize: 100` (`2,000` cases max per invocation), emitting `fetched_count`, `total`, `truncated`, `window`, `reason_summary[]`, `items[]`, and `hints`. Wide historical spans exceeding `2,000` cases are sliced externally by callers/agents via `--since`/`--until` (weekly or monthly chunks) rather than adding multi-span loops inside a single CLI invocation.
 - **Enriching `pdd orders detail --sn <sn>`**:
-  - Fix the existing `after_sales_status` defect by reading `after_sales_status_code` when `after_sales_status` is non-numeric text.
+  - Fix the `after_sales_status` defect by reading `after_sales_status_code` when present and `after_sales_status` has no numeric value, using the existing order-level labels.
   - Trigger `queryList(searchText: sn)` automatically only when `orderDetail` indicates after-sales (`after_sales_id != null` or `after_sales_status_code != null`), keeping non-after-sales `orders detail` calls at zero extra requests.
-  - Apply local exact `order_sn === sn` filtering and output `data.after_sales_cases` sorted newest-first (`[]` when the order has no after-sales; `null` with a Chinese hint in `data.hints` on degraded `queryList` failure so empty and failed states stay distinct).
+  - Apply local exact `order_sn === sn` filtering and output `data.after_sales_cases` sorted by application time descending and numeric case ID descending (`[]` with no indicators or matches; `null` with a Chinese hint on degraded `queryList` failure). Fetch the reason dictionary only for non-empty matches. The headline adds the latest case or a degraded-list notice when applicable.
 - **Shared view allowlist and `reason_summary[]` aggregation**:
   - Both `orders.after-sales` `items[]` and `orders.detail` `after_sales_cases[]` share one v2-compliant 18-field allowlist (`AFTER_SALES_CASE_FIELDS`): `after_sales_id`, `order_sn`, `goods_name`, `spec`, `quantity`, `type`, `status`, `status_detail`, `shipping_status`, `reason_code`, `reason_desc`, `reason_category`, `refund_amount_yuan`, `order_amount_yuan`, `receive_amount_yuan`, `created_at`, `closed_at`, `reverse_tracking_number`.
   - Keep platform-verbatim `reason_code` and `reason_desc` as primary identifiers; enrich `reason_category` from `queryParams.reasonCodeParams` (7 coarse workbench groups) and emit `null` for ungrouped live codes (such as `405030` `尺码没选对`) or when `queryParams` is unavailable.
@@ -47,6 +47,6 @@ Proposed - 2026-11-22 (design aligned via `grill-with-docs` and upstream read-on
 ## Consequences
 
 - Callers querying high-volume windows exceeding `2,000` cases receive `truncated: true` with guidance to split the query into smaller `--since` / `--until` intervals.
-- `orders detail` incurs `1–2` additional read-only `page-api` calls only when an order carries after-sales indicators; normal orders remain unchanged.
+- `orders detail` incurs additional read-only `page-api` calls only when an order carries after-sales indicators: up to 20 list pages and one dictionary request if cases match.
 - Filtering by `--goods-id` depends on upstream `searchText` matching because `queryList` items omit `goodsId` in the response payload.
 - `--type` sends a scalar integer `afterSalesType` or omits the field for `all`. Read-only verification confirmed that an array is rejected and `afterSalesTypeList` is ignored (recon §2.2).

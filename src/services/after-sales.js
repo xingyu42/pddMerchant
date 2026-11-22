@@ -5,10 +5,10 @@ import {
 import { runEndpoint } from '../adapter/run-endpoint.js';
 import { throwIfAborted } from '../infra/abort.js';
 import { toFiniteNumber } from '../infra/units.js';
-import { createReport } from './operating-report.js';
+import { createReport, reportHints } from './operating-report.js';
 import { rollingSecondsWindow } from './report-windows.js';
 import { mallIdOf } from './views/_shared.js';
-import { AFTER_SALES_REPORT, toAfterSalesListView } from './views/after-sales.js';
+import { AFTER_SALES_REPORT, toAfterSalesCaseView, toAfterSalesListView } from './views/after-sales.js';
 
 export {
   AFTER_SALES_CLI_STATUSES, AFTER_SALES_CLI_TYPES, AFTER_SALES_DEFAULT_STATUS, AFTER_SALES_DEFAULT_TYPE,
@@ -29,6 +29,26 @@ async function collectAfterSalesPages(ctx, params) {
     if (result.items.length < AFTER_SALES_PAGE_SIZE || items.length >= total || page === AFTER_SALES_MAX_PAGES) break;
   }
   return { items, total, truncated: page === AFTER_SALES_MAX_PAGES && items.length < total };
+}
+
+function collectAfterSalesParams(ctx, report) {
+  return report.optional('params_unavailable',
+    () => runEndpoint(ctx.page, AFTER_SALES_PARAMS, {}, ctx),
+    () => ({ reasonCategoryMap: {} }));
+}
+
+export async function getOrderAfterSalesCases(ctx, orderSn) {
+  const report = createReport(ctx, AFTER_SALES_REPORT);
+  const searchText = String(orderSn);
+  const result = await report.optional('cases_unavailable', () => collectAfterSalesPages(ctx, { searchText }));
+  if (result === null) return { cases: null, hints: reportHints(AFTER_SALES_REPORT, report.hints) };
+
+  const matchedItems = result.items.filter((item) => String(item?.orderSn ?? '') === searchText);
+  matchedItems.sort((a, b) => (toFiniteNumber(b.createdAt) ?? 0) - (toFiniteNumber(a.createdAt) ?? 0)
+    || (toFiniteNumber(b.id) ?? 0) - (toFiniteNumber(a.id) ?? 0));
+  const { reasonCategoryMap } = matchedItems.length > 0 ? await collectAfterSalesParams(ctx, report) : {};
+  const cases = matchedItems.map((item) => toAfterSalesCaseView(item, reasonCategoryMap));
+  return { cases, hints: reportHints(AFTER_SALES_REPORT, report.hints) };
 }
 
 function resolveWindow({ days, since, until, sn }) {
@@ -58,9 +78,7 @@ export async function getAfterSalesView(ctx, {
     && (afterSalesStatusList == null || afterSalesStatusList.includes(toFiniteNumber(item?.afterSalesStatus)))
     && (afterSalesType == null || toFiniteNumber(item?.afterSalesType) === afterSalesType));
   const effectiveTotal = !truncated && filteredItems.length < items.length ? filteredItems.length : total;
-  const { reasonCategoryMap } = await report.optional('params_unavailable',
-    () => runEndpoint(ctx.page, AFTER_SALES_PARAMS, {}, ctx),
-    () => ({ reasonCategoryMap: {} }));
+  const { reasonCategoryMap } = await collectAfterSalesParams(ctx, report);
   if (truncated) report.hint('list_truncated');
   return toAfterSalesListView({
     rawItems: filteredItems, total: effectiveTotal, truncated, window, filters: { sn, goodsId, status, type },

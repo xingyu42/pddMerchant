@@ -1,5 +1,5 @@
 import { withCommand } from '../_runner.js';
-import { getOrderDetailView } from '../../services/orders.js';
+import { getOrderDetailResult } from '../../services/orders.js';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 
 export const run = withCommand({
@@ -16,6 +16,6 @@ export const run = withCommand({
         exitCode: ExitCodes.USAGE,
       });
     }
-    return getOrderDetailView(ctx.page, sn, ctx);
+    return getOrderDetailResult(ctx, sn);
   },
 });

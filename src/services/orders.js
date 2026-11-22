@@ -2,12 +2,15 @@ import { runEndpoint } from '../adapter/run-endpoint.js';
 import {
   ORDER_LIST, ORDER_DETAIL, ORDER_STATS, ORDER_LIST_DEFAULT_DAYS, ORDER_LIST_CLI_SCOPES, ORDER_LIST_DEFAULT_SCOPE,
 } from '../adapter/endpoints/orders.js';
+import { getSharedClient } from '../adapter/rate-limiter-singleton.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { toLocalDate } from '../infra/units.js';
+import { getOrderAfterSalesCases } from './after-sales.js';
 import {
   orderStatusLabel, toLocalOrderStatsView, toOrderDetailView, toOrderView, toRemoteOrderStatsView,
 } from './views/order.js';
 import { mallIdOf, yuanText } from './views/_shared.js';
+import { AFTER_SALES_REPORT } from './views/after-sales.js';
 import { ORDER_SCOPE_LABEL } from './views/labels.js';
 
 // 命令层经 service 取得 --status 可选值（commands 不直接 import adapter）
@@ -152,18 +155,44 @@ function shippingSentence(order) {
   return `暂无发货记录${deadline}`;
 }
 
-function detailHeadline(order) {
-  return [
+function detailHeadline(order, afterSalesCases) {
+  const headline = [
     `订单 ${order.order_sn ?? '(无订单号)'}：${order.status ?? UNKNOWN_STATUS}`,
     `${order.goods_name ?? '商品名未记录'} × ${order.quantity ?? '?'}，实付 ${yuanText(order.paid_amount_yuan)}`,
     shippingSentence(order),
   ];
+  if (Array.isArray(afterSalesCases) && afterSalesCases.length > 0) {
+    const { type, status, reason_desc: reason } = afterSalesCases[0];
+    headline.push(`售后单 ${afterSalesCases.length} 条，最新：${type ?? '类型未记录'}（${status ?? '状态未记录'}），原因：${reason ?? '未记录'}`);
+  } else if (afterSalesCases === null) {
+    headline.push(AFTER_SALES_REPORT.hints.cases_unavailable);
+  }
+  return headline;
 }
 
-export async function getOrderDetailView(page, sn, ctx = {}) {
+async function getOrderDetailView(page, sn, ctx) {
   const result = await getOrderDetail(page, sn, ctx);
-  const order = toOrderDetailView(result?.order);
-  return { headline: detailHeadline(order), order, mall_id: mallIdOf(ctx) };
+  const rawOrder = result?.order;
+  const order = toOrderDetailView(rawOrder);
+  const hasAfterSales = rawOrder?.after_sales_id != null || rawOrder?.after_sales_status_code != null;
+  const { cases: afterSalesCases, hints } = hasAfterSales
+    ? await getOrderAfterSalesCases(ctx, order.order_sn ?? sn)
+    : { cases: [], hints: [] };
+  return { headline: detailHeadline(order, afterSalesCases), order, after_sales_cases: afterSalesCases,
+    hints, mall_id: mallIdOf(ctx) };
+}
+
+export async function getOrderDetailResult(ctx, sn) {
+  const client = ctx.client ?? getSharedClient(ctx.runtimeConfig);
+  let requestCount = 0;
+  const countingClient = {
+    execute(...args) {
+      requestCount++;
+      return client.execute(...args);
+    },
+  };
+  const data = await getOrderDetailView(ctx.page, sn, { ...ctx, client: countingClient });
+  return { data, meta: { xhr_count: requestCount } };
 }
 
 function localStatsSentence(local) {
