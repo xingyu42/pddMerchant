@@ -207,7 +207,9 @@ function regionsHeadline(regions) {
   if (top.confirmed_order_amount_yuan === null) {
     return `近 ${regions.window_days} 天成团分布覆盖 ${regions.province_count} 个省（成团金额缺失）`;
   }
-  return `近 ${regions.window_days} 天成团分布覆盖 ${regions.province_count} 个省，`
+  const scope = regions.items.some((item) => item.confirmed_order_amount_yuan === null)
+    ? '在金额已知的省份中，' : '';
+  return `近 ${regions.window_days} 天成团分布覆盖 ${regions.province_count} 个省，${scope}`
     + `${top.province}成团额最高（${valueWithUnit(top.confirmed_order_amount_yuan, '元')}、`
     + `${valueWithUnit(top.confirmed_order_count, '单')}）`;
 }

@@ -88,6 +88,8 @@ describe('orders diagnosis regions view', () => {
     assert.equal(nullMetricsView.regions.items[0].province, '浙江');
     assert.equal(nullMetricsView.regions.items[1].confirmed_order_amount_yuan, null);
     assert.equal(nullMetricsView.regions.items[1].confirmed_buyer_count, null);
+    assert.equal(nullMetricsView.headline.at(-1),
+      '近 7 天成团分布覆盖 2 个省，在金额已知的省份中，浙江成团额最高（25.4 元、1 单）');
 
     const allNullAmountsView = toOrdersDiagnosisView(baseSummary, {
       regions: {
