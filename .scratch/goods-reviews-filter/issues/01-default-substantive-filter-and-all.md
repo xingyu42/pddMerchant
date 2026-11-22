@@ -4,13 +4,17 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 默认调用 `pdd goods reviews` 启用 `substantive` 模式（`filter: { mode: 'substantive', min_length: 1 }`），过滤 4–5 星平台占位评价（`status === 4` 及缺失 `status` 时的后端/前端精确占位模板）、空/纯空白、纯标点/符号/Emoji、纯数字串、清洗后长度 `>= 2` 的单字重复（英文字母忽略大小写），以及无买家自填正文的 4–5 星纯图片、纯视频、纯标签条目
-- [ ] 默认模式保留单字有效评价（如「差」「假」）、非重复短评（如「破了」「尺码小」「38码」）、主评占位或为空但追评（字符串或对象形式）含有效字符的条目，以及全部 1–3 星中差评（含 `status === 4` 静默中差评与 `history_score <= 3` 老评价），且保留条目的原始文案与手机号脱敏行为不变
-- [ ] `pdd goods reviews --all` 跳过过滤并返回全部采集条目，`filtered_out_count` 为 `0`，`filter` 为 `{ mode: 'all', min_length: null }`，`headline` 保持原有未过滤格式
-- [ ] `total` 保持上游首页返回的未过滤总数，`fetched_count` 为过滤前实际采集条数，恒满足 `fetched_count === items.length + filtered_out_count`
-- [ ] 触达平台 2000 条查看上限（`truncated: true`）时，`fetched_count` 为 `2000`、`items.length + filtered_out_count === 2000`，`headline` 截断行按 `fetched_count` 报出「已采集 2000 条，结果已截断」并附带截断提示
-- [ ] `REVIEWS_LIST` 继续发送无内容筛选的上游请求，内部规范化提取 `status`（缺失时回退 `null`），`status` 不进入对外 `REVIEW_FIELDS` 白名单；`diagnose reviews` 输出与行为保持完全不变
-- [ ] 补齐 CLI E2E + 合成夹具测试、评价端点契约测试、`data-contract-v2`（`goods.reviews` 增加 `filter` 字段集校验）并更新受默认过滤影响的既有服务/视图测试，确保隐私脱敏与字段白名单回归通过
-- [ ] `npm run check` 通过
+- [x] 默认调用 `pdd goods reviews` 启用 `substantive` 模式（`filter: { mode: '实质内容', min_length: 1 }`），过滤 4–5 星平台占位评价（`status === 4` 及缺失 `status` 时的后端/前端精确占位模板）、空/纯空白、纯标点/符号/Emoji、纯数字串、清洗后长度 `>= 2` 的单字重复（英文字母忽略大小写），以及无买家自填正文的 4–5 星纯图片、纯视频、纯标签条目
+- [x] 默认模式保留单字有效评价（如「差」「假」）、非重复短评（如「破了」「尺码小」「38码」）、主评占位或为空但追评（字符串或对象形式）含有效字符的条目，以及全部 1–3 星中差评（含 `status === 4` 静默中差评与 `history_score <= 3` 老评价），且保留条目的原始文案与手机号脱敏行为不变
+- [x] `pdd goods reviews --all` 跳过过滤并返回全部采集条目，`filtered_out_count` 为 `0`，`filter` 为 `{ mode: '全部', min_length: null }`，`headline` 保持原有未过滤格式
+- [x] `total` 保持上游首页返回的未过滤总数，`fetched_count` 为过滤前实际采集条数，恒满足 `fetched_count === items.length + filtered_out_count`
+- [x] 触达平台 2000 条查看上限（`truncated: true`）时，`fetched_count` 为 `2000`、`items.length + filtered_out_count === 2000`，`headline` 截断行按 `fetched_count` 报出「已采集 2000 条，结果已截断」并附带截断提示
+- [x] `REVIEWS_LIST` 继续发送无内容筛选的上游请求，内部规范化提取 `status`（缺失时回退 `null`），`status` 不进入对外 `REVIEW_FIELDS` 白名单；`diagnose reviews` 输出与行为保持完全不变
+- [x] 补齐 CLI E2E + 合成夹具测试、评价端点契约测试、`data-contract-v2`（`goods.reviews` 增加 `filter` 字段集校验）并更新受默认过滤影响的既有服务/视图测试，确保隐私脱敏与字段白名单回归通过
+- [x] `npm run check` 通过
+
+## Comments
+
+- 2026-11-22：完成 TDD 实现与测试覆盖（commit `b96ba19`），并随双轴代码审查修复在视图层将 `filter.mode` 对外标签统一为中文枚举「实质内容」「全部」（符合 `CLAUDE.md` 与 `envelope-errors-output.md` §2 v2 输出契约，commit `3e90e50`）。`npm run check` 全量通过（knip lint 0 错；vitest 130 个测试文件、2208 项通过、1 项 Windows 平台预跳过）。
