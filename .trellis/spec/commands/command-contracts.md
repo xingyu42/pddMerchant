@@ -10,7 +10,7 @@
 
 ```js
 import { withCommand } from '../_runner.js';
-import { getOrderDetailView } from '../../services/orders.js';
+import { getOrderDetailResult } from '../../services/orders.js';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 
 export const run = withCommand({
@@ -27,8 +27,8 @@ export const run = withCommand({
         exitCode: ExitCodes.USAGE,
       });
     }
-    // service 返回完整 v2 data：{ headline, order, mall_id }
-    return getOrderDetailView(ctx.page, sn, ctx);
+    // service 返回完整 v2 data 及本次端点调用数
+    return getOrderDetailResult(ctx, sn);
   },
 });
 ```
@@ -86,12 +86,19 @@ src/services/<domain>.js           业务逻辑（被 handler 调用）
 - `goods update batch` price changes use `field: "price_yuan"` with `value` in yuan (number or string); `field: "price"` → `E_USAGE` exit 2 whose hint shows the new format. All items are validated before the first write; writes run sequentially。
 - Write echo (dry-run and confirmed) shape: `{ headline, goods_id(string), field, value, [sku_id], dry_run, [result: { success, failed_count }], mall_id }`. `field` equals the batch field name (`status|price_yuan|stock|title`); price `value` is yuan; status `value` is the Chinese action (`上架|下架`) while the upstream payload keeps `onsale|offline`. Batch: dry-run `{ headline, planned[], count, dry_run, mall_id }`, confirmed `{ headline, succeeded, failed, results[{ goods_id, field, ok, error_code?, message? }], dry_run, mall_id }`; partial exit 7 via `meta.exit_code`。
 - Command handlers stay thin: call one service function that returns the full v2 `data` (or `{ data, warnings }`). Option values are parsed and validated in the registrar at commander parse time (`src/commands/option-parsers.js` helpers, `Option.choices`), so usage errors exit 2 before any browser starts; usage checks of CLI options inside services are legacy (`src/services/goods.js`), never a precedent. Projection, unit conversion, labels and headline live in `src/services/` + `src/services/views/`, never in commands。
-- Every success `data` MUST include a factual Chinese `headline: string[]` (1–3 sentences; multi-block reports such as `diagnose reviews` adding `goods_scores` MAY extend up to 4 sentences so existing lines stay intact). Headlines state counts, states and data availability only — no advice, scores, rankings or good/bad wording。
+- Every success `data` MUST include a factual Chinese `headline: string[]` (1–3 sentences; `diagnose reviews` with `goods_scores` and `orders detail` with a case summary or failed lookup MAY extend to 4 sentences so existing lines stay intact). Headlines state counts, states and data availability only — no advice, scores, rankings or good/bad wording。
 - Config `set/unset` MUST NOT require `--confirm`; they only edit the reversible project-local sparse override after strict Schema validation and atomic-write checks。
 - `withCommand()` domain handlers MUST return plain data for the envelope `data` field; maintenance/raw lifecycle handlers (`account.*`、`config.*`、`init`、`login`) may build and emit exactly one standard envelope through `src/infra/output.js`, and MUST build its `data` with the same v2 views (`src/services/views/account.js|config.js|auth.js`) and set `meta.exit_code`。
 - `goods segment`, `promo roi`, and `diagnose` return factual statistics and data-quality hints only. No operating advice, health scores, tiers, or promo quality classifications. `action plan` and `--break-even` are removed and must fail as usage errors.
 
 ## 4. Validation & Error Matrix
+
+### Orders After-Sales
+
+- `orders after-sales` 为只读命令，使用普通鉴权与切店流程，支持 `--all-accounts`。`--days` 接受 1–365 的整数，未传时保留 `undefined`。`--since` / `--until` 接受有效的 `YYYY-MM-DD`（北京时间自然日首秒 / 末秒）或非负 Unix 秒整数，与 `--days` 互斥。`--until` 须配合 `--since`；仅传 `--since` 时截止到当前秒，起点须不晚于截止时间。
+- `--sn` 去除首尾空白后须非空，与正整数 `--goods-id` 互斥。`--status` 为 `all|open|refunded|closed`，`--type` 为 `all|refund|return_refund|exchange|resend|repair`，均默认 `all`。格式、枚举、互斥与起止组合均在选项解析或 `preAction` 中校验；错误保留 `command: orders.after-sales`，返回 `E_USAGE` / exit 2，`xhr_count` 为 0，早于运行时配置与鉴权。
+- JSON 为单行 v2 信封，文本模式显示摘要和售后单表格。窗口、分页、原因汇总与降级见服务契约的 After-Sales Case Reporting 小节。
+- `orders detail --sn <sn>` 自动补充 `after_sales_cases` 与 `hints`，沿用只读、鉴权、切店及批量模式。无售后标识时只请求一次详情（`meta.xhr_count: 1`）；成功时该计数包含本次逻辑端点调用，可选调用失败也计入。命中售后单或关联列表失败降级时，在既有三行 `headline` 后追加一行；未命中时保留三行。
 
 ### Goods Cost / Profit
 

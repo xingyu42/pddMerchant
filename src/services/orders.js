@@ -4,6 +4,7 @@ import {
 } from '../adapter/endpoints/orders.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { toLocalDate } from '../infra/units.js';
+import { AFTER_SALES_REPORT, getOrderAfterSalesCases } from './after-sales.js';
 import {
   orderStatusLabel, toLocalOrderStatsView, toOrderDetailView, toOrderView, toRemoteOrderStatsView,
 } from './views/order.js';
@@ -152,18 +153,34 @@ function shippingSentence(order) {
   return `暂无发货记录${deadline}`;
 }
 
-function detailHeadline(order) {
-  return [
+function detailHeadline(order, afterSalesCases) {
+  const headline = [
     `订单 ${order.order_sn ?? '(无订单号)'}：${order.status ?? UNKNOWN_STATUS}`,
     `${order.goods_name ?? '商品名未记录'} × ${order.quantity ?? '?'}，实付 ${yuanText(order.paid_amount_yuan)}`,
     shippingSentence(order),
   ];
+  if (Array.isArray(afterSalesCases) && afterSalesCases.length > 0) {
+    const { type, status, reason_desc: reason } = afterSalesCases[0];
+    headline.push(`售后单 ${afterSalesCases.length} 条，最新：${type ?? '类型未记录'}（${status ?? '状态未记录'}），原因：${reason ?? '未记录'}`);
+  } else if (afterSalesCases === null) {
+    headline.push(AFTER_SALES_REPORT.hints.cases_unavailable);
+  }
+  return headline;
 }
 
-export async function getOrderDetailView(page, sn, ctx = {}) {
-  const result = await getOrderDetail(page, sn, ctx);
-  const order = toOrderDetailView(result?.order);
-  return { headline: detailHeadline(order), order, mall_id: mallIdOf(ctx) };
+export async function getOrderDetailResult(ctx, sn) {
+  const result = await getOrderDetail(ctx.page, sn, ctx);
+  const rawOrder = result?.order;
+  const order = toOrderDetailView(rawOrder);
+  const hasAfterSales = rawOrder?.after_sales_id != null || rawOrder?.after_sales_status_code != null;
+  const afterSales = hasAfterSales
+    ? await getOrderAfterSalesCases(ctx, order.order_sn ?? sn)
+    : { cases: [], hints: [], requestCount: 0 };
+  const data = {
+    headline: detailHeadline(order, afterSales.cases), order, after_sales_cases: afterSales.cases,
+    hints: afterSales.hints, mall_id: mallIdOf(ctx),
+  };
+  return { data, meta: { xhr_count: 1 + afterSales.requestCount } };
 }
 
 function localStatsSentence(local) {

@@ -1,6 +1,6 @@
 # 经营报表口径
 
-转述 `diagnose *`、`goods traffic`、`goods profit`、`goods receipt`、`goods reviews` 结果前读本文件。通用规则见 SKILL.md「转述结果」：`headline` 优先、`null` 表示未知、`hints` 原样转述。
+转述 `diagnose *`、`orders after-sales`、`orders detail`、`goods traffic`、`goods profit`、`goods receipt`、`goods reviews` 结果前读本文件。通用规则见 SKILL.md「转述结果」：`headline` 优先、`null` 表示未知、`hints` 原样转述。
 
 ## diagnose shop / orders / inventory / promo
 
@@ -13,6 +13,18 @@
 - 维度键 `after_sales`；`detail` 含 `total_orders`、`refund_count`、`refund_rate_pct`、`after_sales_count`、`after_sales_rate_pct`、`status_distribution`、`window_days`。
 - `after_sales_count` 只计售后处理中订单；两类占比的分母都是采集到的全部订单，空样本为 `null`。
 - 店铺汇总取近 7 天首批 50 条订单；单独查询默认近 30 天分页采集，截断和限流写入提示。
+
+## orders after-sales
+
+- 默认按售后申请时间查询近 30 天，覆盖全部类型和状态。`--days` 接受 1–365；精确窗口使用 `--since` / `--until`，接受北京时间 `YYYY-MM-DD`（当日首秒 / 末秒）或 Unix 秒，省略 `--until` 时截至当前秒。`window` 回显北京时间。
+- `--sn` 精确匹配订单号；未指定时间时查全历史，`window` 各字段均为 `null`。同一订单可对应多条售后单。`--goods-id` 与 `--sn` 互斥，两者都可与 `--status` 和 `--type` 组合；`filters` 回显筛选值，状态与类型使用中文。
+- `items[]` 包含平台售后原因码与文案；平台字典未收录该码或字典拉取失败时，`reason_category` 为 `null`。字典拉取失败会附 `hints`。
+- 状态筛选由平台处理；本地复核订单号和售后类型。`total` 始终是平台首页总数，`fetched_count` 是最终输出的明细条数。`reason_summary[]` 按原因文案合并，退款金额先按分加总，`share_pct` 以 `fetched_count` 为分母；组内所有售后单须归入同一个已知大类才显示该类。每次最多采集 2000 条，截断时附提示。
+
+## orders detail
+
+- `order.after_sales_status` 为订单级状态；`after_sales_cases[]` 逐条报告售后单级状态和平台原因。同一订单可关联多条售后单，按申请时间倒序，同秒时按售后单 ID 数值倒序。
+- 无售后标识或无精确匹配时为 `[]`；关联检索达到 2000 条上限且结果被截断时，`hints` 提醒结果可能不完整。关联列表拉取失败降级时为 `null`，订单详情照常返回并附 `hints`。原因字典失败时保留售后单和原因文案，仅置 `reason_category` 为 `null` 并附提示。
 
 ## diagnose experience
 

@@ -1,7 +1,9 @@
 import { it } from 'vitest';
 import assert from 'node:assert/strict';
 import { Command, InvalidArgumentError } from 'commander';
-import { goodsIdArg, goodsIdListArg, integerArg, reportDaysArg, starsArg } from '../../src/commands/option-parsers.js';
+import {
+  goodsIdArg, goodsIdListArg, integerArg, nonEmptyStringArg, reportDaysArg, shanghaiTimeBoundArg, starsArg,
+} from '../../src/commands/option-parsers.js';
 import { register as registerDiagnose } from '../../src/commands/registry/diagnose.js';
 import { register as registerGoods } from '../../src/commands/registry/goods.js';
 import { validateReportDays } from '../../src/services/operating-report.js';
@@ -66,6 +68,25 @@ it.each([['abc', 1], ['', 1], ['1.5', 1], ['1e3', 1], ['0x10', 1], ['0', 1], ['-
 it('bounds integers by an optional maximum', () => {
   assert.equal(integerArg(1, 10)('10'), 10);
   for (const value of ['0', '11']) assert.throws(() => integerArg(1, 10)(value), InvalidArgumentError);
+});
+
+it('parses inclusive Shanghai calendar bounds and Unix seconds', () => {
+  const start = shanghaiTimeBoundArg('start');
+  const end = shanghaiTimeBoundArg('end');
+  assert.equal(start(' 2024-02-29 '), 1709136000);
+  assert.equal(end('2024-02-29'), 1709222399);
+  assert.equal(start('0'), 0);
+  assert.equal(end('1700000000'), 1700000000);
+  for (const value of ['2026-02-30', '2026-02-29', '2026-13-01', '2026-01-00', '-1', '1.5', '0xff', '1e3', '9007199254740992', 'abc', ' ']) {
+    assert.throws(() => start(value), InvalidArgumentError);
+    assert.throws(() => end(value), InvalidArgumentError);
+  }
+});
+
+it('trims non-empty text and rejects whitespace-only values', () => {
+  const parse = nonEmptyStringArg('订单号');
+  assert.equal(parse(' SYN-1 '), 'SYN-1');
+  for (const value of ['', ' \t']) assert.throws(() => parse(value), InvalidArgumentError);
 });
 
 it('accumulates repeated and comma-separated goods ids without duplicates', () => {

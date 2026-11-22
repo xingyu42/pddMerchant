@@ -1,8 +1,16 @@
 // 📦 Orders 分组注册（design D-3）
+import { InvalidArgumentError, Option } from 'commander';
 import * as list from '../orders/list.js';
 import * as detail from '../orders/detail.js';
 import * as stats from '../orders/stats.js';
-import { integerArg } from '../option-parsers.js';
+import * as afterSales from '../orders/after-sales.js';
+import {
+  goodsIdArg, integerArg, nonEmptyStringArg, preserveParseErrorCommand, reportDaysArg,
+  shanghaiTimeBoundArg, validateParsedOptions,
+} from '../option-parsers.js';
+import {
+  AFTER_SALES_CLI_STATUSES, AFTER_SALES_CLI_TYPES, AFTER_SALES_DEFAULT_STATUS, AFTER_SALES_DEFAULT_TYPE, AFTER_SALES_REPORT,
+} from '../../services/after-sales.js';
 
 export function register(program, wireAction) {
   const orders = program.command('orders').description('📦 订单管理');
@@ -34,4 +42,33 @@ export function register(program, wireAction) {
     'orders.stats',
     stats.run
   );
+  registerAfterSales(orders, wireAction);
+}
+
+function registerAfterSales(orders, wireAction) {
+  const afterSalesCommand = orders.command('after-sales').description('售后单列表与原因分布')
+    .addOption(new Option('--days <n>', AFTER_SALES_REPORT.days.description)
+      .argParser(reportDaysArg(AFTER_SALES_REPORT)).conflicts(['since', 'until']))
+    .addOption(new Option('--since <time>', '起始时间（YYYY-MM-DD 按北京时间 00:00:00，或 Unix 秒）')
+      .argParser(shanghaiTimeBoundArg('start')).conflicts('days'))
+    .addOption(new Option('--until <time>', '结束时间（YYYY-MM-DD 按北京时间 23:59:59，或 Unix 秒）')
+      .argParser(shanghaiTimeBoundArg('end')).conflicts('days'))
+    .addOption(new Option('--sn <order_sn>', '按订单号筛选（未传时间参数时默认查全历史，与 --goods-id 互斥）')
+      .argParser(nonEmptyStringArg('订单号')).conflicts('goodsId'))
+    .addOption(new Option('--goods-id <id>', '按商品 ID 筛选（与 --sn 互斥）')
+      .argParser(goodsIdArg).conflicts('sn'))
+    .addOption(new Option('--status <scope>', '售后状态筛选：all|open|refunded|closed')
+      .choices(AFTER_SALES_CLI_STATUSES).default(AFTER_SALES_DEFAULT_STATUS))
+    .addOption(new Option('--type <kind>', '售后类型筛选：all|refund|return_refund|exchange|resend|repair')
+      .choices(AFTER_SALES_CLI_TYPES).default(AFTER_SALES_DEFAULT_TYPE));
+  preserveParseErrorCommand(afterSalesCommand);
+  validateParsedOptions(afterSalesCommand, ({ since, until }) => {
+    if (until !== undefined && since === undefined) {
+      throw new InvalidArgumentError('--until 必须配合 --since 使用');
+    }
+    if (since !== undefined && since > (until ?? Math.floor(Date.now() / 1000))) {
+      throw new InvalidArgumentError('--since 不能晚于 --until');
+    }
+  });
+  wireAction(afterSalesCommand, 'orders.after-sales', afterSales.run);
 }

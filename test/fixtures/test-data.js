@@ -157,6 +157,41 @@ function addPagedFixtures(fixtures, endpointName, total, pageSize, buildPayload)
   }
 }
 
+export function createUpstreamAfterSalesCase(overrides = {}) {
+  return {
+    id: 123456, orderSn: 'SYN-AFTER-SALES-ORDER', goodsName: '样例商品', goodsSpec: 'L', goodsNumber: 1,
+    afterSalesType: 2, afterSalesTypeName: '退货退款', afterSalesStatus: 5, afterSalesTitle: '退款已到账',
+    sellerAfterSalesShippingStatus: 1, sellerAfterSalesShippingStatusDesc: '已发货',
+    afterSalesReasonCode: 88, afterSalesReasonDesc: '不想要了',
+    refundAmount: 1778, orderAmount: 1478, receiveAmount: 1778,
+    createdAt: 1700000000, closeTime: 0, reverseTrackingNumber: '',
+    thumbUrl: 'SYN-AFTER-SALES-PRIVATE-IMAGE', mallRemark: 'SYN-AFTER-SALES-PRIVATE-REMARK',
+    uid: 'SYN-AFTER-SALES-PRIVATE-UID', returnAddressId: 'SYN-AFTER-SALES-PRIVATE-ADDRESS',
+    actions: [{ actionName: 'SYN-AFTER-SALES-PRIVATE-ACTION' }], expireActionDesc: 'SYN-AFTER-SALES-PRIVATE-EXPIRY',
+    ...overrides,
+  };
+}
+
+export function createUpstreamAfterSalesParams(overrides = {}) {
+  return {
+    reasonCodeParams: { 七天无理由退货: [88, 66, 197], 质量问题: [81] },
+    ...overrides,
+  };
+}
+
+export function createAfterSalesFixtures({
+  count = 1,
+  items = Array.from({ length: count }, (_, index) => createUpstreamAfterSalesCase({ id: 123456 + index })),
+  total = items.length,
+  params = success(createUpstreamAfterSalesParams()),
+} = {}) {
+  const fixtures = { 'endpoints/after_sales.params.json': params };
+  addPagedFixtures(fixtures, 'after_sales.list', items.length, 100, (offset, size) => ({
+    total, list: items.slice(offset, offset + size),
+  }));
+  return fixtures;
+}
+
 function upstreamReview(overrides = {}) {
   return {
     goodsId: 101,

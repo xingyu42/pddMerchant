@@ -129,3 +129,17 @@ _Avoid_: Net income, settlement amount, buyer price, CLI-calculated receipt
 **Non-Promo Sales**:
 The orders and transaction amount of a goods item that remain after subtracting the promotion's direct attribution from the goods total. It is a derived difference rather than a platform-reported split; a negative difference is unknown, not zero. Visitors are never split this way because promotion clicks are not visitors.
 _Avoid_: Free traffic, natural traffic, organic visitors
+
+## After-Sales
+
+**After-Sales Case** (售后单):
+A single buyer-initiated post-order request—covering refund, return-and-refund, exchange, resend, or repair—tracked by its own application time and lifecycle status. It is distinct from an Order: one Order can have multiple After-Sales Cases over time, and a case can close without a refund.
+_Avoid_: Refund (as a blanket term), refunded order, order after-sales status
+
+**After-Sales Reason** (售后原因):
+The platform-recorded structured reason attached to an After-Sales Case, expressed as a reason code and label such as 不想要了, 尺码没选对, or 质量问题. It is separate from buyer free-text explanations, negotiation logs, and Data Center quality-refund classifications.
+_Avoid_: Refund comment, buyer remark, quality refund
+
+**After-Sales Reason Category** (售后原因大类):
+One of Pinduoduo's coarse workbench filter groups (such as 七天无理由退货, 质量问题, 商品描述不符, 发货履约原因, 少件, 疑似假货, or 其他原因) mapped to sets of reason codes. Because the platform leaves some live reason codes ungrouped, an After-Sales Case can carry a known After-Sales Reason with an unknown category.
+_Avoid_: Reason bucket, CLI classification, inferred category

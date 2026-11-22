@@ -99,6 +99,19 @@ describe('order view projection', () => {
     assert.equal(view.received_at, null);
     assert.equal(view.invoice_status, '未申请');
   });
+
+  it.each([
+    [{ after_sales_status: '退款成功', after_sales_status_code: 5 }, '退款成功'],
+    [{ after_sales_status: '待消费者发货', after_sales_status_code: 10 }, '售后处理中'],
+    [{ after_sales_status: '换货成功', after_sales_status_code: 16 }, '未知(16)'],
+    [{ after_sales_status: 5 }, '退款成功'],
+    [{ after_sales_status: 5, after_sales_status_code: 10 }, '退款成功'],
+    [{ after_sales_status: '无售后', after_sales_status_code: null }, null],
+    [{ after_sales_status: '无售后' }, null],
+    [{ after_sales_status: null }, null],
+  ])('labels order detail after-sales status from %j', (raw, label) => {
+    assert.equal(toOrderDetailView(raw).after_sales_status, label);
+  });
 });
 
 describe('order stats views', () => {

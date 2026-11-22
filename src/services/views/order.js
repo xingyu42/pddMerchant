@@ -57,8 +57,12 @@ export function toOrderView(raw) {
 }
 
 export function toOrderDetailView(raw) {
+  const order = toOrderView(raw);
+  if (toFiniteNumber(raw?.after_sales_status) === null) {
+    order.after_sales_status = labelOf(AFTER_SALES_STATUS_LABEL, raw?.after_sales_status_code);
+  }
   return {
-    ...toOrderView(raw),
+    ...order,
     paid_at: toLocalDateTime(raw?.pay_time),
     grouped_at: toLocalDateTime(raw?.group_time),
     received_at: toLocalDateTime(raw?.receive_time),

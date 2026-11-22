@@ -7,12 +7,15 @@ import { runCliAsync } from '../helpers/isolated-cli.js';
 import {
   createAccounts, createFactFixtures, createPublishFixtures, createUpstreamGoods, createExperienceFixtures,
   createCustomerServiceFixtures, createReviewFixtures, createTrafficFixtures, createGoodsTrafficFixtures,
-  createGoodsReceiptFixtures, allCaliberReceiptGoods,
+  createGoodsReceiptFixtures, allCaliberReceiptGoods, createAfterSalesFixtures, createUpstreamOrderDetail,
 } from '../fixtures/test-data.js';
 import { ACCOUNT_VIEW_FIELDS, ACCOUNT_REMOVED_VIEW_FIELDS } from '../../src/services/views/account.js';
 import { CONFIG_FIELD_VIEW_FIELDS } from '../../src/services/views/config.js';
 import { SHOP_VIEW_FIELDS } from '../../src/services/views/shops.js';
 import { ORDER_DETAIL_VIEW_FIELDS, ORDER_VIEW_FIELDS } from '../../src/services/views/order.js';
+import {
+  AFTER_SALES_CASE_FIELDS, REASON_SUMMARY_FIELDS, AFTER_SALES_WINDOW_FIELDS, AFTER_SALES_FILTER_FIELDS,
+} from '../../src/services/views/after-sales.js';
 import {
   COST_TEMPLATE_VIEW_FIELDS, GOODS_PROMOTION_VIEW_FIELDS, GOODS_STOCK_ITEM_FIELDS, GOODS_STOCK_SKU_FIELDS,
   GOODS_VIEW_FIELDS,
@@ -82,6 +85,14 @@ const GOODS_RECEIPT_ENTITY_FIELDS = { 'items[]': GOODS_RECEIPT_ITEM_FIELDS, 'ite
   'items[].skus[].single': GOODS_RECEIPT_SINGLE_FIELDS, 'items[].skus[].multi': GOODS_RECEIPT_MULTI_FIELDS,
   'items[].skus[].single.discounts[]': GOODS_RECEIPT_DISCOUNT_FIELDS,
   'items[].skus[].multi.discounts[]': GOODS_RECEIPT_DISCOUNT_FIELDS };
+
+const AFTER_SALES_ENTITY_FIELDS = {
+  '': ['headline', 'window', 'filters', 'total', 'fetched_count', 'truncated', 'reason_summary', 'items', 'hints', 'mall_id'],
+  'items[]': AFTER_SALES_CASE_FIELDS,
+  'reason_summary[]': REASON_SUMMARY_FIELDS,
+  window: AFTER_SALES_WINDOW_FIELDS,
+  filters: AFTER_SALES_FILTER_FIELDS,
+};
 
 const V2_CASES = [
   { command: 'diagnose.traffic', args: ['diagnose', 'traffic'], fixtures: createTrafficFixtures(),
@@ -204,7 +215,33 @@ const V2_CASES = [
     args: ['orders', 'detail', '--sn', 'SYN-DETAIL'],
     fixtures: createFactFixtures(),
     entityFields: { order: ORDER_DETAIL_VIEW_FIELDS },
+    checkData: (data) => {
+      assert.deepEqual(data.after_sales_cases, []);
+      assert.deepEqual(data.hints, []);
+    },
   },
+  {
+    command: 'orders.detail',
+    args: ['orders', 'detail', '--sn', 'SYN-AFTER-SALES-ORDER'],
+    fixtures: {
+      ...createAfterSalesFixtures(),
+      'endpoints/orders.detail.json': { success: true, result: createUpstreamOrderDetail({
+        order_sn: 'SYN-AFTER-SALES-ORDER', after_sales_status: '退款成功', after_sales_status_code: 5,
+      }) },
+    },
+    entityFields: { order: ORDER_DETAIL_VIEW_FIELDS, 'after_sales_cases[]': AFTER_SALES_CASE_FIELDS },
+    checkData: (data) => assert.equal(data.after_sales_cases.length, 1),
+  },
+  ...[
+    [],
+    ['--since', '2023-11-15', '--until', '2023-11-15'],
+    ['--sn', 'SYN-AFTER-SALES-ORDER', '--status', 'refunded', '--type', 'return_refund'],
+  ].map((options) => ({
+    command: 'orders.after-sales',
+    args: ['orders', 'after-sales', ...options],
+    fixtures: createAfterSalesFixtures(),
+    entityFields: AFTER_SALES_ENTITY_FIELDS,
+  })),
   {
     command: 'orders.stats',
     args: ['orders', 'stats'],

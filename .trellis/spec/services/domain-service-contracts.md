@@ -380,6 +380,15 @@ Wrong：total - (direct + indirect)，推广失败时输出 0。Correct：仅减
 - 每个 SKU 只采用当前口径的单件 / 多件场景，其他场景忽略并告警 `receipt_scene_ignored`；缺单件场景 `single: null` 并告警 `receipt_single_missing`，缺多件场景 `multi: null`。平台明确无优惠为 0 / `[]`。
 - views/goods-receipt.js 拥有白名单与分转元：券前价取活动价（来源为 activity_type_desc）否则拼单价（来源「拼单价」）；多件 `discounts` 为合计。数值全部原样报告，不重算、不推导技术服务费或补贴。
 
+## Scenario: After-Sales Case Reporting
+
+- `getAfterSalesView(ctx, { days, since, until, sn, goodsId, status, type })` 按售后申请时间采集。传入 `since` 时用精确 Unix 秒闭区间（`until` 默认当前秒，`window.days` 为 `null`）；仅传 `sn` 且未指定时间时查全历史，省略请求时间字段，三个 `window` 字段均为 `null`；其余情况采用 `rollingSecondsWindow`（默认 30 天）。时间回显为北京时间。
+- `sn` / `goodsId` 共用上游 `searchText`；状态筛选交给上游 `afterSalesStatusList`，保留返回的未登记状态码。商品 ID 筛选同样由上游完成。本地只复核订单号和售后类型；原因汇总与 `fetched_count` 基于复核后的明细，`total` 始终保留平台首页总数。售后单级别的枚举表归 `views/after-sales.js`；订单列表、订单统计、售后诊断和净利润维持原有订单级口径（ADR 0006）。
+- `after_sales.list` 每页 100 条，最多 20 页，保留首页的 `total`；遇到短页或收满总数即停止。只有第 20 页取满且尚未覆盖总数时，`truncated: true`，摘要与提示同时标明上限。可选 `after_sales.params` 拉取失败时追加提示并保留明细；`E_TIMEOUT`、`E_INTERNAL`、取消及程序异常继续传播。
+- 输出为 `{ headline, window, filters, total, fetched_count, truncated, reason_summary, items, hints, mall_id }`。明细遵循 `AFTER_SALES_CASE_FIELDS`；原因按文案聚合，缺文案时回退 `未知(<code>)` 或 `未知`。组内大类须全部已知且一致才输出；退款金额按分加总后转元，总占比以 `fetched_count` 为分母。排序依次为单数降序、退款金额降序、原因文案升序。
+- `orders detail` 详情输出为 `{ headline, order, after_sales_cases, hints, mall_id }`。仅当上游详情的 `after_sales_id` 或 `after_sales_status_code` 非空时调用 `getOrderAfterSalesCases(ctx, orderSn)`。`toOrderDetailView` 在 `after_sales_status` 无有效数字时改用 `after_sales_status_code`（仍用订单级 `AFTER_SALES_STATUS_LABEL`，无状态码且原文非数字时输出 `null`）。
+- `getOrderAfterSalesCases` 复用分页采集，以 `searchText` 查询单号（无时间窗），再本地精确匹配单号，按 `createdAt` 数值倒序、同秒按 `id` 数值倒序，沿用 `AFTER_SALES_CASE_FIELDS`。仅在有匹配时查询原因字典。无售后标识或无匹配时售后单为 `[]`；检索被截断时追加提示，即使已采集的明细无精确匹配。可降级的列表错误返回 `null` 并附中文提示，可降级的字典错误保留售后单并将 `reason_category` 置为 `null`。两者均沿用报表错误策略，继续传播超时、取消及程序异常。`requestCount` 包含失败的逻辑端点调用，详情将其计入 `meta.xhr_count`。
+
 ## Scenario: Order list scope & refund identification
 
 ### 1. Scope / Trigger
