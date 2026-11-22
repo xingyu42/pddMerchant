@@ -9,6 +9,7 @@ export const run = withCommand({
       goodsId: ctx.config?.goodsId,
       stars: ctx.config?.stars,
       all: Boolean(ctx.config?.all),
+      minLength: ctx.config?.minLength,
     });
   },
 });

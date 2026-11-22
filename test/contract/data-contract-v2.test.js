@@ -111,6 +111,8 @@ const V2_CASES = [
     entityFields: { 'items[]': REVIEW_FIELDS, filter: GOODS_REVIEWS_FILTER_FIELDS } },
   { command: 'goods.reviews', args: ['goods', 'reviews', '--all'], fixtures: createReviewFixtures(),
     entityFields: { 'items[]': REVIEW_FIELDS, filter: GOODS_REVIEWS_FILTER_FIELDS } },
+  { command: 'goods.reviews', args: ['goods', 'reviews', '--min-length', '2'], fixtures: createReviewFixtures(),
+    entityFields: { 'items[]': REVIEW_FIELDS, filter: GOODS_REVIEWS_FILTER_FIELDS } },
   { command: 'diagnose.experience', args: ['diagnose', 'experience'], fixtures: createExperienceFixtures(),
     entityFields: { snapshot: EXPERIENCE_SNAPSHOT_FIELDS, 'indicators[]': EXPERIENCE_INDICATOR_FIELDS,
       'trend.items[]': EXPERIENCE_TREND_ITEM_FIELDS } },

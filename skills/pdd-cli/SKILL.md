@@ -90,7 +90,7 @@ pdd goods segment [--days 30] [--max-pages 10] [--no-promo]
 pdd goods traffic [--days 30] [--goods-id <id>]          # 商品流量、推广拆分与今日实时 today
 pdd goods profit [--days 30] [--goods-id <id>]           # 净利润（需先录入成本）
 pdd goods receipt [--goods-id <id>] [--caliber regular|all]
-pdd goods reviews [--days 30] [--goods-id <id>] [--stars 4,5]
+pdd goods reviews [--days 30] [--goods-id <id>] [--stars 4,5] [--all|--min-length <n>]
 pdd goods templates                                      # 运费模板 ID
 pdd goods update status --goods-id <id> --status onsale|offline [--confirm]
 pdd goods update price  --goods-id <id> --price-yuan <元> [--sku-id <id>] [--confirm]

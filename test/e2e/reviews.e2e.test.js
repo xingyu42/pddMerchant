@@ -1,7 +1,7 @@
 import { it } from 'vitest';
 import assert from 'node:assert/strict';
 import { runCli } from '../helpers/isolated-cli.js';
-import { createReviewFixtures, createGoodsReviewFilterFixtures } from '../fixtures/test-data.js';
+import { createReviewFixtures, createGoodsReviewFilterFixtures, createAccounts } from '../fixtures/test-data.js';
 import { REVIEW_FIELDS } from '../../src/services/views/reviews.js';
 
 it('collects two pages, platform tags and five issue types while excluding private fields', () => {
@@ -120,14 +120,85 @@ it('reports pre-filter fetched_count on 2000-row truncation while accounting fil
   assert.ok(view.hints.some((hint) => hint.includes('截断')));
 });
 
-it.each([['--days', '0'], ['--days', '366'], ['--goods-id', 'abc'], ['--stars', '6'], ['--stars', '1,,2']])(
-  'rejects goods reviews %s %s with exit two', (flag, value) => {
-    const result = runCli(['goods', 'reviews', flag, value], { fixtures: createReviewFixtures() });
-    assert.equal(result.status, 2);
-    assert.equal(result.envelope.error.code, 'E_USAGE');
-    assert.equal(result.envelope.command, 'goods.reviews');
-    assert.equal(result.envelope.meta.xhr_count ?? 0, 0);
+it('filters strictly by --min-length across main/append comments, composes with scope/all-accounts, and reports truncation headline', () => {
+  const { fixtures: filterFixtures, totalCount } = createGoodsReviewFilterFixtures();
+  const minLenRes = runCli(['goods', 'reviews', '--min-length', '4'], { fixtures: filterFixtures });
+  assert.equal(minLenRes.status, 0);
+  const minLenView = minLenRes.envelope.data;
+  assert.deepEqual(minLenView.items.map((item) => item.goods_id), ['2006', '2007', '2009']);
+  assert.deepEqual([minLenView.total, minLenView.fetched_count, minLenView.filtered_out_count],
+    [totalCount, totalCount, totalCount - 3]);
+  assert.deepEqual(minLenView.filter, { mode: 'min_length', min_length: 4 });
+  assert.deepEqual(minLenView.headline, [`近 30 天全部星级评价 ${totalCount} 条，有效字数 ≥ 4 字 3 条`]);
+
+  const scopedFixtures = createReviewFixtures({
+    reviews: [
+      { goodsId: 101, createTime: 1793376000, score: 0, descScore: 5, status: 4, comment: '该用户觉得商品很好，给出了5星好评' },
+      { goodsId: 101, createTime: 1793376000, score: 0, descScore: 1, status: 4, comment: '该用户未填写文字评价' },
+      { goodsId: 101, createTime: 1793376000, score: 0, descScore: 5, status: 2, comment: '好好好好好' },
+      { goodsId: 101, createTime: 1793376000, score: 0, descScore: 5, status: 2, comment: '66666👍' },
+      { goodsId: 101, createTime: 1793376000, score: 0, descScore: 5, status: 2, comment: '不错', appendReview: '满意' },
+      { goodsId: 101, createTime: 1793376000, score: 0, descScore: 5, status: 2, comment: '尺码正好1234' },
+      { goodsId: 101, createTime: 1793376000, score: 0, descScore: 4, status: 4, comment: '该用户觉得商品较好',
+        appendReview: '追评13987654321有划痕' },
+    ],
   });
+  const scoped = runCli(['goods', 'reviews', '--days', '7', '--goods-id', '101', '--stars', '4,5', '--min-length', '4'],
+    { fixtures: scopedFixtures });
+  assert.equal(scoped.status, 0);
+  const scopedView = scoped.envelope.data;
+  assert.equal(scopedView.items.length, 2);
+  assert.deepEqual([scopedView.total, scopedView.fetched_count, scopedView.filtered_out_count], [7, 7, 5]);
+  assert.deepEqual([scopedView.window_days, scopedView.goods_id, scopedView.stars], [7, '101', [4, 5]]);
+  assert.deepEqual(scopedView.filter, { mode: 'min_length', min_length: 4 });
+  assert.deepEqual(scopedView.headline, ['近 7 天商品 101 的 4、5 星评价 7 条，有效字数 ≥ 4 字 2 条']);
+  assert.equal(scopedView.items[1].append_comment, '追评139****4321有划痕');
+
+  const batch = runCli(['goods', 'reviews', '--min-length', '4', '--all-accounts'],
+    { fixtures: scopedFixtures, accounts: createAccounts() });
+  assert.equal(batch.status, 0);
+  assert.equal(batch.envelope.command, 'goods.reviews');
+  assert.deepEqual(batch.envelope.data.accounts['shop-a'].data.filter, { mode: 'min_length', min_length: 4 });
+  assert.equal(batch.envelope.data.accounts['shop-b'].data.items.length, 2);
+
+  const truncatedFixtures = createReviewFixtures({
+    reviews: Array.from({ length: 2000 }, (_unused, index) => (index < 1500
+      ? { goodsId: 1000 + index, createTime: 1793376000, score: 0, descScore: 2, status: 2, comment: '破了' }
+      : { goodsId: 3000 + index, createTime: 1793376000, score: 0, descScore: 5, status: 2, comment: '质量很好不错' })),
+    totalRows: 2050,
+  });
+  const truncated = runCli(['goods', 'reviews', '--min-length', '4'], { fixtures: truncatedFixtures });
+  assert.equal(truncated.status, 0);
+  const truncView = truncated.envelope.data;
+  assert.deepEqual([truncView.total, truncView.fetched_count, truncView.items.length, truncView.filtered_out_count,
+    truncView.truncated], [2050, 2000, 500, 1500, true]);
+  assert.deepEqual(truncView.headline, [
+    '近 30 天全部星级评价 2050 条，有效字数 ≥ 4 字 500 条',
+    '已采集 2000 条，结果已截断',
+  ]);
+});
+
+it.each([
+  ['--days', '0'], ['--days', '366'], ['--goods-id', 'abc'], ['--stars', '6'], ['--stars', '1,,2'],
+  ['--min-length', '0'], ['--min-length', '-1'], ['--min-length', '1.5'], ['--min-length', 'abc'],
+])('rejects goods reviews %s %s with exit two', (flag, value) => {
+  const result = runCli(['goods', 'reviews', flag, value], { fixtures: createReviewFixtures(), authInvalid: true });
+  assert.equal(result.status, 2);
+  assert.equal(result.envelope.error.code, 'E_USAGE');
+  assert.equal(result.envelope.command, 'goods.reviews');
+  assert.equal(result.envelope.meta.xhr_count ?? 0, 0);
+});
+
+it.each([
+  ['--all', '--min-length', '5'],
+  ['--min-length', '5', '--all'],
+])('rejects conflicting goods reviews options (%s) before auth or requests', (...args) => {
+  const result = runCli(['goods', 'reviews', ...args], { fixtures: createReviewFixtures(), authInvalid: true });
+  assert.equal(result.status, 2);
+  assert.equal(result.envelope.error.code, 'E_USAGE');
+  assert.equal(result.envelope.command, 'goods.reviews');
+  assert.equal(result.envelope.meta.xhr_count ?? 0, 0);
+});
 
 it('marks collection truncated at the platform view limit', () => {
   const { envelope } = runCli(['diagnose', 'reviews'], { fixtures: createReviewFixtures({ count: 2005 }) });

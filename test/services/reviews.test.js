@@ -180,6 +180,34 @@ it.each([0, 366, 1.5, '30'])('rejects goods review days %s before any request', 
   assert.deepEqual(fixtures.calls, []);
 });
 
+it('supports minLength mode in getGoodsReviewsView without negative-review fallback', async () => {
+  fixtures.responses['reviews.list'] = {
+    totalRows: 5,
+    data: [
+      { goodsId: 101, descScore: 5, status: 4, comment: '该用户觉得商品很好，给出了5星好评' },
+      { goodsId: 102, descScore: 1, status: 4, comment: '该用户未填写文字评价' },
+      { goodsId: 103, descScore: 2, status: 2, comment: '破了' },
+      { goodsId: 104, descScore: 5, status: 2, comment: '质量很好不错' },
+      { goodsId: 105, descScore: 5, status: 4, comment: '该用户觉得商品较好', appendReview: '追评很实用啊' },
+    ],
+  };
+  const view = await getGoodsReviewsView(ctx, { minLength: 4 });
+  assert.deepEqual(view.items.map((item) => item.goods_id), ['104', '105']);
+  assert.deepEqual([view.total, view.fetched_count, view.filtered_out_count], [5, 5, 3]);
+  assert.deepEqual(view.filter, { mode: 'min_length', min_length: 4 });
+  assert.deepEqual(view.headline, ['近 30 天全部星级评价 5 条，有效字数 ≥ 4 字 2 条']);
+});
+
+it('rejects conflicting all and minLength before any endpoint request', async () => {
+  await assert.rejects(getGoodsReviewsView(ctx, { all: true, minLength: 5 }), { code: 'E_USAGE', exitCode: 2 });
+  assert.deepEqual(fixtures.calls, []);
+});
+
+it.each([0, -1, 1.5, '5', NaN, Infinity])('rejects invalid minLength %s before any endpoint request', async (minLength) => {
+  await assert.rejects(getGoodsReviewsView(ctx, { minLength }), { code: 'E_USAGE', exitCode: 2 });
+  assert.deepEqual(fixtures.calls, []);
+});
+
 it('propagates list failures for the goods review list', async () => {
   fixtures.errors['reviews.list'] = new PddCliError({ code: 'E_NETWORK', message: 'fixture failure', exitCode: 5 });
   await assert.rejects(getGoodsReviewsView(ctx), (error) => error === fixtures.errors['reviews.list']);

@@ -88,6 +88,7 @@ program.exitOverride((err) => {
     || err.code === 'commander.missingArgument'
     || err.code === 'commander.missingMandatoryOptionValue'
     || err.code === 'commander.invalidArgument'
+    || err.code === 'commander.conflictingOption'
   ) {
     process.exitCode = ExitCodes.USAGE;
   } else {

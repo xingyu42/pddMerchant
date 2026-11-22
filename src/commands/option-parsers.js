@@ -6,7 +6,9 @@ export function withReportDays(command, definition) {
   const commandName = `${command.parent.name()}.${command.name()}`;
   command.exitOverride((error) => {
     // 参数校验提前后仍保留原报表的 envelope.command。
-    if (error.code === 'commander.invalidArgument') error.commandName = commandName;
+    if (error.code === 'commander.invalidArgument' || error.code === 'commander.conflictingOption') {
+      error.commandName = commandName;
+    }
     throw error;
   });
   return command.option('--days <n>', definition.days.description,

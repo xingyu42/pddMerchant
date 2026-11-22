@@ -157,6 +157,46 @@ it('filters placeholders, empty, punct/emoji, digits, single-char repeats and 4-
   assert.equal(diagnoseView.negative_reviews.items.length, dropped.length);
 });
 
+it('filters strictly by cleaned valid character count in min_length mode without negative-review fallback', () => {
+  const dropped = [
+    { goodsId: 301, descScore: 5, status: 4, comment: '该用户觉得商品很好，给出了5星好评' },
+    { goodsId: 302, descScore: 1, status: 4, comment: '该用户未填写文字评价' },
+    { goodsId: 303, score: 2, descScore: null, comment: '差' },
+    { goodsId: 304, descScore: 5, status: 2, comment: '破了' },
+    { goodsId: 305, descScore: 5, status: 2, comment: '尺码小' },
+    { goodsId: 306, descScore: 5, status: 2, comment: '好好好好好' },
+    { goodsId: 307, descScore: 5, status: 2, comment: '66666👍' },
+    { goodsId: 308, descScore: 5, status: 2, comment: '不错', appendReview: '满意' },
+  ];
+  const kept = [
+    { goodsId: 401, descScore: 5, status: 2, comment: '尺码正好' },
+    { goodsId: 402, descScore: 5, status: 2, comment: '1234abcd' },
+    { goodsId: 403, descScore: 5, status: 4, comment: '该用户觉得商品较好', appendReview: '追评13987654321有划痕' },
+    { goodsId: 404, descScore: 2, status: 2, comment: '联系13812345678处理' },
+  ];
+  const view = toGoodsReviewsView({ total: 2500, truncated: true, items: [...dropped, ...kept] }, {
+    days: 7,
+    goodsId: '101',
+    stars: ['4', '5'],
+    filter: { mode: 'min_length', min_length: 4 },
+    hints: ['list_truncated'],
+    mallId: '900001',
+  });
+  assert.deepEqual(view.items.map((item) => item.goods_id), ['401', '402', '403', '404']);
+  assert.deepEqual([view.total, view.fetched_count, view.filtered_out_count, view.truncated], [2500, 12, 8, true]);
+  assert.deepEqual(view.filter, { mode: 'min_length', min_length: 4 });
+  assert.deepEqual(view.headline, [
+    '近 7 天商品 101 的 4、5 星评价 2500 条，有效字数 ≥ 4 字 4 条',
+    '已采集 12 条，结果已截断',
+  ]);
+  assert.equal(view.items.find((item) => item.goods_id === '403').append_comment, '追评139****4321有划痕');
+  assert.equal(view.items.find((item) => item.goods_id === '404').comment, '联系138****5678处理');
+  for (const item of view.items) {
+    assert.deepEqual(Object.keys(item), REVIEW_FIELDS);
+    assert.equal(Object.hasOwn(item, 'status'), false);
+  }
+});
+
 it('projects goods scores with caliber, rounded averages, zero-review nulls and headline', () => {
   const goodsScores = {
     total: 2,

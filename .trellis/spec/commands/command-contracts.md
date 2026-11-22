@@ -108,8 +108,8 @@ src/services/<domain>.js           业务逻辑（被 handler 调用）
 
 ### Goods Reviews
 
-- `goods reviews` 为普通 needsAuth + mall switch 只读命令。`--days` 用 `withReportDays(GOODS_REVIEWS_REPORT)`（1–365 整数，默认 30）、`--goods-id` 用 `goodsIdArg`（单个正整数，返回字符串）、`--stars` 用 `starsArg`（1–5 逗号分隔，去重升序，返回字符串数组），均在解析阶段拒绝（E_USAGE / exit 2，`xhr_count` 0，不启动浏览器）。缺省为全店全部星级；采集与输出契约见 `services/domain-service-contracts.md` 的 Customer Service and Reviews。
-- 验证：`test/commands/numeric-options.test.js`、`test/e2e/reviews.e2e.test.js`、`test/services/reviews.test.js`、`test/services/reviews-view.test.js`、`test/adapter/reviews-contract.test.js` 及 `goods.reviews` 的 data-contract-v2 用例。
+- `goods reviews` 为普通 needsAuth + mall switch 只读命令。`--days` 用 `withReportDays(GOODS_REVIEWS_REPORT)`（1–365 整数，默认 30）、`--goods-id` 用 `goodsIdArg`（单个正整数，返回字符串）、`--stars` 用 `starsArg`（1–5 逗号分隔，去重升序，返回字符串数组）、`--all` 与 `--min-length <n>`（`integerArg(1)`）通过 Commander `Option.conflicts()` 声明互斥；非法选项值与互斥组合均在解析阶段拒绝（`commander.invalidArgument` / `commander.conflictingOption` 经 `withReportDays` 保留 `commandName` 并在 `bin/pdd.js` 映射为 `E_USAGE` / exit 2，`xhr_count` 0，不启动浏览器）。缺省为全店全部星级并默认启用 **Substantive Review** 确定性过滤；采集、过滤与输出契约见 `services/domain-service-contracts.md` 的 Customer Service and Reviews。
+- 验证：`test/commands/numeric-options.test.js`、`test/e2e/reviews.e2e.test.js`、`test/services/reviews.test.js`、`test/services/reviews-view.test.js`、`test/adapter/reviews-contract.test.js` 及 `goods.reviews`（默认 / `--all` / `--min-length`）的三条 `data-contract-v2` 用例。
 
 | 输入条件                                                   | 结果                                                  |
 | ---------------------------------------------------------- | ----------------------------------------------------- |

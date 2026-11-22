@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed - 2026-11-22 (design aligned and upstream read-only recon verified in `docs/research/reviews-filter-recon-2026-11-22.md`; awaiting implementation)
+Accepted - 2026-11-22 (offline implementation and fixture acceptance verified; real-account read-only check pending user confirmation)
 
 ## Context
 
