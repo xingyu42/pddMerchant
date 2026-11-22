@@ -26,11 +26,14 @@ pdd orders list --json      # AI 消费加 --json
 
 ## AI Agent 接入（Skill 与命令文档）
 
-完整的 CLI 命令清单、选项参数、配置规则、控制台说明与故障排查已收拢至 `skills/pdd-cli`：
+完整的 CLI 命令清单、选项参数、配置规则、控制台说明与故障排查已收拢至 `skills/pdd-cli`，可通过 Agent Skills CLI 一键安装到 Claude Code、Cursor、Codex 等客户端：
 
 ```bash
-cp -r skills/pdd-cli ~/.claude/skills/
+npm link                              # 注册全局 pdd 命令（跨目录调用时推荐）
+npx skills add ./skills/pdd-cli -g    # 本地安装到用户全局（也可直接传 xingyu42/pddMerchant）
 ```
+
+> Windows 若未开启软链接权限可追加 `--copy`；也可手动将 `skills/pdd-cli` 复制到目标客户端的 skills 目录（如 `~/.claude/skills/` 或 `.agents/skills/`）。
 
 - 命令与操作入口：[skills/pdd-cli/SKILL.md](skills/pdd-cli/SKILL.md)
 - 经营报表口径与字段说明：[skills/pdd-cli/reports.md](skills/pdd-cli/reports.md)
