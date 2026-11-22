@@ -1,6 +1,6 @@
 ---
 name: pdd-cli
-description: 操作拼多多商家后台（pdd CLI）：查订单/商品/推广/经营报表（售后、体验星级、客服、评价、流量、净利润、省级地域分布），录入商品成本，改价/库存/上下架/上货，多账号切换与登录失效处理。
+description: 操作拼多多商家后台（pdd CLI）：查订单与售后单/退款原因、商品与库存、推广 ROI、经营报表（体验星级、客服、评价、流量、省级地域分布），录入成本并核算净利润，改价/库存/上下架/上货等写操作，运行配置，多账号切换与登录失效处理。
 user-invocable: true
 metadata:
   openclaw:
@@ -14,13 +14,13 @@ metadata:
 
 ## 调用
 
-已执行 `npm link` 时，在任意目录直接运行 `pdd`，始终加 `--json`（数据、配置与日志自动定位到 `pdd-cli` 仓库目录；未 `npm link` 时在仓库根目录改用 `node bin/pdd.js`）：
+已执行 `npm link` 时在任意目录运行 `pdd`；否则在仓库根目录改用 `node bin/pdd.js`。始终加 `--json`：
 
 ```bash
 pdd <command> [options] --json
 ```
 
-全局选项写在子命令前：`--json` / `--timeout <ms>` / `--mall <id>` / `--account <slug>` / `--consumer-account <昵称|手机号|slug>` / `--all-accounts` / `--headed` / `--verbose` / `--no-color`。各命令参数以 `pdd <command> --help` 为准。
+全局选项写在子命令前：`--json` / `--timeout <ms>` / `--mall <id>` / `--account <slug>` / `--consumer-account <昵称|手机号|slug>` / `--all-accounts` / `--headed` / `--verbose` / `--no-color`。各命令参数以 `pdd <command> --help` 为准；数据、配置与文件参数的路径基准见 [operations.md](operations.md)。
 
 ## 读取结果
 
@@ -47,7 +47,7 @@ pdd <command> [options] --json
 
 - 以 `data.headline` 开头；细节用字段中文含义转述；`null` 说「数据不可用」；诊断 `status`（`数据完整` / `数据不完整`）仅陈述完整性，`hints` 与截断标记原样转述。
 - 只输出事实数字与口径，把经营判断、评分、保本 ROI 和建议留给用户。
-- 转述 `diagnose *`、`goods traffic`、`goods profit`、`goods receipt`、`goods reviews` 前先读 [reports.md](reports.md)。
+- 转述 `diagnose *`、`orders after-sales`、`orders detail`、`goods stock`、`goods traffic`、`goods profit`、`goods receipt`、`goods reviews` 前先读 [reports.md](reports.md)，按其中口径与必附说明转述。
 
 ## 命令
 
@@ -81,8 +81,7 @@ pdd promo roi [--by plan|sku|channel] [--since YYYY-MM-DD] [--size 50] [--includ
 
 - `orders list` 默认近 7 天全部订单；`pending_ship` / `shipped` / `received` 不含售后中订单；更早待发货以 `orders stats` 为准，`--size` 最大 50。
 - 订单级售后状态见 `order.after_sales_status`（列表在 `items[]` 内）：`退款成功` / `售后处理中` / `null`，未登记码显示 `未知(<code>)`。
-- `orders detail` 在订单有售后标识时自动查询该单全历史售后单，按申请时间倒序输出 `after_sales_cases[]`，摘要补充最新一条的类型、状态和原因。`[]` 表示无匹配或无售后标识，`null` 表示关联查询失败且附 `hints`。见 [订单详情售后口径](reports.md#orders-detail)。
-- `orders after-sales` 按申请时间查询售后单并汇总原因分布。默认近 30 天（`--days` 接受 1–365），`--since` / `--until` 支持北京时间自然日或 Unix 秒；仅指定订单号时查全历史。见 [经营报表口径](reports.md#orders-after-sales)。
+- `orders detail` 有售后标识时附该单售后单列表 `after_sales_cases[]`；`orders after-sales` 按申请时间查售后单并汇总退款原因分布，默认近 30 天。两者口径见 [订单详情](reports.md#orders-detail) 与 [售后单](reports.md#orders-after-sales)。
 
 ### 商品查询与写操作
 
@@ -104,7 +103,12 @@ pdd goods publish --url <链接或goods_id> [--cost-template <id>] [--confirm]
 ```
 
 - 商品缺少 `goods_id` 时，库存与销量匹配按商品名回退（`matched_by` 显示「按商品名匹配（一侧缺少商品 ID）」）。
-- 线上写操作执行顺序：先与用户核对商品 ID、元单位价格（最多两位小数）与目标值 → 无 `--confirm` 预演（`dry_run:true`）并把预演 `headline` 发给用户确认 → 用户明确同意后再带 `--confirm` 执行；完成后核对 `ok:true` 且 `dry_run:false`（`batch` 需逐项检查 `results[].ok`）。`goods publish` 无 `--confirm` 创建草稿，加 `--confirm` 提交发布（先用 `pdd goods templates` 查运费模板）。
+- **线上写操作确认顺序**（每一步完成才进入下一步）：
+  1. 与用户核对商品 ID、元单位价格（最多两位小数）与目标值。
+  2. 不带 `--confirm` 预演，确认返回 `dry_run:true`，把预演 `headline` 发给用户。
+  3. 用户明确同意后再带 `--confirm` 执行。
+  4. 完成标准：`ok:true` 且 `dry_run:false`；`batch` 逐项检查 `results[].ok`。
+- `goods publish` 不带 `--confirm` 创建草稿，带 `--confirm` 提交发布；先用 `pdd goods templates` 查运费模板。
 
 ### 商品成本
 
@@ -115,8 +119,9 @@ pdd goods cost import costs.json [--confirm]
 pdd goods cost remove --goods-id 101 [--spec <精确规格>] [--confirm]
 ```
 
-- 本地 SQLite 读写（按账号 + 店铺 + 商品 + 规格隔离，无需在线登录；拒绝 `--all-accounts`；写操作先预演再 `--confirm`）。
-- 货本按件、包材/快递/技术服务费按单，单位元（运费险无需录入）；`--spec` 原文精确匹配，未命中回落默认成本。`import` 为 UTF-8 JSON 数组（≤1 MiB / ≤5000 条），含 `insurance_yuan` 整批拒绝：
+- 本地 SQLite 读写，按账号 + 店铺 + 商品 + 规格隔离，无需在线登录；拒绝 `--all-accounts`；写操作同样先预演再 `--confirm`。
+- 货本按件，包材/快递/技术服务费按单，单位元；运费险由平台逐单报告，无需录入。`--spec` 原文精确匹配，未命中回落默认成本。
+- `import` 为 UTF-8 JSON 数组（≤1 MiB / ≤5000 条），含 `insurance_yuan` 时整批拒绝：
 
 ```json
 [
@@ -137,7 +142,7 @@ pdd diagnose reviews [--days 30]
 pdd diagnose traffic [--days 30]
 ```
 
-- `diagnose orders` 另附近 7 天省级成团分布 `regions`；`diagnose customer-service` 支持 1–63 天（逐日趋势最多 31 天）并含 `sales` 与 `today`；`diagnose reviews` 支持 30/60/90/180 天并含固定 30 日 `goods_scores`；`diagnose traffic` 与 `goods traffic` 含 `today`，其中 `goods traffic` 的 `non_promo_*` 为推算差值且推广拆分口径尚未实测。完整口径见 [reports.md](reports.md)。
+附加区块速览：`diagnose orders` 含省级成团分布 `regions`；`diagnose customer-service` 含 `sales` 与 `today`；`diagnose reviews` 含近 30 日 `goods_scores`；`diagnose traffic` 含 `today`。各命令天数范围与口径见 [reports.md](reports.md)。
 
 ### 店铺、账号与常驻控制台
 
@@ -148,9 +153,10 @@ pdd daemon start|status|stop|restart|run
 pdd console link [--account <slug>]
 ```
 
-- `account add` 无参数，`account default` / `remove` 用 `--slug <slug>`（`remove` 需 `--confirm` 才实际删除）。`daemon` 默认不自启。
+- `account add` 无参数；`account default` / `remove` 用 `--slug <slug>`，`remove` 带 `--confirm` 才实际删除。
+- `daemon` 需显式启动，配置与巡航见 [operations.md](operations.md)。
 
 ## 登录失效与运维
 
-- **凭证红线**：密码、登录名与验证码只由用户本人在控制台输入，聊天中绝不索要；`console link` 一次性凭证链接只原样转给用户本人，不写入文件、日志或会话。
-- **按需查阅 [operations.md](operations.md)**：遇到鉴权 / 主密钥 / 风控 / Chromium 错误码（`E_AUTH_*`、`E_MASTER_KEY_*`、`E_CHROMIUM_MISSING`）、`meta.warnings` 含 `account_action_required` / `daemon_not_running`、或需配置控制台反代、自动巡航、日志路径、青果代理与 fixture Mock 模式时先读。
+- **凭证红线**：密码、登录名与验证码只由用户本人在控制台输入，聊天中绝不索要。`console link` 返回的一次性凭证链接只原样转给用户本人，不写入文件、日志或其他会话。
+- **遇到以下情况先读 [operations.md](operations.md)**：退出码 `3` / `5`；错误码 `E_AUTH_*`、`E_MASTER_KEY_*`、`E_SECRET_DECRYPT_FAILED`、`E_PASSWORD_LOGIN_FORM_CHANGED`、`E_DAEMON_NOT_RUNNING`、`E_CHROMIUM_MISSING`；`meta.warnings` 含 `account_action_required` / `daemon_not_running`；命令挂起或疑似风控；配置控制台反代、自动巡航、日志路径、上货代理或 fixture Mock 模式。

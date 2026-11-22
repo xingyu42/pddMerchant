@@ -1,16 +1,16 @@
 ---
 name: pdd-adapter-auth-integration
-description: Work safely on pdd-cli adapter, auth, mall context, account storage, Playwright browser automation, XHR/fetch endpoint transport, rate limits, logging redaction, QR/password login, consumer login, or external PDD/third-party integration behavior.
+description: Change pdd-cli high-risk integration paths safely. Use for Patchright browser automation, merchant/consumer auth and QR/password login, account storage and leases, mall context, endpoint transport (page-api, XHR/fetch capture), rate limits, log redaction, or external PDD/third-party boundaries.
 ---
 
 # PDD Adapter Auth Integration
 
-Use this skill for high-risk integration paths. Prefer narrow, well-tested changes.
+Make narrow, well-tested changes on integration paths. Storage, credential and redaction baselines are in `AGENTS.md`; this skill adds the integration-specific rules.
 
 ## Must Read
 
-- `src/commands/_runner.js` for command execution, auth validation, mall context, account batch mode, timeout/abort, and fixture branches.
-- `src/adapter/browser.js` for Playwright launch/context behavior.
+- `src/commands/_runner.js` (facade) and `src/commands/runner/` (notably `src/commands/runner/single-lifecycle.js`) for command execution, auth validation, mall context, account batch mode, timeout/abort, and fixture branches.
+- `src/adapter/browser.js` for browser launch/context behavior.
 - `src/adapter/auth-state.js`, `src/adapter/merchant-auth-storage.js`, `src/infra/leases.js`, and `src/infra/paths.js` for auth-state storage, account leases, and revision CAS.
 - `src/infra/account-store.js`, `src/infra/account-resolver.js`, `src/infra/consumer-account-resolver.js`, and `src/infra/master-key.js` for multi-account storage and encryption keys.
 - `src/adapter/mall-reader.js`, `src/adapter/mall-writer.js`, `src/adapter/mall-id.js`, and `src/adapter/mall-xhr-probe.js` for mall context.
@@ -25,40 +25,38 @@ Use this skill for high-risk integration paths. Prefer narrow, well-tested chang
 - Consumer login/source goods pages: `https://mobile.yangkeduo.com`.
 - Goods publish category resolver: `PDD_CATEGORY_API_BASE` defaults to `https://api.gj.dangxun.com`.
 
-Treat these as integration boundaries. Tests should normally use fixtures instead of real network.
+Automated tests reach these boundaries through fixtures.
 
 ## Auth And Account Rules
 
-- Node.js >= 24 is required. Merchant/consumer accounts and encrypted auth state share SQLite (`data/pdd.db`); `PDD_DB_PATH` overrides the database path.
-- The generated `master.key` lives beside the database (default `data/master.key`). Both are sensitive: never commit them, and back up/restore them together.
 - Resolve accounts through the database using a flag, default account, or sole account. Login creates account records; consumer slugs remain stable by uid.
 - Auth state shape requires Playwright `cookies` and `origins` arrays.
-- Auth writes use account leases + revision CAS (compare-and-swap) in short transactions through the storage helpers. Keep browser/network awaits outside database transactions.
+- Auth writes go through the storage helpers in short transactions; keep browser/network awaits outside database transactions.
 - Auth state is decrypted in memory for browser contexts; the master key uses POSIX mode `0600` and best-effort current-user Windows ACLs.
-- `--all-accounts` enumerates merchant accounts in SQLite; removal always cascades to related account data. Legacy JSON data is left untouched and reported by `doctor`; upgrading requires re-login.
+- `--all-accounts` enumerates merchant accounts in SQLite.
+- Legacy JSON data is left untouched and reported by `doctor` without paths or contents; upgrading requires re-login of every account.
 
 ## Transport Rules
 
 - Use `runEndpoint(page, spec, params, ctx)` for business APIs.
 - Keep endpoint specs in `src/adapter/endpoints/` and fixture names aligned with `spec.name`.
-- `EndpointClient` handles shared rate limiting, cooldowns, trigger execution, legacy XHR collection, and fetch-path execution.
-- Consecutive 429 behavior and cooldown are shared; there is no dedicated rate-limiter test, so add one before changing it.
-- Dispose XHR collectors and page sessions correctly; there is currently no dedicated leak test, so verify disposal by review.
+- `EndpointClient` handles shared rate limiting, cooldowns, trigger execution, legacy XHR collection, and fetch-path execution; consecutive-429 cooldown is shared across endpoints.
+- Dispose XHR collectors and page sessions on every path.
 
-## Logging And Secrets
+## Redaction
 
-Never log raw cookies, Anti-Content, authorization, QR content, credentials, phone/mobile, receiver/address fields, goods images, or encrypted credential data. Existing redaction hashes sensitive fields in `src/infra/logger.js`, and JSON emit redacts data/error recursively.
+Before logging or emitting a field that may carry a sensitive value, confirm `src/infra/logger.js` redacts it (it hashes sensitive fields; JSON emit redacts `data`/`error` recursively).
 
 ## Validation
 
 Choose tests by affected surface:
 
 ```bash
-npx vitest run test/adapter/            # auth lifecycle/storage/probe/snapshot, orders contract, promo money
-npx vitest run test/e2e/merchant-auth.e2e.test.js
-npx vitest run test/services/merchant-account-storage.test.js
+npx vitest run test/adapter/            # transport, auth lifecycle/storage/probe, per-domain endpoint contracts
+npx vitest run test/e2e/merchant-auth.e2e.test.js test/e2e/sqlite-auth-storage.e2e.test.js
+npx vitest run test/services/merchant-account-storage.test.js test/infra/leases.test.js test/infra/logger-redaction.test.js
 ```
 
-Rate limiter, mall switching, `run-endpoint`, and XHR collector currently have no dedicated tests; when changing them, add targeted tests in the same change.
+The rate limiter, mall switching, `run-endpoint`, and XHR collector (including disposal) have no dedicated tests; add targeted tests in the same change that modifies them.
 
-Run relevant e2e tests with the fixture adapter and a temporary `PDD_DB_PATH` for command-level coverage.
+Run command-level e2e tests with the fixture adapter and a temporary `PDD_DB_PATH`.

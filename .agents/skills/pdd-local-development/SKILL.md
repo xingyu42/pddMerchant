@@ -1,16 +1,16 @@
 ---
 name: pdd-local-development
-description: Set up, run, configure, or troubleshoot the pdd-cli local development environment. Use when working on install/start commands, Playwright Chromium setup, runtime env vars, SQLite storage paths, logs, account storage, package scripts, git worktrees, or no-build Node.js ESM execution.
+description: Set up, run, or troubleshoot the pdd-cli local environment. Use for install and Chromium setup, npm scripts, runtime env vars and config merge, log locations, daemon/console settings, fixture-mode runs, or git worktrees.
 ---
 
 # PDD Local Development
 
-Use this skill when a task depends on local runtime setup or environment behavior.
+Runtime baselines (Node.js >= 24, no-build ESM, SQLite `data/pdd.db` + `master.key`, lint/check scripts) are in `AGENTS.md`; this skill adds setup steps and the gotchas no config file confesses.
 
 ## Must Read
 
-- `package.json` for Node version, scripts, dependencies, and `bin.pdd`.
-- `README.md` for quick start and project overview; `skills/pdd-cli/SKILL.md` for command list, troubleshooting, and exit codes.
+- `package.json` for scripts, dependencies, and `bin.pdd`.
+- `README.md` for quick start; `skills/pdd-cli/SKILL.md` for the command surface and exit codes.
 - `.env.example` for the broadest env-var inventory.
 - `src/infra/paths.js` for default data paths and `PDD_DB_PATH`.
 - `src/infra/config.js` for config/env merge rules and runtime defaults.
@@ -28,28 +28,19 @@ npx vitest run test/<file>.test.js
 npm run check
 ```
 
-`npm run lint` runs knip (unused files, dependencies, unlisted imports, binaries); `npm run check` runs lint then tests and is what `.github/workflows/check.yml` runs. There is no build step; the project runs directly as Node.js ESM.
-
 ## Runtime Facts
 
-- Node.js must be `>=24`; source files use ESM import/export.
 - The CLI binary is `pdd -> ./bin/pdd.js`.
-- Merchant/consumer accounts and encrypted auth state share SQLite storage, defaulting to `data/pdd.db`; `PDD_DB_PATH` overrides the database path.
-- The generated `master.key` lives beside the database (default `data/master.key`). Both files are sensitive: never commit them, and back up/restore them together.
-- Auth updates use account leases + revision CAS (compare-and-swap); account removal cascades to related data. Browser storage state is decrypted in memory.
-- Old JSON storage is left untouched; re-login every account after upgrading. `doctor` reports detected legacy data without paths or contents.
-- CLI logs are fixed under `log/cli/YYYY-MM-DD.log`; the explicit `pdd daemon` writes `log/daemon/YYYY-MM-DD.log` (foreground `daemon run` also tees to stderr). Foreground/bootstrap logging goes to stderr. `PDD_LOG_DESTINATION` is unsupported.
+- Logs: CLI logs are fixed under `log/cli/YYYY-MM-DD.log`; the explicit `pdd daemon` writes `log/daemon/YYYY-MM-DD.log` (foreground `daemon run` also tees to stderr). Foreground/bootstrap diagnostics go to stderr. The file channel is fixed: `PDD_LOG_DESTINATION` is unsupported, so inspect the fixed files.
 - `pdd daemon` / console settings: `PDD_CONSOLE_HOST` (default `127.0.0.1`), `PDD_CONSOLE_PORT` (`47821`), `PDD_CONSOLE_PUBLIC_URL`, `PDD_PATROL_ENABLED` (`false`), `PDD_PATROL_INTERVAL_MS` (`1800000`, min `300000`). Fixture-only timing seams: `PDD_TEST_DAEMON_LEASE_TTL_MS`, `PDD_TEST_DAEMON_HEARTBEAT_MS`, `PDD_TEST_PATROL_INTERVAL_MS`. Fixture daemons still need a temporary `PDD_DB_PATH` and a free `PDD_CONSOLE_PORT`.
-- `PDD_TEST_ADAPTER=fixture` avoids real browser/backend calls in tests; always pair it with a temporary `PDD_DB_PATH` to isolate the database and key.
-- Git worktrees under `.claude/worktrees/` resolve `node_modules` from the main checkout, so `npm test` runs there as-is. `npm run lint` (knip) needs a local `node_modules` and reports unlisted `vitest`/`knip` binaries without one: the orchestrating session adds a junction (`node -e "require('fs').symlinkSync('<main>/node_modules','node_modules','junction')"`) and unlinks it before removing the worktree; worktree-isolated subagents run `npm test` and leave lint to the merge step. A real-account run from any worktree sets `PDD_DB_PATH` to the main checkout's `data/pdd.db`.
+- `PDD_TEST_ADAPTER=fixture` avoids real browser/backend calls; always pair it with a temporary `PDD_DB_PATH` to isolate the database and key.
 - `PDD_RATE_LIMIT_QPS`, `PDD_RATE_LIMIT_BURST`, `PDD_COOLDOWN_THRESHOLD`, and `PDD_COOLDOWN_MS` affect shared endpoint rate limiting.
 
-## Avoid
+## Git Worktrees
 
-- Do not commit the database, master key, credentials, or files under `log/`.
-- Do not add a build step or TypeScript assumption; this checkout is JavaScript ESM.
-- CI lives in `.github/workflows/check.yml`; keep it running `npm run check` so local and CI checks stay identical.
-- Do not redirect the CLI file channel through an env-configured destination. Inspect the fixed log files; foreground/bootstrap diagnostics are expected on stderr.
+- Worktrees under `.claude/worktrees/` resolve `node_modules` from the main checkout, so `npm test` runs there as-is.
+- `npm run lint` (knip) needs a local `node_modules` and reports unlisted `vitest`/`knip` binaries without one: the orchestrating session adds a junction (`node -e "require('fs').symlinkSync('<main>/node_modules','node_modules','junction')"`) and unlinks it before removing the worktree; worktree-isolated subagents run `npm test` and leave lint to the merge step.
+- A real-account run from any worktree sets `PDD_DB_PATH` to the main checkout's `data/pdd.db`.
 
 ## Verification
 
@@ -60,4 +51,4 @@ node bin/pdd.js doctor --json
 npx vitest run test/infra/output-v2.test.js test/e2e/
 ```
 
-For env/config path changes, also run tests touching `src/infra/config.js`, `src/infra/paths.js`, account storage, or auth state (`test/adapter/merchant-auth-*.test.js`, `test/services/merchant-account-storage.test.js`).
+For env/config path changes, also run `test/infra/config.test.js` and the account/auth storage tests (`test/adapter/merchant-auth-*.test.js`, `test/services/merchant-account-storage.test.js`).
