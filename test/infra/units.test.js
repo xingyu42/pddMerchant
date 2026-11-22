@@ -1,7 +1,8 @@
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import {
-  isoToLocalDateTime, labelOf, parseYuanToFen, round, toFiniteNumber, toLocalDate, toLocalDateTime, toPct, yuanFromFen,
+  isCalendarDate, isoToLocalDateTime, labelOf, parseYuanToFen, round, toFiniteNumber, toLocalDate, toLocalDateTime,
+  toPct, yuanFromFen,
 } from '../../src/infra/units.js';
 
 const INVALID_NUMBERS = [null, undefined, '', '  ', 'abc', '0x10', true, NaN, Infinity, -Infinity, {}, []];
@@ -85,6 +86,7 @@ describe('toLocalDateTime / toLocalDate', () => {
   });
 
   it('treats values >= 1e11 as milliseconds', () => {
+    assert.equal(toLocalDateTime(1e11), '1973-03-03 17:46:40');
     assert.equal(toLocalDateTime(SECONDS * 1000 + 999), '2026-10-07 00:30:05');
     assert.equal(toLocalDate(SECONDS * 1000), '2026-10-07');
   });
@@ -93,6 +95,33 @@ describe('toLocalDateTime / toLocalDate', () => {
     for (const value of [...INVALID_NUMBERS, 0, -1, 1e17]) {
       assert.equal(toLocalDateTime(value), null);
       assert.equal(toLocalDate(value), null);
+    }
+  });
+
+  it('treats every valid value as seconds when explicitly requested, including the epoch', () => {
+    const options = { unixSeconds: true };
+    assert.equal(toLocalDateTime(0, options), '1970-01-01 08:00:00');
+    assert.equal(toLocalDateTime(-28800, options), '1970-01-01 00:00:00');
+    assert.equal(toLocalDateTime(1e11, options), '5138-11-16 17:46:40');
+  });
+
+  it('returns null for invalid explicit seconds and dates outside the four-digit year range', () => {
+    const options = { unixSeconds: true };
+    for (const value of [...INVALID_NUMBERS, 253402300800, -62167248001, 1e17]) {
+      assert.equal(toLocalDateTime(value, options), null);
+    }
+  });
+});
+
+describe('isCalendarDate', () => {
+  it('accepts calendar dates in YYYY-MM-DD format, including leap days', () => {
+    for (const value of ['2026-01-01', '2026-12-31', '2024-02-29']) assert.equal(isCalendarDate(value), true);
+  });
+
+  it('rejects impossible dates, malformed text and non-strings', () => {
+    for (const value of ['2026-02-30', '2025-02-29', '2026-01-32', '2026-1-01', '2026-01-01\n',
+      '2026-01-01T00:00:00Z', 20260101, null, undefined, true, ['2026-01-01'], new Date('2026-01-01')]) {
+      assert.equal(isCalendarDate(value), false);
     }
   });
 });

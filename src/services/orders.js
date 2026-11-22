@@ -2,15 +2,13 @@ import { runEndpoint } from '../adapter/run-endpoint.js';
 import {
   ORDER_LIST, ORDER_DETAIL, ORDER_STATS, ORDER_LIST_DEFAULT_DAYS, ORDER_LIST_CLI_SCOPES, ORDER_LIST_DEFAULT_SCOPE,
 } from '../adapter/endpoints/orders.js';
-import { getSharedClient } from '../adapter/rate-limiter-singleton.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { toLocalDate } from '../infra/units.js';
-import { getOrderAfterSalesCases } from './after-sales.js';
+import { AFTER_SALES_REPORT, getOrderAfterSalesCases } from './after-sales.js';
 import {
   orderStatusLabel, toLocalOrderStatsView, toOrderDetailView, toOrderView, toRemoteOrderStatsView,
 } from './views/order.js';
 import { mallIdOf, yuanText } from './views/_shared.js';
-import { AFTER_SALES_REPORT } from './views/after-sales.js';
 import { ORDER_SCOPE_LABEL } from './views/labels.js';
 
 // 命令层经 service 取得 --status 可选值（commands 不直接 import adapter）
@@ -170,29 +168,19 @@ function detailHeadline(order, afterSalesCases) {
   return headline;
 }
 
-async function getOrderDetailView(page, sn, ctx) {
-  const result = await getOrderDetail(page, sn, ctx);
+export async function getOrderDetailResult(ctx, sn) {
+  const result = await getOrderDetail(ctx.page, sn, ctx);
   const rawOrder = result?.order;
   const order = toOrderDetailView(rawOrder);
   const hasAfterSales = rawOrder?.after_sales_id != null || rawOrder?.after_sales_status_code != null;
-  const { cases: afterSalesCases, hints } = hasAfterSales
+  const afterSales = hasAfterSales
     ? await getOrderAfterSalesCases(ctx, order.order_sn ?? sn)
-    : { cases: [], hints: [] };
-  return { headline: detailHeadline(order, afterSalesCases), order, after_sales_cases: afterSalesCases,
-    hints, mall_id: mallIdOf(ctx) };
-}
-
-export async function getOrderDetailResult(ctx, sn) {
-  const client = ctx.client ?? getSharedClient(ctx.runtimeConfig);
-  let requestCount = 0;
-  const countingClient = {
-    execute(...args) {
-      requestCount++;
-      return client.execute(...args);
-    },
+    : { cases: [], hints: [], requestCount: 0 };
+  const data = {
+    headline: detailHeadline(order, afterSales.cases), order, after_sales_cases: afterSales.cases,
+    hints: afterSales.hints, mall_id: mallIdOf(ctx),
   };
-  const data = await getOrderDetailView(ctx.page, sn, { ...ctx, client: countingClient });
-  return { data, meta: { xhr_count: requestCount } };
+  return { data, meta: { xhr_count: 1 + afterSales.requestCount } };
 }
 
 function localStatsSentence(local) {

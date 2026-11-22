@@ -48,12 +48,15 @@ Exit codes：
 | 时长 | number，后缀 `_hours`（1 位小数）或 `_seconds` | `ship_p95_hours` |
 | 比率 | number，百分数 0-100，2 位小数，后缀 `_pct`；利润率例外见下 | `refund_rate_pct: 3.12` |
 | 倍数 | ROI 保持倍数 number | `roi: 2.35` |
-| 枚举 | 中文标签 string；未知码 `未知(<code>)`；对照表集中在 `src/services/views/labels.js` | `status: '待发货'` |
+| 枚举 | 中文标签 string；未知码 `未知(<code>)`；共享对照表在 `src/services/views/labels.js`，专用对照表在对应视图 | `status: '待发货'` |
 | 标识 | string | `goods_id: '101'` |
 | 缺失 | `null`，不得补 0；分母为 0 的比率同为 `null` | |
 | PII | 收件人 / 联系方式 / 地址字段不进入 `data` | |
 
-换算原语位于 `src/infra/units.js`（`yuanFromFen`、`parseYuanToFen`、`toLocalDateTime`、`isoToLocalDateTime`、`toLocalDate`、`toPct`、`round`、`labelOf`）。
+换算与日期校验原语位于 `src/infra/units.js`（`yuanFromFen`、`parseYuanToFen`、`toLocalDateTime`、`isoToLocalDateTime`、`toLocalDate`、`isCalendarDate`、`toPct`、`round`、`labelOf`）。
+
+- `toLocalDateTime(timestamp, { unixSeconds = false } = {})` 输出北京时间。默认将非正值视为缺失，`>= 1e11` 按毫秒处理，其余正值按秒处理。传入 `unixSeconds: true` 时始终按秒处理，支持 `0` 和负值。无效值或超出四位年份范围返回 `null`。
+- `isCalendarDate(value)` 只接受严格 `YYYY-MM-DD` 格式且实际存在的日历日期字符串，返回布尔值。
 
 ## 3. Contracts
 

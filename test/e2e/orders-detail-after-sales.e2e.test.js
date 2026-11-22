@@ -62,6 +62,18 @@ describe('orders detail after-sales fixture CLI', () => {
     assert.equal(envelope.meta.xhr_count, 1);
   });
 
+  it('warns when the related case search truncates at 2000 rows', () => {
+    const items = Array.from({ length: 2050 }, (_, id) => ({ id, orderSn: sn }));
+    const { envelope } = runCli(command, { fixtures: {
+      ...orderDetailFixtures({ after_sales_id: '123456' }),
+      ...createAfterSalesFixtures({ items }),
+    } });
+    assert.equal(envelope.ok, true);
+    assert.equal(envelope.data.after_sales_cases.length, 2000);
+    assert.deepEqual(envelope.data.hints, ['关联售后单检索已达单次 2000 条上限，结果可能不完整']);
+    assert.equal(envelope.meta.xhr_count, 22);
+  });
+
   it('skips the reason dictionary when only fuzzy matches are found', () => {
     const { envelope } = runCli(command, { fixtures: {
       ...orderDetailFixtures({ after_sales_status_code: 5 }),
@@ -104,6 +116,19 @@ describe('orders detail after-sales fixture CLI', () => {
     assert.deepEqual(envelope.data.after_sales_cases.map(({ reason_desc, reason_category }) =>
       [reason_desc, reason_category]), [['不想要了', null]]);
     assert.deepEqual(envelope.data.hints, ['售后参数字典拉取失败，售后原因大类暂不可用']);
+    assert.equal(envelope.meta.xhr_count, 3);
+  });
+
+  it('counts both case pages when the second page fails', () => {
+    const { envelope } = runCli(command, { fixtures: {
+      ...orderDetailFixtures({ after_sales_id: '123456' }),
+      ...createAfterSalesFixtures({ count: 101 }),
+      'endpoints/after_sales.list.page2.json': { __throws: true, __error: { code: 'E_NETWORK', exitCode: 5 } },
+      'endpoints/after_sales.params.json': { __throws: true, __error: { code: 'E_INTERNAL', exitCode: 1 } },
+    } });
+    assert.equal(envelope.ok, true);
+    assert.equal(envelope.data.after_sales_cases, null);
+    assert.deepEqual(envelope.data.hints, ['关联售后单拉取失败，售后原因暂不可用']);
     assert.equal(envelope.meta.xhr_count, 3);
   });
 
