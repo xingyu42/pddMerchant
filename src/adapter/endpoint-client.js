@@ -10,7 +10,7 @@ import {
   remainingMs,
   timeoutError,
 } from '../infra/abort.js';
-import { resolveEndpointStrategy, normalizePageApiMethod } from './endpoint-strategy-resolver.js';
+import { resolveEndpointStrategy, validatePageApiMethod, validatePageApiPayload } from './endpoint-strategy-resolver.js';
 import { executeAttempt } from './endpoint-attempt.js';
 import { executePageApiRequest } from './page-api-client.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
@@ -158,14 +158,20 @@ export class PlaywrightEndpointClient {
 
   // 传输只提供 HTTP 状态和上游响应体，fixture 与浏览器共用后续判定、归一化和冷却记账。
   async send(spec, params, ctx) {
+    let pageApiRequest = null;
     if (resolveEndpointStrategy(spec).strategy === 'page-api') {
-      this._validatePageApiSpec(spec);
+      const method = this._validatePageApiSpec(spec);
+      if (method === 'GET' || !isMockEnabled()) {
+        const payload = spec.buildPayload(params, ctx);
+        validatePageApiPayload(method, payload, spec.name);
+        pageApiRequest = { method, payload };
+      }
     }
     if (isMockEnabled()) {
       const raw = await mockRunEndpoint(spec, params);
       return { status: 200, raw, response: { status: () => 200 } };
     }
-    const response = await this._attemptOnce(ctx.page, spec, params, ctx, ctx.log, ctx.navUrl);
+    const response = await this._attemptOnce(ctx.page, spec, params, ctx, ctx.log, ctx.navUrl, pageApiRequest);
     const status = readResponseStatus(response);
     const raw = [401, 403, 429].includes(status) ? null : await parseBody(response);
     return { status, raw, response };
@@ -211,10 +217,10 @@ export class PlaywrightEndpointClient {
     }
   }
 
-  async _attemptOnce(page, meta, params, ctx, log, navUrl) {
+  async _attemptOnce(page, meta, params, ctx, log, navUrl, pageApiRequest = null) {
     const { strategy } = resolveEndpointStrategy(meta);
     if (strategy === 'page-api') {
-      return this._attemptPageApi(page, meta, params, ctx, navUrl);
+      return this._attemptPageApi(page, meta, params, ctx, navUrl, pageApiRequest);
     }
     if (strategy === 'fetch') {
       return this._attemptFetch(page, meta, params, ctx, log, navUrl);
@@ -267,17 +273,7 @@ export class PlaywrightEndpointClient {
         exitCode: ExitCodes.USAGE,
       });
     }
-    const method = normalizePageApiMethod(meta.method);
-    if (!method) {
-      throw new PddCliError({
-        code: 'E_USAGE',
-        message: `${meta.name}: unsupported page-api HTTP method`,
-        hint: 'page-api 端点仅支持 GET 或 POST 方法',
-        detail: { endpoint: meta.name, method: meta.method },
-        exitCode: ExitCodes.USAGE,
-      });
-    }
-    return method;
+    return validatePageApiMethod(meta.method, meta.name);
   }
 
   _buildPageApiResponse(page, meta, result) {
@@ -316,9 +312,10 @@ export class PlaywrightEndpointClient {
     };
   }
 
-  async _attemptPageApi(page, meta, params, ctx, navUrl) {
-    const method = this._validatePageApiSpec(meta);
-    const payload = meta.buildPayload(params, ctx);
+  async _attemptPageApi(page, meta, params, ctx, navUrl, prepared = null) {
+    const method = prepared?.method ?? this._validatePageApiSpec(meta);
+    const payload = prepared ? prepared.payload : meta.buildPayload(params, ctx);
+    if (!prepared) validatePageApiPayload(method, payload, meta.name);
     await this._preparePageApi(page, meta, ctx, navUrl);
     throwIfAborted(ctx.signal);
     const requestBudgetMs = remainingMs(ctx);

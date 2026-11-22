@@ -1,3 +1,5 @@
+import { PddCliError, ExitCodes } from '../infra/errors.js';
+
 /**
  * Endpoint Strategy Resolver
  *
@@ -69,4 +71,38 @@ export function normalizePageApiMethod(method = 'POST') {
   if (typeof method !== 'string') return null;
   const upper = method.toUpperCase();
   return upper === 'GET' || upper === 'POST' ? upper : null;
+}
+
+function isEmptyPlainObject(value) {
+  if (typeof value !== 'object' || value === null) return false;
+  const proto = Object.getPrototypeOf(value);
+  return (proto === Object.prototype || proto === null)
+    && Object.keys(value).length === 0
+    && Object.getOwnPropertySymbols(value).length === 0;
+}
+
+export function validatePageApiMethod(method = 'POST', endpoint = null) {
+  const normalized = normalizePageApiMethod(method);
+  if (!normalized) {
+    throw new PddCliError({
+      code: 'E_USAGE',
+      message: endpoint ? `${endpoint}: unsupported page-api HTTP method` : 'page-api: unsupported HTTP method',
+      hint: 'page-api 端点仅支持 GET 或 POST 方法',
+      detail: endpoint ? { endpoint, method } : { method },
+      exitCode: ExitCodes.USAGE,
+    });
+  }
+  return normalized;
+}
+
+export function validatePageApiPayload(method, payload, endpoint = null) {
+  if (method !== 'GET') return;
+  if (payload == null || isEmptyPlainObject(payload)) return;
+  throw new PddCliError({
+    code: 'E_USAGE',
+    message: endpoint ? `${endpoint}: GET request does not accept a non-empty payload` : 'page-api: GET request does not accept a non-empty payload',
+    hint: 'GET 端点仅接受 null、undefined 或空普通对象，请将参数编码到 apiUrl 或使用 POST',
+    ...(endpoint ? { detail: { endpoint } } : {}),
+    exitCode: ExitCodes.USAGE,
+  });
 }

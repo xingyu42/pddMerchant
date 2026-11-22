@@ -125,14 +125,22 @@ describe('executePageApiRequest', () => {
     });
   });
 
-  it('rejects unsupported methods and non-empty GET payloads with E_USAGE before page evaluation', async () => {
+  it('rejects unsupported methods and non-empty or non-plain GET payloads with E_USAGE before page evaluation', async () => {
     const evaluate = vi.fn();
     const page = { evaluate };
     await assert.rejects(
       executePageApiRequest(page, { apiUrl: '/desert/stat/mallServiceRealTimeData', method: 'DELETE', payload: {} }),
       { code: 'E_USAGE', exitCode: ExitCodes.USAGE },
     );
-    for (const payload of [{ foo: 1 }, [1], 'x']) {
+    const invalidGetPayloads = [
+      { foo: 1 },
+      new URLSearchParams({ page: '2' }),
+      new URLSearchParams(),
+      new Map([['page', '2']]),
+      [1],
+      'x',
+    ];
+    for (const payload of invalidGetPayloads) {
       await assert.rejects(
         executePageApiRequest(page, { apiUrl: '/desert/stat/mallServiceRealTimeData', method: 'GET', payload }),
         { code: 'E_USAGE', exitCode: ExitCodes.USAGE },
@@ -142,10 +150,12 @@ describe('executePageApiRequest', () => {
 
     const get = vi.fn(async () => ({ ok: 1 }));
     installWebpackChunkWindow({ fetch: vi.fn(), get, post: vi.fn(), put: vi.fn(), del: vi.fn(), redirectToLogin: vi.fn() });
-    const resUndefined = await executePageApiRequest(fakePage(), { apiUrl: '/desert/test', method: 'GET' });
-    const resEmpty = await executePageApiRequest(fakePage(), { apiUrl: '/desert/test', method: 'GET', payload: {} });
-    assert.deepEqual(resUndefined.raw, { success: true, errorCode: 0, result: { ok: 1 } });
-    assert.deepEqual(resEmpty.raw, { success: true, errorCode: 0, result: { ok: 1 } });
-    assert.deepEqual(get.mock.calls, [['/desert/test'], ['/desert/test']]);
+    for (const payload of [undefined, null, {}, Object.create(null)]) {
+      const res = await executePageApiRequest(fakePage(), { apiUrl: '/desert/test', method: 'GET', payload });
+      assert.deepEqual(res.raw, { success: true, errorCode: 0, result: { ok: 1 } });
+    }
+    assert.deepEqual(get.mock.calls, [
+      ['/desert/test'], ['/desert/test'], ['/desert/test'], ['/desert/test'],
+    ]);
   });
 });

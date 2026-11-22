@@ -94,20 +94,25 @@ it('normalizes a successful retry and clears previous rate-limit failures', asyn
   assert.equal(cooldownState.map.size, 0);
 });
 
-it('forwards GET or default POST method for page-api specs and rejects unsupported methods', async () => {
+it('forwards GET or default POST method for page-api specs and rejects unsupported methods or GET payloads in both modes', async () => {
   executePageApiRequest.mockResolvedValue({ status: 200, raw: { success: true, errorCode: 0, result: { ok: 1 } } });
   const client = new PlaywrightEndpointClient();
   const ctx = { page: { url: () => 'https://mms.pinduoduo.com/' }, log: { debug() {} } };
-  const baseSpec = { name: 'test.pageApiMethod', strategy: 'page-api', apiUrl: '/desert/test',
+  const postSpec = { name: 'test.pageApiMethod', strategy: 'page-api', apiUrl: '/desert/test',
     buildPayload: () => ({ a: 1 }), normalize: (raw) => raw.result };
+  const getSpec = { ...postSpec, method: 'get', buildPayload: () => ({}) };
 
-  await client.execute(baseSpec, {}, ctx);
-  await client.execute({ ...baseSpec, method: 'get' }, {}, ctx);
+  await client.execute(postSpec, {}, ctx);
+  await client.execute(getSpec, {}, ctx);
   assert.equal(executePageApiRequest.mock.calls[0][1].method, 'POST');
   assert.equal(executePageApiRequest.mock.calls[1][1].method, 'GET');
 
-  await assert.rejects(client.execute({ ...baseSpec, method: 'DELETE' }, {}, ctx),
+  await assert.rejects(client.execute({ ...postSpec, method: 'DELETE' }, {}, ctx),
     { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
+  for (const invalidGetPayload of [() => ({ page: 2 }), () => new URLSearchParams({ page: '2' })]) {
+    await assert.rejects(client.execute({ ...postSpec, method: 'GET', buildPayload: invalidGetPayload }, {}, ctx),
+      { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
+  }
   assert.equal(executePageApiRequest.mock.calls.length, 2);
 
   sandbox = createCliSandbox({
@@ -115,8 +120,12 @@ it('forwards GET or default POST method for page-api specs and rejects unsupport
   });
   vi.stubEnv('PDD_TEST_ADAPTER', 'fixture');
   vi.stubEnv('PDD_TEST_FIXTURE_DIR', sandbox.fixtureDir);
-  const fixtureRes = await client.execute({ ...baseSpec, method: 'GET' }, {}, { log: ctx.log });
+  const fixtureRes = await client.execute({ ...getSpec, method: 'GET' }, {}, { log: ctx.log });
   assert.deepEqual(fixtureRes.data, { ok: 2 });
-  await assert.rejects(client.execute({ ...baseSpec, method: 'DELETE' }, {}, { log: ctx.log }),
+  await assert.rejects(client.execute({ ...postSpec, method: 'DELETE' }, {}, { log: ctx.log }),
     { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
+  for (const invalidGetPayload of [() => ({ page: 2 }), () => new URLSearchParams({ page: '2' })]) {
+    await assert.rejects(client.execute({ ...postSpec, method: 'GET', buildPayload: invalidGetPayload }, {}, { log: ctx.log }),
+      { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
+  }
 });
