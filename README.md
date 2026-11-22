@@ -37,6 +37,7 @@ npx skills add ./skills/pdd-cli -g    # 本地安装到用户全局（也可直�
 
 - 命令与操作入口：[skills/pdd-cli/SKILL.md](skills/pdd-cli/SKILL.md)
 - 经营报表口径与字段说明：[skills/pdd-cli/reports.md](skills/pdd-cli/reports.md)
+- 登录异常、控制台与运行环境：[skills/pdd-cli/operations.md](skills/pdd-cli/operations.md)
 
 ## 开发与文档
 

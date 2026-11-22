@@ -4,9 +4,11 @@ import { readFileSync } from 'node:fs';
 import { discoverRegisteredCommands } from '../helpers/registered-commands.js';
 
 // 命令文档守卫：skills/pdd-cli/SKILL.md 是 agent 使用 CLI 的入口，必须与注册命令一一对应。
-// 只读取 `node bin/pdd.js <命令词…>` 行；`a|b` 合并写法展开为多个命令，遇到选项、占位符或文件名即停止。
+// 只读取 bash 代码块内的 `pdd <命令词…>` 或 `node bin/pdd.js <命令词…>` 行；`a|b` 合并写法展开为多个命令，遇到选项、占位符或文件名即停止。
 const SKILL_PATH = new URL('../../skills/pdd-cli/SKILL.md', import.meta.url);
-const INVOCATION = /node bin\/pdd\.js +(.*)$/;
+const FENCE_BASH = /^```bash\b/;
+const FENCE_END = /^```/;
+const INVOCATION = /^(?:pdd|node bin\/pdd\.js) +(.*)$/;
 const COMMAND_WORD = /^[a-z][a-z-]*(\|[a-z][a-z-]*)*$/;
 
 function expandWords(words) {
@@ -16,8 +18,18 @@ function expandWords(words) {
 
 function documentedCommands(markdown) {
   const names = new Set();
+  let inBash = false;
   for (const line of markdown.split(/\r?\n/)) {
-    const match = INVOCATION.exec(line);
+    const trimmed = line.trim();
+    if (!inBash) {
+      if (FENCE_BASH.test(trimmed)) inBash = true;
+      continue;
+    }
+    if (FENCE_END.test(trimmed)) {
+      inBash = false;
+      continue;
+    }
+    const match = INVOCATION.exec(trimmed);
     if (!match) continue;
     const tokens = match[1].trim().split(/\s+/);
     const end = tokens.findIndex((token) => !COMMAND_WORD.test(token));
