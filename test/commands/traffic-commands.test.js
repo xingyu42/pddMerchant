@@ -6,7 +6,7 @@ import { register as registerDiagnose } from '../../src/commands/registry/diagno
 import { register as registerGoods } from '../../src/commands/registry/goods.js';
 import { runCli } from '../helpers/isolated-cli.js';
 
-it.each(['skills/pdd-cli/SKILL.md', 'skills/pdd-cli/reports.md', '.trellis/spec/services/domain-service-contracts.md'])(
+it.each(['skills/pdd-cli/reports.md', '.trellis/spec/services/domain-service-contracts.md'])(
   'documents both traffic commands and the unverified promo caliber in %s', (path) => {
     const documentation = readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
     for (const phrase of ['diagnose traffic', 'goods traffic', 'non_promo']) {

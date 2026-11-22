@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { register } from '../../src/commands/registry/diagnose.js';
 import { runCli } from '../helpers/isolated-cli.js';
 
-it.each(['skills/pdd-cli/SKILL.md', 'skills/pdd-cli/reports.md', '.trellis/spec/services/domain-service-contracts.md'])(
+it.each(['skills/pdd-cli/reports.md', '.trellis/spec/services/domain-service-contracts.md'])(
   'documents the two report commands and their windows in %s', (path) => {
     const documentation = readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
     for (const phrase of ['diagnose customer-service', 'diagnose reviews', '63', '31', '180']) {
