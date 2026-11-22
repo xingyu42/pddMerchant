@@ -98,6 +98,14 @@ _Avoid_: Health score, CLI score, derived grade
 A buyer review whose description score is 3 stars or lower, covering both 中评 (3 stars) and 差评 (1-2 stars). Review keywords come only from Pinduoduo's own review tags; the CLI does not segment review text itself.
 _Avoid_: Bad review (unscoped), keyword mining, word frequency
 
+**Substantive Review** (实质内容评价):
+A buyer review that carries buyer-authored text (main or append comment beyond pure punctuation, symbols, emoji, digits, or single-character repetition) or a Negative Review rating. It is distinct from Pinduoduo Data Center's platform-defined 有效评价 and uses only deterministic criteria with no subjective phrase lists.
+_Avoid_: Valid review, effective review, invalid info, noise review
+
+**Platform Placeholder Review** (平台占位评价):
+A review returned in the merchant evaluation list whose main comment is an auto-filled platform praise template rather than buyer-authored text. It is distinct from system default reviews that the platform omits from the evaluation list altogether.
+_Avoid_: System default review, empty review, fake review
+
 **Reply-Rate Caliber**:
 The upstream source that defines a customer-service reply metric such as the 3-minute manual reply rate. Pinduoduo exposes several calibers that disagree for the same shop and day; every reported value names its caliber, and values from different calibers are never mixed or compared as one series.
 _Avoid_: The reply rate, unified reply rate
