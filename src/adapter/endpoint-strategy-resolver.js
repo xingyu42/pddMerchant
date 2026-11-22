@@ -77,8 +77,7 @@ function isEmptyPlainObject(value) {
   if (typeof value !== 'object' || value === null) return false;
   const proto = Object.getPrototypeOf(value);
   return (proto === Object.prototype || proto === null)
-    && Object.keys(value).length === 0
-    && Object.getOwnPropertySymbols(value).length === 0;
+    && Reflect.ownKeys(value).length === 0;
 }
 
 export function validatePageApiMethod(method = 'POST', endpoint = null) {

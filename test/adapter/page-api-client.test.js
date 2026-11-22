@@ -134,6 +134,8 @@ describe('executePageApiRequest', () => {
     );
     const invalidGetPayloads = [
       { foo: 1 },
+      Object.defineProperty({}, 'page', { value: 2, enumerable: false }),
+      Object.defineProperty({}, Symbol('k'), { value: 1, enumerable: false }),
       new URLSearchParams({ page: '2' }),
       new URLSearchParams(),
       new Map([['page', '2']]),
