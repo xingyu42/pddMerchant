@@ -28,11 +28,30 @@ it('whitelists nested review and aggregation fields, retaining only media counts
     keywords: [{ keywordName: '质量差', private: 'PRIVATE' }], pictures: ['PRIVATE'], reply: 'PRIVATE',
     name: 'PRIVATE', avatar: 'PRIVATE', orderId: 'PRIVATE', video: 'PRIVATE', score: 0 }] };
   assert.deepEqual(REVIEWS_LIST.normalize({ result }), { totalRows: 1, data: [{ goodsId: 101,
-    comment: '正文', appendReview: '追评', keywords: ['质量差'], pictureCount: 1, replied: true, score: 0 }] });
+    comment: '正文', appendReview: '追评', keywords: ['质量差'], pictureCount: 1, replied: true, score: 0, status: null }] });
   assert.deepEqual(REVIEWS_KEYWORD_AGG.normalize({ result: { positiveKeywordList: [{ keywordName: '好', num: 2, noise: 1 }],
     negativeKeywordList: [] } }), { positiveKeywordList: [{ keywordName: '好', num: 2 }], negativeKeywordList: [] });
   assert.deepEqual(REVIEWS_TYPE_AGG.normalize({ result: { typeList: [{ typeName: '质量', positive: 1,
     negative: 2, proportion: 50, noise: 1 }] } }), { typeList: [{ typeName: '质量', positive: 1, negative: 2, proportion: 50 }] });
+});
+
+it('extracts integer review status for internal filtering and falls back to null when missing or non-integer', () => {
+  const cases = [
+    [4, 4],
+    [2, 2],
+    ['4', 4],
+    [undefined, null],
+    [null, null],
+    [4.5, null],
+    ['abc', null],
+    [true, null],
+  ];
+  const result = {
+    totalRows: cases.length,
+    data: cases.map(([status]) => (status === undefined ? { goodsId: 101 } : { goodsId: 101, status })),
+  };
+  const normalized = REVIEWS_LIST.normalize({ result });
+  assert.deepEqual(normalized.data.map((item) => item.status), cases.map(([, expected]) => expected));
 });
 
 it('rejects missing collections and totals while accepting explicit empty results', () => {

@@ -3,7 +3,8 @@ import { REVIEWS_KEYWORD_AGG, REVIEWS_TYPE_AGG, REVIEWS_LIST, REVIEWS_PAGE_SIZE,
   REVIEWS_GOODS_SCORES, GOODS_SCORES_PAGE_SIZE, GOODS_SCORES_MAX_PAGES } from '../adapter/endpoints/reviews.js';
 import { throwIfAborted } from '../infra/abort.js';
 import { mallIdOf } from './views/_shared.js';
-import { toReviewsView, toGoodsReviewsView, REVIEWS_REPORT, GOODS_REVIEWS_REPORT } from './views/reviews.js';
+import { toReviewsView, toGoodsReviewsView, REVIEWS_REPORT, GOODS_REVIEWS_REPORT,
+  DEFAULT_GOODS_REVIEWS_FILTER } from './views/reviews.js';
 import { runReport } from './operating-report.js';
 import { rollingSecondsWindow } from './report-windows.js';
 
@@ -57,11 +58,12 @@ export async function getReviewsView(ctx, { days = REVIEWS_REPORT.days.default }
 
 // stars 为已校验的星级字符串数组，缺省为全部星级；goodsId 为正整数字符串，缺省为全店。
 export async function getGoodsReviewsView(ctx, { days = GOODS_REVIEWS_REPORT.days.default, goodsId = null,
-  stars = null } = {}) {
+  stars = null, all = false } = {}) {
+  const filter = all ? { mode: 'all', min_length: null } : DEFAULT_GOODS_REVIEWS_FILTER;
   return runReport(ctx, GOODS_REVIEWS_REPORT, { days, window: rollingSecondsWindow }, async (report) => {
     const reviews = await collectReviews(ctx, { ...report.window,
       ...(stars ? { descScore: stars } : {}), ...(goodsId ? { goodsId } : {}) });
     if (reviews.truncated) report.hint('list_truncated');
-    return toGoodsReviewsView(reviews, { days, goodsId, stars, hints: report.hints, mallId: mallIdOf(ctx) });
+    return toGoodsReviewsView(reviews, { days, goodsId, stars, filter, hints: report.hints, mallId: mallIdOf(ctx) });
   });
 }

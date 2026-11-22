@@ -127,20 +127,52 @@ it('collects multi-page goods scores, caps at twenty pages and isolates failures
 it('stops without truncation when the list holds exactly the view limit', async () => {
   fixtures.pages = () => ({ totalRows: 2000, data: Array.from({ length: 40 }, () => ({ descScore: 1 })) });
   const view = await getGoodsReviewsView(ctx);
-  assert.deepEqual([view.items.length, view.total, view.truncated, view.hints], [2000, 2000, false, []]);
+  assert.deepEqual([view.items.length, view.fetched_count, view.filtered_out_count, view.total, view.truncated, view.hints],
+    [2000, 2000, 0, 2000, false, []]);
 });
 
-it('lists all stars shop-wide by default and forwards goods and star filters', async () => {
-  fixtures.responses['reviews.list'] = { totalRows: 1, data: [{ goodsId: 101, descScore: 5 }] };
-  const all = await getGoodsReviewsView(ctx);
+it('lists all stars shop-wide with substantive filtering by default, forwards filters, and supports all mode', async () => {
+  fixtures.responses['reviews.list'] = {
+    totalRows: 2,
+    data: [
+      { goodsId: 101, descScore: 5, status: 4, comment: '该用户觉得商品很好，给出了5星好评' },
+      { goodsId: 102, descScore: 5, status: 2, comment: '质量不错' },
+    ],
+  };
+  const substantive = await getGoodsReviewsView(ctx);
   assert.deepEqual(fixtures.calls.map((call) => call.name), ['reviews.list']);
   const params = fixtures.calls[0].params;
   assert.deepEqual([params.endTime, params.startTime], [1793404800, 1793404800 - 30 * 86400]);
-  assert.equal(Object.hasOwn(params, 'descScore') || Object.hasOwn(params, 'goodsId'), false);
-  assert.deepEqual([all.total, all.window_days, all.goods_id, all.stars, all.mall_id], [1, 30, null, null, '900001']);
+  assert.equal(Object.hasOwn(params, 'descScore') || Object.hasOwn(params, 'goodsId')
+    || Object.hasOwn(params, 'mainReviewContentStatus') || Object.hasOwn(params, 'appendStatus'), false);
+  assert.deepEqual([substantive.total, substantive.fetched_count, substantive.filtered_out_count,
+    substantive.items.length, substantive.window_days, substantive.goods_id, substantive.stars, substantive.mall_id],
+  [2, 2, 1, 1, 30, null, null, '900001']);
+  assert.deepEqual(substantive.filter, { mode: 'substantive', min_length: 1 });
+  assert.equal(substantive.items[0].goods_id, '102');
+
   const filtered = await getGoodsReviewsView(ctx, { days: 365, goodsId: '101', stars: ['4', '5'] });
   assert.deepEqual([fixtures.calls[1].params.goodsId, fixtures.calls[1].params.descScore], ['101', ['4', '5']]);
   assert.deepEqual([filtered.window_days, filtered.goods_id, filtered.stars], [365, '101', [4, 5]]);
+
+  const full = await getGoodsReviewsView(ctx, { all: true });
+  assert.deepEqual([full.total, full.fetched_count, full.filtered_out_count, full.items.length], [2, 2, 0, 2]);
+  assert.deepEqual(full.filter, { mode: 'all', min_length: null });
+  assert.deepEqual(full.headline, ['近 30 天全部星级评价 2 条']);
+});
+
+it('tracks fetched_count and filtered_out_count separately when hitting the 2000-row view limit', async () => {
+  fixtures.pages = () => ({
+    totalRows: 2500,
+    data: Array.from({ length: 40 }, (_unused, index) => (index < 30
+      ? { goodsId: 101, descScore: 5, status: 4, comment: '该用户觉得商品很好，给出了5星好评' }
+      : { goodsId: 102, descScore: 5, status: 2, comment: '质量不错' })),
+  });
+  const view = await getGoodsReviewsView(ctx);
+  assert.deepEqual([view.total, view.fetched_count, view.items.length, view.filtered_out_count, view.truncated],
+    [2500, 2000, 500, 1500, true]);
+  assert.deepEqual(view.headline, ['近 30 天全部星级评价 2500 条，实质内容 500 条', '已采集 2000 条，结果已截断']);
+  assert.ok(view.hints.some((hint) => hint.includes('截断')));
 });
 
 it.each([0, 366, 1.5, '30'])('rejects goods review days %s before any request', async (days) => {

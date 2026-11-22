@@ -1,7 +1,8 @@
 import { it } from 'vitest';
 import assert from 'node:assert/strict';
 import { toReviewsView, toGoodsReviewsView, REVIEW_TAG_FIELDS, ISSUE_TYPE_FIELDS, REVIEW_FIELDS,
-  GOODS_SCORES_FIELDS, GOODS_SCORE_FIELDS } from '../../src/services/views/reviews.js';
+  GOODS_SCORES_FIELDS, GOODS_SCORE_FIELDS, GOODS_REVIEWS_FILTER_FIELDS, DEFAULT_GOODS_REVIEWS_FILTER }
+  from '../../src/services/views/reviews.js';
 
 it('projects aggregates, keeps platform shares and masks phones in review and append text', () => {
   const view = toReviewsView({ keywords: { positiveKeywordList: [{ keywordName: '好', num: 2 }],
@@ -59,20 +60,101 @@ it('omits the top negative issue line when every issue type has zero negatives',
 });
 
 it('projects the goods review list with scope, stars and truncation headlines', () => {
+  assert.deepEqual(GOODS_REVIEWS_FILTER_FIELDS, ['mode', 'min_length']);
+  assert.deepEqual(DEFAULT_GOODS_REVIEWS_FILTER, { mode: 'substantive', min_length: 1 });
   const reviews = { total: 2100, truncated: true,
     items: [{ goodsId: 101, descScore: 5, comment: '联系13812345678', name: 'PRIVATE' }] };
   const view = toGoodsReviewsView(reviews, { days: 7, goodsId: '101', stars: ['4', '5'],
     hints: ['list_truncated'], mallId: '900001' });
-  assert.deepEqual(view.headline, ['近 7 天商品 101 的 4、5 星评价 2100 条', '已采集 1 条，结果已截断']);
+  assert.deepEqual(view.headline, ['近 7 天商品 101 的 4、5 星评价 2100 条，实质内容 1 条', '已采集 1 条，结果已截断']);
   assert.deepEqual(Object.keys(view.items[0]), REVIEW_FIELDS);
+  assert.deepEqual(Object.keys(view.filter), GOODS_REVIEWS_FILTER_FIELDS);
   assert.equal(view.items[0].comment, '联系138****5678');
-  assert.deepEqual([view.total, view.truncated, view.window_days, view.goods_id, view.stars, view.mall_id],
-    [2100, true, 7, '101', [4, 5], '900001']);
+  assert.deepEqual([view.total, view.fetched_count, view.filtered_out_count, view.truncated,
+    view.window_days, view.goods_id, view.stars, view.mall_id],
+  [2100, 1, 0, true, 7, '101', [4, 5], '900001']);
+  assert.deepEqual(view.filter, { mode: 'substantive', min_length: 1 });
   assert.equal(view.hints.length, 1);
   assert.equal(JSON.stringify(view).includes('PRIVATE'), false);
-  const all = toGoodsReviewsView({ total: 0, truncated: false, items: [] }, { days: 30 });
-  assert.deepEqual(all.headline, ['近 30 天全部星级评价 0 条']);
-  assert.deepEqual([all.goods_id, all.stars, all.items], [null, null, []]);
+  const empty = toGoodsReviewsView({ total: 0, truncated: false, items: [] }, { days: 30 });
+  assert.deepEqual(empty.headline, ['近 30 天全部星级评价 0 条，实质内容 0 条']);
+  assert.deepEqual([empty.goods_id, empty.stars, empty.items, empty.fetched_count, empty.filtered_out_count],
+    [null, null, [], 0, 0]);
+  const all = toGoodsReviewsView({
+    total: 2100,
+    truncated: true,
+    items: [
+      { goodsId: 101, descScore: 5, status: 4, comment: '该用户觉得商品很好，给出了5星好评' },
+      { goodsId: 102, descScore: 5, status: 2, comment: '物流很快' },
+    ],
+  }, { days: 7, goodsId: '101', stars: ['4', '5'], filter: { mode: 'all', min_length: null },
+    hints: ['list_truncated'], mallId: '900001' });
+  assert.deepEqual(all.headline, ['近 7 天商品 101 的 4、5 星评价 2100 条', '已采集 2 条，结果已截断']);
+  assert.deepEqual([all.total, all.fetched_count, all.filtered_out_count, all.items.length], [2100, 2, 0, 2]);
+  assert.deepEqual(all.filter, { mode: 'all', min_length: null });
+});
+
+it('filters placeholders, empty, punct/emoji, digits, single-char repeats and 4-5 star media/tag-only reviews while keeping substantive and negative reviews', () => {
+  const placeholders = [
+    '该用户未填写文字评价',
+    '该用户觉得商品较好',
+    '该用户觉得商品很好，给出了5星好评',
+    '该用户觉得商品稍有不足',
+    '该用户觉得商品不符合预期',
+    '该用户觉得商品一般',
+    '该用户觉得商品很好，给出去了5星好评',
+  ];
+  const dropped = [
+    { goodsId: 1, descScore: 5, status: 4, comment: '系统标记4的占位' },
+    ...placeholders.map((comment, idx) => ({ goodsId: 10 + idx, descScore: 5, status: null, comment: ` ${comment} ` })),
+    { goodsId: 20, descScore: 5, comment: '' },
+    { goodsId: 21, descScore: 5, comment: '   \n\t ' },
+    { goodsId: 22, descScore: 4, comment: null },
+    { goodsId: 23, descScore: 5, comment: '。。。！！！' },
+    { goodsId: 24, descScore: 5, comment: '👍👍👍' },
+    { goodsId: 25, descScore: 5, comment: '666' },
+    { goodsId: 26, descScore: 5, comment: '13812345678' },
+    { goodsId: 27, descScore: 5, comment: '好好' },
+    { goodsId: 28, descScore: 5, comment: '哈哈哈哈' },
+    { goodsId: 29, descScore: 5, comment: 'AaAa' },
+    { goodsId: 30, descScore: 5, comment: '好！好！' },
+    { goodsId: 31, descScore: 5, comment: 'a1A' },
+    { goodsId: 32, descScore: 5, comment: '', pictureCount: 2, video: 'SYN-VIDEO', keywords: ['做工好'] },
+    { goodsId: 33, descScore: 4, comment: '   ', keywords: ['物流快'] },
+    { goodsId: 34, score: 4, descScore: 2, status: 4, comment: '该用户觉得商品较好' },
+  ];
+  const kept = [
+    { goodsId: 101, descScore: 5, status: 2, comment: '差' },
+    { goodsId: 102, descScore: 5, status: 2, comment: '假' },
+    { goodsId: 103, descScore: 5, comment: '破了' },
+    { goodsId: 104, descScore: 5, comment: '尺码小' },
+    { goodsId: 105, descScore: 5, comment: '38码' },
+    { goodsId: 106, descScore: 5, status: 4, comment: '该用户觉得商品很好，给出了5星好评', appendReview: '追评13987654321有问题' },
+    { goodsId: 107, descScore: 5, comment: '该用户未填写文字评价', appendReview: '该用户未填写文字评价' },
+    { goodsId: 108, descScore: 3, status: 4, comment: '该用户未填写文字评价' },
+    { goodsId: 109, descScore: 2, comment: '13812345678', pictureCount: 1 },
+    { goodsId: 110, score: 3, descScore: 5, status: 4, comment: '该用户未填写文字评价' },
+    { goodsId: 111, score: 2, descScore: null, comment: '' },
+  ];
+  const view = toGoodsReviewsView({ total: 2500, truncated: true, items: [...dropped, ...kept] },
+    { days: 30, hints: ['list_truncated'] });
+  assert.deepEqual(view.items.map((item) => item.goods_id), kept.map((item) => String(item.goodsId)));
+  assert.equal(view.total, 2500);
+  assert.equal(view.fetched_count, dropped.length + kept.length);
+  assert.equal(view.filtered_out_count, dropped.length);
+  assert.deepEqual(view.headline, [
+    `近 30 天全部星级评价 2500 条，实质内容 ${kept.length} 条`,
+    `已采集 ${dropped.length + kept.length} 条，结果已截断`,
+  ]);
+  assert.equal(view.items.find((item) => item.goods_id === '106').append_comment, '追评139****4321有问题');
+  assert.equal(view.items.find((item) => item.goods_id === '108').comment, '该用户未填写文字评价');
+  assert.equal(view.items.find((item) => item.goods_id === '109').comment, '138****5678');
+  for (const item of view.items) {
+    assert.deepEqual(Object.keys(item), REVIEW_FIELDS);
+    assert.equal(Object.hasOwn(item, 'status'), false);
+  }
+  const diagnoseView = toReviewsView({ reviews: { total: dropped.length, truncated: false, items: dropped } }, { days: 30 });
+  assert.equal(diagnoseView.negative_reviews.items.length, dropped.length);
 });
 
 it('projects goods scores with caliber, rounded averages, zero-review nulls and headline', () => {

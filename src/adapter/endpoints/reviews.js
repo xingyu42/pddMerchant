@@ -20,8 +20,10 @@ function reviewText(value) {
 }
 
 function review(item) {
+  const parsedStatus = toFiniteNumber(item.status);
   return {
     ...pickFields(item, ['goodsId', 'createTime', 'descScore', 'logisticsScore', 'serviceScore', 'score', 'comment']),
+    status: parsedStatus !== null && Number.isInteger(parsedStatus) ? parsedStatus : null,
     appendReview: reviewText(item.appendReview),
     keywords: Array.isArray(item.keywords) ? item.keywords.map((tag) =>
       typeof tag === 'string' ? tag : tag?.keywordName).filter((tag) => typeof tag === 'string') : [],

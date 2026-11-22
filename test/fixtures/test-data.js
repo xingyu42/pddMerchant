@@ -152,7 +152,33 @@ function addPagedFixtures(fixtures, endpointName, total, pageSize, buildPayload)
   }
 }
 
-export function createReviewFixtures({ count = 41, goodsScoresCount = 2 } = {}) {
+function upstreamReview(overrides = {}) {
+  return {
+    goodsId: 101,
+    createTime: 1793376000,
+    score: 0,
+    descScore: 5,
+    logisticsScore: 5,
+    serviceScore: 5,
+    comment: '合成评价正文',
+    appendReview: null,
+    keywords: [],
+    reply: '',
+    pictures: [],
+    video: null,
+    name: 'SYN-REVIEW-PRIVATE',
+    avatar: 'SYN-REVIEW-PRIVATE',
+    orderSn: 'SYN-REVIEW-PRIVATE',
+    orderId: 'SYN-REVIEW-PRIVATE',
+    specs: 'SYN-REVIEW-PRIVATE',
+    thumbUrl: 'SYN-REVIEW-PRIVATE',
+    goodsInfoUrl: 'SYN-REVIEW-PRIVATE',
+    orderSnapshotInfo: { name: 'SYN-REVIEW-PRIVATE' },
+    ...overrides,
+  };
+}
+
+export function createReviewFixtures({ count = 41, goodsScoresCount = 2, reviews = null, totalRows = null } = {}) {
   const fixtures = {
     'endpoints/reviews.keywordAgg.json': success({
       positiveKeywordList: [{ keywordName: '做工好', num: 4 }], negativeKeywordList: [{ keywordName: '描述不符', num: 2 }],
@@ -162,15 +188,66 @@ export function createReviewFixtures({ count = 41, goodsScoresCount = 2 } = {}) 
         ({ typeName, positive: index === 0 ? 4 : 0, negative: index === 1 ? 5 : 0, proportion: index === 0 ? 44 : 14 })),
     }),
   };
-  addPagedFixtures(fixtures, 'reviews.list', count, REVIEW_PAGE_SIZE, (offset, size) => ({
-    totalRows: count,
-    data: Array.from({ length: size }, (_unused, index) => syntheticReview(offset + index)),
+  const resolvedCount = reviews ? reviews.length : count;
+  const resolvedTotal = totalRows ?? resolvedCount;
+  addPagedFixtures(fixtures, 'reviews.list', resolvedCount, REVIEW_PAGE_SIZE, (offset, size) => ({
+    totalRows: resolvedTotal,
+    data: reviews ? reviews.slice(offset, offset + size) : Array.from({ length: size }, (_unused, index) => syntheticReview(offset + index)),
   }));
   addPagedFixtures(fixtures, 'reviews.goodsScores', goodsScoresCount, GOODS_SCORES_PAGE_SIZE, (offset, size) => ({
     mallOprGoodsCntStd: goodsScoresCount,
     goodsEvaluates: Array.from({ length: size }, (_unused, index) => syntheticGoodsScore(offset + index)),
   }));
   return fixtures;
+}
+
+export function createGoodsReviewFilterFixtures() {
+  const dropped = [
+    // status === 4 后端占位模板 + 任意主评
+    upstreamReview({ goodsId: 1001, status: 4, comment: '该用户未填写文字评价' }),
+    upstreamReview({ goodsId: 1002, status: 4, comment: '该用户觉得商品较好' }),
+    upstreamReview({ goodsId: 1003, status: 4, comment: '该用户觉得商品很好，给出了5星好评' }),
+    upstreamReview({ goodsId: 1004, status: 4, comment: '即使写了其他文本只要status为4也按占位' }),
+    // 缺失 status 时的 7 个后端/前端精确占位模板
+    upstreamReview({ goodsId: 1005, comment: '该用户未填写文字评价' }),
+    upstreamReview({ goodsId: 1006, comment: '该用户觉得商品较好' }),
+    upstreamReview({ goodsId: 1007, comment: '该用户觉得商品很好，给出了5星好评' }),
+    upstreamReview({ goodsId: 1008, comment: '该用户觉得商品稍有不足' }),
+    upstreamReview({ goodsId: 1009, comment: '该用户觉得商品不符合预期' }),
+    upstreamReview({ goodsId: 1010, comment: '该用户觉得商品一般' }),
+    upstreamReview({ goodsId: 1011, comment: '该用户觉得商品很好，给出去了5星好评' }),
+    // 空 / 纯空白 / 纯标点 / 符号 / Emoji / 纯数字 / 单字重复 / 4–5 星纯媒体与纯标签
+    upstreamReview({ goodsId: 1012, status: 2, comment: '' }),
+    upstreamReview({ goodsId: 1013, status: 2, comment: '  \n\t  ' }),
+    upstreamReview({ goodsId: 1014, status: 2, comment: '。。。！！！' }),
+    upstreamReview({ goodsId: 1015, status: 2, comment: '★☆~👍👍👍' }),
+    upstreamReview({ goodsId: 1016, status: 2, comment: '666111' }),
+    upstreamReview({ goodsId: 1017, status: 2, comment: '好好' }),
+    upstreamReview({ goodsId: 1018, status: 2, comment: 'AaAa' }),
+    upstreamReview({ goodsId: 1019, status: 2, comment: '好！好！' }),
+    upstreamReview({ goodsId: 1020, descScore: 4, comment: '', pictures: ['SYN-REVIEW-PRIVATE/p1'], video: 'SYN-REVIEW-PRIVATE/v1' }),
+    upstreamReview({ goodsId: 1021, descScore: 5, comment: ' ', keywords: ['做工好'] }),
+  ];
+  const kept = [
+    upstreamReview({ goodsId: 2001, status: 2, comment: '差' }),
+    upstreamReview({ goodsId: 2002, status: 2, comment: '假' }),
+    upstreamReview({ goodsId: 2003, status: 2, comment: '破了' }),
+    upstreamReview({ goodsId: 2004, status: 2, comment: '尺码小' }),
+    upstreamReview({ goodsId: 2005, status: 2, comment: '38码' }),
+    upstreamReview({ goodsId: 2006, status: 4, comment: '该用户觉得商品很好，给出了5星好评', appendReview: '追评字符串13987654321有划痕' }),
+    upstreamReview({ goodsId: 2007, status: 4, comment: '该用户觉得商品较好',
+      appendReview: { comment: '追评对象13812345678少配件', name: 'SYN-REVIEW-PRIVATE', orderSn: 'SYN-REVIEW-PRIVATE' } }),
+    upstreamReview({ goodsId: 2008, status: 4, descScore: 3, comment: '该用户未填写文字评价' }),
+    upstreamReview({ goodsId: 2009, status: 2, descScore: 2, comment: '联系13812345678处理' }),
+    upstreamReview({ goodsId: 2010, status: 4, score: 3, descScore: 5, comment: '该用户未填写文字评价' }),
+  ];
+  const all = [...dropped, ...kept];
+  return {
+    fixtures: createReviewFixtures({ reviews: all }),
+    droppedIds: dropped.map((item) => String(item.goodsId)),
+    keptIds: kept.map((item) => String(item.goodsId)),
+    totalCount: all.length,
+  };
 }
 
 export const SAMPLE_LIST_STATS = Object.freeze({

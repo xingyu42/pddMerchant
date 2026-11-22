@@ -22,6 +22,8 @@ export const REVIEW_TAG_FIELDS = Object.freeze(['name', 'count']);
 export const ISSUE_TYPE_FIELDS = Object.freeze(['name', 'positive_count', 'negative_count', 'share_pct']);
 export const REVIEW_FIELDS = Object.freeze(['goods_id', 'reviewed_at', 'desc_score',
   'logistics_score', 'service_score', 'history_score', 'comment', 'append_comment', 'tags', 'replied', 'picture_count']);
+export const GOODS_REVIEWS_FILTER_FIELDS = Object.freeze(['mode', 'min_length']);
+export const DEFAULT_GOODS_REVIEWS_FILTER = Object.freeze({ mode: 'substantive', min_length: 1 });
 
 // 商品评分取自数据中心「近30日存在有效评价的商品」，窗口由平台固定，与 --days 无关。
 const GOODS_SCORES_CALIBER = '数据中心-评价数据';
@@ -106,15 +108,72 @@ export function toReviewsView({ keywords = null, types = null, reviews = null, g
     hints: reportHints(REVIEWS_REPORT, hints), mall_id: mallId };
 }
 
+const PLATFORM_PLACEHOLDER_COMMENTS = new Set([
+  '该用户未填写文字评价',
+  '该用户觉得商品较好',
+  '该用户觉得商品很好，给出了5星好评',
+  '该用户觉得商品稍有不足',
+  '该用户觉得商品不符合预期',
+  '该用户觉得商品一般',
+  '该用户觉得商品很好，给出去了5星好评',
+]);
+
+function validCharCount(textValue, { isMain = false, status = null } = {}) {
+  if (typeof textValue !== 'string') return 0;
+  const trimmed = textValue.trim();
+  if (!trimmed) return 0;
+  if (isMain && (status === 4 || PLATFORM_PLACEHOLDER_COMMENTS.has(trimmed))) return 0;
+  const letters = trimmed.match(/\p{L}/gu);
+  if (!letters || letters.length === 0) return 0;
+  if (letters.length >= 2) {
+    const lower = letters.map((char) => char.toLowerCase());
+    if (lower.every((char) => char === lower[0])) return 0;
+  }
+  return letters.length;
+}
+
+function isNegativeReview(item) {
+  const score = toFiniteNumber(item.score);
+  const descScore = toFiniteNumber(item.descScore);
+  const effectiveScore = score !== null && score !== 0 ? score : descScore;
+  return effectiveScore !== null && effectiveScore <= 3;
+}
+
+function shouldKeepReview(item, filter) {
+  if (filter.mode === 'all') return true;
+  const mainLen = validCharCount(item.comment, { isMain: true, status: item.status });
+  const appendLen = validCharCount(item.appendReview);
+  return mainLen >= 1 || appendLen >= 1 || isNegativeReview(item);
+}
+
 function starsLabel(stars) {
   return stars ? ` ${stars.join('、')} 星` : '全部星级';
 }
 
-export function toGoodsReviewsView(reviews, { days, goodsId = null, stars = null, hints = [], mallId = null }) {
-  const list = reviewList(reviews);
+export function toGoodsReviewsView(reviews, { days, goodsId = null, stars = null,
+  filter = DEFAULT_GOODS_REVIEWS_FILTER, hints = [], mallId = null }) {
+  const appliedFilter = { mode: filter.mode, min_length: filter.min_length };
+  const fetchedCount = reviews.items.length;
+  const items = reviews.items.filter((item) => shouldKeepReview(item, appliedFilter)).map(reviewView);
+  const filteredOutCount = fetchedCount - items.length;
   const scope = goodsId ? `商品 ${goodsId} 的` : '';
-  const headline = [`近 ${days} 天${scope}${starsLabel(stars)}评价 ${list.total} 条`];
-  if (list.truncated) headline.push(`已采集 ${list.items.length} 条，结果已截断`);
-  return { headline, ...list, window_days: days, goods_id: goodsId, stars: stars ? stars.map(Number) : null,
-    hints: reportHints(GOODS_REVIEWS_REPORT, hints), mall_id: mallId };
+  const summary = appliedFilter.mode === 'all'
+    ? `近 ${days} 天${scope}${starsLabel(stars)}评价 ${reviews.total} 条`
+    : `近 ${days} 天${scope}${starsLabel(stars)}评价 ${reviews.total} 条，实质内容 ${items.length} 条`;
+  const headline = [summary];
+  if (reviews.truncated) headline.push(`已采集 ${fetchedCount} 条，结果已截断`);
+  return {
+    headline,
+    items,
+    total: reviews.total,
+    fetched_count: fetchedCount,
+    filtered_out_count: filteredOutCount,
+    truncated: reviews.truncated,
+    filter: appliedFilter,
+    window_days: days,
+    goods_id: goodsId,
+    stars: stars ? stars.map(Number) : null,
+    hints: reportHints(GOODS_REVIEWS_REPORT, hints),
+    mall_id: mallId,
+  };
 }
