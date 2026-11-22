@@ -26,6 +26,7 @@ export const AFTER_SALES_REPORT = defineReport({
     description: '售后申请时间窗口天数（{range}，默认 {default}）',
   },
   hints: {
+    cases_unavailable: '关联售后单拉取失败，售后原因暂不可用',
     params_unavailable: '售后参数字典拉取失败，售后原因大类暂不可用',
     list_truncated: `售后单已达单次 ${AFTER_SALES_VIEW_LIMIT} 条上限，结果已截断，建议配合 --since/--until 缩小区间分段拉取`,
   },

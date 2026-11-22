@@ -7,7 +7,7 @@ import { runCliAsync } from '../helpers/isolated-cli.js';
 import {
   createAccounts, createFactFixtures, createPublishFixtures, createUpstreamGoods, createExperienceFixtures,
   createCustomerServiceFixtures, createReviewFixtures, createTrafficFixtures, createGoodsTrafficFixtures,
-  createGoodsReceiptFixtures, allCaliberReceiptGoods, createAfterSalesFixtures,
+  createGoodsReceiptFixtures, allCaliberReceiptGoods, createAfterSalesFixtures, createUpstreamOrderDetail,
 } from '../fixtures/test-data.js';
 import { ACCOUNT_VIEW_FIELDS, ACCOUNT_REMOVED_VIEW_FIELDS } from '../../src/services/views/account.js';
 import { CONFIG_FIELD_VIEW_FIELDS } from '../../src/services/views/config.js';
@@ -215,6 +215,22 @@ const V2_CASES = [
     args: ['orders', 'detail', '--sn', 'SYN-DETAIL'],
     fixtures: createFactFixtures(),
     entityFields: { order: ORDER_DETAIL_VIEW_FIELDS },
+    checkData: (data) => {
+      assert.deepEqual(data.after_sales_cases, []);
+      assert.deepEqual(data.hints, []);
+    },
+  },
+  {
+    command: 'orders.detail',
+    args: ['orders', 'detail', '--sn', 'SYN-AFTER-SALES-ORDER'],
+    fixtures: {
+      ...createAfterSalesFixtures(),
+      'endpoints/orders.detail.json': { success: true, result: createUpstreamOrderDetail({
+        order_sn: 'SYN-AFTER-SALES-ORDER', after_sales_status: '退款成功', after_sales_status_code: 5,
+      }) },
+    },
+    entityFields: { order: ORDER_DETAIL_VIEW_FIELDS, 'after_sales_cases[]': AFTER_SALES_CASE_FIELDS },
+    checkData: (data) => assert.equal(data.after_sales_cases.length, 1),
   },
   ...[
     [],

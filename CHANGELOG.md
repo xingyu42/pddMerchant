@@ -13,6 +13,7 @@
 ### Added
 
 - **售后单与原因分布**：`orders after-sales` 按申请时间查询售后单，支持近 1–365 天、`--since` / `--until` 精确窗口，以及订单号、商品 ID、状态和类型筛选。按订单号查询且未指定时间时检索全历史。每次最多采集 2000 条并标记截断；结果包含时间窗、筛选回显、明细与原因汇总。原因大类字典不可用时保留明细与汇总并附提示。
+- **订单详情售后单**：`orders detail` 自动补充关联售后单和原因，按申请时间倒序输出 `after_sales_cases`，并在摘要中显示最新一条。无售后标识时返回 `[]` 且无额外请求；关联查询失败降级时仍返回订单详情，售后单为 `null` 并附中文提示。
 
 - **商品成本与净利润**：`goods cost set / list / remove / import <file>` 在本地 SQLite 录入成本（按账号、店铺、商品及可选规格隔离，写入需 `--confirm`）；`goods profit [--days 30] [--goods-id <id>]` 按成交时间统计窗口收入、商家成本、毛利、推广花费与净利润。`gross_margin_pct` / `net_margin_pct` 为有符号百分数，可负、可超过 ±100；仅退款不退货及商家共担补贴时利润可能高估。运费险（`insurance_yuan`）取消费者体验提升计划收费记录里平台逐单收取的服务费（收费成功的退款后不扣回，无记录为 0），`goods cost` 不录入运费险；收费记录拉取失败或不完整时运费险、商家成本与利润为 `null`，`summary.data_quality` 新增 `insurance_complete` / `insurance_truncated`。新错误码 `E_COST_IMPORT_INVALID`（退出码 2）。
 - **店铺综合体验星级**：`diagnose experience [--days 7]` 输出平台当前星级、行业排名、各指标与下一星级门槛及每日趋势。
@@ -32,6 +33,8 @@
   - 以上 `today` 均走可选降级：上游失败时 `today: null` 并附提示，原有历史区间与推广拆分照常返回，退出码保持 0。
 
 ### Fixed
+
+- **订单详情售后状态**：平台仅在 `after_sales_status_code` 提供数字码时，按该码映射订单级售后状态；订单列表、统计、诊断和商品净利润口径保持不变。
 - **`diagnose reviews` 标签聚合**：店铺没有不满意标签时平台返回 `negativeKeywordList: null`，原实现把整段标签判为拉取失败（`keyword_tags: null` 并附提示）。现读取为空列表，满意标签照常输出，`keyword_tags.negative` 为 `[]`。
 - **`diagnose reviews` headline**：各问题类型负面数全为 0 时不再输出「问题类型负面最多：…」；中差评列表缺失而聚合已取到时，headline 陈述「不满意标签 0 个」「各问题类型负面数均为 0」。
 - **goods profit 未登记售后码**：售后码 6、31 等未登记的非空码按售后处理中计算（与 `orders` 统计一致），不再让所属商品和全店的收入、利润变成 null。
