@@ -1,16 +1,30 @@
 // 诊断视图（输出契约 v2）：summarize* 的内部结果 → 中文状态标签 + headline。
 // 内部 status 仍为 'full' / 'partial'（spec 定义值），仅在此处翻译；只陈述事实与数据完整性，不做评价。
 import { labelOf, toLocalDate } from '../../infra/units.js';
-import { yuanText } from './_shared.js';
+import { metricTable } from '../../infra/metrics.js';
+import { windowEndingAt } from '../report-windows.js';
+import { valueWithUnit, yuanText } from './_shared.js';
 import {
   DATA_STATUS_LABEL, DIMENSION_LABEL, MATCHED_BY_LABEL,
 } from './labels.js';
 
 const COMPARE_NOTE_LABEL = Object.freeze({ current_snapshot_only: '仅有当前快照，无上期数据' });
+const ORDER_REGIONS_CALIBER = '数据中心-地域分布（成团订单）';
+const ORDER_REGIONS_WINDOW_DAYS = 7;
 
 export const DIAGNOSE_DIMENSIONS = Object.freeze(['orders', 'inventory', 'promo', 'after_sales']);
 
 export const STALE_SAMPLE_FIELDS = Object.freeze(['goods_id', 'goods_name', 'quantity']);
+
+const ORDER_REGION_METRICS = metricTable([
+  ['confirmed_order_amount_yuan', 'cfmOrdrAmt', 'yuan'],
+  ['confirmed_order_count', 'cfmOrdrCnt', 'count'],
+  ['confirmed_buyer_count', 'cfmOrdrUsrCnt', 'count'],
+  ['avg_buyer_amount_yuan', 'cfmOrdrAup', 'yuan'],
+  ['avg_order_amount_yuan', 'cfmOrdrAop', 'yuan'],
+]);
+export const ORDER_REGIONS_FIELDS = Object.freeze(['caliber', 'window', 'window_days', 'delayed', 'items', 'province_count']);
+export const ORDER_REGION_ITEM_FIELDS = Object.freeze(['province', ...ORDER_REGION_METRICS.fields]);
 
 function pct(value) {
   return value == null ? '无法计算' : `${value}%`;
@@ -148,4 +162,48 @@ export function toShopView(result, { mallId = null } = {}) {
     ...(compare ? { compare } : {}),
     mall_id: mallId,
   };
+}
+
+function compareRegionItems(left, right) {
+  const leftAmount = left.confirmed_order_amount_yuan ?? -1;
+  const rightAmount = right.confirmed_order_amount_yuan ?? -1;
+  if (rightAmount !== leftAmount) return rightAmount - leftAmount;
+  const leftCount = left.confirmed_order_count ?? -1;
+  const rightCount = right.confirmed_order_count ?? -1;
+  if (rightCount !== leftCount) return rightCount - leftCount;
+  return left.province.localeCompare(right.province);
+}
+
+function toOrderRegionsView(rawRegions) {
+  if (rawRegions === null || rawRegions === undefined) return null;
+  const items = rawRegions.items
+    .map((row) => ({ province: row.provinceName.trim(), ...ORDER_REGION_METRICS.project(row) }))
+    .sort(compareRegionItems);
+  const endDate = rawRegions.items.map((row) => row.statDate).filter(Boolean).sort().at(-1) ?? null;
+  const delayed = rawRegions.delayData == null ? null : Boolean(rawRegions.delayData);
+  return {
+    caliber: ORDER_REGIONS_CALIBER,
+    window: endDate ? windowEndingAt(ORDER_REGIONS_WINDOW_DAYS, endDate) : null,
+    window_days: ORDER_REGIONS_WINDOW_DAYS,
+    delayed,
+    items,
+    province_count: items.length,
+  };
+}
+
+function regionsHeadline(regions) {
+  if (regions.province_count === 0) return `近 ${regions.window_days} 天成团地域分布无成团省份`;
+  const top = regions.items[0];
+  return `近 ${regions.window_days} 天成团分布覆盖 ${regions.province_count} 个省，`
+    + `${top.province}成团额最高（${valueWithUnit(top.confirmed_order_amount_yuan, '元')}、`
+    + `${valueWithUnit(top.confirmed_order_count, '单')}）`;
+}
+
+// diagnose.orders 在单维订单诊断之外附带独立的省级成团分布 regions 区块（近 7 天，成团口径）。
+export function toOrdersDiagnosisView(result, { regions = null, mallId = null, extraHints = [] } = {}) {
+  const base = toDimensionView('orders', result);
+  const regionsView = toOrderRegionsView(regions);
+  const headline = [...base.headline, ...(regionsView ? [regionsHeadline(regionsView)] : [])];
+  const hints = [...base.hints, ...extraHints, ...(regionsView?.delayed ? ['平台标记地域分布数据延迟'] : [])];
+  return { ...base, headline, hints, regions: regionsView, mall_id: mallId };
 }

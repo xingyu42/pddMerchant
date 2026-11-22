@@ -142,7 +142,7 @@ node bin/pdd.js promo roi [--by plan|sku|channel] [--since YYYY-MM-DD] [--size 5
 
 ```bash
 node bin/pdd.js diagnose shop [--compare] [--days 7]   # 订单/库存/推广/售后四维汇总与环比
-node bin/pdd.js diagnose orders|inventory|promo        # 单维度统计
+node bin/pdd.js diagnose orders|inventory|promo        # 单维度统计（diagnose orders 另附近 7 天省级成团分布 regions）
 node bin/pdd.js diagnose after-sales [--days 30]       # 退款成功与售后处理中
 node bin/pdd.js diagnose experience [--days 7]         # 店铺综合体验星级，1–30 天
 node bin/pdd.js diagnose customer-service [--days 30]  # 客服人工回复、询单转化（sales）与今日实时（today），1–63 天；逐日趋势最多最近 31 天

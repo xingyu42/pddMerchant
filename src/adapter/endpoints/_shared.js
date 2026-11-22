@@ -1,4 +1,6 @@
-import { responseShapeError } from '../../infra/errors.js';
+import { ExitCodes, PddCliError, responseShapeError } from '../../infra/errors.js';
+
+const PUA_GLYPH = /[\uE000-\uF8FF]/;
 
 // 白名单投影：只保留上游对象自身带有的字段，缺失字段不补键。
 export function pickFields(item, fields) {
@@ -19,5 +21,19 @@ export function requireFields(obj, required, endpoint, shapeLabel = 'result obje
   }
   for (const field of required) {
     if (!Object.hasOwn(obj, field)) throw responseShapeError(endpoint, field);
+  }
+}
+
+// 数值字段拒绝私有区字体混淆字符（fail-closed）；文本字段跳过以免误伤表情符号。
+export function assertNoPua(row, fields, hint) {
+  for (const field of fields) {
+    if (typeof row?.[field] === 'string' && PUA_GLYPH.test(row[field])) {
+      throw new PddCliError({
+        code: 'E_BUSINESS',
+        message: '平台返回字体混淆数据',
+        hint,
+        exitCode: ExitCodes.BUSINESS,
+      });
+    }
   }
 }

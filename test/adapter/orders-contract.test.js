@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it, vi } from 'vitest';
 import {
-  ORDER_LIST, ORDER_DETAIL, ORDER_STATS, ORDER_LIST_CLI_SCOPES, ORDER_LIST_DEFAULT_SCOPE, ORDER_LIST_SCOPES,
+  ORDER_LIST, ORDER_DETAIL, ORDER_STATS, ORDER_REGION_DISTRIBUTION,
+  ORDER_LIST_CLI_SCOPES, ORDER_LIST_DEFAULT_SCOPE, ORDER_LIST_SCOPES,
 } from '../../src/adapter/endpoints/orders.js';
 import { isNetworkError } from '../helpers/error-matchers.js';
 
@@ -127,5 +128,55 @@ describe('order request and business errors', () => {
 
   it('leaves unknown failures to the shared mapper', () => {
     assert.equal(ORDER_DETAIL.errorMapper({ errorCode: 9876, errorMsg: 'unknown failure' }), null);
+  });
+
+  it('projects provincial group-order distribution fields, drops ids/cents/PII and guards PUA glyphs', () => {
+    assert.equal(ORDER_REGION_DISTRIBUTION.strategy, 'page-api');
+    assert.equal(ORDER_REGION_DISTRIBUTION.apiUrl, '/sydney/api/mallCoreData/queryMallGeographyDistributionList');
+    assert.equal(ORDER_REGION_DISTRIBUTION.nav.url, 'https://mms.pinduoduo.com/sycm/stores_data/operation');
+    assert.equal(ORDER_REGION_DISTRIBUTION.errorMap, 'upstream');
+    assert.deepEqual(ORDER_REGION_DISTRIBUTION.buildPayload(), { queryType: 1 });
+    assert.deepEqual(ORDER_REGION_DISTRIBUTION.buildPayload({ queryType: 2, noise: 1 }), { queryType: 2 });
+
+    const raw = {
+      success: true,
+      result: {
+        delayData: 0,
+        geographyDistributionVOList: [{
+          provinceName: '浙江', provinceId: 31, statDate: '2026-11-21',
+          cfmOrdrAmt: 25.4, cfmOrdrAmtCent: 2540, cfmOrdrCnt: 1, cfmOrdrUsrCnt: 1,
+          cfmOrdrAup: 25.4, cfmOrdrAop: 25.4, receive_name: 'SYN-RECEIVER',
+        }],
+      },
+    };
+    assert.deepEqual(ORDER_REGION_DISTRIBUTION.normalize(raw), {
+      delayData: 0,
+      items: [{
+        provinceName: '浙江', statDate: '2026-11-21',
+        cfmOrdrAmt: 25.4, cfmOrdrCnt: 1, cfmOrdrUsrCnt: 1, cfmOrdrAup: 25.4, cfmOrdrAop: 25.4,
+      }],
+    });
+    assert.deepEqual(ORDER_REGION_DISTRIBUTION.normalize({
+      result: { geographyDistributionVOList: null },
+    }), { items: [], delayData: null });
+
+    const validRow = raw.result.geographyDistributionVOList[0];
+    assert.throws(() => ORDER_REGION_DISTRIBUTION.normalize({ result: null }), isNetworkError);
+    assert.throws(() => ORDER_REGION_DISTRIBUTION.normalize({ result: {} }), isNetworkError);
+    assert.throws(() => ORDER_REGION_DISTRIBUTION.normalize({ result: { geographyDistributionVOList: {} } }), isNetworkError);
+    assert.throws(() => ORDER_REGION_DISTRIBUTION.normalize({
+      result: { geographyDistributionVOList: [{ ...validRow, provinceName: ' ' }] },
+    }), isNetworkError);
+    assert.throws(() => ORDER_REGION_DISTRIBUTION.normalize({
+      result: { geographyDistributionVOList: [{ ...validRow, statDate: '2026-02-30' }] },
+    }), isNetworkError);
+    const missingFieldRow = { ...validRow };
+    delete missingFieldRow.cfmOrdrAop;
+    assert.throws(() => ORDER_REGION_DISTRIBUTION.normalize({
+      result: { geographyDistributionVOList: [missingFieldRow] },
+    }), isNetworkError);
+    assert.throws(() => ORDER_REGION_DISTRIBUTION.normalize({
+      result: { geographyDistributionVOList: [{ ...validRow, cfmOrdrAmt: '\uE001' }] },
+    }), { code: 'E_BUSINESS' });
   });
 });

@@ -1,6 +1,7 @@
 import { readBusinessError } from '../response-interpreter.js';
 import { ExitCodes, PddCliError, responseShapeError } from '../../infra/errors.js';
 import { PDD_HOME } from '../auth-state.js';
+import { assertNoPua, pickFields, requireFields, resultObject } from './_shared.js';
 
 function readListResult(raw) {
   const result = raw?.result;
@@ -136,4 +137,42 @@ export const ORDER_STATS = {
     };
   },
   successRule: { mode: 'flag' },
+};
+
+const REGION_NUMERIC_FIELDS = ['cfmOrdrAmt', 'cfmOrdrCnt', 'cfmOrdrUsrCnt', 'cfmOrdrAup', 'cfmOrdrAop'];
+const REGION_FIELDS = ['provinceName', 'statDate', ...REGION_NUMERIC_FIELDS];
+const DATE_TEXT = /^\d{4}-\d{2}-\d{2}$/;
+
+function isCalendarDate(value) {
+  return typeof value === 'string' && DATE_TEXT.test(value)
+    && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+}
+
+export const ORDER_REGION_DISTRIBUTION = {
+  name: 'orders.regionDistribution',
+  strategy: 'page-api',
+  nav: { url: 'https://mms.pinduoduo.com/sycm/stores_data/operation' },
+  apiUrl: '/sydney/api/mallCoreData/queryMallGeographyDistributionList',
+  errorMap: 'upstream',
+  buildPayload: ({ queryType = 1 } = {}) => ({ queryType }),
+  normalize(raw) {
+    const result = resultObject(raw, 'orders.regionDistribution');
+    requireFields(result, ['geographyDistributionVOList'], 'orders.regionDistribution');
+    const rows = result.geographyDistributionVOList ?? [];
+    if (!Array.isArray(rows)) {
+      throw responseShapeError('orders.regionDistribution', 'result.geographyDistributionVOList array');
+    }
+    const items = rows.map((row) => {
+      requireFields(row, REGION_FIELDS, 'orders.regionDistribution', 'row object');
+      if (typeof row.provinceName !== 'string' || row.provinceName.trim() === '') {
+        throw responseShapeError('orders.regionDistribution', 'provinceName');
+      }
+      if (!isCalendarDate(row.statDate)) {
+        throw responseShapeError('orders.regionDistribution', 'statDate YYYY-MM-DD');
+      }
+      assertNoPua(row, REGION_NUMERIC_FIELDS, '明文地域分布接口已变化，请核验平台接口');
+      return pickFields(row, REGION_FIELDS);
+    });
+    return { items, delayData: result.delayData ?? null };
+  },
 };

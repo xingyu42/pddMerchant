@@ -4,7 +4,7 @@
 
 **Blocked by:** 02
 
-**Status:** needs-triage
+**Status:** deferred
 
 - [ ] 解析阶段校验窗口参数并以退出码 2 拒绝非法值
 - [ ] 覆盖空结果、无成团省份（按 `01` 语义）、`delayData` 与失败降级测试
@@ -14,3 +14,5 @@
 - [ ] 真实账号只读验证（执行前确认范围）：各时间窗口与边界表现写入 Comments
 
 ## Comments
+
+- 2026-11-22：用户决策将地域分布并入 `diagnose orders` 的独立 `regions` 区块、仅保留 02 省级汇总（近 7 天），多时间窗口切换与单省逐日趋势（03）暂缓；其中 `delayData`、`province_count: 0`、失败降级与成团/订单口径并列说明已并入 02 落地。

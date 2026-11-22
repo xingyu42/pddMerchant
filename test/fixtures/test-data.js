@@ -311,6 +311,16 @@ export function createFactResponses() {
     },
     'endpoints/orders.detail.json': { success: true, result: createUpstreamOrderDetail() },
     'endpoints/orders.stats.json': { success: true, result: { unship: 1, unship12h: 0, delay: 0, unreceive: 0 } },
+    'endpoints/orders.regionDistribution.json': success({
+      delayData: 0,
+      geographyDistributionVOList: [
+        { provinceName: '浙江', provinceId: 31, statDate: '2026-11-21', cfmOrdrAmt: 25.4, cfmOrdrAmtCent: 2540,
+          cfmOrdrCnt: 1, cfmOrdrUsrCnt: 1, cfmOrdrAup: 25.4, cfmOrdrAupCent: 2540, cfmOrdrAop: 25.4, cfmOrdrAopCent: 2540,
+          receive_name: 'SYN-RECEIVER' },
+        { provinceName: '广东', provinceId: 6, statDate: '2026-11-21', cfmOrdrAmt: 820.4, cfmOrdrAmtCent: 82040,
+          cfmOrdrCnt: 44, cfmOrdrUsrCnt: 37, cfmOrdrAup: 22.1729, cfmOrdrAupCent: 2217, cfmOrdrAop: 18.6454, cfmOrdrAopCent: 1865 },
+      ],
+    }),
     'endpoints/goods.list.json': { success: true, result: { total: 1, goods_list: [createUpstreamGoods()] } },
     'endpoints/goods.publish.cost_template_list.json': {
       cost_template_list: [{ id: 3001, name: 'Synthetic 包邮', free_province_need: null }, { id: 3002, name: 'Synthetic 偏远', free_province_need: null }],

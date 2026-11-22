@@ -4,7 +4,7 @@
 
 **Blocked by:** 02
 
-**Status:** needs-triage
+**Status:** deferred
 
 - [ ] 明文接口可用时优先走明文接口，现有行为零回归
 - [ ] 切换至混淆版接口时经 `02` 解码并用明文汇总交叉核对，核对不通过 fail-closed 报错不可用
@@ -13,3 +13,5 @@
 - [ ] `npm run check` 通过
 
 ## Comments
+
+- 2026-11-22：用户确认暂缓 `02`–`04`（`queryGoodsDetailVOList` 明文接口可用），工单置为 `deferred`。

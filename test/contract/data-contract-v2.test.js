@@ -20,7 +20,7 @@ import {
 import { PUBLISH_VIEW_FIELDS } from '../../src/services/views/goods-publish.js';
 import { GOODS_SEGMENT_ITEM_FIELDS } from '../../src/services/goods-segmentation.js';
 import { PROMO_ROI_ITEM_FIELDS, PROMO_TOTALS_FIELDS } from '../../src/services/views/promo.js';
-import { STALE_SAMPLE_FIELDS } from '../../src/services/views/diagnose.js';
+import { STALE_SAMPLE_FIELDS, ORDER_REGIONS_FIELDS, ORDER_REGION_ITEM_FIELDS } from '../../src/services/views/diagnose.js';
 import { DAEMON_STATUS_VIEW_FIELDS } from '../../src/services/views/daemon.js';
 import { runDaemonContract, runConsoleLinkContract } from '../helpers/daemon-cli.js';
 import { runCostContract, runProfitContract } from '../helpers/goods-cost-cli.js';
@@ -246,7 +246,8 @@ const V2_CASES = [
     fixtures: createFactFixtures(),
     entityFields: PROMO_ENTITIES,
   },
-  { command: 'diagnose.orders', args: ['diagnose', 'orders'], fixtures: createFactFixtures() },
+  { command: 'diagnose.orders', args: ['diagnose', 'orders'], fixtures: createFactFixtures(),
+    entityFields: { regions: ORDER_REGIONS_FIELDS, 'regions.items[]': ORDER_REGION_ITEM_FIELDS } },
   {
     command: 'diagnose.inventory',
     args: ['diagnose', 'inventory'],

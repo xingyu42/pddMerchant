@@ -59,6 +59,7 @@ pdd orders list --json      # AI 消费加 --json
 | 命令 | 窗口 | 内容 |
 |------|------|------|
 | `diagnose shop [--compare] [--days 7]` | 默认 7 天 | 订单 / 库存 / 推广 / 售后四维汇总与数值环比 |
+| `diagnose orders` | 近 7 天 | 待发货 / 延迟发货计数、P95 发货时长、样本退款率，另附「数据中心-地域分布（成团订单）」省级 `regions` 汇总 |
 | `diagnose after-sales [--days 30]` | 默认 30 天 | 退款成功数/率、售后处理中数/占比（取代原 `diagnose funnel`） |
 | `diagnose experience [--days 7]` | 1–30 天 | 平台体验星级、行业排名、指标与下一星级门槛、每日趋势 |
 | `diagnose customer-service [--days 30]` | 1–63 天 | 「多多客服-客服数据（人工回复）」区间汇总与最近 31 天逐日趋势；`sales` 区块为「多多客服-销售数据」（截至 3 天前）；`today` 区块为「多多客服-实时数据（3 分钟人工回复率）」与今日分时咨询 |

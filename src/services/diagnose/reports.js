@@ -1,8 +1,12 @@
 // diagnose.* 命令级结果（输出契约 v2）：采集 → summarize（内部代码）→ 视图（标签 + headline）。
 import { getLogger } from '../../infra/logger.js';
+import { PddCliError } from '../../infra/errors.js';
+import { throwIfAborted } from '../../infra/abort.js';
+import { runEndpoint } from '../../adapter/run-endpoint.js';
+import { ORDER_REGION_DISTRIBUTION } from '../../adapter/endpoints/orders.js';
 import { computeOrderStats } from '../orders.js';
 import { mallIdOf } from '../views/_shared.js';
-import { toDimensionView, toShopView } from '../views/diagnose.js';
+import { toDimensionView, toOrdersDiagnosisView, toShopView } from '../views/diagnose.js';
 import { collectGoodsInput, collectOrdersInput, collectPromoInput } from './collectors.js';
 import { diagnoseShop, summarizeAfterSales, summarizeInventory, summarizeOrders, summarizePromo } from './index.js';
 import { collectOrdersForStaleAnalysis, STALE_PAGE_SIZE } from './orders-collector.js';
@@ -16,9 +20,34 @@ function dimensionResult(name, result, ctx, warnings = []) {
   return { data: { ...toDimensionView(name, result), mall_id: mallIdOf(ctx) }, warnings };
 }
 
+async function collectOrderRegions(ctx) {
+  throwIfAborted(ctx.signal);
+  try {
+    const regions = await runEndpoint(ctx.page, ORDER_REGION_DISTRIBUTION, { queryType: 1 }, ctx);
+    throwIfAborted(ctx.signal);
+    return { regions, hint: null };
+  } catch (err) {
+    throwIfAborted(ctx.signal);
+    if (['E_TIMEOUT', 'E_INTERNAL'].includes(err?.code) || err?.name === 'AbortError' || !(err instanceof PddCliError)) {
+      throw err;
+    }
+    (ctx.log ?? getLogger()).debug({ err: err?.message, code: err?.code }, 'diagnose.orders: regions collection failed');
+    const hint = err.code === 'E_BUSINESS' && String(err.message).includes('字体混淆')
+      ? '省级成团地域分布返回字体混淆数据，regions 为 null'
+      : '省级成团地域分布拉取失败，regions 为 null';
+    return { regions: null, hint };
+  }
+}
+
 export async function getOrdersDiagnosis(ctx) {
   const input = await collectOrdersInput(ctx.page, { ...ctx, mallId: mallIdOf(ctx) });
-  return dimensionResult('orders', summarizeOrders(input || {}), ctx);
+  const { regions, hint } = await collectOrderRegions(ctx);
+  const data = toOrdersDiagnosisView(summarizeOrders(input || {}), {
+    regions,
+    mallId: mallIdOf(ctx),
+    extraHints: hint ? [hint] : [],
+  });
+  return { data, warnings: [] };
 }
 
 export async function getInventoryDiagnosis(ctx) {

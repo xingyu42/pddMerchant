@@ -1,6 +1,8 @@
 # 地域分布报告
 
-Status: needs-triage
+Status: resolved
+
+> 2026-11-22 完成：`01` 侦察（`docs/research/region-geography-recon-2026-11-22.md`）与 `02` 省级汇总主干已实现并实盘验证通过（按用户决策并入 `diagnose orders` 的独立 `regions` 区块，近 7 天）；`03` 多时间窗口与单省逐日趋势已按用户决策置为 `deferred`。
 
 ## 目标
 

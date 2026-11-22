@@ -22,6 +22,7 @@
 - **流量与商品明细**：`diagnose traffic [--days 30]` 输出全店逐日访客、浏览、成交及平台同行参考值；`goods traffic [--days 1|7|30] [--goods-id <id>]` 输出全店商品明细，并按商品拆分推广直接 / 间接成交与花费，`non_promo_*` 为总成交减推广直接成交的差值。推广拆分口径尚未经有投放店铺实测。
 - **订单收货地区**：`orders list` 每项与 `orders detail` 新增 `province` / `city` / `district`，只取平台返回的省 / 市 / 区名称，缺失为 `null`；街道、邮编、详细地址仍不输出。
 - **库存规格明细与规格级告警**：`goods stock` 每项新增 `skus[]`（`sku_id`、`spec`、`quantity`、`on_sale`、`low_stock`）与 `low_stock_sku_count`；总库存高于阈值（或缺失）但有在售规格库存不高于阈值的商品也进入告警。`low_stock_count` 仍只计总库存不高于阈值的商品，可能少于 `items` 条数；规格数据缺失时 `skus` 与 `low_stock_sku_count` 为 `null`。
+- **订单省级成团地域分布**：`diagnose orders` 新增独立的 `regions` 区块，输出近 7 天按省汇总的成团额、成团单数、成团买家数、客单价与笔单价（口径「数据中心-地域分布（成团订单）」），与原有订单列表样本及待发货统计并列输出，命中字体混淆或拉取失败时仅 `regions: null` 并附提示。
 - **全店今日实时**：`diagnose traffic` 新增 `today` 区块（流量看板实时访客 / 浏览，按小时累计的成交及 `hourly[]`，`snapshot_at` 为抓取时间）；今日数据拉取失败时 `today: null` 并附提示，逐日数据照常返回。
 - **商品与客服今日实时**：
   - `goods traffic` 新增 `today` 区块：默认输出全店商品今日实时概况（`queryGoodsPageRT`，解析千分位与百分号字符串，无法解析的非空格式写 `meta.warnings` 而不记显式 `null`）；传入 `--goods-id` 时输出该单商品今日实时汇总与按小时升序 `hourly[]`（`queryGoodsStatDtr`，隔离昨日对照字段）。

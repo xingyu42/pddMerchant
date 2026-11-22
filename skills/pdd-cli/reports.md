@@ -5,6 +5,7 @@
 ## diagnose shop / orders / inventory / promo
 
 - `diagnose shop` 汇总订单 / 库存 / 推广 / 售后四个维度；`--compare` 输出环比，窗口为 `{ start_date, end_date, days }`。`_pct` 指标的 `delta` 是百分点，`delta_pct` 是相对变化率；当前库存和待发货是快照，带 `note: "仅有当前快照，无上期数据"`，无历史对比。
+- `diagnose orders` 的主区块 `detail` 输出待发货 / 延迟发货计数与近 7 天下单列表样本的 P95 发货时长、退款率；另附独立的 `regions` 区块，口径为「数据中心-地域分布（成团订单）」，默认近 7 天（`window_days: 7`，`queryType: 1`），按成团金额降序列出各省成团额（`_yuan`）、成团单数、成团买家数、客单价（`_yuan`）与笔单价（`_yuan`），无成团的省份不出现在 `items[]` 中，命中 `delayData` 时标注 `delayed: true` 并附提示；两部分口径相互独立，地域分布失败或返回字体混淆时仅 `regions: null` 并附 hint，主区块与退出码不变（`diagnose shop` 的 `orders` 维度不含 `regions`）。
 - 销量统计（`diagnose inventory`、`goods segment`）计入待发货、已发货、已收货订单；售后统计（`diagnose orders/shop/after-sales`）使用全部订单。
 
 ## diagnose after-sales

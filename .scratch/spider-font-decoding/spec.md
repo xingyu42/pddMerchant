@@ -1,6 +1,8 @@
 # 字体混淆指标解码
 
-Status: needs-triage
+Status: deferred
+
+> 2026-11-22 用户确认 No-Go：保留 `01` 侦察结论与文档 `docs/research/spider-font-stability-recon-2026-11-22.md`，暂缓推进 `02`–`04`；待明文接口下线或需要直取混淆端点的 `*Pct` 环比指标时再重启。
 
 ## 目标
 
