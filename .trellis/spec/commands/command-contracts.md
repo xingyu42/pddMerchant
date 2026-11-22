@@ -93,6 +93,11 @@ src/services/<domain>.js           业务逻辑（被 handler 调用）
 
 ## 4. Validation & Error Matrix
 
+### Orders After-Sales
+
+- `orders after-sales [--days 30]` 为只读命令，使用普通鉴权与切店流程，支持 `--all-accounts`。`--days` 在 Commander 解析期校验为 1–365 的整数；非法值保留 `command: orders.after-sales`，返回 `E_USAGE` / exit 2，`xhr_count` 为 0。注册器保留未传入时的 `undefined`，服务层应用默认 30 天。
+- JSON 为单行 v2 信封，文本模式显示摘要和售后单表格。窗口、分页、原因汇总与降级见服务契约的 After-Sales Case Reporting 小节。
+
 ### Goods Cost / Profit
 
 - `goods cost set/list/remove/import` 使用 `needsBrowser:false,needsAuth:false,needsAccount:true,needsMall:'stored',allowAllAccounts:false`；只读本地账号与成本，跳过 auth-state 解密/在线认证/重登/daemon。有效 mall 参数（含运行配置默认）优先，否则账号 identity。

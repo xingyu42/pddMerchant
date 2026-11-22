@@ -4,7 +4,7 @@ import { acceptsReportDays } from '../services/operating-report.js';
 
 const PRESERVED_PARSE_ERROR_CODES = new Set(['commander.invalidArgument', 'commander.conflictingOption']);
 
-function preserveParseErrorCommand(command) {
+export function preserveParseErrorCommand(command) {
   const commandName = `${command.parent.name()}.${command.name()}`;
   command.exitOverride((error) => {
     // 参数校验提前后仍保留原报表的 envelope.command。

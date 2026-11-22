@@ -1,6 +1,6 @@
 # 经营报表口径
 
-转述 `diagnose *`、`goods traffic`、`goods profit`、`goods receipt`、`goods reviews` 结果前读本文件。通用规则见 SKILL.md「转述结果」：`headline` 优先、`null` 表示未知、`hints` 原样转述。
+转述 `diagnose *`、`orders after-sales`、`goods traffic`、`goods profit`、`goods receipt`、`goods reviews` 结果前读本文件。通用规则见 SKILL.md「转述结果」：`headline` 优先、`null` 表示未知、`hints` 原样转述。
 
 ## diagnose shop / orders / inventory / promo
 
@@ -13,6 +13,12 @@
 - 维度键 `after_sales`；`detail` 含 `total_orders`、`refund_count`、`refund_rate_pct`、`after_sales_count`、`after_sales_rate_pct`、`status_distribution`、`window_days`。
 - `after_sales_count` 只计售后处理中订单；两类占比的分母都是采集到的全部订单，空样本为 `null`。
 - 店铺汇总取近 7 天首批 50 条订单；单独查询默认近 30 天分页采集，截断和限流写入提示。
+
+## orders after-sales
+
+- 按售后申请时间查询近 `--days` 天（1–365，默认 30），覆盖全部售后类型和状态；同一订单可对应多条售后单。`window` 回显上海时间。
+- `items[]` 包含平台售后原因码与文案；平台字典未收录该码或字典拉取失败时，`reason_category` 为 `null`。字典拉取失败会附 `hints`。
+- `reason_summary[]` 按原因文案合并，退款金额先按分加总，`share_pct` 以 `fetched_count` 为分母；组内所有售后单须归入同一个已知大类才显示该类。每次最多采集 2000 条；截断时保留平台 `total`，分布仅代表已采集部分。
 
 ## diagnose experience
 
