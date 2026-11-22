@@ -131,6 +131,11 @@ it('filters strictly by --min-length across main/append comments, composes with 
   assert.deepEqual(minLenView.filter, { mode: '最小字数', min_length: 4 });
   assert.deepEqual(minLenView.headline, [`近 30 天全部星级评价 ${totalCount} 条，有效字数 ≥ 4 字 3 条`]);
 
+  const minLenOneRes = runCli(['goods', 'reviews', '--min-length', '1'], { fixtures: filterFixtures });
+  assert.equal(minLenOneRes.status, 0);
+  assert.deepEqual(minLenOneRes.envelope.data.items.map((item) => item.goods_id),
+    ['2001', '2002', '2003', '2004', '2005', '2006', '2007', '2009']);
+
   const scopedFixtures = createReviewFixtures({
     reviews: [
       { goodsId: 101, createTime: 1793376000, score: 0, descScore: 5, status: 4, comment: '该用户觉得商品很好，给出了5星好评' },

@@ -122,6 +122,11 @@ it('filters placeholders, empty, punct/emoji, digits, single-char repeats and 4-
     { goodsId: 32, descScore: 5, comment: '', pictureCount: 2, video: 'SYN-VIDEO', keywords: ['做工好'] },
     { goodsId: 33, descScore: 4, comment: '   ', keywords: ['物流快'] },
     { goodsId: 34, score: 4, descScore: 2, status: 4, comment: '该用户觉得商品较好' },
+    { goodsId: 35, descScore: 5, status: 2, comment: '\u2139\uFE0F' },
+    { goodsId: 36, descScore: 5, status: 2, comment: '\u2139' },
+    { goodsId: 37, score: 0, descScore: 0, comment: '' },
+    { goodsId: 38, score: 0, descScore: 2.5, comment: '' },
+    { goodsId: 39, score: -1, descScore: 5, comment: '' },
   ];
   const kept = [
     { goodsId: 101, descScore: 5, status: 2, comment: '差' },
@@ -195,6 +200,15 @@ it('filters strictly by cleaned valid character count in min_length mode without
     assert.deepEqual(Object.keys(item), REVIEW_FIELDS);
     assert.equal(Object.hasOwn(item, 'status'), false);
   }
+  const emojiView = toGoodsReviewsView({
+    total: 2,
+    truncated: false,
+    items: [
+      { goodsId: 405, descScore: 5, status: 2, comment: '\u2139\uFE0F' },
+      { goodsId: 406, descScore: 5, status: 2, comment: '差\u2139\uFE0F' },
+    ],
+  }, { days: 30, filter: { mode: 'min_length', min_length: 1 } });
+  assert.deepEqual(emojiView.items.map((item) => item.goods_id), ['406']);
 });
 
 it('projects goods scores with caliber, rounded averages, zero-review nulls and headline', () => {

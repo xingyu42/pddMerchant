@@ -1,6 +1,6 @@
 # 02: `pdd goods reviews` 支持 `--min-length <n>`、文档同步与收口验收
 
-**What to build:** 商家或下游 Agent 在 `pdd goods reviews` 上传入 `--min-length <n>`（正整数 `>= 1`）时，严格按清洗后的主评或追评有效字数达到 `n` 字及以上进行筛选（不再保留无文字的 1–3 星中差评），并在输出顶层回显 `filter: { mode: 'min_length', min_length: n }`、`headline` 报出平台总数与达标条数。参数非法或与 `--all` 同时传入时在发起上游请求前立即返回用法错误（`E_USAGE`，退出码 `2`）。同步更新命令说明、CLI 技能文档、服务与命令契约文档以及 ADR 0005 状态，并在用户确认范围后完成真实账号只读核验。完整规格见 `../spec.md` 与 ADR 0005。
+**What to build:** 商家或下游 Agent 在 `pdd goods reviews` 上传入 `--min-length <n>`（正整数 `>= 1`）时，严格按清洗后的主评或追评有效字数达到 `n` 字及以上进行筛选（不再保留无文字的 1–3 星中差评），并在输出顶层回显 `filter: { mode: '最小字数', min_length: n }`、`headline` 报出平台总数与达标条数。参数非法或与 `--all` 同时传入时在发起上游请求前立即返回用法错误（`E_USAGE`，退出码 `2`）。同步更新命令说明、CLI 技能文档、服务与命令契约文档以及 ADR 0005 状态，并在用户确认范围后完成真实账号只读核验。完整规格见 `../spec.md` 与 ADR 0005。
 
 **Blocked by:** 01: `pdd goods reviews` 默认实质内容过滤与 `--all` 全量切换
 

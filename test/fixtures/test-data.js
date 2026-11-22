@@ -232,6 +232,8 @@ export function createGoodsReviewFilterFixtures() {
     upstreamReview({ goodsId: 1019, status: 2, comment: '好！好！' }),
     upstreamReview({ goodsId: 1020, descScore: 4, comment: '', pictures: ['SYN-REVIEW-PRIVATE/p1'], video: 'SYN-REVIEW-PRIVATE/v1' }),
     upstreamReview({ goodsId: 1021, descScore: 5, comment: ' ', keywords: ['做工好'] }),
+    upstreamReview({ goodsId: 1022, status: 2, descScore: 5, comment: '\u2139\uFE0F' }),
+    upstreamReview({ goodsId: 1023, status: 2, score: 0, descScore: 0, comment: '' }),
   ];
   const kept = [
     upstreamReview({ goodsId: 2001, status: 2, comment: '差' }),

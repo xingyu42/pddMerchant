@@ -123,7 +123,7 @@ function validCharCount(textValue, { isMain = false, status = null } = {}) {
   const trimmed = textValue.trim();
   if (!trimmed) return 0;
   if (isMain && (status === 4 || PLATFORM_PLACEHOLDER_COMMENTS.has(trimmed))) return 0;
-  const letters = trimmed.match(/\p{L}/gu);
+  const letters = trimmed.replace(/\p{RGI_Emoji}/gv, '').match(/[\p{L}--\p{Emoji}]/gv);
   if (!letters || letters.length === 0) return 0;
   if (letters.length >= 2) {
     const lower = letters.map((char) => char.toLowerCase());
@@ -136,7 +136,7 @@ function isNegativeReview(item) {
   const score = toFiniteNumber(item.score);
   const descScore = toFiniteNumber(item.descScore);
   const effectiveScore = score !== null && score !== 0 ? score : descScore;
-  return effectiveScore !== null && effectiveScore <= 3;
+  return effectiveScore !== null && Number.isInteger(effectiveScore) && effectiveScore >= 1 && effectiveScore <= 3;
 }
 
 const GOODS_REVIEW_FILTER_MODES = Object.freeze({
