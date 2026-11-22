@@ -382,7 +382,8 @@ Wrong：total - (direct + indirect)，推广失败时输出 0。Correct：仅减
 
 ## Scenario: After-Sales Case Reporting
 
-- `getAfterSalesView(ctx, { days })` 按申请时间采集近 N 天的售后单（默认 30 天），时间窗采用 `rollingSecondsWindow`，输出上海时间。这一视图使用售后单级别的状态映射；订单列表、订单统计、售后诊断和净利润维持原有订单级口径（ADR 0006）。
+- `getAfterSalesView(ctx, { days, since, until, sn, goodsId, status, type })` 按售后申请时间采集。传入 `since` 时用精确 Unix 秒闭区间（`until` 默认当前秒，`window.days` 为 `null`）；仅传 `sn` 且未指定时间时查全历史，省略请求时间字段，三个 `window` 字段均为 `null`；其余情况采用 `rollingSecondsWindow`（默认 30 天）。时间回显为北京时间。
+- `sn` / `goodsId` 共用上游 `searchText`；采集后按订单号严格匹配，并按选定状态和类型复核。商品 ID 筛选由上游完成，行数据无商品 ID。原因汇总与 `fetched_count` 基于本地筛选后的明细；未截断且本地剔除记录时，`total` 改用匹配条数，截断时保留平台 `total`。此视图使用售后单级别状态；订单列表、订单统计、售后诊断和净利润维持原有订单级口径（ADR 0006）。
 - `after_sales.list` 每页 100 条，最多 20 页，保留首页的 `total`；遇到短页或收满总数即停止。翻到第 20 页且尚未覆盖总数时，`truncated: true`，摘要与提示同时标明上限。可选 `after_sales.params` 拉取失败时追加提示并保留明细；`E_TIMEOUT`、`E_INTERNAL`、取消及程序异常继续传播。
 - 输出为 `{ headline, window, filters, total, fetched_count, truncated, reason_summary, items, hints, mall_id }`。明细遵循 `AFTER_SALES_CASE_FIELDS`；原因按文案聚合，缺文案时回退 `未知(<code>)` 或 `未知`。组内大类须全部已知且一致才输出；退款金额按分加总后转元，总占比以 `fetched_count` 为分母。排序依次为单数降序、退款金额降序、原因文案升序。
 

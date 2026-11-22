@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed - 2026-11-22 (design aligned via `grill-with-docs` and upstream read-only recon verified in `docs/research/after-sales-refund-reason-recon-2026-11-22.md`). The rolling-window list and reason distribution are implemented; historical windows, filters, and order-detail enrichment remain pending.
+Proposed - 2026-11-22 (design aligned via `grill-with-docs` and upstream read-only recon verified in `docs/research/after-sales-refund-reason-recon-2026-11-22.md`). The after-sales list, reason distribution, exact historical windows and filters are implemented. Order-detail enrichment remains pending (Ticket 03).
 
 ## Context
 
@@ -49,4 +49,4 @@ Proposed - 2026-11-22 (design aligned via `grill-with-docs` and upstream read-on
 - Callers querying high-volume windows exceeding `2,000` cases receive `truncated: true` with guidance to split the query into smaller `--since` / `--until` intervals.
 - `orders detail` incurs `1–2` additional read-only `page-api` calls only when an order carries after-sales indicators; normal orders remain unchanged.
 - Filtering by `--goods-id` depends on upstream `searchText` matching because `queryList` items omit `goodsId` in the response payload.
-- During implementation, one read-only check must verify whether `queryList` expects `afterSalesType` as a scalar or array before finalizing `--type` pushdown and contract fixtures.
+- `--type` sends a scalar integer `afterSalesType` or omits the field for `all`. Read-only verification confirmed that an array is rejected and `afterSalesTypeList` is ignored (recon §2.2).

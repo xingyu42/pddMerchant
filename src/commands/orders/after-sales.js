@@ -5,5 +5,8 @@ export const run = withCommand({
   name: 'orders.after-sales',
   needsAuth: true,
   needsMall: 'switch',
-  run: (ctx) => getAfterSalesView(ctx, { days: ctx.config.days }),
+  run(ctx) {
+    const { days, since, until, sn, goodsId, status, type } = ctx.config;
+    return getAfterSalesView(ctx, { days, since, until, sn, goodsId, status, type });
+  },
 });

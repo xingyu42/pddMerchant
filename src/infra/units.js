@@ -47,20 +47,19 @@ export function parseYuanToFen(input) {
   return fen <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(fen) : null;
 }
 
-// unix 时间戳（秒或毫秒，按 MS_TIMESTAMP_MIN 判定）→ 平移到 +08:00 的 ISO 串，不依赖宿主 TZ。
-// 非正值视为上游「未设置」哨兵返回 null；超出 4 位年份范围返回 null。
-function shanghaiIso(timestamp) {
+// 上游时间戳自动区分秒/毫秒，非正值视为未设置；明确的 Unix 秒允许纪元及之前的日期。
+function shanghaiIso(timestamp, unixSeconds = false) {
   const num = toFiniteNumber(timestamp);
-  if (num === null || num <= 0) return null;
-  const ms = num >= MS_TIMESTAMP_MIN ? num : num * 1000;
+  if (num === null || (!unixSeconds && num <= 0)) return null;
+  const ms = !unixSeconds && num >= MS_TIMESTAMP_MIN ? num : num * 1000;
   const date = new Date(Math.trunc(ms) + SHANGHAI_OFFSET_MS);
-  if (Number.isNaN(date.getTime()) || date.getUTCFullYear() > 9999) return null;
+  if (Number.isNaN(date.getTime()) || date.getUTCFullYear() < 0 || date.getUTCFullYear() > 9999) return null;
   return date.toISOString();
 }
 
 // → 'YYYY-MM-DD HH:mm:ss'（Asia/Shanghai）
-export function toLocalDateTime(timestamp) {
-  const iso = shanghaiIso(timestamp);
+export function toLocalDateTime(timestamp, { unixSeconds = false } = {}) {
+  const iso = shanghaiIso(timestamp, unixSeconds);
   return iso === null ? null : `${iso.slice(0, 10)} ${iso.slice(11, 19)}`;
 }
 
