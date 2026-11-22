@@ -116,14 +116,19 @@ export function createCustomerServiceFixtures() {
 }
 
 function syntheticReview(index) {
-  return { goodsId: 101 + index, createTime: 1793376000, score: index === 1 ? 3 : 0,
-    descScore: 3, logisticsScore: 2, serviceScore: 1, comment: '联系13812345678，描述不符',
+  return upstreamReview({
+    goodsId: 101 + index,
+    score: index === 1 ? 3 : 0,
+    descScore: 3,
+    logisticsScore: 2,
+    serviceScore: 1,
+    comment: '联系13812345678，描述不符',
     appendReview: index % 2 ? '追评13987654321' : { comment: '追评13987654321', name: 'SYN-REVIEW-PRIVATE' },
-    keywords: ['描述不符'], reply: index % 2 ? '' : 'SYN-REVIEW-PRIVATE',
-    pictures: ['SYN-REVIEW-PRIVATE/photo1', 'SYN-REVIEW-PRIVATE/photo2'], video: 'SYN-REVIEW-PRIVATE/video',
-    name: 'SYN-REVIEW-PRIVATE', avatar: 'SYN-REVIEW-PRIVATE', orderSn: 'SYN-REVIEW-PRIVATE',
-    orderId: 'SYN-REVIEW-PRIVATE', specs: 'SYN-REVIEW-PRIVATE', thumbUrl: 'SYN-REVIEW-PRIVATE',
-    goodsInfoUrl: 'SYN-REVIEW-PRIVATE', orderSnapshotInfo: { name: 'SYN-REVIEW-PRIVATE' } };
+    keywords: ['描述不符'],
+    reply: index % 2 ? '' : 'SYN-REVIEW-PRIVATE',
+    pictures: ['SYN-REVIEW-PRIVATE/photo1', 'SYN-REVIEW-PRIVATE/photo2'],
+    video: 'SYN-REVIEW-PRIVATE/video',
+  });
 }
 
 const REVIEW_PAGE_SIZE = 40;

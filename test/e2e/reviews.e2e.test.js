@@ -52,7 +52,7 @@ it('lists goods reviews across pages with filters echoed and private fields excl
   assert.deepEqual([view.total, view.fetched_count, view.filtered_out_count, view.items.length,
     view.truncated, view.window_days, view.goods_id, view.stars],
   [41, 41, 0, 41, false, 7, '101', [4, 5]]);
-  assert.deepEqual(view.filter, { mode: 'substantive', min_length: 1 });
+  assert.deepEqual(view.filter, { mode: '实质内容', min_length: 1 });
   assert.deepEqual(view.headline, ['近 7 天商品 101 的 4、5 星评价 41 条，实质内容 41 条']);
   assert.equal(view.items[0].comment, '联系138****5678，描述不符');
   for (const forbidden of ['13812345678', '13987654321', 'SYN-REVIEW-PRIVATE']) {
@@ -69,7 +69,7 @@ it('filters placeholders and non-substantive 4-5 star reviews by default, restor
   assert.deepEqual(view.items.map((item) => item.goods_id), keptIds);
   assert.deepEqual([view.total, view.fetched_count, view.filtered_out_count],
     [totalCount, totalCount, totalCount - keptIds.length]);
-  assert.deepEqual(view.filter, { mode: 'substantive', min_length: 1 });
+  assert.deepEqual(view.filter, { mode: '实质内容', min_length: 1 });
   assert.deepEqual(view.headline, [`近 30 天全部星级评价 ${totalCount} 条，实质内容 ${keptIds.length} 条`]);
   assert.equal(view.items.find((item) => item.goods_id === '2006').append_comment, '追评字符串139****4321有划痕');
   assert.equal(view.items.find((item) => item.goods_id === '2007').append_comment, '追评对象138****5678少配件');
@@ -92,7 +92,7 @@ it('filters placeholders and non-substantive 4-5 star reviews by default, restor
   const allView = allRes.envelope.data;
   assert.deepEqual([allView.total, allView.fetched_count, allView.filtered_out_count, allView.items.length],
     [totalCount, totalCount, 0, totalCount]);
-  assert.deepEqual(allView.filter, { mode: 'all', min_length: null });
+  assert.deepEqual(allView.filter, { mode: '全部', min_length: null });
   assert.deepEqual(allView.headline, [`近 30 天全部星级评价 ${totalCount} 条`]);
   for (const item of allView.items) assert.equal(Object.hasOwn(item, 'status'), false);
 
@@ -128,7 +128,7 @@ it('filters strictly by --min-length across main/append comments, composes with 
   assert.deepEqual(minLenView.items.map((item) => item.goods_id), ['2006', '2007', '2009']);
   assert.deepEqual([minLenView.total, minLenView.fetched_count, minLenView.filtered_out_count],
     [totalCount, totalCount, totalCount - 3]);
-  assert.deepEqual(minLenView.filter, { mode: 'min_length', min_length: 4 });
+  assert.deepEqual(minLenView.filter, { mode: '最小字数', min_length: 4 });
   assert.deepEqual(minLenView.headline, [`近 30 天全部星级评价 ${totalCount} 条，有效字数 ≥ 4 字 3 条`]);
 
   const scopedFixtures = createReviewFixtures({
@@ -150,7 +150,7 @@ it('filters strictly by --min-length across main/append comments, composes with 
   assert.equal(scopedView.items.length, 2);
   assert.deepEqual([scopedView.total, scopedView.fetched_count, scopedView.filtered_out_count], [7, 7, 5]);
   assert.deepEqual([scopedView.window_days, scopedView.goods_id, scopedView.stars], [7, '101', [4, 5]]);
-  assert.deepEqual(scopedView.filter, { mode: 'min_length', min_length: 4 });
+  assert.deepEqual(scopedView.filter, { mode: '最小字数', min_length: 4 });
   assert.deepEqual(scopedView.headline, ['近 7 天商品 101 的 4、5 星评价 7 条，有效字数 ≥ 4 字 2 条']);
   assert.equal(scopedView.items[1].append_comment, '追评139****4321有划痕');
 
@@ -158,7 +158,7 @@ it('filters strictly by --min-length across main/append comments, composes with 
     { fixtures: scopedFixtures, accounts: createAccounts() });
   assert.equal(batch.status, 0);
   assert.equal(batch.envelope.command, 'goods.reviews');
-  assert.deepEqual(batch.envelope.data.accounts['shop-a'].data.filter, { mode: 'min_length', min_length: 4 });
+  assert.deepEqual(batch.envelope.data.accounts['shop-a'].data.filter, { mode: '最小字数', min_length: 4 });
   assert.equal(batch.envelope.data.accounts['shop-b'].data.items.length, 2);
 
   const truncatedFixtures = createReviewFixtures({

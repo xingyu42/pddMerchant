@@ -73,7 +73,7 @@ it('projects the goods review list with scope, stars and truncation headlines', 
   assert.deepEqual([view.total, view.fetched_count, view.filtered_out_count, view.truncated,
     view.window_days, view.goods_id, view.stars, view.mall_id],
   [2100, 1, 0, true, 7, '101', [4, 5], '900001']);
-  assert.deepEqual(view.filter, { mode: 'substantive', min_length: 1 });
+  assert.deepEqual(view.filter, { mode: '实质内容', min_length: 1 });
   assert.equal(view.hints.length, 1);
   assert.equal(JSON.stringify(view).includes('PRIVATE'), false);
   const empty = toGoodsReviewsView({ total: 0, truncated: false, items: [] }, { days: 30 });
@@ -91,7 +91,7 @@ it('projects the goods review list with scope, stars and truncation headlines', 
     hints: ['list_truncated'], mallId: '900001' });
   assert.deepEqual(all.headline, ['近 7 天商品 101 的 4、5 星评价 2100 条', '已采集 2 条，结果已截断']);
   assert.deepEqual([all.total, all.fetched_count, all.filtered_out_count, all.items.length], [2100, 2, 0, 2]);
-  assert.deepEqual(all.filter, { mode: 'all', min_length: null });
+  assert.deepEqual(all.filter, { mode: '全部', min_length: null });
 });
 
 it('filters placeholders, empty, punct/emoji, digits, single-char repeats and 4-5 star media/tag-only reviews while keeping substantive and negative reviews', () => {
@@ -184,7 +184,7 @@ it('filters strictly by cleaned valid character count in min_length mode without
   });
   assert.deepEqual(view.items.map((item) => item.goods_id), ['401', '402', '403', '404']);
   assert.deepEqual([view.total, view.fetched_count, view.filtered_out_count, view.truncated], [2500, 12, 8, true]);
-  assert.deepEqual(view.filter, { mode: 'min_length', min_length: 4 });
+  assert.deepEqual(view.filter, { mode: '最小字数', min_length: 4 });
   assert.deepEqual(view.headline, [
     '近 7 天商品 101 的 4、5 星评价 2500 条，有效字数 ≥ 4 字 4 条',
     '已采集 12 条，结果已截断',

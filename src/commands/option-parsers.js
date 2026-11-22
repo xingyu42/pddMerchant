@@ -2,15 +2,21 @@
 import { InvalidArgumentError } from 'commander';
 import { acceptsReportDays } from '../services/operating-report.js';
 
-export function withReportDays(command, definition) {
+const PRESERVED_PARSE_ERROR_CODES = new Set(['commander.invalidArgument', 'commander.conflictingOption']);
+
+function preserveParseErrorCommand(command) {
   const commandName = `${command.parent.name()}.${command.name()}`;
   command.exitOverride((error) => {
     // 参数校验提前后仍保留原报表的 envelope.command。
-    if (error.code === 'commander.invalidArgument' || error.code === 'commander.conflictingOption') {
+    if (PRESERVED_PARSE_ERROR_CODES.has(error.code)) {
       error.commandName = commandName;
     }
     throw error;
   });
+}
+
+export function withReportDays(command, definition) {
+  preserveParseErrorCommand(command);
   return command.option('--days <n>', definition.days.description,
     reportDaysArg(definition), definition.days.default);
 }

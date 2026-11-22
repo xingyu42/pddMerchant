@@ -91,10 +91,10 @@
 ## goods reviews
 
 - `--days` 1–365，默认 30，窗口为截至当前时刻的最近 N×24 小时。`--goods-id` 为单个商品 ID，缺省为全店；`--stars` 为 1–5 逗号分隔的描述评分星级，缺省为全部星级。
-- 内容过滤支持三种确定性模式（`--all` 与 `--min-length <n>` 互斥，同时传入或 `--min-length` 非正整数时直接返回 `E_USAGE` 参数错误）：
-  - 默认模式（`filter: { mode: "substantive", min_length: 1 }`）：只保留 **Substantive Review（实质内容评价）**——主评或追评在剔除 **Platform Placeholder Review（平台占位评价）**、空白、标点/符号/Emoji、纯数字及长度 `>= 2` 的单字重复后仍有至少 1 个有效字母或汉字，或属于 1–3 星 **Negative Review（中差评，含历史评分与无文字静默中差评）**；无买家自填正文的 4–5 星纯图/纯视频/纯标签条目会被剔除。该过滤仅基于固定确定性规则，口径独立于拼多多数据中心官方「有效评价」。
-  - `--all`（`filter: { mode: "all", min_length: null }`）：跳过内容过滤，返回本次采集到的全部评价。
-  - `--min-length <n>`（`n >= 1` 整数，`filter: { mode: "min_length", min_length: n }`）：严格要求清洗后的主评或追评有效字数达到 `n` 字及以上才保留，不触发无文字中差评兜底。
+- 内容过滤支持三种确定性模式（`--all` 与 `--min-length <n>` 互斥，同时传入或 `--min-length` 非正整数时在参数解析阶段直接返回 `E_USAGE` 错误）：
+  - 默认模式（`filter: { mode: "实质内容", min_length: 1 }`）：只保留 **Substantive Review（实质内容评价）**——主评或追评在剔除 **Platform Placeholder Review（平台占位评价）**、空白、标点/符号/Emoji、纯数字及长度 `>= 2` 的单字重复后仍有至少 1 个有效字母或汉字，或属于 1–3 星 **Negative Review（中差评，含历史评分与无文字静默中差评）**；无买家自填正文的 4–5 星纯图/纯视频/纯标签条目会被剔除。该过滤仅基于固定确定性规则，口径独立于拼多多数据中心官方「有效评价」。
+  - `--all`（`filter: { mode: "全部", min_length: null }`）：跳过内容过滤，返回本次采集到的全部评价。
+  - `--min-length <n>`（`n >= 1` 整数，`filter: { mode: "最小字数", min_length: n }`）：严格要求清洗后的主评或追评有效字数达到 `n` 字及以上才保留，不触发无文字中差评兜底。
 - 输出 `{ headline, items, total, fetched_count, filtered_out_count, truncated, filter, window_days, goods_id, stars, hints, mall_id }`：`goods_id` 为 `null` 表示全店，`stars` 为 `null` 表示全部星级。`total` 始终为过滤前的平台报告总数，`fetched_count` 为本次翻页实际采集条数，`filtered_out_count` 为被过滤规则剔除的条数（`--all` 时为 `0`，恒满足 `fetched_count === items.length + filtered_out_count`）。
 - 最多采集平台可查看的近 2000 条；`truncated: true` 时已达 2000 条采集上限，`headline` 同步报出平台总数、保留条数与 `已采集 <fetched_count> 条，结果已截断`，转述时需区分平台 2000 条截断与本地内容过滤剔除。
 - 条目字段与 `diagnose reviews` 的 `negative_reviews.items` 相同：商品 ID、评价时间、三项评分、正文、追评、标签、已回复状态和图片数（不含内部 `status` 字段）；正文与追评中的手机号已掩码。

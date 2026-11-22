@@ -148,7 +148,7 @@ it('lists all stars shop-wide with substantive filtering by default, forwards fi
   assert.deepEqual([substantive.total, substantive.fetched_count, substantive.filtered_out_count,
     substantive.items.length, substantive.window_days, substantive.goods_id, substantive.stars, substantive.mall_id],
   [2, 2, 1, 1, 30, null, null, '900001']);
-  assert.deepEqual(substantive.filter, { mode: 'substantive', min_length: 1 });
+  assert.deepEqual(substantive.filter, { mode: '实质内容', min_length: 1 });
   assert.equal(substantive.items[0].goods_id, '102');
 
   const filtered = await getGoodsReviewsView(ctx, { days: 365, goodsId: '101', stars: ['4', '5'] });
@@ -157,7 +157,7 @@ it('lists all stars shop-wide with substantive filtering by default, forwards fi
 
   const full = await getGoodsReviewsView(ctx, { all: true });
   assert.deepEqual([full.total, full.fetched_count, full.filtered_out_count, full.items.length], [2, 2, 0, 2]);
-  assert.deepEqual(full.filter, { mode: 'all', min_length: null });
+  assert.deepEqual(full.filter, { mode: '全部', min_length: null });
   assert.deepEqual(full.headline, ['近 30 天全部星级评价 2 条']);
 });
 
@@ -194,18 +194,8 @@ it('supports minLength mode in getGoodsReviewsView without negative-review fallb
   const view = await getGoodsReviewsView(ctx, { minLength: 4 });
   assert.deepEqual(view.items.map((item) => item.goods_id), ['104', '105']);
   assert.deepEqual([view.total, view.fetched_count, view.filtered_out_count], [5, 5, 3]);
-  assert.deepEqual(view.filter, { mode: 'min_length', min_length: 4 });
+  assert.deepEqual(view.filter, { mode: '最小字数', min_length: 4 });
   assert.deepEqual(view.headline, ['近 30 天全部星级评价 5 条，有效字数 ≥ 4 字 2 条']);
-});
-
-it('rejects conflicting all and minLength before any endpoint request', async () => {
-  await assert.rejects(getGoodsReviewsView(ctx, { all: true, minLength: 5 }), { code: 'E_USAGE', exitCode: 2 });
-  assert.deepEqual(fixtures.calls, []);
-});
-
-it.each([0, -1, 1.5, '5', NaN, Infinity])('rejects invalid minLength %s before any endpoint request', async (minLength) => {
-  await assert.rejects(getGoodsReviewsView(ctx, { minLength }), { code: 'E_USAGE', exitCode: 2 });
-  assert.deepEqual(fixtures.calls, []);
 });
 
 it('propagates list failures for the goods review list', async () => {

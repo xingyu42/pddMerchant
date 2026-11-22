@@ -2,7 +2,6 @@ import { runEndpoint } from '../adapter/run-endpoint.js';
 import { REVIEWS_KEYWORD_AGG, REVIEWS_TYPE_AGG, REVIEWS_LIST, REVIEWS_PAGE_SIZE, REVIEWS_VIEW_LIMIT,
   REVIEWS_GOODS_SCORES, GOODS_SCORES_PAGE_SIZE, GOODS_SCORES_MAX_PAGES } from '../adapter/endpoints/reviews.js';
 import { throwIfAborted } from '../infra/abort.js';
-import { ExitCodes, PddCliError } from '../infra/errors.js';
 import { mallIdOf } from './views/_shared.js';
 import { toReviewsView, toGoodsReviewsView, REVIEWS_REPORT, GOODS_REVIEWS_REPORT,
   DEFAULT_GOODS_REVIEWS_FILTER } from './views/reviews.js';
@@ -58,24 +57,9 @@ export async function getReviewsView(ctx, { days = REVIEWS_REPORT.days.default }
 }
 
 function resolveGoodsReviewsFilter({ all = false, minLength = null }) {
-  const hasMinLength = minLength !== null && minLength !== undefined;
-  if (all && hasMinLength) {
-    throw new PddCliError({
-      code: 'E_USAGE',
-      message: '--all 与 --min-length 不能同时使用',
-      hint: '请单独使用 --all 查看全量，或单独指定 --min-length <n>',
-      exitCode: ExitCodes.USAGE,
-    });
+  if (minLength !== null && minLength !== undefined) {
+    return { mode: 'min_length', min_length: minLength };
   }
-  if (hasMinLength && (!Number.isSafeInteger(minLength) || minLength < 1)) {
-    throw new PddCliError({
-      code: 'E_USAGE',
-      message: '--min-length 需为不小于 1 的整数',
-      hint: '示例：--min-length 5',
-      exitCode: ExitCodes.USAGE,
-    });
-  }
-  if (hasMinLength) return { mode: 'min_length', min_length: minLength };
   return all ? { mode: 'all', min_length: null } : DEFAULT_GOODS_REVIEWS_FILTER;
 }
 

@@ -139,35 +139,41 @@ function isNegativeReview(item) {
   return effectiveScore !== null && effectiveScore <= 3;
 }
 
-function shouldKeepReview(item, filter) {
-  if (filter.mode === 'all') return true;
-  const mainLen = validCharCount(item.comment, { isMain: true, status: item.status });
-  const appendLen = validCharCount(item.appendReview);
-  if (filter.mode === 'min_length') {
-    return mainLen >= filter.min_length || appendLen >= filter.min_length;
-  }
-  return mainLen >= 1 || appendLen >= 1 || isNegativeReview(item);
-}
+const GOODS_REVIEW_FILTER_MODES = Object.freeze({
+  substantive: Object.freeze({
+    label: '实质内容',
+    keep: (item) => validCharCount(item.comment, { isMain: true, status: item.status }) >= 1
+      || validCharCount(item.appendReview) >= 1 || isNegativeReview(item),
+    headline: (base, count) => `${base}，实质内容 ${count} 条`,
+  }),
+  min_length: Object.freeze({
+    label: '最小字数',
+    keep: (item, minLength) => validCharCount(item.comment, { isMain: true, status: item.status }) >= minLength
+      || validCharCount(item.appendReview) >= minLength,
+    headline: (base, count, minLength) => `${base}，有效字数 ≥ ${minLength} 字 ${count} 条`,
+  }),
+  all: Object.freeze({
+    label: '全部',
+    keep: () => true,
+    headline: (base) => base,
+  }),
+});
 
 function starsLabel(stars) {
   return stars ? ` ${stars.join('、')} 星` : '全部星级';
 }
 
-function summaryHeadline({ days, scope, stars, total, filter, keptCount }) {
-  const base = `近 ${days} 天${scope}${starsLabel(stars)}评价 ${total} 条`;
-  if (filter.mode === 'all') return base;
-  if (filter.mode === 'min_length') return `${base}，有效字数 ≥ ${filter.min_length} 字 ${keptCount} 条`;
-  return `${base}，实质内容 ${keptCount} 条`;
-}
-
 export function toGoodsReviewsView(reviews, { days, goodsId = null, stars = null,
   filter = DEFAULT_GOODS_REVIEWS_FILTER, hints = [], mallId = null }) {
-  const appliedFilter = { mode: filter.mode, min_length: filter.min_length };
+  const modeSpec = Object.hasOwn(GOODS_REVIEW_FILTER_MODES, filter?.mode)
+    ? GOODS_REVIEW_FILTER_MODES[filter.mode]
+    : GOODS_REVIEW_FILTER_MODES.substantive;
   const fetchedCount = reviews.items.length;
-  const items = reviews.items.filter((item) => shouldKeepReview(item, appliedFilter)).map(reviewView);
+  const items = reviews.items.filter((item) => modeSpec.keep(item, filter.min_length)).map(reviewView);
   const filteredOutCount = fetchedCount - items.length;
   const scope = goodsId ? `商品 ${goodsId} 的` : '';
-  const headline = [summaryHeadline({ days, scope, stars, total: reviews.total, filter: appliedFilter, keptCount: items.length })];
+  const base = `近 ${days} 天${scope}${starsLabel(stars)}评价 ${reviews.total} 条`;
+  const headline = [modeSpec.headline(base, items.length, filter.min_length)];
   if (reviews.truncated) headline.push(`已采集 ${fetchedCount} 条，结果已截断`);
   return {
     headline,
@@ -176,7 +182,7 @@ export function toGoodsReviewsView(reviews, { days, goodsId = null, stars = null
     fetched_count: fetchedCount,
     filtered_out_count: filteredOutCount,
     truncated: reviews.truncated,
-    filter: appliedFilter,
+    filter: { mode: modeSpec.label, min_length: filter.min_length },
     window_days: days,
     goods_id: goodsId,
     stars: stars ? stars.map(Number) : null,

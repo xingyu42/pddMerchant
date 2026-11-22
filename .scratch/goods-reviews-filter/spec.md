@@ -65,9 +65,9 @@ Status: ready-for-agent
 - 在 `goods reviews` 命令上新增两个选项，保留既有 `--days`、`--goods-id`、`--stars` 选项与行为：
   - `--all`：布尔开关，关闭确定性过滤，返回全部采集到的评价。
   - `--min-length <n>`：正整数参数（最小值为 `1`），开启严格有效字数门槛筛选。
-- 在命令入口与服务层入口均做前瞻校验（不触发浏览器启动或上游请求）：
-  - `--min-length` 非整数或小于 `1` 时抛出 `E_USAGE`（退出码 `2`）。
-  - 同时传入 `--all` 与 `--min-length` 时抛出 `E_USAGE`（退出码 `2`），提示两项互斥。
+- 参数校验由命令注册层（`src/commands/registry/goods.js` 与 `src/commands/option-parsers.js`）在 Commander 解析阶段独占完成（不启动浏览器、不发起上游请求，并在 `bin/pdd.js` 统一映射为 `E_USAGE`，退出码 `2`；服务层不再重复校验 CLI 选项，仅负责内部过滤模式选择）：
+  - `--min-length` 非 `>= 1` 整数时触发 `commander.invalidArgument`（退出码 `2`）。
+  - `--all` 与 `--min-length` 通过 Commander `Option.conflicts()` 声明互斥，同时传入时触发 `commander.conflictingOption`（经 `preserveParseErrorCommand` 保留 `commandName: 'goods.reviews'`，退出码 `2`）。
 - 支持既有 `--json` 与 `--all-accounts` 批量执行，单行 JSON 与 v2 envelope 契约不变。
 
 ### 适配层规范化（评价列表端点规格 `REVIEWS_LIST`）
@@ -91,10 +91,10 @@ Status: ready-for-agent
   - 若提取结果为空，有效字数为 `0`。
   - 将提取字符转为小写后，若长度 `>= 2` 且所有字符完全相同（单字重复），有效字数计为 `0`；长度为 `1`（如「差」「假」）不视为重复，有效字数为 `1`。
   - 其余情形有效字数为提取到的字符个数。
-- **三种过滤模式**：
-  - 默认模式（`mode: 'substantive'`，`min_length: 1`）：主评有效字数 `>= 1`，或追评有效字数 `>= 1`，或有效评分 `<= 3`（历史评分非 0 时取 `history_score`，否则取 `desc_score`）即保留；仅带图片、视频或平台标签的 4–5 星条目不构成保留条件。
-  - 长文本模式（`mode: 'min_length'`，`min_length: n`）：仅当主评有效字数 `>= n` 或追评有效字数 `>= n` 时保留，不适用无文字中差评兜底。
-  - 全量模式（`mode: 'all'`，`min_length: null`）：保留全部已采集条目。
+- **三种过滤模式**（服务层使用内部代码 `'substantive' | 'min_length' | 'all'`，视图层通过统一模式描述符表翻译为对外中文标签 `'实质内容' | '最小字数' | '全部'`）：
+  - 默认模式（内部 `mode: 'substantive'` → 输出 `mode: '实质内容'`，`min_length: 1`）：主评有效字数 `>= 1`，或追评有效字数 `>= 1`，或有效评分 `<= 3`（历史评分非 0 时取 `history_score`，否则取 `desc_score`）即保留；仅带图片、视频或平台标签的 4–5 星条目不构成保留条件。
+  - 长文本模式（内部 `mode: 'min_length'` → 输出 `mode: '最小字数'`，`min_length: n`）：仅当主评有效字数 `>= n` 或追评有效字数 `>= n` 时保留，不适用无文字中差评兜底。
+  - 全量模式（内部 `mode: 'all'` → 输出 `mode: '全部'`，`min_length: null`）：保留全部已采集条目。
 - 保留下来的条目照旧对 `comment` 与 `append_comment` 执行手机号脱敏，保留平台原文（例如被兜底保留的 `status === 4` 三星评价仍输出其原始文案）。
 
 ### 输出数据结构与 `headline`（`goods reviews` 视图）
@@ -103,12 +103,12 @@ Status: ready-for-agent
 - 顶层保留全部既有字段（`headline`、`items`、`total`、`truncated`、`window_days`、`goods_id`、`stars`、`hints`、`mall_id`），新增 3 个顶层字段：
   - `fetched_count`：本次翻页从上游实际采集到的条目数，恒满足 `fetched_count === items.length + filtered_out_count`。
   - `filtered_out_count`：本次被过滤规则剔除的条目数（`all` 模式下恒为 `0`）。
-  - `filter`：生效过滤规则回显对象，固定字段集 `{ mode, min_length }`，其中 `mode` 取值 `'substantive' | 'min_length' | 'all'`，`min_length` 在 `all` 模式下为 `null`，其余模式下为正整数阈值。
+  - `filter`：生效过滤规则回显对象，固定字段集 `{ mode, min_length }`，其中 `mode` 由视图层将内部代码映射为中文输出标签 `'实质内容' | '最小字数' | '全部'`，`min_length` 在全量模式下为 `null`，其余模式下为正整数阈值。
 - `total` 始终保持上游首页返回的未过滤 `totalRows`；`truncated` 与截断提示仍按是否触达平台 2000 条查看上限判定。
 - `headline` 生成规则：
-  - `all` 模式：`近 ${days} 天${scope}${starsLabel}评价 ${total} 条`
-  - `substantive` 模式：`近 ${days} 天${scope}${starsLabel}评价 ${total} 条，实质内容 ${items.length} 条`
-  - `min_length` 模式：`近 ${days} 天${scope}${starsLabel}评价 ${total} 条，有效字数 ≥ ${min_length} 字 ${items.length} 条`
+  - `全部` 模式（内部 `all`）：`近 ${days} 天${scope}${starsLabel}评价 ${total} 条`
+  - `实质内容` 模式（内部 `substantive`）：`近 ${days} 天${scope}${starsLabel}评价 ${total} 条，实质内容 ${items.length} 条`
+  - `最小字数` 模式（内部 `min_length`）：`近 ${days} 天${scope}${starsLabel}评价 ${total} 条，有效字数 ≥ ${min_length} 字 ${items.length} 条`
   - 当 `truncated` 为 `true` 时追加 `已采集 ${fetched_count} 条，结果已截断`（使用 `fetched_count` 而非过滤后的 `items.length`，避免在过滤开启时低报实际采集条数）。
 
 ### 文档与契约同步
@@ -129,7 +129,7 @@ Status: ready-for-agent
   - **契约接缝（复用现有契约套件）**：
     - `data-contract-v2` 契约套件中 `goods.reviews` 用例补充顶层 `filter` 对象的字段集约束，同时继续校验 `items[]` 严格等于 `REVIEW_FIELDS`。
     - 评价端点契约套件中补测 `REVIEWS_LIST` 规范化提取 `status` 及缺省回退 `null` 的行为。
-  - **既有服务/视图测试同步**：更新评价服务与评价视图既有测试中受默认过滤及新增顶层计数字段影响的断言。
+  - **既有服务/视图测试同步**：更新评价服务与评价视图既有测试中受默认过滤、中文 `filter.mode` 标签及新增顶层计数字段影响的断言；`--all` / `--min-length` 的解析期 `E_USAGE` 校验由 E2E 接缝覆盖。
 - Prior art：评价领域现有 E2E 测试、合成评价夹具工厂、评价端点契约测试、`data-contract-v2` 契约测试、评价服务与视图测试。
 - 自动化验证默认在 `PDD_TEST_ADAPTER=fixture` 下运行；是否追加真实账号只读验收需另行与用户确认。
 
