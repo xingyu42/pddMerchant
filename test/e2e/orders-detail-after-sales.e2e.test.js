@@ -62,6 +62,20 @@ describe('orders detail after-sales fixture CLI', () => {
     assert.equal(envelope.meta.xhr_count, 1);
   });
 
+  it('normalizes live normal-order detail text with null status code to null without extra requests', () => {
+    const { status, envelope } = runCli(command, { fixtures: {
+      ...orderDetailFixtures({ after_sales_id: null, after_sales_status: '无售后', after_sales_status_code: null }),
+      'endpoints/after_sales.list.json': { __throws: true, __error: { code: 'E_INTERNAL', exitCode: 1 } },
+    } });
+    assert.equal(status, 0);
+    assert.equal(envelope.ok, true);
+    assert.equal(envelope.data.order.after_sales_status, null);
+    assert.deepEqual(envelope.data.after_sales_cases, []);
+    assert.deepEqual(envelope.data.hints, []);
+    assert.deepEqual(envelope.data.headline, baseHeadline);
+    assert.equal(envelope.meta.xhr_count, 1);
+  });
+
   it('warns when the related case search truncates at 2000 rows', () => {
     const items = Array.from({ length: 2050 }, (_, id) => ({ id, orderSn: sn }));
     const { envelope } = runCli(command, { fixtures: {

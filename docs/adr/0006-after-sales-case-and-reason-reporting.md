@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted - 2026-11-22. All three slices are implemented: case listing and reason distribution, exact historical windows and filters, and order-detail status mapping and enrichment. Upstream read-only recon is documented in [the recon report](../research/after-sales-refund-reason-recon-2026-11-22.md); live CLI verification is tracked separately in the Ticket 03 closeout.
+Accepted - 2026-11-22. All three slices are implemented, two-axis code review findings are resolved, and authorized real-account read-only verification on the default merchant account passed alongside the recon findings in [the recon report](../research/after-sales-refund-reason-recon-2026-11-22.md).
 
 ## Context
 
@@ -28,7 +28,7 @@ Before this change, `pdd-cli` exposed order details and order-level after-sales 
   - Support filters `--sn <order_sn>` and `--goods-id <id>` (mutually exclusive via `E_USAGE` because upstream shares one `searchText` field; `--sn` queries also apply a local `order_sn === sn` exact filter), `--status <all|open|refunded|closed>` (default `all`, mapping `refunded` to `[5]`, `closed` to `[6, 12, 17, 24]`, and `open` to in-progress status codes), and `--type <all|refund|return_refund|exchange|resend|repair>` (default `all`). Omit `--reason` filtering in v1.
   - Collect up to `20` pages at `pageSize: 100` (`2,000` cases max per invocation), emitting `fetched_count`, `total`, `truncated`, `window`, `reason_summary[]`, `items[]`, and `hints`. Wide historical spans exceeding `2,000` cases are sliced externally by callers/agents via `--since`/`--until` (weekly or monthly chunks) rather than adding multi-span loops inside a single CLI invocation.
 - **Enriching `pdd orders detail --sn <sn>`**:
-  - Fix the `after_sales_status` defect by reading `after_sales_status_code` when present and `after_sales_status` has no numeric value, using the existing order-level labels.
+  - Fix the `after_sales_status` defect by reading `after_sales_status_code` whenever `after_sales_status` has no numeric value, using the existing order-level labels (so non-numeric `"无售后"` with `null` `after_sales_status_code` maps to `null`).
   - Trigger `queryList(searchText: sn)` automatically only when `orderDetail` indicates after-sales (`after_sales_id != null` or `after_sales_status_code != null`), keeping non-after-sales `orders detail` calls at zero extra requests.
   - Apply local exact `order_sn === sn` filtering and output `data.after_sales_cases` sorted by application time descending and numeric case ID descending (`[]` with no indicators or matches; `null` with a Chinese hint on degraded `queryList` failure). Fetch the reason dictionary only for non-empty matches. The headline adds the latest case or a degraded-list notice when applicable.
 - **Shared view allowlist and `reason_summary[]` aggregation**:

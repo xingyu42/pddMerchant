@@ -23,8 +23,8 @@
 
 以 `{ orderSn, source: "MMS" }` 抽检 `after_sales_status = 5`（退款成功）与 `after_sales_status = 10`（售后处理中）订单各 1 单：
 
-- 详情每条返回 244 个字段，携带 `after_sales_id`、`refundId`、`afterSalesType`（样本均为 `2`）、`subAfterSalesType`（样本为 `null`）、`after_sales_status_code`（数字：`5` / `10`）、`after_sales_status`（中文状态文本，样本长度为 4 / 9 字符）、`after_sales_title`（样本 `null`）、`isFullyRefunded`（`true` / `null`）、`freight_compensate`，不包含退款原因字段。
-- **调研时发现的映射缺陷**：`orderDetail` 在 `after_sales_status` 返回中文文案，先前的 `toOrderDetailView` 直接查表，导致 `未知(<中文文案>)`。Ticket 03 已在[订单详情视图](../../src/services/views/order.js)中增加 `after_sales_status_code` 回退，仍使用订单级状态表。
+- 详情每条返回 244 个字段，携带 `after_sales_id`、`refundId`、`afterSalesType`（样本均为 `2`）、`subAfterSalesType`（样本为 `null`）、`after_sales_status_code`（数字：`5` / `10`）、`after_sales_status`（中文状态文本，样本长度为 4 / 9 字符）、`after_sales_title`（样本 `null`）、`isFullyRefunded`（`true` / `null`）、`freight_compensate`，不包含退款原因字段。正常无售后订单抽检实测返回 `after_sales_id: null`、`after_sales_status: "无售后"`、`after_sales_status_code: null`。
+- **调研时发现的映射缺陷**：`orderDetail` 在 `after_sales_status` 返回中文文案（如「退款成功」「无售后」），先前的 `toOrderDetailView` 直接查表，导致 `未知(<中文文案>)`。Ticket 03 已在[订单详情视图](../../src/services/views/order.js)中于 `after_sales_status` 无数值时改用 `after_sales_status_code`（仍沿用订单级状态表，`null` 状态码映射为 `null`）。
 
 ---
 
