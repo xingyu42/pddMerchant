@@ -5,7 +5,7 @@ import * as endpoints from '../../src/adapter/endpoints/after-sales.js';
 import { isSuccessfulResponse } from '../../src/adapter/response-interpreter.js';
 import { isNetworkError } from '../helpers/error-matchers.js';
 
-const { AFTER_SALES_LIST, AFTER_SALES_PARAMS } = endpoints;
+const { AFTER_SALES_LIST, AFTER_SALES_PARAMS, AFTER_SALES_STATUS_FILTERS, AFTER_SALES_TYPE_FILTERS } = endpoints;
 
 describe('after-sales endpoint contracts', () => {
   it('builds a descending case-page request with only supported time keys', () => {
@@ -26,6 +26,35 @@ describe('after-sales endpoint contracts', () => {
     assert.deepEqual(AFTER_SALES_LIST.buildPayload({ startCreatedTime: '0', endCreatedTime: Infinity }), {
       pageNumber: 1, pageSize: 100, orderByCreatedAtDesc: true,
     });
+  });
+
+  it('sends the supported search and status filters without time bounds for all history', () => {
+    for (const [scope, expected] of Object.entries({
+      open: [1, 2, 3, 4, 7, 9, 10, 11, 14, 15, 18, 21, 22, 27, 31, 32],
+      refunded: [5], closed: [6, 12, 17, 24],
+    })) {
+      const statuses = AFTER_SALES_STATUS_FILTERS[scope];
+      const payload = AFTER_SALES_LIST.buildPayload({ searchText: 'SYN-1', afterSalesStatusList: statuses });
+      assert.deepEqual(payload, {
+        pageNumber: 1, pageSize: 100, orderByCreatedAtDesc: true,
+        searchText: 'SYN-1', afterSalesStatusList: expected,
+      });
+      assert.notStrictEqual(payload.afterSalesStatusList, statuses);
+    }
+  });
+
+  it('sends each type as an integer and omits unsupported filter values and keys', () => {
+    const base = { pageNumber: 1, pageSize: 100, orderByCreatedAtDesc: true };
+    for (const [kind, expected] of Object.entries({ refund: 1, return_refund: 2, exchange: 3, resend: 4, repair: 5 })) {
+      assert.deepEqual(AFTER_SALES_LIST.buildPayload({ afterSalesType: AFTER_SALES_TYPE_FILTERS[kind] }), {
+        ...base, afterSalesType: expected,
+      });
+    }
+    for (const afterSalesType of [AFTER_SALES_TYPE_FILTERS.all, [2], '2', 2.5]) {
+      assert.deepEqual(AFTER_SALES_LIST.buildPayload({
+        afterSalesType, afterSalesTypeList: [2], searchText: '', afterSalesStatusList: [],
+      }), base);
+    }
   });
 
   it('preserves the platform total and rejects malformed list responses', () => {

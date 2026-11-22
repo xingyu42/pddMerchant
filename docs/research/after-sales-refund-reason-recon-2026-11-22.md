@@ -58,17 +58,18 @@
 
 从页面源码（`main.*.js`）提取筛选序列化逻辑后，经线上只读重放逐项验证：
 
-| 参数字段 | 实测传参形态 | 实测结果与边界 | 误用对照（会被服务端静默忽略） |
+| 参数字段 | 实测传参形态 | 实测结果与边界 | 误用对照 |
 | --- | --- | --- | --- |
 | `pageNumber`, `pageSize` | `1`, `100` | 实测 `pageSize: 100` 正常返回 100 条、`errorCode: 0` | — |
 | `orderByCreatedAtDesc` | `true` | 按售后申请时间倒序返回 | — |
 | `startCreatedTime`, `endCreatedTime` | Unix 秒 | 近 7 天 `34` 条；近 90 天 `194` 条；不传则返回全量 `1583` 条 | 误传 `beginTime`/`endTime` 会被静默忽略，仍返回全量 `1583` |
 | `searchText` | 字符串（单号 / 商品 ID 等） | 传单个 `order_sn` 返回 `total: 1` 且与原单号/金额吻合；传 `goods_id` 返回 `total: 179` | 误传 `orderSn`/`goodsId` 会被静默忽略 |
 | `afterSalesStatusList` | 数字（或数字串）数组，如 `[5]` | 返回 `total: 1469`，抽检 `20/20` 均为状态 `5` | 误传 `statusList` 会被静默忽略 |
+| `afterSalesType` | 标量整数，如 `1`、`2` | 2026-11-22 补测：不传时 `total: 1584`，首页含类型 `1`、`2`。传 `1`（退款）返回 `total: 895`，首页仅含类型 `1`；传 `2`（退货退款）返回 `total: 678`，首页 20 条均为类型 `2`。两次过滤均为 HTTP 200、`success: true` | `[2]` 返回 HTTP 400、`errorCode: 3000000`（参数校验失败）；`afterSalesTypeList: [2]` 被静默忽略，仍为 `total: 1584` |
 | `reasonCodeList` | 数字（或数字串）数组，如 `[81]` | 返回 `total: 36`，抽检 `20/20` 均为原因码 `81` | — |
 | `quickSearchType` | 页面快捷胶囊枚举（如 `8`、`18`） | 工作台初加载默认传 `quickSearchType: 18`（本账号此时返回 0 条）；不传时查全量 | — |
 
-页面表单源码还支持 `afterSalesType`、`minRefundAmount` / `maxRefundAmount`（分）、`speedRefund`（布尔）、`disputeRefund`（布尔）、`logisticsRecallStatusList`、`merchantAppeal`、`adminJoinWaitMerchantHandle`。其中 `afterSalesType` 在接入 `--type` 过滤时需在实施阶段通过单请求确认服务端接受标量还是数组形态。
+页面表单源码还支持 `minRefundAmount` / `maxRefundAmount`（分）、`speedRefund`（布尔）、`disputeRefund`（布尔）、`logisticsRecallStatusList`、`merchantAppeal`、`adminJoinWaitMerchantHandle`。CLI 的 `--type` 按 §2.1 字典传递标量整数 `afterSalesType`，`--type all` 省略该字段。
 
 #### 返回条目（`result.list[]`）字段与单位核验
 

@@ -86,6 +86,14 @@ const GOODS_RECEIPT_ENTITY_FIELDS = { 'items[]': GOODS_RECEIPT_ITEM_FIELDS, 'ite
   'items[].skus[].single.discounts[]': GOODS_RECEIPT_DISCOUNT_FIELDS,
   'items[].skus[].multi.discounts[]': GOODS_RECEIPT_DISCOUNT_FIELDS };
 
+const AFTER_SALES_ENTITY_FIELDS = {
+  '': ['headline', 'window', 'filters', 'total', 'fetched_count', 'truncated', 'reason_summary', 'items', 'hints', 'mall_id'],
+  'items[]': AFTER_SALES_CASE_FIELDS,
+  'reason_summary[]': REASON_SUMMARY_FIELDS,
+  window: AFTER_SALES_WINDOW_FIELDS,
+  filters: AFTER_SALES_FILTER_FIELDS,
+};
+
 const V2_CASES = [
   { command: 'diagnose.traffic', args: ['diagnose', 'traffic'], fixtures: createTrafficFixtures(),
     entityFields: { 'items[]': TRAFFIC_ITEM_FIELDS, summary: TRAFFIC_SUMMARY_FIELDS,
@@ -208,18 +216,16 @@ const V2_CASES = [
     fixtures: createFactFixtures(),
     entityFields: { order: ORDER_DETAIL_VIEW_FIELDS },
   },
-  {
+  ...[
+    [],
+    ['--since', '2023-11-15', '--until', '2023-11-15'],
+    ['--sn', 'SYN-AFTER-SALES-ORDER', '--status', 'refunded', '--type', 'return_refund'],
+  ].map((options) => ({
     command: 'orders.after-sales',
-    args: ['orders', 'after-sales'],
+    args: ['orders', 'after-sales', ...options],
     fixtures: createAfterSalesFixtures(),
-    entityFields: {
-      '': ['headline', 'window', 'filters', 'total', 'fetched_count', 'truncated', 'reason_summary', 'items', 'hints', 'mall_id'],
-      'items[]': AFTER_SALES_CASE_FIELDS,
-      'reason_summary[]': REASON_SUMMARY_FIELDS,
-      window: AFTER_SALES_WINDOW_FIELDS,
-      filters: AFTER_SALES_FILTER_FIELDS,
-    },
-  },
+    entityFields: AFTER_SALES_ENTITY_FIELDS,
+  })),
   {
     command: 'orders.stats',
     args: ['orders', 'stats'],

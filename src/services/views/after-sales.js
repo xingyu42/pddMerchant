@@ -79,14 +79,28 @@ function buildReasonSummary(rawItems, projectedItems) {
 }
 
 export function toAfterSalesListView({
-  rawItems, total, window, reasonCategoryMap, truncated = false, hints = [], mallId = null,
+  rawItems, total, window, filters = {}, reasonCategoryMap, truncated = false, hints = [], mallId = null,
 }) {
   const items = rawItems.map((raw) => toAfterSalesCaseView(raw, reasonCategoryMap));
   const fetchedCount = items.length;
   const reasonSummary = buildReasonSummary(rawItems, items);
+  const startAt = toLocalDateTime(window.startTime, { unixSeconds: true });
+  const endAt = toLocalDateTime(window.endTime, { unixSeconds: true });
+  const scope = window.days != null ? `近 ${window.days} 天`
+    : window.startTime != null ? `${startAt ?? `Unix 秒 ${window.startTime}`} 至 ${endAt ?? `Unix 秒 ${window.endTime}`}` : '全历史';
+  const { sn = null, goodsId = null, status = 'all', type = 'all' } = filters;
+  const statusLabel = AFTER_SALES_FILTER_STATUS_LABEL[status];
+  const typeLabel = AFTER_SALES_FILTER_TYPE_LABEL[type];
+  const descriptors = [
+    sn != null ? `订单号 ${sn}` : null,
+    goodsId != null ? `商品 ID ${goodsId}` : null,
+    status !== 'all' ? `状态：${statusLabel}` : null,
+    type !== 'all' ? `类型：${typeLabel}` : null,
+  ].filter(Boolean);
+  const selection = descriptors.length ? `${scope}（${descriptors.join('、')}）` : scope;
   const headline = [total === 0 && fetchedCount === 0
-    ? `近 ${window.days} 天无售后单`
-    : `近 ${window.days} 天售后单 ${total} 条，已采集 ${fetchedCount} 条`];
+    ? `${selection}无售后单`
+    : `${selection}售后单 ${total} 条，已采集 ${fetchedCount} 条`];
   if (reasonSummary.length > 0) {
     headline.push(`高频售后原因：${reasonSummary.slice(0, 3).map(({ reason_desc, count, share_pct }) =>
       `${reason_desc} ${count} 条（${share_pct}%）`).join('、')}`);
@@ -94,8 +108,8 @@ export function toAfterSalesListView({
   if (truncated) headline.push(AFTER_SALES_REPORT.hints.list_truncated);
   return {
     headline,
-    window: { start_at: toLocalDateTime(window.startTime), end_at: toLocalDateTime(window.endTime), days: window.days },
-    filters: { sn: null, goods_id: null, status: AFTER_SALES_FILTER_STATUS_LABEL.all, type: AFTER_SALES_FILTER_TYPE_LABEL.all },
+    window: { start_at: startAt, end_at: endAt, days: window.days },
+    filters: { sn, goods_id: goodsId, status: statusLabel, type: typeLabel },
     total,
     fetched_count: fetchedCount,
     truncated,

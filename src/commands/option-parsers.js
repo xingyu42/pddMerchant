@@ -1,4 +1,4 @@
-// 数字参数解析：在 commander 解析阶段拒绝非整数和越界值（invalidArgument → E_USAGE），不启动浏览器
+// 在 Commander 解析阶段校验选项（invalidArgument → E_USAGE），不启动浏览器。
 import { InvalidArgumentError } from 'commander';
 import { acceptsReportDays } from '../services/operating-report.js';
 
@@ -13,6 +13,45 @@ export function preserveParseErrorCommand(command) {
     }
     throw error;
   });
+}
+
+export function validateParsedOptions(command, validator) {
+  const commandName = `${command.parent.name()}.${command.name()}`;
+  command.hook('preAction', (_command, actionCommand) => {
+    try {
+      validator(actionCommand.opts());
+    } catch (error) {
+      if (error instanceof InvalidArgumentError) error.commandName = commandName;
+      throw error;
+    }
+  });
+}
+
+export function nonEmptyStringArg(label) {
+  return (value) => {
+    const text = value.trim();
+    if (!text) throw new InvalidArgumentError(`${label}不能为空`);
+    return text;
+  };
+}
+
+function isCalendarDate(text) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+  const date = new Date(text);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === text;
+}
+
+export function shanghaiTimeBoundArg(bound) {
+  const time = bound === 'start' ? '00:00:00' : '23:59:59';
+  return (value) => {
+    const text = value.trim();
+    if (isCalendarDate(text)) return Date.parse(`${text}T${time}+08:00`) / 1000;
+    if (/^\d+$/.test(text)) {
+      const seconds = Number(text);
+      if (Number.isSafeInteger(seconds)) return seconds;
+    }
+    throw new InvalidArgumentError('需为有效的 YYYY-MM-DD 日期或非负 Unix 秒整数');
+  };
 }
 
 export function withReportDays(command, definition) {

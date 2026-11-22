@@ -95,7 +95,8 @@ src/services/<domain>.js           业务逻辑（被 handler 调用）
 
 ### Orders After-Sales
 
-- `orders after-sales [--days 30]` 为只读命令，使用普通鉴权与切店流程，支持 `--all-accounts`。`--days` 在 Commander 解析期校验为 1–365 的整数；非法值保留 `command: orders.after-sales`，返回 `E_USAGE` / exit 2，`xhr_count` 为 0。注册器保留未传入时的 `undefined`，服务层应用默认 30 天。
+- `orders after-sales` 为只读命令，使用普通鉴权与切店流程，支持 `--all-accounts`。`--days` 接受 1–365 的整数，未传时保留 `undefined`。`--since` / `--until` 接受有效的 `YYYY-MM-DD`（北京时间自然日首秒 / 末秒）或非负 Unix 秒整数，与 `--days` 互斥。`--until` 须配合 `--since`；仅传 `--since` 时截止到当前秒，起点须不晚于截止时间。
+- `--sn` 去除首尾空白后须非空，与正整数 `--goods-id` 互斥。`--status` 为 `all|open|refunded|closed`，`--type` 为 `all|refund|return_refund|exchange|resend|repair`，均默认 `all`。格式、枚举、互斥与起止组合均在选项解析或 `preAction` 中校验；错误保留 `command: orders.after-sales`，返回 `E_USAGE` / exit 2，`xhr_count` 为 0，早于运行时配置与鉴权。
 - JSON 为单行 v2 信封，文本模式显示摘要和售后单表格。窗口、分页、原因汇总与降级见服务契约的 After-Sales Case Reporting 小节。
 
 ### Goods Cost / Profit

@@ -6,6 +6,19 @@ export const AFTER_SALES_PAGE_SIZE = 100;
 export const AFTER_SALES_MAX_PAGES = 20;
 export const AFTER_SALES_VIEW_LIMIT = AFTER_SALES_PAGE_SIZE * AFTER_SALES_MAX_PAGES;
 
+export const AFTER_SALES_STATUS_FILTERS = {
+  all: null,
+  open: [1, 2, 3, 4, 7, 9, 10, 11, 14, 15, 18, 21, 22, 27, 31, 32],
+  refunded: [5],
+  closed: [6, 12, 17, 24],
+};
+export const AFTER_SALES_CLI_STATUSES = Object.freeze(Object.keys(AFTER_SALES_STATUS_FILTERS));
+export const AFTER_SALES_DEFAULT_STATUS = 'all';
+
+export const AFTER_SALES_TYPE_FILTERS = { all: null, refund: 1, return_refund: 2, exchange: 3, resend: 4, repair: 5 };
+export const AFTER_SALES_CLI_TYPES = Object.freeze(Object.keys(AFTER_SALES_TYPE_FILTERS));
+export const AFTER_SALES_DEFAULT_TYPE = 'all';
+
 export const AFTER_SALES_LIST = {
   name: 'after_sales.list',
   fixtureListKey: 'result.list',
@@ -18,6 +31,10 @@ export const AFTER_SALES_LIST = {
     orderByCreatedAtDesc: true,
     ...(Number.isFinite(params.startCreatedTime) ? { startCreatedTime: params.startCreatedTime } : {}),
     ...(Number.isFinite(params.endCreatedTime) ? { endCreatedTime: params.endCreatedTime } : {}),
+    ...(typeof params.searchText === 'string' && params.searchText.length > 0 ? { searchText: params.searchText } : {}),
+    ...(Array.isArray(params.afterSalesStatusList) && params.afterSalesStatusList.length > 0
+      ? { afterSalesStatusList: [...params.afterSalesStatusList] } : {}),
+    ...(Number.isInteger(params.afterSalesType) ? { afterSalesType: params.afterSalesType } : {}),
   }),
   normalize(raw) {
     const result = resultObject(raw, 'after_sales.list');
