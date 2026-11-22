@@ -17,6 +17,27 @@ export const ORDER_SCOPE_LABEL = Object.freeze({
 // 10 / 11 = 售后处理中（中置信：与 afterSaleType=2 过滤结果 4/4 吻合，二者子类区别无证据）
 export const AFTER_SALES_STATUS_LABEL = Object.freeze({ 5: '退款成功', 10: '售后处理中', 11: '售后处理中' });
 
+// 售后工作台的售后单状态独立于订单状态；重叠码取细分状态。
+export const AFTER_SALES_TYPE_LABEL = Object.freeze({
+  1: '退款', 2: '退款退货', 3: '换货', 4: '补寄', 5: '维修',
+});
+export const AFTER_SALES_SHIPPING_STATUS_LABEL = Object.freeze({ 0: '未发货', 1: '已发货' });
+export const AFTER_SALES_CASE_STATUS_LABEL = Object.freeze({
+  1: '待商家处理', 14: '待商家处理', 21: '待商家处理', 32: '待商家处理',
+  9: '待消费者发货', 10: '待消费者发货', 15: '待消费者发货', 22: '待消费者发货',
+  11: '待商家收货',
+  2: '平台处理中', 3: '平台处理中', 7: '平台处理中',
+  4: '进行中售后单', 18: '进行中售后单', 27: '进行中售后单', 31: '进行中售后单',
+  5: '退款成功', 6: '退款关闭', 12: '退款关闭', 16: '换货/补寄成功', 17: '换货/补寄关闭',
+  25: '维修成功', 24: '维修关闭',
+});
+export const AFTER_SALES_FILTER_STATUS_LABEL = Object.freeze({
+  all: '全部', open: '进行中', refunded: '退款成功', closed: '已关闭',
+});
+export const AFTER_SALES_FILTER_TYPE_LABEL = Object.freeze({
+  all: '全部', refund: '退款', return_refund: '退款退货', exchange: '换货', resend: '补寄', repair: '维修',
+});
+
 // 商品与订单的匹配方式（goods.segment / diagnose.inventory）
 export const MATCHED_BY_LABEL = Object.freeze({
   goods_id: '按商品 ID 匹配',

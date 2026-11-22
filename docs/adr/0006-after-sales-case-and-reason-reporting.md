@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed - 2026-11-22 (design aligned via `grill-with-docs` and upstream read-only recon verified in `docs/research/after-sales-refund-reason-recon-2026-11-22.md`; awaiting implementation)
+Proposed - 2026-11-22 (design aligned via `grill-with-docs` and upstream read-only recon verified in `docs/research/after-sales-refund-reason-recon-2026-11-22.md`). The rolling-window list and reason distribution are implemented; historical windows, filters, and order-detail enrichment remain pending.
 
 ## Context
 

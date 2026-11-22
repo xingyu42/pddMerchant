@@ -380,6 +380,12 @@ Wrong：total - (direct + indirect)，推广失败时输出 0。Correct：仅减
 - 每个 SKU 只采用当前口径的单件 / 多件场景，其他场景忽略并告警 `receipt_scene_ignored`；缺单件场景 `single: null` 并告警 `receipt_single_missing`，缺多件场景 `multi: null`。平台明确无优惠为 0 / `[]`。
 - views/goods-receipt.js 拥有白名单与分转元：券前价取活动价（来源为 activity_type_desc）否则拼单价（来源「拼单价」）；多件 `discounts` 为合计。数值全部原样报告，不重算、不推导技术服务费或补贴。
 
+## Scenario: After-Sales Case Reporting
+
+- `getAfterSalesView(ctx, { days })` 按申请时间采集近 N 天的售后单（默认 30 天），时间窗采用 `rollingSecondsWindow`，输出上海时间。这一视图使用售后单级别的状态映射；订单列表、订单统计、售后诊断和净利润维持原有订单级口径（ADR 0006）。
+- `after_sales.list` 每页 100 条，最多 20 页，保留首页的 `total`；遇到短页或收满总数即停止。翻到第 20 页且尚未覆盖总数时，`truncated: true`，摘要与提示同时标明上限。可选 `after_sales.params` 拉取失败时追加提示并保留明细；`E_TIMEOUT`、`E_INTERNAL`、取消及程序异常继续传播。
+- 输出为 `{ headline, window, filters, total, fetched_count, truncated, reason_summary, items, hints, mall_id }`。明细遵循 `AFTER_SALES_CASE_FIELDS`；原因按文案聚合，缺文案时回退 `未知(<code>)` 或 `未知`。组内大类须全部已知且一致才输出；退款金额按分加总后转元，总占比以 `fetched_count` 为分母。排序依次为单数降序、退款金额降序、原因文案升序。
+
 ## Scenario: Order list scope & refund identification
 
 ### 1. Scope / Trigger

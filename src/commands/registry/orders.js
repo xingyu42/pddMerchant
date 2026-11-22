@@ -2,7 +2,8 @@
 import * as list from '../orders/list.js';
 import * as detail from '../orders/detail.js';
 import * as stats from '../orders/stats.js';
-import { integerArg } from '../option-parsers.js';
+import * as afterSales from '../orders/after-sales.js';
+import { integerArg, preserveParseErrorCommand } from '../option-parsers.js';
 
 export function register(program, wireAction) {
   const orders = program.command('orders').description('📦 订单管理');
@@ -33,5 +34,12 @@ export function register(program, wireAction) {
       .option('--size <n>', '本地聚合样本数', integerArg(1), 50),
     'orders.stats',
     stats.run
+  );
+  const afterSalesCommand = orders.command('after-sales').description('售后单列表与原因分布');
+  preserveParseErrorCommand(afterSalesCommand);
+  wireAction(
+    afterSalesCommand.option('--days <n>', '售后申请时间窗口天数（1–365，默认 30）', integerArg(1, 365)),
+    'orders.after-sales',
+    afterSales.run
   );
 }

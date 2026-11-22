@@ -12,6 +12,8 @@
 
 ### Added
 
+- **售后单与原因分布**：`orders after-sales [--days 30]` 按申请时间查询近 1–365 天的售后单，每次最多采集 2000 条。返回平台总数、已采集数、明细与按原因文案汇总的单数、占比和退款金额；超过上限标记 `truncated: true`，原因大类字典不可用时保留明细与汇总并附提示。
+
 - **商品成本与净利润**：`goods cost set / list / remove / import <file>` 在本地 SQLite 录入成本（按账号、店铺、商品及可选规格隔离，写入需 `--confirm`）；`goods profit [--days 30] [--goods-id <id>]` 按成交时间统计窗口收入、商家成本、毛利、推广花费与净利润。`gross_margin_pct` / `net_margin_pct` 为有符号百分数，可负、可超过 ±100；仅退款不退货及商家共担补贴时利润可能高估。运费险（`insurance_yuan`）取消费者体验提升计划收费记录里平台逐单收取的服务费（收费成功的退款后不扣回，无记录为 0），`goods cost` 不录入运费险；收费记录拉取失败或不完整时运费险、商家成本与利润为 `null`，`summary.data_quality` 新增 `insurance_complete` / `insurance_truncated`。新错误码 `E_COST_IMPORT_INVALID`（退出码 2）。
 - **店铺综合体验星级**：`diagnose experience [--days 7]` 输出平台当前星级、行业排名、各指标与下一星级门槛及每日趋势。
 - **客服与评价**：`diagnose customer-service [--days 30]` 输出「多多客服-客服数据（人工回复）」区间汇总与逐日趋势；`diagnose reviews [--days 30|60|90|180]` 输出满意/不满意标签、问题分类计数与 1-3 星中差评（正文手机号掩码，昵称、头像、订单信息不输出）。

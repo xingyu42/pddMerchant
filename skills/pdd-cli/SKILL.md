@@ -75,11 +75,13 @@ pdd config unset <key> --json
 pdd orders list [--page 1] [--size 20] [--since <unix>] [--until <unix>] [--status all|pending_ship|shipped|received|after_sales]
 pdd orders detail --sn <订单号>
 pdd orders stats [--size 50]   # 本地样本 P50/P95、退款与售后计数
+pdd orders after-sales [--days 30]
 pdd promo roi [--by plan|sku|channel] [--since YYYY-MM-DD] [--size 50] [--include-inactive]
 ```
 
 - `orders list` 默认近 7 天全部订单；`pending_ship` / `shipped` / `received` 不含售后中订单；更早待发货以 `orders stats` 为准，`--size` 最大 50。
 - 退款状态只看 `after_sales_status`：`退款成功` / `售后处理中` / `null`。
+- `orders after-sales` 按申请时间查询售后单（`--days` 为 1–365 的整数），并汇总原因分布。见 [经营报表口径](reports.md#orders-after-sales)。
 
 ### 商品查询与写操作
 

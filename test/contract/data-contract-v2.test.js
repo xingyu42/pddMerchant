@@ -7,12 +7,15 @@ import { runCliAsync } from '../helpers/isolated-cli.js';
 import {
   createAccounts, createFactFixtures, createPublishFixtures, createUpstreamGoods, createExperienceFixtures,
   createCustomerServiceFixtures, createReviewFixtures, createTrafficFixtures, createGoodsTrafficFixtures,
-  createGoodsReceiptFixtures, allCaliberReceiptGoods,
+  createGoodsReceiptFixtures, allCaliberReceiptGoods, createAfterSalesFixtures,
 } from '../fixtures/test-data.js';
 import { ACCOUNT_VIEW_FIELDS, ACCOUNT_REMOVED_VIEW_FIELDS } from '../../src/services/views/account.js';
 import { CONFIG_FIELD_VIEW_FIELDS } from '../../src/services/views/config.js';
 import { SHOP_VIEW_FIELDS } from '../../src/services/views/shops.js';
 import { ORDER_DETAIL_VIEW_FIELDS, ORDER_VIEW_FIELDS } from '../../src/services/views/order.js';
+import {
+  AFTER_SALES_CASE_FIELDS, REASON_SUMMARY_FIELDS, AFTER_SALES_WINDOW_FIELDS, AFTER_SALES_FILTER_FIELDS,
+} from '../../src/services/views/after-sales.js';
 import {
   COST_TEMPLATE_VIEW_FIELDS, GOODS_PROMOTION_VIEW_FIELDS, GOODS_STOCK_ITEM_FIELDS, GOODS_STOCK_SKU_FIELDS,
   GOODS_VIEW_FIELDS,
@@ -204,6 +207,18 @@ const V2_CASES = [
     args: ['orders', 'detail', '--sn', 'SYN-DETAIL'],
     fixtures: createFactFixtures(),
     entityFields: { order: ORDER_DETAIL_VIEW_FIELDS },
+  },
+  {
+    command: 'orders.after-sales',
+    args: ['orders', 'after-sales'],
+    fixtures: createAfterSalesFixtures(),
+    entityFields: {
+      '': ['headline', 'window', 'filters', 'total', 'fetched_count', 'truncated', 'reason_summary', 'items', 'hints', 'mall_id'],
+      'items[]': AFTER_SALES_CASE_FIELDS,
+      'reason_summary[]': REASON_SUMMARY_FIELDS,
+      window: AFTER_SALES_WINDOW_FIELDS,
+      filters: AFTER_SALES_FILTER_FIELDS,
+    },
   },
   {
     command: 'orders.stats',
