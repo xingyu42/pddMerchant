@@ -170,6 +170,12 @@ describe('order request and business errors', () => {
     assert.throws(() => ORDER_REGION_DISTRIBUTION.normalize({
       result: { geographyDistributionVOList: [{ ...validRow, statDate: '2026-02-30' }] },
     }), isNetworkError);
+    assert.throws(() => ORDER_REGION_DISTRIBUTION.normalize({
+      result: { geographyDistributionVOList: [validRow, { ...validRow, provinceName: ' 浙江 ' }] },
+    }), isNetworkError);
+    assert.throws(() => ORDER_REGION_DISTRIBUTION.normalize({
+      result: { geographyDistributionVOList: [validRow, { ...validRow, provinceName: '广东', statDate: '2026-11-20' }] },
+    }), isNetworkError);
     const missingFieldRow = { ...validRow };
     delete missingFieldRow.cfmOrdrAop;
     assert.throws(() => ORDER_REGION_DISTRIBUTION.normalize({

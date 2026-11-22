@@ -1,5 +1,6 @@
 import { evaluateInMainWorld } from './browser.js';
 import { throwIfAborted, timeoutError } from '../infra/abort.js';
+import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { normalizePageApiMethod } from './endpoint-strategy-resolver.js';
 
 const DEFAULT_DISCOVERY_ATTEMPTS = 15;
@@ -54,7 +55,25 @@ export async function executePageApiRequest(
   { apiUrl, method = 'POST', payload, discovery },
   { signal, timeoutMs } = {},
 ) {
-  const normalizedMethod = normalizePageApiMethod(method) ?? 'POST';
+  const normalizedMethod = normalizePageApiMethod(method);
+  if (!normalizedMethod) {
+    throw new PddCliError({
+      code: 'E_USAGE',
+      message: 'page-api: unsupported HTTP method',
+      hint: 'page-api 端点仅支持 GET 或 POST 方法',
+      detail: { method },
+      exitCode: ExitCodes.USAGE,
+    });
+  }
+  if (normalizedMethod === 'GET' && payload != null
+    && (typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).length > 0)) {
+    throw new PddCliError({
+      code: 'E_USAGE',
+      message: 'page-api: GET request does not accept a non-empty payload',
+      hint: 'GET 端点不支持非空请求体，请将参数编码到 apiUrl 或使用 POST',
+      exitCode: ExitCodes.USAGE,
+    });
+  }
   const evaluation = evaluateInMainWorld(page, async ({ url, method: requestMethod, body, discovery: wait }) => {
     function looksLikeMmsRequestClient(exports) {
       return exports

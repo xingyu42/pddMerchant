@@ -1,10 +1,10 @@
 // diagnose.* 命令级结果（输出契约 v2）：采集 → summarize（内部代码）→ 视图（标签 + headline）。
 import { getLogger } from '../../infra/logger.js';
-import { ExitCodes, PddCliError } from '../../infra/errors.js';
 import { throwIfAborted } from '../../infra/abort.js';
 import { runEndpoint } from '../../adapter/run-endpoint.js';
 import { ORDER_REGION_DISTRIBUTION } from '../../adapter/endpoints/orders.js';
 import { computeOrderStats } from '../orders.js';
+import { isDegradableReportError } from '../operating-report.js';
 import { mallIdOf } from '../views/_shared.js';
 import { toDimensionView, toOrdersDiagnosisView, toShopView } from '../views/diagnose.js';
 import { collectGoodsInput, collectOrdersInput, collectPromoInput } from './collectors.js';
@@ -23,15 +23,12 @@ function dimensionResult(name, result, ctx, warnings = []) {
 async function collectOrderRegions(ctx) {
   throwIfAborted(ctx.signal);
   try {
-    const regions = await runEndpoint(ctx.page, ORDER_REGION_DISTRIBUTION, { queryType: 1 }, ctx);
+    const regions = await runEndpoint(ctx.page, ORDER_REGION_DISTRIBUTION, {}, ctx);
     throwIfAborted(ctx.signal);
     return { regions, regionReason: null };
   } catch (err) {
     throwIfAborted(ctx.signal);
-    if (['E_TIMEOUT', 'E_INTERNAL'].includes(err?.code)
-      || err?.exitCode === ExitCodes.AUTH
-      || err?.name === 'AbortError'
-      || !(err instanceof PddCliError)) {
+    if (!isDegradableReportError(err)) {
       throw err;
     }
     (ctx.log ?? getLogger()).debug({ err: err?.message, code: err?.code }, 'diagnose.orders: regions collection failed');

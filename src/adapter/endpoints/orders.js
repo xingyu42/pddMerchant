@@ -156,13 +156,25 @@ export const ORDER_REGION_DISTRIBUTION = {
     if (!Array.isArray(rows)) {
       throw responseShapeError('orders.regionDistribution', 'result.geographyDistributionVOList array');
     }
+    const seenProvinces = new Set();
+    let expectedStatDate = null;
     const items = rows.map((row) => {
       requireFields(row, REGION_FIELDS, 'orders.regionDistribution', 'row object');
-      if (typeof row.provinceName !== 'string' || row.provinceName.trim() === '') {
+      const province = typeof row.provinceName === 'string' ? row.provinceName.trim() : '';
+      if (!province) {
         throw responseShapeError('orders.regionDistribution', 'provinceName');
       }
+      if (seenProvinces.has(province)) {
+        throw responseShapeError('orders.regionDistribution', 'duplicate provinceName');
+      }
+      seenProvinces.add(province);
       if (!isCalendarDate(row.statDate)) {
         throw responseShapeError('orders.regionDistribution', 'statDate YYYY-MM-DD');
+      }
+      if (expectedStatDate === null) {
+        expectedStatDate = row.statDate;
+      } else if (row.statDate !== expectedStatDate) {
+        throw responseShapeError('orders.regionDistribution', 'consistent statDate across rows');
       }
       assertNoPua(row, REGION_NUMERIC_FIELDS, '明文地域分布接口已变化，请核验平台接口');
       return pickFields(row, REGION_FIELDS);

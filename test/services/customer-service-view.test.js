@@ -101,7 +101,7 @@ it('coerces numeric count strings and preserves missing counts in summary and tr
   assert.equal(view.trend.items[0].consult_user_count, 3);
 });
 
-it('projects cs today block with explicit caliber, padded ascending hours and early-morning nulls', () => {
+it('projects cs today block with explicit caliber, as_of_hour, elapsed hours and early-morning nulls', () => {
   const view = toCustomerServiceView({ consultUserCnt: 3 }, {
     window,
     sales: { window: salesWindow, summary: salesSummary, trend: null },
@@ -111,11 +111,17 @@ it('projects cs today block with explicit caliber, padded ascending hours and ea
         realtime: { consultUserCnt: 18, needReplyUserCnt: 2, manuReceiveUserCnt: 16,
           replyRate3Min: 0.875, replyRate3MinThreshold: 0.5 },
         unreply: { unreply_num: 1 },
-        hourly: [{ hour: 10, replyUser3Min: 4, unReplyUser3Min: 1 }, { hour: 0, replyUser3Min: 0, unReplyUser3Min: 0 }],
+        hourly: [
+          { hour: 23, replyUser3Min: 0, unReplyUser3Min: 0 },
+          { hour: 11, replyUser3Min: 0, unReplyUser3Min: 0 },
+          { hour: 10, replyUser3Min: 4, unReplyUser3Min: 1 },
+          { hour: 0, replyUser3Min: 0, unReplyUser3Min: 0 },
+        ],
       },
     },
   });
   assert.deepEqual(Object.keys(view.today), CS_TODAY_FIELDS);
+  assert.equal(view.today.as_of_hour, '10');
   assert.equal(view.today.caliber, '多多客服-实时数据（3 分钟人工回复率）');
   assert.equal(view.today.manual_reply_3min_rate_pct, 87.5);
   assert.equal(view.today.manual_reply_3min_threshold_pct, 50);
@@ -132,18 +138,21 @@ it('projects cs today block with explicit caliber, padded ascending hours and ea
         realtime: { consultUserCnt: null, needReplyUserCnt: 0, manuReceiveUserCnt: null,
           replyRate3Min: null, replyRate3MinThreshold: 0.5 },
         unreply: { unreply_num: 0 },
-        hourly: [],
+        hourly: Array.from({ length: 24 }, (_, hour) => ({ hour, replyUser3Min: 0, unReplyUser3Min: 0 })),
       },
     },
   });
   assert.equal(earlyMorning.today.manual_reply_3min_rate_pct, null);
   assert.equal(earlyMorning.today.need_manual_reply_user_count, 0);
-  assert.deepEqual(earlyMorning.today.hourly, []);
+  assert.equal(earlyMorning.today.as_of_hour, '04');
+  assert.deepEqual(earlyMorning.today.hourly.map((entry) => entry.hour), ['00', '01', '02', '03', '04']);
   assert.equal(earlyMorning.headline[1], '今日实时客服：需人工回复 0 人，当前待回复 0 人');
 
   const emptyHeadline = toCustomerServiceView({ consultUserCnt: 3 }, {
     window,
     today: { snapshotAt: '2026-11-22 04:20:00', sources: { realtime: {}, unreply: {}, hourly: [] } },
   });
+  assert.equal(emptyHeadline.today.as_of_hour, null);
+  assert.deepEqual(emptyHeadline.today.hourly, []);
   assert.equal(emptyHeadline.headline[1], '今日实时客服暂无数据');
 });

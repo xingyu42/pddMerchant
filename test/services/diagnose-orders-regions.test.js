@@ -129,10 +129,11 @@ describe('getOrdersDiagnosis regions collection', () => {
     };
   });
 
-  it('queries queryType 1 and degrades domain/PUA errors while propagating timeouts and bugs', async () => {
+  it('queries with empty params and degrades domain/PUA/auth errors while propagating internal, timeout and bug errors', async () => {
     const { data, warnings } = await getOrdersDiagnosis(ctx);
     assert.deepEqual(warnings, []);
-    assert.equal(mockState.calls.some((call) => call.name === 'orders.regionDistribution' && call.params.queryType === 1), true);
+    assert.deepEqual(mockState.calls.find((call) => call.name === 'orders.regionDistribution'),
+      { name: 'orders.regionDistribution', params: {} });
     assert.equal(data.regions.province_count, 1);
 
     mockState.errors['orders.regionDistribution'] = new PddCliError({
@@ -143,9 +144,17 @@ describe('getOrdersDiagnosis regions collection', () => {
     assert.equal(puaDegraded.status, '数据完整');
     assert.ok(puaDegraded.hints.includes('省级成团地域分布返回字体混淆数据，regions 为 null'));
 
-    const authExpired = new PddCliError({ code: 'E_AUTH_EXPIRED', message: 'auth expired', exitCode: 3 });
-    mockState.errors['orders.regionDistribution'] = authExpired;
-    await assert.rejects(getOrdersDiagnosis(ctx), (actual) => actual === authExpired);
+    mockState.errors['orders.regionDistribution'] = new PddCliError({
+      code: 'E_AUTH_EXPIRED', message: 'auth expired', exitCode: 3,
+    });
+    const { data: authDegraded } = await getOrdersDiagnosis(ctx);
+    assert.equal(authDegraded.regions, null);
+    assert.equal(authDegraded.status, '数据完整');
+    assert.ok(authDegraded.hints.includes('省级成团地域分布拉取失败，regions 为 null'));
+
+    const internal = new PddCliError({ code: 'E_INTERNAL', message: 'internal', exitCode: 1 });
+    mockState.errors['orders.regionDistribution'] = internal;
+    await assert.rejects(getOrdersDiagnosis(ctx), (actual) => actual === internal);
 
     const timeout = new PddCliError({ code: 'E_TIMEOUT', message: 'timeout', exitCode: 5 });
     mockState.errors['orders.regionDistribution'] = timeout;

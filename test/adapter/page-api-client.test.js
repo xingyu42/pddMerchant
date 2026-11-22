@@ -1,5 +1,6 @@
 import { afterEach, describe, it, vi } from 'vitest';
 import assert from 'node:assert/strict';
+import { ExitCodes } from '../../src/infra/errors.js';
 import { executePageApiRequest } from '../../src/adapter/page-api-client.js';
 import { normalizePageApiMethod } from '../../src/adapter/endpoint-strategy-resolver.js';
 
@@ -122,5 +123,29 @@ describe('executePageApiRequest', () => {
       unavailable: true,
       reason: 'runtime-not-found',
     });
+  });
+
+  it('rejects unsupported methods and non-empty GET payloads with E_USAGE before page evaluation', async () => {
+    const evaluate = vi.fn();
+    const page = { evaluate };
+    await assert.rejects(
+      executePageApiRequest(page, { apiUrl: '/desert/stat/mallServiceRealTimeData', method: 'DELETE', payload: {} }),
+      { code: 'E_USAGE', exitCode: ExitCodes.USAGE },
+    );
+    for (const payload of [{ foo: 1 }, [1], 'x']) {
+      await assert.rejects(
+        executePageApiRequest(page, { apiUrl: '/desert/stat/mallServiceRealTimeData', method: 'GET', payload }),
+        { code: 'E_USAGE', exitCode: ExitCodes.USAGE },
+      );
+    }
+    assert.equal(evaluate.mock.calls.length, 0);
+
+    const get = vi.fn(async () => ({ ok: 1 }));
+    installWebpackChunkWindow({ fetch: vi.fn(), get, post: vi.fn(), put: vi.fn(), del: vi.fn(), redirectToLogin: vi.fn() });
+    const resUndefined = await executePageApiRequest(fakePage(), { apiUrl: '/desert/test', method: 'GET' });
+    const resEmpty = await executePageApiRequest(fakePage(), { apiUrl: '/desert/test', method: 'GET', payload: {} });
+    assert.deepEqual(resUndefined.raw, { success: true, errorCode: 0, result: { ok: 1 } });
+    assert.deepEqual(resEmpty.raw, { success: true, errorCode: 0, result: { ok: 1 } });
+    assert.deepEqual(get.mock.calls, [['/desert/test'], ['/desert/test']]);
   });
 });

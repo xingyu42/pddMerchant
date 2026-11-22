@@ -48,9 +48,14 @@ it('emits the sales block with its own caliber and window, upstream nulls and a 
   assert.equal(headline[1], `${sales.window.start_date} 至 ${sales.window.end_date} 询单 12 人，成团 6 人，询单转化率 50%，客服销售额 153.67 元`);
   assert.equal(headline[2], '今日实时客服：3 分钟人工回复率 87.5%，需人工回复 2 人，当前待回复 1 人');
   const { today } = result.envelope.data;
+  const maxHour = Number(today.snapshot_at.slice(11, 13));
+  const expectedHours = [0, 9, 10, 23]
+    .filter((hour) => hour <= maxHour)
+    .map((hour) => String(hour).padStart(2, '0'));
   assert.equal(today.caliber, '多多客服-实时数据（3 分钟人工回复率）');
+  assert.equal(today.as_of_hour, expectedHours.at(-1) ?? null);
   assert.equal(today.unreply_user_count, 1);
-  assert.deepEqual(today.hourly.map((entry) => entry.hour), ['00', '09', '10']);
+  assert.deepEqual(today.hourly.map((entry) => entry.hour), expectedHours);
   assert.deepEqual(hints, []);
   for (const forbidden of ['CanImprove', 'Compare', '23.14']) {
     assert.equal(JSON.stringify(result.envelope.data).includes(forbidden), false, forbidden);

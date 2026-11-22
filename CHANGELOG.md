@@ -26,7 +26,7 @@
 - **全店今日实时**：`diagnose traffic` 新增 `today` 区块（流量看板实时访客 / 浏览，按小时累计的成交及 `hourly[]`，`snapshot_at` 为抓取时间）；今日数据拉取失败时 `today: null` 并附提示，逐日数据照常返回。
 - **商品与客服今日实时**：
   - `goods traffic` 新增 `today` 区块：默认输出全店商品今日实时概况（`queryGoodsPageRT`，解析千分位与百分号字符串，无法解析的非空格式写 `meta.warnings` 而不记显式 `null`）；传入 `--goods-id` 时输出该单商品今日实时汇总与按小时升序 `hourly[]`（`queryGoodsStatDtr`，隔离昨日对照字段）。
-  - `diagnose customer-service` 新增 `today` 区块：输出实时 3 分钟人工回复率（显式标注口径「多多客服-实时数据（3 分钟人工回复率）」）、待回复人数与今日按小时咨询序列 `hourly[]`（`"00".."23"`）。
+  - `diagnose customer-service` 新增 `today` 区块：输出实时 3 分钟人工回复率（显式标注口径「多多客服-实时数据（3 分钟人工回复率）」）、待回复人数、`as_of_hour` 与截至 `snapshot_at` 上海小时的今日按小时咨询序列 `hourly[]`（截除未到达的未来小时）。
   - 以上 `today` 均走可选降级：上游失败时 `today: null` 并附提示，原有历史区间与推广拆分照常返回，退出码保持 0。
 
 ### Fixed

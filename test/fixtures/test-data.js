@@ -104,8 +104,9 @@ export function createCustomerServiceFixtures() {
       manuReceiveUserCnt: 16, replyRate3Min: 0.875, replyRate3MinThreshold: 0.5, cs_name: 'SYN-CS-PRIVATE' }),
     'endpoints/cs.todayUnreply.json': success({ unreply_num: 1, cs_name: 'SYN-CS-PRIVATE' }),
     'endpoints/cs.todayHourConsult.json': success({
-      total: 3,
+      total: 4,
       list: [
+        { hour: 23, replyUser3Min: 0, unReplyUser3Min: 0 },
         { hour: 10, replyUser3Min: 4, unReplyUser3Min: 1, extra: 'SYN-CS-PRIVATE' },
         { hour: 0, replyUser3Min: 0, unReplyUser3Min: 0 },
         { hour: 9, replyUser3Min: 3, unReplyUser3Min: 0 },

@@ -50,7 +50,7 @@ export const CS_SALES_FIELDS = Object.freeze(['caliber', 'window', 'summary', 't
 export const CS_SALES_SUMMARY_FIELDS = CS_SALES_METRICS.fields;
 export const CS_SALES_TREND_ITEM_FIELDS = Object.freeze(['date', ...CS_SALES_SUMMARY_FIELDS,
   ...CS_SALES_REFERENCE_METRICS.fields]);
-export const CS_TODAY_FIELDS = Object.freeze(['snapshot_at', 'caliber', ...CS_TODAY_METRICS.fields,
+export const CS_TODAY_FIELDS = Object.freeze(['snapshot_at', 'as_of_hour', 'caliber', ...CS_TODAY_METRICS.fields,
   'unreply_user_count', 'hourly']);
 export const CS_TODAY_HOURLY_FIELDS = Object.freeze(['hour', ...CS_TODAY_HOURLY_METRICS.fields]);
 
@@ -86,12 +86,25 @@ function headline(summary, days) {
   return [parts.join('，')];
 }
 
+function parseSnapshotHour(snapshotAt) {
+  if (typeof snapshotAt !== 'string') return null;
+  const match = /^\d{4}-\d{2}-\d{2} (\d{2}):/.exec(snapshotAt);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  return hour >= 0 && hour <= 23 ? hour : null;
+}
+
 function todayView(today) {
   if (today === null) return null;
   const { snapshotAt, sources: { realtime, unreply, hourly } } = today;
-  const rows = [...(hourly ?? [])].sort((left, right) => left.hour - right.hour);
+  const cutoffHour = parseSnapshotHour(snapshotAt);
+  const rows = (hourly ?? [])
+    .filter((item) => cutoffHour === null || item.hour <= cutoffHour)
+    .sort((left, right) => left.hour - right.hour);
+  const latest = rows.at(-1) ?? null;
   return {
     snapshot_at: snapshotAt,
+    as_of_hour: latest === null ? null : String(latest.hour).padStart(2, '0'),
     caliber: CS_TODAY_CALIBER,
     ...CS_TODAY_METRICS.project(realtime),
     unreply_user_count: toFiniteNumber(unreply?.unreply_num),

@@ -19,3 +19,4 @@
 
 - 2026-11-22：已立项为 `needs-triage`，待 `01` 侦察定稿命令归属、请求体与字段单位后细化为 `ready-for-agent`。
 - 2026-11-22：按用户决策并入 `diagnose orders` 独立 `regions` 区块（近 7 天、`queryType: 1`），默认真实账号只读验证通过：`node bin/pdd.js diagnose orders --json` 返回 `ok: true`、`exit_code: 0`、`meta.warnings: []`、`regions.caliber: "数据中心-地域分布（成团订单）"`、`regions.window: { start_date: "2026-11-15", end_date: "2026-11-21", days: 7 }`、`delayed: false`，共 `14` 个省、合计 `74` 单、`1375.96` 元，与 `01` 侦察同窗口实测结果完全一致，主区块 `detail`（待发货 1 单 / 延迟发货 0 单 / P95 22.9 小时 / 样本退款率 10%）与 `headline`（三行）正常。`npm run check`（`knip` + 130 个测试文件 / 2191 个通过）全部通过。
+- 2026-11-22：双轴评审修订：补充无成团省份空列表语义（`items: []`、`province_count: 0`、`window: null` 并保留 `window_days: 7`，不用本地日期冒充平台就绪日）；在 `ORDER_REGION_DISTRIBUTION.normalize` 增加 `provinceName` 去重与跨行 `statDate` 一致性校验；统一共用 `isDegradableReportError`（含子账号无权时的 `E_AUTH_EXPIRED` 降级）并清理调用侧死参数 `{ queryType: 1 }`。

@@ -46,6 +46,12 @@ export function reportHints(definition, keys) {
   });
 }
 
+export function isDegradableReportError(error) {
+  return error instanceof PddCliError
+    && !['E_TIMEOUT', 'E_INTERNAL'].includes(error.code)
+    && error.name !== 'AbortError';
+}
+
 export function createReport(ctx, definition, { window = null, hints = [] } = {}) {
   reportHints(definition, hints);
   const hint = (key) => { reportHints(definition, [key]); hints.push(key); };
@@ -58,8 +64,7 @@ export function createReport(ctx, definition, { window = null, hints = [] } = {}
       return result;
     } catch (error) {
       throwIfAborted(ctx.signal);
-      if (['E_TIMEOUT', 'E_INTERNAL'].includes(error?.code)
-        || error?.name === 'AbortError' || !(error instanceof PddCliError)) throw error;
+      if (!isDegradableReportError(error)) throw error;
       hint(key);
       // 回退函数可读取失败原因并保留已采集部分；取消与程序异常始终透传。
       return typeof fallback === 'function' ? fallback(error) : fallback;
