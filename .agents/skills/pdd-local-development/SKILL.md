@@ -10,7 +10,7 @@ Use this skill when a task depends on local runtime setup or environment behavio
 ## Must Read
 
 - `package.json` for Node version, scripts, dependencies, and `bin.pdd`.
-- `README.md` for quick start, command list, env vars, troubleshooting, and exit codes.
+- `README.md` for quick start and project overview; `skills/pdd-cli/SKILL.md` for command list, troubleshooting, and exit codes.
 - `.env.example` for the broadest env-var inventory.
 - `src/infra/paths.js` for default data paths and `PDD_DB_PATH`.
 - `src/infra/config.js` for config/env merge rules and runtime defaults.

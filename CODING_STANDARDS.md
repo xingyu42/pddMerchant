@@ -16,6 +16,6 @@ Tooling already enforces these, so skip them in review: unused files, exports an
 ## Judgement calls
 
 - **Parse-time options.** A CLI option is validated in its registrar through `src/commands/option-parsers.js` or `Option.choices`. Flag a service that re-checks a CLI option's range, enum or format, even when older code does the same.
-- **Doc sync.** A diff that adds or changes a command also updates `CHANGELOG.md`, the owning `.trellis/spec/` file, and `README.md` when the command is user-facing.
+- **Doc sync.** A diff that adds or changes a command also updates `CHANGELOG.md`, the owning `.trellis/spec/` file, and `skills/pdd-cli/SKILL.md` (plus `skills/pdd-cli/reports.md` for report calibers); keep `README.md` focused on project overview, quick start, and pointers to `skills/pdd-cli/`.
 - **Fixture parity.** A fixture-only key on a production endpoint spec (`fixtureVariantKey`, `fixtureListKey`) keeps fixture output identical to real mode, including pagination. Production comments name behaviour, never test fixture files.
 - **Shared-contract drift.** A feature diff that changes a shared contract (endpoint client, `normalize` signature, runner, envelope) is named in the review and lands with its owning spec update.

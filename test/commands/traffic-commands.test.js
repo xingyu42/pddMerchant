@@ -6,7 +6,7 @@ import { register as registerDiagnose } from '../../src/commands/registry/diagno
 import { register as registerGoods } from '../../src/commands/registry/goods.js';
 import { runCli } from '../helpers/isolated-cli.js';
 
-it.each(['README.md', 'skills/pdd-cli/SKILL.md', '.trellis/spec/services/domain-service-contracts.md'])(
+it.each(['skills/pdd-cli/SKILL.md', 'skills/pdd-cli/reports.md', '.trellis/spec/services/domain-service-contracts.md'])(
   'documents both traffic commands and the unverified promo caliber in %s', (path) => {
     const documentation = readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
     for (const phrase of ['diagnose traffic', 'goods traffic', 'non_promo']) {
@@ -14,9 +14,9 @@ it.each(['README.md', 'skills/pdd-cli/SKILL.md', '.trellis/spec/services/domain-
     }
   });
 
-it('README states the promo split has not been verified on a shop with live campaigns', () => {
-  const readme = readFileSync(new URL('../../README.md', import.meta.url), 'utf8');
-  assert.ok(readme.includes('尚未经有投放店铺实测'));
+it('skills/pdd-cli/reports.md states the promo split has not been verified on a shop with live campaigns', () => {
+  const reports = readFileSync(new URL('../../skills/pdd-cli/reports.md', import.meta.url), 'utf8');
+  assert.ok(reports.includes('尚未经有投放店铺实测'));
 });
 
 it('registers both authenticated traffic commands with a thirty-day default', () => {

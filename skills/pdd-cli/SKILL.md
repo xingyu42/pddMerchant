@@ -71,7 +71,7 @@ node bin/pdd.js config set <key> <value> --json   # 校验后写入 config/confi
 node bin/pdd.js config unset <key> --json
 ```
 
-优先级：`config/config.example.json` 基线 → `config/config.json` → 环境变量 → CLI 参数。秘密、安全与测试开关只走环境变量（见 `.env.example`）；config 命令不显示它们。
+优先级：`config/config.example.json` 基线 → `config/config.json` → 环境变量 → CLI 参数。秘密、安全与测试开关只走环境变量（见 `.env.example`）；config 命令不显示它们。配置修改由下一次命令加载，已运行的 daemon 需重启。
 
 ### 订单
 
@@ -130,7 +130,14 @@ node bin/pdd.js goods cost remove --goods-id 101 [--spec <精确规格>] [--conf
 
 - 只读写本地 SQLite，需要已登记的商家账号，无需在线登录。成本按账号 + 店铺 + 商品 + 规格隔离；店铺取 `--mall` 或配置，否则取账号绑定店铺，核对输出的 `mall_id`。写命令同样先预演再 `--confirm`；均只作用于单个账号。
 - 货本按件，包材、快递、技术服务费按单；运费险无需录入，`goods profit` 取平台逐单收费记录；金额为元，允许 0。`set` 整条替换，省略的可选费用归零。`--spec` 按原文精确匹配，未命中时回落默认成本；`remove` 不带 `--spec` 只删默认行。
-- `import`：UTF-8 JSON 数组，最多 1 MiB / 5000 条，字段 `goods_id`、可选 `spec`、`purchase_yuan`、`packaging_yuan`、`courier_yuan`、可选 `technical_service_yuan`（模板见 README「商品成本与净利润」）；含 `insurance_yuan` 的记录整批拒绝（运费险已改为自动计算）。整批校验通过才写入；失败返回 `E_COST_IMPORT_INVALID`（退出码 2），`error.detail.row_errors` 按从 1 开始的记录序号定位，JSON 语法错误为 `row:null`。
+- `import`：UTF-8 JSON 数组，最多 1 MiB / 5000 条，字段 `goods_id`、可选 `spec`、`purchase_yuan`、`packaging_yuan`、`courier_yuan`、可选 `technical_service_yuan`（示例如下）；含 `insurance_yuan` 的记录整批拒绝（运费险已改为自动计算）。整批校验通过才写入；失败返回 `E_COST_IMPORT_INVALID`（退出码 2），`error.detail.row_errors` 按从 1 开始的记录序号定位，JSON 语法错误为 `row:null`。
+
+```json
+[
+  { "goods_id": "101", "spec": null, "purchase_yuan": "8.20", "packaging_yuan": "0.50", "courier_yuan": "3.00" },
+  { "goods_id": "101", "spec": "红色 / 大号", "purchase_yuan": "9.20", "packaging_yuan": "0.50", "courier_yuan": "3.00", "technical_service_yuan": "0.20" }
+]
+```
 
 ### 推广
 
@@ -176,6 +183,8 @@ node bin/pdd.js account remove --slug <slug> [--confirm]   # 默认预演；--co
 | `E_PASSWORD_LOGIN_FORM_CHANGED` | 改用 `login --qr`，并告知用户登录页已变化 |
 | `E_AUTH_RELOGIN_FAILED`，或 `error.detail.relogin = 'throttled'` | 自动重登暂不可用，稍后重试或请用户 `login` |
 | `E_MASTER_KEY_MISSING` / `E_MASTER_KEY_MISMATCH` / `E_MASTER_KEY_INSECURE` / `E_SECRET_DECRYPT_FAILED` | 主密钥与数据库不配套，重新登录无效。把 `error.hint` 转告用户，由用户决定恢复密钥或清库；数据库与 `master.key` 保持原样，删除、改权限都交给用户本人 |
+| `E_CHROMIUM_MISSING` | 执行 `npx patchright install chromium` |
+| 命令挂起 / 疑似被风控拦截 | 执行 `doctor` 自检后重新登录 |
 
 ```bash
 node bin/pdd.js daemon start                      # 后台启动；已运行则返回状态（含 console_url）
@@ -191,10 +200,15 @@ node bin/pdd.js daemon run                        # 前台运行（调试），�
 - 同一账号两次自动重登至少间隔 30 分钟，遇到验证或熔断后暂停到用户处理为止；重复执行命令不会加快恢复。
 - `account list` 与 `doctor` 显示 `has_password` 和重登状态（如 `可用`、`等待人工：短信验证`、`已熔断：密码错误`），本身不触发重登。
 - daemon 需显式启动，不随机器启动；普通命令从不拉起它。
+- 控制台支持用登录名和密码新增账号、删除店铺（需输入店铺名确认）、录入或清除密码、解除熔断、输入短信验证码、在转播弹窗中完成滑块验证或改用扫码；一次性链接打开后兑换为 8 小时会话，聊天预览不消耗链接。
+- 控制台默认监听 `127.0.0.1:47821`（`consoleHost` / `consolePort`）；外网或 HTTPS 反代需设置 `consolePublicUrl` 并对 `/api/sessions/*/frames`（SSE）关闭缓冲（如 nginx `proxy_buffering off;`）；`consoleHost` 填 `0.0.0.0` 时未设 `consolePublicUrl` 返回 421。
+- 巡航默认关闭（`patrolEnabled`），开启后按 `patrolIntervalMs`（默认 30 分钟 ±20%）逐账号核验并在失效时自动重登，可在控制台巡航胶囊即时启停（被环境变量固定时拒绝修改）；daemon 启动时加载代码、控制台页面每次读盘，更新代码后需 `daemon restart`。
 
 ## 环境与数据
 
-- 首次使用：`npx patchright install chromium` → `init` → `doctor`（Node.js >= 24）。
+- 首次使用：`npx patchright install chromium` → `init` → `doctor`（Node.js >= 24）。系统 Chrome 优先，Patchright Chromium 为必须保留的回退运行时；自动化始终使用 `headless:true`。
 - 账号与加密登录态存在 SQLite（默认 `data/pdd.db`，`PDD_DB_PATH` 覆盖），主密钥 `master.key` 在同目录。两者是敏感文件，保持在仓库之外，备份时一起保存。
 - Mock 模式：`PDD_TEST_ADAPTER=fixture` + `PDD_TEST_FIXTURE_DIR=<dir>`，再用临时 `PDD_DB_PATH` 隔离数据库，可在无浏览器、无真实账号时跑通命令。
+- 日志：CLI 日志写入 `log/cli/YYYY-MM-DD.log`，daemon 日志写入 `log/daemon/YYYY-MM-DD.log`。
+- 上货代理：`goods publish --url` 源商品抓取可选青果代理（`PDD_SOURCE_PROXY_PROVIDER=qingguo`、`PDD_QINGGUO_AUTH_KEY`、`PDD_QINGGUO_AREA`）；启用后失败不回退直连，切勿把真实 AuthKey 写入仓库、日志或命令行参数。
 - 其他环境变量见 `.env.example`。

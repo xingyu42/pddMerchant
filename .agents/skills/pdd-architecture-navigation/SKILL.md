@@ -11,7 +11,7 @@ Use this skill to route work to the right layer before editing. Keep conclusions
 
 Read these in order for a new area:
 
-1. `docs/architecture-overview.md` for the full layer map, transport chain, persistence and config; `README.md` for supported commands and envelope behavior.
+1. `docs/architecture-overview.md` for the full layer map, transport chain, persistence and config; `skills/pdd-cli/SKILL.md` for supported commands and envelope behavior.
 2. `bin/pdd.js` for global flags, `wireAction()`, signal handlers and the commander usage-error envelope.
 3. `src/commands/registry/<domain>.js` for the command tree and option parsers, then the command file for CLI option-to-service wiring.
 4. `src/commands/_runner.js` (facade) and `src/commands/runner/` for `withCommand()`, account/auth, mall resolution, timeout/abort, batch mode, fixture mode, and envelope finalization.

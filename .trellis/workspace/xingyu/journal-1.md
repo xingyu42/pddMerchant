@@ -1634,3 +1634,20 @@ Topics: [.trellis/spec/services/domain-service-contracts.md](../../spec/services
 - 先执行 pdd login：侦察脚本运行后登录态失效（E_AUTH_EXPIRED），原因未确认，脚本没有把刷新后的 Cookie 写回账号存储
 - 实现 report-deepening 01、02，再用真实账号验证：销售数据自定义日期最早可选日、queryGoodsEvaluateVO 的 pageSize 20 到 40 与 goodsIdList
 - 工作区有另一会话对 test/helpers/isolated-cli.js、test/contract/data-contract-v2.test.js 等测试辅助代码的未提交改动，这是两张工单的主测试接缝，等它提交后再开工
+
+
+## Session 53: README slimmed; CLI docs owned by skills/pdd-cli
+<!-- trellis-session: v=3 fp=31fed135909bfc8d -->
+
+**Date**: 2026-11-22
+**Task**: README slimmed; CLI docs owned by skills/pdd-cli
+**Branch**: `main`
+
+### Summary
+
+Confirmed project doc boundary: keep README.md focused on project overview, quick start, and doc links; keep CLI command usage, options, report calibers, cost import template, console/daemon details, and troubleshooting in skills/pdd-cli/SKILL.md and skills/pdd-cli/reports.md.
+Topics: [README.md](../../../README.md), [.trellis/spec/standards/testing.md](../../spec/standards/testing.md)
+
+### Git Commits
+
+(No associated commits)

@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 52
-- **Last Active**: 2026-11-19
+- **Total Sessions**: 53
+- **Last Active**: 2026-11-22
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1636 | Active |
+| `journal-1.md` | ~1653 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 53 | 2026-11-22 | README slimmed; CLI docs owned by skills/pdd-cli | - | `main` |
 | 52 | 2026-11-19 | 店透视接口盘点与四项缺口路线图，现有报表加深可开工 | `7d10b12`, `a6532ec`, `e73ad8c` | `main` |
 | 51 | 2026-11-18 | goods reviews 评价明细命令与 diagnose reviews 标签聚合修复 | `2006790` | `main` |
 | 50 | 2026-11-11 | 修订 D5：订单输出省市区 | `64bf883` | `feat/region-sku-stock` |
