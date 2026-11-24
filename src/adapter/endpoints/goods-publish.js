@@ -149,7 +149,7 @@ export const GOODS_PUBLISH_SUBMIT = {
     raw,
   }),
   successRule: WRITE_SUCCESS_RULE,
-  errorMapper: mapPublishBusinessError,
+  errorMapper: mapPublishSubmitError,
 };
 
 export const GOODS_PUBLISH_COST_TEMPLATE_LIST = {
