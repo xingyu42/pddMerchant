@@ -31,7 +31,6 @@ async function candidate(options) {
 }
 
 beforeEach(() => {
-  vi.stubEnv('PDD_TEST_ADAPTER', '');
   accountId = insertAccount({ identity: '900001', displayName: 'Shop' }).id;
   mockMerchantProbeTransport();
 });
@@ -90,7 +89,6 @@ describe('leased verified merchant state', () => {
     await withMerchantAuthUpdate(accountId, (tx) => commitMerchantCandidate(liveCandidate, tx, { seal: sealA }));
     assert.equal(loadAuthState(accountId).revision, 1);
 
-    vi.stubEnv('PDD_TEST_ADAPTER', 'fixture');
     const fixtureRes = await verifyFixtureMerchantContext(null, {
       seal: sealB,
       getCurrentMall: async () => ({ id: '900001', name: 'Fixture Shop' }),

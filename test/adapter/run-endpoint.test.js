@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { PassThrough } from 'node:stream';
 import { describe, it, vi } from 'vitest';
 import * as runEndpointModule from '../../src/adapter/run-endpoint.js';
 import { EndpointClient } from '../../src/adapter/endpoint-client.js';
@@ -82,7 +83,7 @@ describe('runner endpoint isolation and batch cooldown inheritance', () => {
       closeDatabase();
       seedDb(firstSandbox.env.PDD_DB_PATH, { accounts });
       openDatabase(firstSandbox.env.PDD_DB_PATH);
-      vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+      const makeStreams = () => ({ stdout: new PassThrough(), stderr: new PassThrough() });
 
       const cmd = withCommand({
         name: 'test.batch',
@@ -96,6 +97,7 @@ describe('runner endpoint isolation and batch cooldown inheritance', () => {
         mode: 'fixture',
         runtimeConfigPolicy: 'maintenance',
         env: { PDD_TEST_FIXTURE_DIR: firstSandbox.fixtureDir },
+        streams: makeStreams(),
         clock: { now: () => 1_700_000_000_000, sleep: async () => {} },
         overrides: { runtimeConfig: batchRuntimeConfig },
       });
@@ -116,6 +118,7 @@ describe('runner endpoint isolation and batch cooldown inheritance', () => {
         mode: 'fixture',
         runtimeConfigPolicy: 'maintenance',
         env: { PDD_TEST_FIXTURE_DIR: secondSandbox.fixtureDir },
+        streams: makeStreams(),
         clock: { now: () => 1_700_000_000_000, sleep: async () => {} },
         overrides: { runtimeConfig: batchRuntimeConfig },
       });

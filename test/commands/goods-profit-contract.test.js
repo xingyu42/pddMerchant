@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
-import { afterEach, it, vi } from 'vitest';
+import { PassThrough } from 'node:stream';
+import { afterEach, it } from 'vitest';
 import { run as goodsProfit } from '../../src/commands/goods/profit.js';
 import { run as goodsCostSet } from '../../src/commands/goods/cost/set.js';
 import { openDatabase, closeDatabase } from '../../src/infra/db.js';
+import { composeCommandRuntime } from '../../src/runtime/command-runtime.js';
 import { createCliSandbox, runtimeConfig } from '../helpers/isolated-cli.js';
 import { seedDb, DEFAULT_ACCOUNT } from '../helpers/seed-db.js';
 import { createProfitFixtures, createProfitOrders, createUpstreamOrderInsurance } from '../fixtures/test-data.js';
@@ -10,35 +12,56 @@ import { createProfitFixtures, createProfitOrders, createUpstreamOrderInsurance 
 // 进程内跑 goods cost set / goods profit 的完整命令链（withCommand → fixture transport → 服务 → 视图），
 // 利润计算的各分支在这里断言。单行 JSON、退出码与参数解析由 test/e2e/goods-profit.e2e.test.js 以子进程守卫。
 
-const { emitSpy } = vi.hoisted(() => ({ emitSpy: vi.fn() }));
-vi.mock('../../src/infra/output.js', async (importOriginal) => ({
-  ...await importOriginal(), emit: emitSpy,
-}));
-
 const COSTS = { goodsId: '101', purchaseYuan: '8.2', packagingYuan: '0.5', courierYuan: '3' };
 const sandboxes = [];
+let activeSandbox = null;
 
 afterEach(() => {
   closeDatabase();
+  activeSandbox = null;
   for (const sandbox of sandboxes.splice(0)) sandbox.dispose();
 });
+
+function makeMemoryStreams() {
+  const stdoutChunks = [];
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  stdout.on('data', (chunk) => stdoutChunks.push(chunk.toString('utf8')));
+  return {
+    streams: { stdout, stderr },
+    readStdout: () => stdoutChunks.join(''),
+  };
+}
 
 // 每次调用一个独立沙箱：自己的 fixture 目录和已登记默认账号的临时库。
 function useShop(fixtures) {
   const sandbox = createCliSandbox(fixtures);
   sandboxes.push(sandbox);
+  activeSandbox = sandbox;
+  closeDatabase();
   seedDb(sandbox.env.PDD_DB_PATH, { accounts: [DEFAULT_ACCOUNT] });
   openDatabase(sandbox.env.PDD_DB_PATH);
-  for (const [key, value] of Object.entries(sandbox.env)) {
-    if (key.startsWith('PDD_')) vi.stubEnv(key, value);
-  }
 }
 
 async function invoke(run, opts) {
-  emitSpy.mockClear();
-  const envelope = await run({ json: true, timeoutMs: 10000, ...opts }, { runtimeConfig });
-  assert.equal(emitSpy.mock.calls.length, 1);
-  return JSON.parse(JSON.stringify(envelope)); // 与 stdout 上的 JSON 同形
+  const { streams, readStdout } = makeMemoryStreams();
+  const runtime = await composeCommandRuntime({
+    mode: 'fixture',
+    runtimeConfigPolicy: 'maintenance',
+    env: { PDD_TEST_FIXTURE_DIR: activeSandbox.fixtureDir },
+    streams,
+    overrides: { runtimeConfig },
+  });
+  let envelope;
+  try {
+    envelope = await run({ json: true, timeoutMs: 10000, ...opts }, { runtime });
+    assert.equal(runtime.outputSink.hasEmitted(), true);
+  } finally {
+    await runtime.closeAll();
+  }
+  const lines = readStdout().trim().split(/\r?\n/);
+  assert.equal(lines.length, 1);
+  return JSON.parse(lines[0]); // 与 stdout 上的 JSON 同形
 }
 
 async function setCost(overrides = {}) {

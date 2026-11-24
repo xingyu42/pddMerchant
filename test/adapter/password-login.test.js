@@ -67,13 +67,11 @@ function fakePage(options = {}) {
   return page;
 }
 
-function live() { vi.stubEnv('PDD_TEST_ADAPTER', ''); }
 function deadline() { return { deadlineAt: Date.now() + 2000 }; }
 function submissionCount(page) { return page.calls.filter(([action, selector]) => action === 'click' && selector === selectors.submit).length; }
 
 describe('password login browser adapter', () => {
   it('keeps selectors frozen and only accepts a scoped nonempty exact PASS_ID', async () => {
-    live();
     assert.ok(Object.isFrozen(selectors));
     const page = fakePage({ cookies: [{ name: 'PASS_ID', value: 'fixture-value' }], agreement: true });
     assert.deepEqual(await attemptPasswordLogin(page, credential, deadline()), { outcome: 'success' });
@@ -87,14 +85,12 @@ describe('password login browser adapter', () => {
   });
 
   it('leaves an already checked agreement alone', async () => {
-    live();
     const page = fakePage({ cookies: [{ name: 'PASS_ID', value: 'fixture' }], agreement: true, checked: true });
     await attemptPasswordLogin(page, credential, deadline());
     assert.equal(page.calls.filter(([action]) => action === 'check').length, 0);
   });
 
   it('supports the historical custom agreement and does not toggle checked controls', async () => {
-    live();
     for (const checked of [true, false]) {
       const page = fakePage({ cookies: [{ name: 'PASS_ID', value: 'fixture' }], agreement: true, customAgreement: true, checked });
       assert.deepEqual(await attemptPasswordLogin(page, credential, deadline()), { outcome: 'success' });
@@ -104,7 +100,6 @@ describe('password login browser adapter', () => {
 
   for (const missing of ['passwordTab', 'loginName', 'password', 'submit']) {
     it(`maps missing ${missing} to form_changed without exposing browser errors`, async () => {
-      live();
       const result = await attemptPasswordLogin(fakePage({ missing: selectors[missing] }), credential, deadline());
       assert.deepEqual(result, { outcome: 'form_changed' });
       assert.ok(!JSON.stringify(result).includes(credential.password));
@@ -113,13 +108,11 @@ describe('password login browser adapter', () => {
   }
 
   it('maps navigation failures to a fixed network category', async () => {
-    live();
     assert.deepEqual(await attemptPasswordLogin(fakePage({ navigationError: new Error(credential.password) }), credential, deadline()), { outcome: 'network_error' });
   });
 
   for (const message of ['Page is navigating', 'Execution context was destroyed', 'Frame was detached']) {
     it(`continues polling after ${message} without resubmitting`, async () => {
-      live();
       vi.useFakeTimers();
       const page = fakePage({ pollErrors: [new Error(message)], cookies: [{ name: 'PASS_ID', value: 'fixture' }] });
       const pending = attemptPasswordLogin(page, credential, deadline());
@@ -131,7 +124,6 @@ describe('password login browser adapter', () => {
   }
 
   it('continues polling after a cookie read error without resubmitting', async () => {
-    live();
     vi.useFakeTimers();
     const page = fakePage();
     const cookies = vi.fn().mockRejectedValueOnce(new Error(credential.password)).mockResolvedValue([{ name: 'PASS_ID', value: 'fixture' }]);
@@ -144,7 +136,6 @@ describe('password login browser adapter', () => {
   });
 
   it('returns unknown at the deadline after repeated poll errors without resubmitting', async () => {
-    live();
     vi.useFakeTimers();
     const page = fakePage();
     page.context = () => ({ cookies: async () => { throw new Error(credential.loginName); } });
@@ -155,7 +146,6 @@ describe('password login browser adapter', () => {
   });
 
   it('preserves cancellation during a failed poll', async () => {
-    live();
     const controller = new AbortController();
     const page = fakePage();
     page.context = () => ({ cookies: async () => { controller.abort(); throw new Error(credential.password); } });
@@ -164,7 +154,6 @@ describe('password login browser adapter', () => {
   });
 
   it('treats an unclassified submitted deadline as unknown and never retries submission', async () => {
-    live();
     vi.useFakeTimers();
     const page = fakePage({ cookies: [{ name: 'OTHER_PASS_ID', value: 'value' }, { name: 'PASS_ID', value: '' }] });
     const pending = attemptPasswordLogin(page, credential, deadline());
@@ -174,7 +163,6 @@ describe('password login browser adapter', () => {
   });
 
   it('throws sanitized assertAuthTask errors for preflight timeout and cancellation', async () => {
-    live();
     await assert.rejects(attemptPasswordLogin(null, credential, { deadlineAt: Date.now() }), { code: 'E_AUTH_TIMEOUT' });
     const controller = new AbortController();
     controller.abort(new Error(credential.password));
@@ -182,7 +170,6 @@ describe('password login browser adapter', () => {
   });
 
   it('responds to cancellation during a pending browser call', async () => {
-    live();
     const controller = new AbortController();
     const page = fakePage();
     page.goto = () => new Promise(() => {});
@@ -193,7 +180,6 @@ describe('password login browser adapter', () => {
   });
 
   it('preserves explicit timeout/cancellation signals after submission without further clicks', async () => {
-    live();
     const controller = new AbortController();
     const page = fakePage({ onSubmit: () => controller.abort(new Error(credential.password)) });
     await assert.rejects(attemptPasswordLogin(page, credential, { signal: controller.signal, ...deadline() }), { code: 'E_AUTH_CANCELLED' });
@@ -201,7 +187,6 @@ describe('password login browser adapter', () => {
   });
 
   it('responds to timeout during form work with E_AUTH_TIMEOUT', async () => {
-    live();
     vi.useFakeTimers();
     const page = fakePage();
     const locator = page.locator;
@@ -225,7 +210,6 @@ describe('password login browser adapter', () => {
     [{ errorCode: 2000020 }, { outcome: 'challenge', challenge: 'sms' }],
   ]) {
     it(`classifies auth response ${raw.error_code ?? raw.errorCode} from the response`, async () => {
-      live();
       const page = fakePage({ authResponse: raw });
       assert.deepEqual(await attemptPasswordLogin(page, credential, deadline()), expected);
       assert.equal(submissionCount(page), 1);
@@ -233,13 +217,11 @@ describe('password login browser adapter', () => {
   }
 
   it('falls back to PASS_ID cookie detection when no auth response is captured', async () => {
-    live();
     const page = fakePage({ cookies: [{ name: 'PASS_ID', value: 'fixture' }] });
     assert.deepEqual(await attemptPasswordLogin(page, credential, deadline()), { outcome: 'success' });
   });
 
   it('keeps polling on an unmapped auth code and returns unknown at the deadline', async () => {
-    live();
     vi.useFakeTimers();
     const page = fakePage({ authResponse: { error_code: 2000099 } });
     const pending = attemptPasswordLogin(page, credential, deadline());

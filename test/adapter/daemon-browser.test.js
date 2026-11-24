@@ -8,7 +8,6 @@ import { daemonBrowserDbPrefix } from '../../src/infra/daemon-state.js';
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }));
 
 it('only kills this database browser processes, skips its own pid and swallows individual failures', () => {
-  vi.stubEnv('PDD_TEST_ADAPTER', '');
   const kill = vi.fn((pid) => { if (pid === 23) throw new Error('gone'); });
   const marker = `--pdd-cli-daemon=${daemonBrowserDbPrefix()}-abc`;
   const otherDb = daemonBrowserDbPrefix() === '00000000' ? '11111111' : '00000000';
@@ -33,7 +32,6 @@ it('only kills this database browser processes, skips its own pid and swallows i
 it.each(['chrome', 'chromium', 'chromium-browser', 'headless_shell', 'headless_shell.exe',
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium'])(
   'recognizes browser image %s with a database-scoped marker', (imageName) => {
-    vi.stubEnv('PDD_TEST_ADAPTER', '');
     const kill = vi.fn();
     const commandLine = `"${imageName}" --pdd-cli-daemon=${daemonBrowserDbPrefix()}-old-owner`;
     assert.equal(cleanupOrphanBrowsers({ kill, listProcesses: () => [{ pid: 21, imageName, commandLine }] }), 1);
@@ -46,7 +44,6 @@ it('fixture cleanup performs no process listing or kills', async () => {
 });
 
 it('swallows enumeration failures', () => {
-  vi.stubEnv('PDD_TEST_ADAPTER', '');
   assert.equal(cleanupOrphanBrowsers({ listProcesses: () => { throw new Error('denied'); } }), 0);
 });
 

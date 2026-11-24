@@ -1,41 +1,35 @@
 import assert from 'node:assert/strict';
 import https from 'node:https';
-import { insertAccount } from '../../src/infra/account-store.js';
+import { insertAccount, getReloginState, listPendingActions, insertPendingAction } from '../../src/infra/account-store.js';
 import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
-import { afterEach, beforeEach, describe, it, vi } from 'vitest';
+import { beforeEach, describe, it, vi } from 'vitest';
 import { mockMerchantProbeTransport } from '../helpers/merchant-probe-transport.js';
+import { createInMemoryDaemonProcessPort } from '../helpers/in-memory-ports.js';
 import { savePasswordCredential } from '../../src/adapter/password-credential.js';
-import { getReloginState, listPendingActions } from '../../src/infra/account-store.js';
 import { TIMEOUTS } from '../../src/infra/timeouts.js';
 import { acquireDaemonLease } from '../../src/infra/daemon-state.js';
-import { insertPendingAction } from '../../src/infra/account-store.js';
-import { spawnDaemonProcess } from '../../src/adapter/daemon-process.js';
-
-vi.mock('../../src/adapter/daemon-process.js', () => {
-  const spawnMock = vi.fn();
-  return {
-    spawnDaemonProcess: spawnMock,
-    killDaemonProcess: vi.fn(),
-    createLiveDaemonProcessPort: () => ({
-      spawnDetached: spawnMock,
-      stopByPid: vi.fn(),
-      isRunning: () => false,
-    }),
-  };
-});
+import { composeCommandRuntime } from '../../src/runtime/command-runtime.js';
+import { executeSingle } from '../../src/commands/runner/single-lifecycle.js';
 
 const control = vi.hoisted(() => ({ state: null, mallId: 900001, selectedMallId: 900001, login: true, malformed: false,
-  page: null, browserCalls: 0, outcome: null, snapshots: [], originalContext: null, failPage: false, candidateState: null }));
-vi.mock('../../src/adapter/mall-port.js', async (importOriginal) => ({
-  ...await importOriginal(),
-  createLiveMallPort: () => ({
-    detectCurrentMall: async () => ({ activeId: String(control.selectedMallId), malls: [] }),
-    listMalls: async () => [],
-    switchMall: async () => {},
+  page: null, browserCalls: 0, outcome: null, snapshots: [], originalContext: null, failPage: false, candidateState: null,
+  spawnDetached: null }));
+
+vi.mock('../../src/adapter/password-login.js', () => ({
+  attemptPasswordLogin: vi.fn(async (page, _credential, task) => {
+    assert.ok(task.deadlineAt - Date.now() > 60000);
+    assert.ok(task.deadlineAt - Date.now() <= TIMEOUTS.LOGIN_PASSWORD - TIMEOUTS.LOGIN_PASSWORD_RESERVE);
+    if (control.outcome?.outcome === 'success') {
+      page.context().session.cookies.push({ name: 'PASS_ID', value: 'synthetic-new-session' });
+      control.candidateState = structuredClone(page.context().session);
+      control.login = true;
+    }
+    return control.outcome;
   }),
 }));
-vi.mock('../../src/adapter/browser.js', async (importOriginal) => {
-  const actual = await importOriginal();
+import { attemptPasswordLogin } from '../../src/adapter/password-login.js';
+
+function createBrowserOverride() {
   const createSnapshotContext = async (browser, state) => {
     const session = structuredClone(state);
     const context = {
@@ -62,52 +56,70 @@ vi.mock('../../src/adapter/browser.js', async (importOriginal) => {
       createSnapshotContext: (state) => createSnapshotContext(browser, state),
     };
   };
-  const withBrowser = async (_options, fn) => {
-    const session = await openSession();
-    return fn({ browser: {}, context: session.context, page: session.page });
-  };
   return {
-    ...actual,
-    withBrowser,
-    createSnapshotContext,
-    createLiveBrowserRuntime: () => ({
-      openSession,
-      withSession: async (_options, fn) => fn(await openSession()),
-      closeAll: async () => {},
-    }),
+    openSession,
+    withSession: async (_options, fn) => fn(await openSession()),
+    closeAll: async () => {},
   };
-});
-vi.mock('../../src/adapter/password-login.js', () => ({
-  attemptPasswordLogin: vi.fn(async (page, _credential, task) => {
-    assert.ok(task.deadlineAt - Date.now() > 60000);
-    assert.ok(task.deadlineAt - Date.now() <= TIMEOUTS.LOGIN_PASSWORD - TIMEOUTS.LOGIN_PASSWORD_RESERVE);
-    if (control.outcome?.outcome === 'success') {
-      page.context().session.cookies.push({ name: 'PASS_ID', value: 'synthetic-new-session' });
-      control.candidateState = structuredClone(page.context().session);
-      control.login = true;
-    }
-    return control.outcome;
-  }),
-}));
-import { executeSingle } from '../../src/commands/runner/single-lifecycle.js';
-import { attemptPasswordLogin } from '../../src/adapter/password-login.js';
+}
+
+function createMallOverride() {
+  return {
+    detectCurrentMall: async () => ({ activeId: String(control.selectedMallId), malls: [] }),
+    listMalls: async () => [],
+    switchMall: async () => {},
+  };
+}
+
+function createDaemonProcessOverride() {
+  const port = createInMemoryDaemonProcessPort();
+  const spawnDetached = vi.fn(port.spawnDetached);
+  control.spawnDetached = spawnDetached;
+  return {
+    ...port,
+    spawnDetached,
+  };
+}
 
 let accountId;
 beforeEach(async () => {
-  vi.stubEnv('PDD_TEST_ADAPTER', '');
   accountId = insertAccount({ identity: '900001', displayName: 'Shop' }, { setDefault: true }).id;
   control.state = { cookies: [{ name: 'PASS_ID', value: 'synthetic' }], origins: [] };
   control.mallId = 900001; control.selectedMallId = 900001; control.login = true; control.malformed = false; control.browserCalls = 0;
-  control.outcome = null; control.snapshots = []; control.failPage = false; control.candidateState = null;
+  control.outcome = null; control.snapshots = []; control.failPage = false; control.candidateState = null; control.spawnDetached = null;
   attemptPasswordLogin.mockClear();
   saveAuthStateSnapshot(control.state, accountId);
   mockMerchantProbeTransport(() => ({ mallId: control.mallId, mallName: 'Shop', login: control.login, malformed: control.malformed }));
 });
 
-async function runOperation(run, opts = {}) {
-  return executeSingle({ name: 'test.readonly', needsAuth: true, needsMall: 'none', run },
-    { accountId, timeoutMs: 5000, ...opts }, { emitResult: false, runtimeConfig: { rateLimitQps: 3, rateLimitBurst: 3, cooldownThreshold: 3, cooldownMs: 1000,
-      passwordReloginMinIntervalMs: 1800000 } });
+async function runOperation(run, opts = {}, {
+  name = 'test.readonly',
+  needsMall = 'none',
+  runtimeConfig = {
+    rateLimitQps: 3, rateLimitBurst: 3, cooldownThreshold: 3, cooldownMs: 1000,
+    passwordReloginMinIntervalMs: 1800000,
+  },
+} = {}) {
+  const runtime = await composeCommandRuntime({
+    mode: 'live',
+    runtimeConfigPolicy: 'maintenance',
+    env: {},
+    overrides: {
+      browser: createBrowserOverride(),
+      mall: createMallOverride(),
+      daemonProcess: createDaemonProcessOverride(),
+      runtimeConfig,
+    },
+  });
+  try {
+    return await executeSingle(
+      { name, needsAuth: true, needsMall, run },
+      { accountId, timeoutMs: 5000, ...opts },
+      { emitResult: false, runtime },
+    );
+  } finally {
+    await runtime.closeAll();
+  }
 }
 
 describe('live merchant command authentication lifecycle', () => {
@@ -130,7 +142,7 @@ describe('live merchant command authentication lifecycle', () => {
   it('never spawns a background daemon for live ordinary commands', async () => {
     const result = await runOperation(async () => ({}));
     assert.equal(result.ok, true);
-    assert.equal(spawnDaemonProcess.mock.calls.length, 0);
+    assert.equal(control.spawnDetached.mock.calls.length, 0);
     const { readDaemonLease } = await import('../../src/infra/daemon-state.js');
     assert.equal(readDaemonLease(), null);
   });
@@ -222,8 +234,11 @@ describe('live merchant command authentication lifecycle', () => {
 
   it('skips switched shop persistence even if the subject endpoint still reports the original shop', async () => {
     control.selectedMallId = 900002;
-    const envelope = await executeSingle({ name: 'test.switched', needsAuth: true, needsMall: 'current', run: async () => ({ receipt: 'complete' }) },
-      { accountId, timeoutMs: 5000 }, { emitResult: false, runtimeConfig: { rateLimitQps: 3, rateLimitBurst: 3, cooldownThreshold: 3, cooldownMs: 1000 } });
+    const envelope = await runOperation(
+      async () => ({ receipt: 'complete' }),
+      {},
+      { name: 'test.switched', needsMall: 'current', runtimeConfig: { rateLimitQps: 3, rateLimitBurst: 3, cooldownThreshold: 3, cooldownMs: 1000 } },
+    );
     assert.equal(envelope.ok, true);
     assert.ok(envelope.meta.warnings.includes('auth_state_identity_mismatch'));
     assert.deepEqual(loadAuthState(accountId).state, control.state);
