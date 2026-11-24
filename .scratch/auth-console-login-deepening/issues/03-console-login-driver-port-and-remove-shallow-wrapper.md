@@ -4,9 +4,13 @@
 
 **Blocked by:** 01, runtime-adapter-seams#04
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 整文件删除 `console-login-browser` 薄包装，`composeDaemonRuntime` 在 Live 模式结构性省略 `/api/sessions/:id/fixture-complete` 且仅 Fixture 模式注册 `consoleExtraRoutes`
-- [ ] `DriverSessionHandle` 将全部浏览器、上下文与接管句柄私有封闭于内部，启动局部失败幂等清理且 `close` 幂等
-- [ ] Live、Fixture 与 InMemory 三套适配器均固化“排空在途二维码刷新并关页后再独立核验”通用契约并共享一致手势坐标/时序校验
-- [ ] 增补 `LiveConsoleLoginDriver` 定向假页面单测覆盖局部失败清理、排空 QR 后核验与 Profile 继承，且全量测试与 `npm run check` 通过
+- [x] 整文件删除 `console-login-browser` 薄包装，`composeDaemonRuntime` 在 Live 模式结构性省略 `/api/sessions/:id/fixture-complete` 且仅 Fixture 模式注册 `consoleExtraRoutes`
+- [x] `DriverSessionHandle` 将全部浏览器、上下文与接管句柄私有封闭于内部，启动局部失败幂等清理且 `close` 幂等
+- [x] Live、Fixture 与 InMemory 三套适配器均固化“排空在途二维码刷新并关页后再独立核验”通用契约并共享一致手势坐标/时序校验
+- [x] 增补 `LiveConsoleLoginDriver` 定向假页面单测覆盖局部失败清理、排空 QR 后核验与 Profile 继承，且全量测试与 `npm run check` 通过
+
+## Comments
+
+- **2026-11-25**（合并提交 `a9808cb46ef1014badb73c5ea9c91b28bc55e23b`）：已合入 `ticket/auth-console-login-deepening-03`（原提交 `9c30219c52304c73e223114ffc3ba48fccdb6a07`，共变更 16 个文件）。删除 `src/services/console-login-browser.js`，向 `composeDaemonRuntime` 引入 `ConsoleLoginDriverPort`（`console-login-driver.js`、`console-login-driver-shared.js`、`console-login-fixture.js` 及 `test/helpers/in-memory-ports.js` 中的 `InMemoryConsoleLoginDriver`）与 `consoleExtraRoutes`（Live 组合根省略 `/api/sessions/:id/fixture-complete`）；固化二维码刷新排空、关页与 `AuthPort.verifyAndSeal` + `CandidateSeal` 核验契约；新增三适配器契约与 Live 假页面单测（`test/adapter/console-login-driver-port.contract.test.js`），同步更新 `.trellis/spec/` 与 `docs/architecture-overview.md`。合入后执行 `npm run check` 通过：`knip` 无多余导出/文件/依赖，Vitest 全量测试 `161 passed (161)`、`2575 passed | 1 skipped (2576)`（耗时 `88.41s`）。
