@@ -8,14 +8,7 @@ import { assertVerifiedMerchantCandidate, verifyMerchantContext } from './mercha
 import { budgetMs } from '../infra/abort.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
-
-export function assertAuthTask({ signal, deadlineAt } = {}) {
-  const expired = (deadlineAt != null && Date.now() >= deadlineAt)
-    || (signal?.aborted && signal.reason instanceof PddCliError && signal.reason.code === 'E_AUTH_TIMEOUT');
-  if (signal?.aborted || expired) {
-    throw new PddCliError({ code: expired ? 'E_AUTH_TIMEOUT' : 'E_AUTH_CANCELLED', message: expired ? '认证任务超过截止时间' : '认证任务已取消', exitCode: ExitCodes.NETWORK });
-  }
-}
+import { assertAuthTask } from '../infra/auth-task.js';
 
 export function boundMerchantMallId(state) {
   const metadata = state?.merchant_auth;
@@ -84,7 +77,7 @@ function assertCurrent(transaction) {
 }
 
 export function merchantCandidateState(candidate, transaction = {}) {
-  assertVerifiedMerchantCandidate(candidate);
+  assertVerifiedMerchantCandidate(candidate, transaction.seal);
   if (transaction.recoveryMallId != null && String(transaction.recoveryMallId) !== candidate.identity.mallId) {
     throw new PddCliError({ code: 'E_ACCOUNT_IDENTITY_MISMATCH', message: '候选店铺与登记店铺不一致', exitCode: ExitCodes.AUTH });
   }
@@ -117,8 +110,9 @@ function commitState(state, transaction) {
   return transaction.accountId;
 }
 
-export function commitMerchantCandidate(candidate, transaction, { expectedRevision = transaction.revision } = {}) {
-  const state = merchantCandidateState(candidate, transaction);
+export function commitMerchantCandidate(candidate, transaction, { expectedRevision = transaction.revision, seal } = {}) {
+  const activeSeal = seal === undefined ? transaction.seal : seal;
+  const state = merchantCandidateState(candidate, activeSeal === undefined ? transaction : { ...transaction, seal: activeSeal });
   if (transaction.revision !== expectedRevision) throw authStateConflict();
   return commitState(state, transaction);
 }

@@ -19,7 +19,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { verifyMerchantContext, assertMerchantVerified } from '../adapter/merchant-auth.js';
-import { boundMerchantMallId, assertAuthTask } from '../adapter/merchant-auth-storage.js';
+import { boundMerchantMallId } from '../adapter/merchant-auth-storage.js';
+import { assertAuthTask } from '../infra/auth-task.js';
 import { checkMerchantSession } from './merchant-session.js';
 import { MERCHANT_CHECK_URL, hasPassId } from '../adapter/merchant-auth-probe.js';
 import { abortableSleep, budgetMs } from '../infra/abort.js';
@@ -109,7 +110,7 @@ async function authorizeMerchantSession({ context, page }, options, task, qrDire
   }
   await waitForMerchantCandidate(context, task);
   await page.close();
-  return { result: await verifyMerchantContext(context, task), qrContentPresent };
+  return { result: await verifyMerchantContext(context, { ...task, createSnapshotContext }), qrContentPresent };
 }
 
 export function performQrLogin(options) {

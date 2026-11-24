@@ -1,5 +1,6 @@
 import { assertMerchantVerified } from '../adapter/merchant-auth.js';
-import { verifyStoredMerchant, recordMerchantCheck, assertAuthTask } from '../adapter/merchant-auth-storage.js';
+import { verifyStoredMerchant, recordMerchantCheck } from '../adapter/merchant-auth-storage.js';
+import { assertAuthTask } from '../infra/auth-task.js';
 import { probeCheckLogin, selectCheckCookiesFromState } from '../adapter/merchant-auth-probe.js';
 import { mockIsAuthValid, mockIsAuthIndeterminate } from '../adapter/mock-dispatcher.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';

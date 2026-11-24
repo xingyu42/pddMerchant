@@ -9,6 +9,7 @@ import { withMerchantAuthUpdate } from '../../src/adapter/merchant-auth-storage.
 import { assertMerchantVerified, verifyMerchantContext } from '../../src/adapter/merchant-auth.js';
 import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
 import { createFixtureReloginContext } from '../../src/adapter/fixtures/auth.js';
+import { createCandidateSeal } from '../../src/infra/candidate-seal.js';
 import { aad, seal } from '../../src/infra/secret-box.js';
 import { armDeadline } from '../../src/commands/runner/single-lifecycle.js';
 import { decideRelogin, recordReloginAttempt, recordReloginOutcome, markManualLoginSucceeded,
@@ -189,6 +190,21 @@ it('rejects an unverified candidate through the attempt handle without advancing
     assert.equal(loadAuthState(account.id).exists, false);
     assert.ok(getReloginState(account.id).last_attempt_at);
     assert.equal(getReloginState(account.id).reason, null);
+  });
+});
+
+it('validates and commits candidates through an injected isolated CandidateSeal', async () => {
+  const sealA = createCandidateSeal();
+  const sealB = createCandidateSeal();
+  savePasswordCredential(account.id, credential);
+  const { candidate } = await verifyMerchantContext(createFixtureReloginContext(account.identity), { seal: sealA });
+  await withMerchantAuthUpdate(account.id, (tx) => {
+    const wrongHandle = beginReloginAttempt(tx, { seal: sealB, credentialUpdatedAt: getCredential(account.id).updated_at });
+    assert.throws(() => wrongHandle.succeed(candidate), { code: 'E_AUTH_CANDIDATE_INVALID' });
+    assert.equal(tx.revision, 0);
+    const matchingHandle = beginReloginAttempt(tx, { seal: sealA, credentialUpdatedAt: getCredential(account.id).updated_at });
+    matchingHandle.succeed(candidate);
+    assert.equal(tx.revision, 1);
   });
 });
 
