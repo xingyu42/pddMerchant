@@ -5,7 +5,7 @@ import { insertAccount, getAccountById, putReloginState, getReloginState, listPe
   insertPendingAction } from '../../src/infra/account-store.js';
 import { get, run, isInTransaction } from '../../src/infra/db.js';
 import { saveAuthStateSnapshot, loadAuthState } from '../../src/adapter/auth-state.js';
-import { setAccountPassword, clearAccountPassword } from '../../src/services/password-relogin.js';
+import { setAccountPassword, clearAccountPassword } from '../../src/services/relogin-policy.js';
 import { mockMerchantProbeTransport } from '../helpers/merchant-probe-transport.js';
 
 const control = vi.hoisted(() => ({ contexts: [], browser: null, outcome: { outcome: 'success' }, failAt: null,

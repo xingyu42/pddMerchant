@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { withMerchantAuthUpdate } from '../adapter/merchant-auth-storage.js';
+import { withMerchantAuthUpdate, commitMerchantCandidate } from '../adapter/merchant-auth-storage.js';
 import { assertAuthTask } from '../infra/auth-task.js';
 import { invalidTakeoverInput, validateSmsCode } from '../adapter/takeover.js';
 import { findAccountByIdentity } from '../infra/account-store.js';
@@ -10,8 +10,8 @@ import { consoleAccount } from './console-accounts.js';
 import { removeAccountView } from './account-removal.js';
 import { consoleRequestError } from './console-runtime.js';
 import { saveMerchantLogin, provisionMerchantLogin } from './auth-account-storage.js';
-import { decideRelogin, beginReloginAttempt, recordTakeoverTimeout, setAccountPassword } from './password-relogin.js';
-import { verifyMerchantContext, assertMerchantVerified } from '../adapter/merchant-auth.js';
+import { decideRelogin, beginReloginAttempt, recordTakeoverTimeout, setAccountPassword } from './relogin-policy.js';
+import { verifyMerchantContext, assertMerchantVerified, assertVerifiedMerchantCandidate } from '../adapter/merchant-auth.js';
 import { openConsoleBrowser, attemptConsolePassword, captureConsoleQr, openConsoleTakeover,
   consoleHasPassId, verifyConsoleLogin, closeConsoleBrowser, submitConsoleSms } from './console-login-browser.js';
 
@@ -171,10 +171,18 @@ function finishTimeout(session) {
 }
 
 function consoleReloginAttempt(session, tx, decision = {}) {
-  return beginReloginAttempt(tx, { ...decision, manual: true, password: session.mode === 'password',
-    ...(session.fixture ? {} : {
-      commit: (candidate, draft) => saveMerchantLogin({ candidate, identity: candidate.identity }, draft, draft),
-    }) });
+  const seal = tx?.seal ?? session.runtime?.seal ?? {
+    assert: (candidate) => assertVerifiedMerchantCandidate(candidate),
+  };
+  return beginReloginAttempt(tx, {
+    ...decision,
+    manual: true,
+    password: session.mode === 'password',
+    seal,
+    commit: session.fixture
+      ? commitMerchantCandidate
+      : (candidate, draft) => saveMerchantLogin({ candidate, identity: candidate.identity }, draft, draft),
+  });
 }
 
 async function verifyFixtureConsoleLogin(session, tx) {

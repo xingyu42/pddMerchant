@@ -3,7 +3,7 @@ import { it } from 'vitest';
 import { actionWarnings, credential, usePasswordReloginSandbox } from '../helpers/password-relogin-cli.js';
 import { DEFAULT_ACCOUNT } from '../helpers/seed-db.js';
 import { saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
-import { setAccountPassword, clearReloginBlock } from '../../src/services/password-relogin.js';
+import { setAccountPassword, clearReloginBlock } from '../../src/services/relogin-policy.js';
 
 // 密码自动重登的失败结果：人工挑战、熔断、解除熔断、节流。
 const { seed, database, openActions, state, attempts, cli } = usePasswordReloginSandbox();

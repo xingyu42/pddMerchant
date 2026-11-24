@@ -1,7 +1,7 @@
 import { getAccount, listAccounts, listPendingActions } from '../infra/account-store.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getAuthStateMetadata } from '../adapter/auth-state.js';
-import { getReloginSummary, setAccountPassword, clearAccountPassword, clearReloginBlock } from './password-relogin.js';
+import { getReloginSummary, setAccountPassword, clearAccountPassword, clearReloginBlock } from './relogin-policy.js';
 import { toConsoleAccountView } from './views/console.js';
 import { getConsoleLinkView } from './console-auth.js';
 

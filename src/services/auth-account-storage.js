@@ -7,7 +7,7 @@ import { withMerchantAuthUpdate, merchantCandidateState } from '../adapter/merch
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { assertAuthTask } from '../infra/auth-task.js';
 import { assertVerifiedMerchantCandidate } from '../adapter/merchant-auth.js';
-import { markManualLoginSucceeded } from './password-relogin.js';
+import { markManualLoginSucceeded } from './relogin-policy.js';
 
 function provisioningError(kind, reason) {
   return new PddCliError({

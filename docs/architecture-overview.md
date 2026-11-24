@@ -107,7 +107,7 @@ console.js   → console link
 | 经营报表 | `operating-report.js`（报表声明与 days 规则）、`report-windows.js`、`traffic.js`、`goods-traffic*.js`、`customer-service.js`、`reviews.js`、`experience.js` |
 | 成本与利润 | `goods-cost*.js`（本地 SQLite 成本）、`goods-profit*.js`（ADR 0004） |
 | 预估实收 | `goods-receipt.js`（价格管理页的平台估算值，口径见 GLOSSARY） |
-| 鉴权与会话 | `auth.js`（登录流程）、`auth-account-storage.js`（登录态保存）、`merchant-session.js`（命令与巡检的会话核验单一入口）、`password-relogin.js` |
+| 鉴权与会话 | `auth.js`（登录流程）、`auth-account-storage.js`（登录态保存）、`merchant-session.js`（命令与巡检的会话核验单一入口）、`relogin-policy.js`、`password-relogin.js` |
 | 账号 | `shops.js`、`account-removal.js`、`doctor-storage.js` |
 | 常驻控制台 | `daemon.js`、`daemon-runtime.js`、`patrol.js`、`console-*.js` |
 

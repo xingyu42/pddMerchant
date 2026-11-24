@@ -5,6 +5,7 @@ import * as authStorage from '../../src/adapter/merchant-auth-storage.js';
 import * as authProbe from '../../src/adapter/merchant-auth-probe.js';
 import * as mocks from '../../src/adapter/mock-dispatcher.js';
 import * as relogin from '../../src/services/password-relogin.js';
+import { setAccountPassword } from '../../src/services/relogin-policy.js';
 import { createPatrol, patrolDelayMs, patrolIntervalMs, runPatrolRound } from '../../src/services/patrol.js';
 import { parseRuntimeEnv } from '../../src/runtime/env.js';
 import { composeDaemonRuntime } from '../../src/runtime/daemon-runtime.js';
@@ -365,8 +366,8 @@ it('keeps the 120s account budget for request-only probes and continues after ti
 it('daemon abort interrupts fixture relogin, releases the lease and skips the rest of the round', async () => {
   const first = account();
   const second = account('900002');
-  relogin.setAccountPassword(first.id, credential);
-  relogin.setAccountPassword(second.id, credential);
+  setAccountPassword(first.id, credential);
+  setAccountPassword(second.id, credential);
   const runtime = await composeDaemonRuntime({
     mode: 'fixture',
     foreground: false,
@@ -397,7 +398,7 @@ it('daemon abort interrupts fixture relogin, releases the lease and skips the re
 
 it('honours fixture throttling and the breaker on later rounds', async () => {
   const row = account();
-  relogin.setAccountPassword(row.id, credential);
+  setAccountPassword(row.id, credential);
   const networkRuntime = await composeDaemonRuntime({
     mode: 'fixture',
     foreground: false,
@@ -416,7 +417,7 @@ it('honours fixture throttling and the breaker on later rounds', async () => {
     await runPatrolRound(context({ runtime: networkRuntime }));
     assert.equal(attempt.mock.calls.length, 1);
     assert.equal(getReloginState(row.id).reason, 'network_error');
-    relogin.setAccountPassword(row.id, credential);
+    setAccountPassword(row.id, credential);
     await runPatrolRound(context({ runtime: wrongRuntime }));
     await runPatrolRound(context({ runtime: wrongRuntime }));
     assert.equal(attempt.mock.calls.length, 2);
