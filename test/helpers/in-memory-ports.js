@@ -4,15 +4,7 @@ import { requireMallId } from '../../src/adapter/mall-id.js';
 import { createCandidateSeal, deepFreeze } from '../../src/infra/candidate-seal.js';
 import { assertAuthTask, boundMerchantMallId } from '../../src/infra/auth-task.js';
 import { resolveClock } from '../../src/infra/clock.js';
-import { createLatestFrames } from '../../src/adapter/latest-frames.js';
-import {
-  validatePointerBatch,
-  validateText,
-  validateKey,
-  createPointerReplay,
-  inputQueue,
-  invalidTakeoverInput,
-} from '../../src/adapter/takeover.js';
+import { createDeterministicTakeoverChannel, invalidTakeoverInput } from '../../src/adapter/takeover.js';
 import {
   combineAbortSignals,
   createDriverSessionHandle,
@@ -448,47 +440,25 @@ function createMemoryLatch() {
   return latch;
 }
 
-function createMemoryTakeoverChannel({ sessionRecord, onTakeoverClose }) {
-  const frames = createLatestFrames();
-  const controller = new AbortController();
-  const enqueue = inputQueue(controller.signal);
-  const replay = createPointerReplay({
-    state: { pressed: false },
-    signal: controller.signal,
-    enqueue,
-    dispatch: async () => {},
-  });
-  sessionRecord.frames = frames;
-  return {
-    frames,
-    dispatchPointer(input, metadata) {
-      const batch = validatePointerBatch(input, metadata);
-      sessionRecord.pointerCalls.push({ events: input, metadata });
-      return enqueue(async () => {
-        const interrupted = await replay(batch);
-        if (interrupted) return interrupted;
-        const released = batch.events.some((event) => event.type === 'up');
-        return released ? { editable: false, numeric: false } : { editable: null, numeric: null };
-      });
+function createMemoryTakeoverChannel({ sessionRecord, clock, onTakeoverClose }) {
+  const channel = createDeterministicTakeoverChannel({
+    clock,
+    onPointer: ({ events, metadata }) => {
+      sessionRecord.pointerCalls.push({ events, metadata });
     },
-    insertText(text) {
-      const validated = validateText(text);
+    onText: (validated) => {
       sessionRecord.textCalls.push(validated);
-      return Promise.resolve();
     },
-    pressKey(key) {
-      const validated = validateKey(key);
+    onKey: (validated) => {
       sessionRecord.keyCalls.push(validated.key);
-      return Promise.resolve();
     },
-    close() {
-      if (controller.signal.aborted) return;
-      controller.abort();
-      frames.close();
+    onClose: () => {
       sessionRecord.timeline.push('takeover_closed');
       onTakeoverClose?.(sessionRecord.sessionId);
     },
-  };
+  });
+  sessionRecord.frames = channel.frames;
+  return channel;
 }
 
 async function waitForMemoryLatch({ latch, clock, signal, expiresAt, sessionDeadlineAt }) {
@@ -539,6 +509,20 @@ export function createInMemoryConsoleLoginDriver({
   const resolvedClock = resolveClock(clock);
   const sessions = new Map();
   const orderedIds = [];
+  const waitingLatches = new Map();
+
+  function waitingLatch(sessionId) {
+    let latch = waitingLatches.get(sessionId);
+    if (!latch) {
+      latch = createMemoryLatch();
+      waitingLatches.set(sessionId, latch);
+    }
+    return latch;
+  }
+
+  function waitForWaiting(sessionId) {
+    return waitingLatch(sessionId).promise;
+  }
 
   function completeSession(sessionId, outcome = 'success') {
     if (!['success', 'timeout'].includes(outcome)) throw invalidTakeoverInput();
@@ -602,7 +586,7 @@ export function createInMemoryConsoleLoginDriver({
       },
       runOpenTakeover: async () => {
         record.timeline.push('takeover_opened');
-        return createMemoryTakeoverChannel({ sessionRecord: record, onTakeoverClose });
+        return createMemoryTakeoverChannel({ sessionRecord: record, clock: resolvedClock, onTakeoverClose });
       },
       runSubmitSms: async (code, task) => {
         record.smsCalls.push(code);
@@ -610,13 +594,17 @@ export function createInMemoryConsoleLoginDriver({
         if (onSubmitSms) return onSubmitSms(code, task, record);
         return typeof smsOutcome === 'function' ? smsOutcome(code, task, record) : smsOutcome;
       },
-      runWaitForAcquisition: ({ signal: waitSignal, expiresAt, sessionDeadlineAt }) => waitForMemoryLatch({
-        latch: record.latch,
-        clock: resolvedClock,
-        signal: waitSignal,
-        expiresAt,
-        sessionDeadlineAt,
-      }),
+      runWaitForAcquisition: ({ signal: waitSignal, expiresAt, sessionDeadlineAt }) => {
+        record.timeline.push('waiting');
+        waitingLatch(sessionId).resolve(record);
+        return waitForMemoryLatch({
+          latch: record.latch,
+          clock: resolvedClock,
+          signal: waitSignal,
+          expiresAt,
+          sessionDeadlineAt,
+        });
+      },
       getVerifyTarget: () => ({
         storageState: async () => structuredClone(
           typeof contextState === 'function' ? contextState(record) : contextState,
@@ -624,12 +612,13 @@ export function createInMemoryConsoleLoginDriver({
       }),
       closePage: () => {
         record.timeline.push('page_closed');
-        onPageClose?.(sessionId);
+        return onPageClose?.(sessionId);
       },
       closeResources: async () => {
         record.closed = true;
         record.timeline.push('closed');
         record.latch.resolve('cancelled');
+        waitingLatch(sessionId).resolve(record);
         await onClose?.(record);
       },
     });
@@ -638,6 +627,7 @@ export function createInMemoryConsoleLoginDriver({
   return Object.freeze({
     openSession,
     completeSession,
+    waitForWaiting,
     emitFrame,
     sessions,
     lastSession: () => (orderedIds.length ? sessions.get(orderedIds.at(-1)) : null),

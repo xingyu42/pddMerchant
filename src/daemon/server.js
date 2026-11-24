@@ -3,7 +3,7 @@ import { consoleBaseUrl, isConsoleLoopback, publishConsoleUrl, consoleListenErro
   consoleApiError, consoleRequestError } from '../services/console-runtime.js';
 import { securityHeaders, requestPath, send, rejectHttpClient } from './http.js';
 import { dispatchRoute, routesForMode } from './routes.js';
-import { closeAllConsoleSessions } from '../services/console-login.js';
+import { createConsoleApp } from '../services/console-login.js';
 
 function validHost(request, runtimeConfig, port) {
   const host = runtimeConfig.consoleHost.toLowerCase();
@@ -48,11 +48,12 @@ function listen(server, runtimeConfig) {
   });
 }
 
-export function createConsoleServer({ patrol, mode = 'live', runtime } = {}) {
+export function createConsoleServer({ patrol, mode = 'live', runtime, consoleApp } = {}) {
   let server;
   let context;
   let starting;
   let controller;
+  let activeConsoleApp;
   return {
     async start(nextContext) {
       controller = new AbortController();
@@ -60,12 +61,20 @@ export function createConsoleServer({ patrol, mode = 'live', runtime } = {}) {
       const resolvedMode = resolvedRuntime?.mode ?? mode;
       const resolvedRoutes = resolvedRuntime?.routes
         ?? routesForMode(resolvedMode, resolvedRuntime?.consoleExtraRoutes);
+      activeConsoleApp = nextContext.consoleApp ?? consoleApp ?? resolvedRuntime?.consoleApp ?? createConsoleApp({
+        driver: resolvedRuntime?.ports?.consoleLoginDriver,
+        seal: resolvedRuntime?.seal,
+        clock: resolvedRuntime?.clock,
+        patrol,
+        runtimeConfig: nextContext.runtimeConfig,
+      });
       context = {
         ...nextContext,
         patrol,
         mode: resolvedMode,
         routes: resolvedRoutes,
         runtime: resolvedRuntime,
+        consoleApp: activeConsoleApp,
         signal: nextContext.signal
           ? AbortSignal.any([nextContext.signal, controller.signal])
           : controller.signal,
@@ -82,7 +91,8 @@ export function createConsoleServer({ patrol, mode = 'live', runtime } = {}) {
       controller?.abort();
       try { await starting; } catch { /* 监听失败时仍清理元数据。 */ }
       publishConsoleUrl(null, context?.ownerTag);
-      await closeAllConsoleSessions();
+      await activeConsoleApp?.sessions.closeAll();
+      activeConsoleApp = null;
       if (!server?.listening) return;
       await new Promise((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());

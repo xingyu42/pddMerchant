@@ -647,4 +647,49 @@ describe('LiveConsoleLoginDriver targeted contracts', () => {
     assert.equal(await waiting, 'success');
     assert.throws(() => driver.completeSession('sess-latch', 'success'), { code: 'E_CONSOLE_SESSION_STATE', httpStatus: 409 });
   });
+
+  it('replays takeover gestures deterministically using the injected clock across shared rules', async () => {
+    let nowMs = 2_000_000;
+    const sleeps = [];
+    const clock = {
+      now: () => nowMs,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        nowMs += ms;
+      },
+    };
+    const seal = createCandidateSeal();
+    const driver = createInMemoryConsoleLoginDriver({ seal, clock });
+    const controller = new AbortController();
+    const handle = await driver.openSession({
+      sessionId: 'sess-gesture-clock',
+      mode: 'password',
+      ownerTag: 'daemon-9',
+      deviceState: { cookies: [], origins: [] },
+      signal: controller.signal,
+      deadlineAt: nowMs + 60_000,
+    });
+    handlesToClose.push(handle);
+
+    const takeover = await handle.openTakeover();
+    const result = await takeover.dispatchPointer(
+      [{ t: 0, type: 'down', x: 0.1, y: 0.2 }, { t: 45, type: 'up', x: 0.6, y: 0.2 }],
+      { gesture_id: 'g-clock', seq: 0 },
+    );
+    assert.deepEqual(result, { editable: false, numeric: false });
+    assert.deepEqual(sleeps, [45]);
+
+    nowMs += 1500; // Exceed POINTER_LAG_MS (1000ms) for a stale seq=1 batch
+    const stale = await takeover.dispatchPointer(
+      [{ t: 0, type: 'down', x: 0.1, y: 0.2 }, { t: 10, type: 'move', x: 0.3, y: 0.2 }],
+      { gesture_id: 'g-lag', seq: 0 },
+    );
+    assert.deepEqual(stale, { editable: null, numeric: null });
+    nowMs += 1200;
+    const lagged = await takeover.dispatchPointer(
+      [{ t: 50, type: 'up', x: 0.5, y: 0.2 }],
+      { gesture_id: 'g-lag', seq: 1 },
+    );
+    assert.deepEqual(lagged, { editable: null, numeric: null, result: 'interrupted' });
+  });
 });

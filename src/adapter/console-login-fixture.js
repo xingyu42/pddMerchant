@@ -1,15 +1,7 @@
 import { resolveClock } from '../infra/clock.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { createFixtureReloginContext, mockPasswordLogin } from './fixtures/auth.js';
-import { createLatestFrames } from './latest-frames.js';
-import {
-  validatePointerBatch,
-  validateText,
-  validateKey,
-  createPointerReplay,
-  inputQueue,
-  invalidTakeoverInput,
-} from './takeover.js';
+import { createDeterministicTakeoverChannel, invalidTakeoverInput } from './takeover.js';
 import {
   combineAbortSignals,
   createDriverSessionHandle,
@@ -28,23 +20,11 @@ const JPEG = [
   'AAAAAAAAAAD/2gAMAwEAAhEDEQA/AKcAB//Z',
 ].join('');
 
-export function openFixtureTakeover() {
-  const frames = createLatestFrames();
-  const controller = new AbortController();
-  const enqueue = inputQueue(controller.signal);
-  const replay = createPointerReplay({ state: { pressed: false }, signal: controller.signal, enqueue,
-    dispatch: async () => {} });
-  frames.publish({ jpeg: JPEG, width: 1, height: 1 });
-  return { frames, dispatchPointer(input, metadata) {
-    const batch = validatePointerBatch(input, metadata);
-    return enqueue(async () => {
-      const interrupted = await replay(batch);
-      if (interrupted) return interrupted;
-      const released = batch.events.some((event) => event.type === 'up');
-      return released ? { editable: false, numeric: false } : { editable: null, numeric: null };
-    });
-  }, insertText: validateText, pressKey: validateKey,
-    close: () => { controller.abort(); frames.close(); } };
+export function openFixtureTakeover({ clock } = {}) {
+  return createDeterministicTakeoverChannel({
+    clock,
+    initialFrame: { jpeg: JPEG, width: 1, height: 1 },
+  });
 }
 
 function createLatch() {
@@ -147,7 +127,7 @@ export function createFixtureConsoleLoginDriver({
         return FIXTURE_QR_IMAGE;
       },
       runOpenTakeover: async () => {
-        const channel = openFixtureTakeover();
+        const channel = openFixtureTakeover({ clock: resolvedClock });
         return {
           ...channel,
           close() {

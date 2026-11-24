@@ -69,7 +69,7 @@ export function validatePointerBatch(input, metadata) {
   return { events, gesture_id: metadata.gesture_id, seq: metadata.seq, cancel: metadata.cancel === true };
 }
 
-export function validateText(text) {
+function validateText(text) {
   if (typeof text !== 'string' || [...text].length > 64) throw invalidTakeoverInput();
   return text;
 }
@@ -79,12 +79,12 @@ export function validateSmsCode(code) {
   return code;
 }
 
-export function validateKey(key) {
+function validateKey(key) {
   if (typeof key !== 'string' || !Object.hasOwn(KEYS, key)) throw invalidTakeoverInput();
   return { key, code: KEYS[key][0], windowsVirtualKeyCode: KEYS[key][1] };
 }
 
-export function inputQueue(signal) {
+function inputQueue(signal) {
   let pending = Promise.resolve();
   return (operation) => {
     const previous = pending;
@@ -107,6 +107,14 @@ async function releasePointer(pointer) {
   return INTERRUPTED;
 }
 
+function pointerNow(pointer) {
+  return pointer.clock?.now ? pointer.clock.now() : Date.now();
+}
+
+function pointerSleep(pointer, wait) {
+  return pointer.clock?.sleep ? pointer.clock.sleep(wait, pointer.signal) : abortableSleep(wait, pointer.signal);
+}
+
 async function beginPointerBatch(pointer, batch, area) {
   const first = batch.events[0];
   if (batch.cancel) {
@@ -121,7 +129,7 @@ async function beginPointerBatch(pointer, batch, area) {
     await releasePointer(pointer);
     pointer.seen.add(batch.gesture_id);
     pointer.area = area;
-    pointer.gesture = { id: batch.gesture_id, seq: 0, anchor: Date.now() - first.t, lastT: first.t, ended: false };
+    pointer.gesture = { id: batch.gesture_id, seq: 0, anchor: pointerNow(pointer) - first.t, lastT: first.t, ended: false };
   }
   const gesture = pointer.gesture;
   if (gesture.ended || batch.seq !== gesture.seq || first.t < gesture.lastT) return releasePointer(pointer);
@@ -144,33 +152,77 @@ function armPointerIdle(pointer) {
         if (pointer.gesture === gesture && gesture.seq === sequence) return releasePointer(pointer);
       });
     } catch { /* 通道关闭或浏览器退出时，清理由会话负责。 */ }
-  }, Math.max(0, pointer.lastWall + POINTER_IDLE_MS - Date.now()));
+  }, Math.max(0, pointer.lastWall + POINTER_IDLE_MS - pointerNow(pointer)));
   pointer.timer.unref?.();
 }
 
 async function replayPointerEvents(pointer, events) {
   for (const event of events) {
     // 固定手势起点，迟到批次只追赶进度，后续轨迹不随之整体后移。
-    const wait = pointer.gesture.anchor + event.t - Date.now();
+    const wait = pointer.gesture.anchor + event.t - pointerNow(pointer);
     if (wait < -POINTER_LAG_MS) return releasePointer(pointer);
     if (wait > POINTER_WAIT_MS) { await releasePointer(pointer); throw invalidTakeoverInput(); }
-    if (wait > 0) await abortableSleep(wait, pointer.signal);
+    if (wait > 0) await pointerSleep(pointer, wait);
     if (pointer.signal.aborted) throw invalidTakeoverInput();
-    if (Date.now() - pointer.gesture.anchor - event.t > POINTER_LAG_MS) return releasePointer(pointer);
+    if (pointerNow(pointer) - pointer.gesture.anchor - event.t > POINTER_LAG_MS) return releasePointer(pointer);
     pointer.lastEvent = event;
     if (event.type === 'down') pointer.state.pressed = true;
     const pressed = event.type === 'up' ? false : pointer.state.pressed;
     await pointer.dispatch(event, pointer.area, pressed);
     pointer.state.pressed = pressed;
-    pointer.lastWall = Date.now();
+    pointer.lastWall = pointerNow(pointer);
     pointer.gesture.lastT = event.t;
   }
   if (events.some((event) => event.type === 'up')) pointer.gesture.ended = true;
   return null;
 }
 
+/** Shared deterministic takeover channel reusing pointer validation, replay sequencing, and clock timing. */
+export function createDeterministicTakeoverChannel({ clock, initialFrame, onPointer, onText, onKey, onClose } = {}) {
+  const frames = createLatestFrames();
+  const controller = new AbortController();
+  const enqueue = inputQueue(controller.signal);
+  const replay = createPointerReplay({
+    state: { pressed: false },
+    signal: controller.signal,
+    enqueue,
+    clock,
+    dispatch: async () => {},
+  });
+  if (initialFrame) frames.publish(initialFrame);
+  return {
+    frames,
+    dispatchPointer(input, metadata) {
+      const batch = validatePointerBatch(input, metadata);
+      onPointer?.({ events: input, metadata, batch });
+      return enqueue(async () => {
+        const interrupted = await replay(batch);
+        if (interrupted) return interrupted;
+        const released = batch.events.some((event) => event.type === 'up');
+        return released ? { editable: false, numeric: false } : { editable: null, numeric: null };
+      });
+    },
+    insertText(text) {
+      const validated = validateText(text);
+      onText?.(validated);
+      return Promise.resolve(validated);
+    },
+    pressKey(key) {
+      const validated = validateKey(key);
+      onKey?.(validated);
+      return Promise.resolve(validated);
+    },
+    close() {
+      if (controller.signal.aborted) return;
+      controller.abort();
+      frames.close();
+      onClose?.();
+    },
+  };
+}
+
 // 实际 CDP 与离线 fixture 共用顺序、时钟和丢失抬起恢复逻辑。
-export function createPointerReplay(options) {
+function createPointerReplay(options) {
   const pointer = { ...options, seen: new Set(), gesture: null, timer: null };
   pointer.signal.addEventListener('abort', () => clearTimeout(pointer.timer), { once: true });
   return async (batch, area) => {
