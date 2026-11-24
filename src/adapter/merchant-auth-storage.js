@@ -8,16 +8,9 @@ import { assertVerifiedMerchantCandidate, verifyMerchantContext } from './mercha
 import { budgetMs } from '../infra/abort.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
-import { assertAuthTask } from '../infra/auth-task.js';
+import { assertAuthTask, boundMerchantMallId } from '../infra/auth-task.js';
 
-export function boundMerchantMallId(state) {
-  const metadata = state?.merchant_auth;
-  if (!metadata) return null;
-  if (metadata.version !== 1 || (metadata.mall_id != null && !/^[1-9][0-9]{0,14}$/.test(String(metadata.mall_id)))) {
-    throw new PddCliError({ code: 'E_AUTH_STATE_CORRUPT', message: '商家登录态绑定元数据格式无效', exitCode: ExitCodes.AUTH });
-  }
-  return metadata.mall_id == null ? null : String(metadata.mall_id);
-}
+export { boundMerchantMallId };
 
 // 已记录 rejected 的凭据直接短路；否则按显式店铺或凭据绑定店铺做协议校验。
 export async function verifyStoredMerchant(context, state, task = {}) {
@@ -118,6 +111,7 @@ export function commitMerchantCandidate(candidate, transaction, { expectedRevisi
 }
 
 export function recordMerchantCheck(result, transaction) {
+  if (result?.authoritative === false) return;
   if (!transaction.state || !['rejected', 'indeterminate'].includes(result.verdict)) return;
   const metadata = transaction.state.merchant_auth ?? { version: 1, mall_id: null };
   const state = { ...transaction.state, merchant_auth: {

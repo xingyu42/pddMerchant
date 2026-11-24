@@ -15,7 +15,7 @@ const { emit, ENVELOPE_VERSION } = await import('../src/infra/output.js');
 const { ExitCodes, mapErrorToExit, errorToEnvelope } = await import('../src/infra/errors.js');
 const { createLogger, redactRecursive } = await import('../src/infra/logger.js');
 const { prepareCommandRuntime } = await import('../src/commands/runtime-options.js');
-const { closeAllBrowsers } = await import('../src/adapter/browser.js');
+const { runCloseAllHooks } = await import('../src/infra/runtime-cleanup.js');
 const { register: registerCore } = await import('../src/commands/registry/core.js');
 const { register: registerConfig } = await import('../src/commands/registry/config.js');
 const { register: registerShops } = await import('../src/commands/registry/shops.js');
@@ -37,7 +37,7 @@ function onSignal(signal) {
   shutdownController.abort();
   const code = { SIGINT: 130, SIGTERM: 143 }[signal] ?? 128;
   process.exitCode = code;
-  closeAllBrowsers({ timeoutMs: 5000 }).catch(() => {});
+  runCloseAllHooks({ timeoutMs: 5000 }).catch(() => {});
 }
 process.on('SIGINT', () => onSignal('SIGINT'));
 process.on('SIGTERM', () => onSignal('SIGTERM'));
@@ -48,7 +48,7 @@ process.on('unhandledRejection', (reason) => {
   fatalEmitted = true;
   const envelope = errorToEnvelope('pdd', reason instanceof Error ? reason : new Error(String(reason)));
   emit(envelope, { json: true, noColor: true });
-  closeAllBrowsers().catch(() => {});
+  runCloseAllHooks().catch(() => {});
   process.exitCode = ExitCodes.GENERAL;
 });
 
@@ -58,7 +58,7 @@ process.on('uncaughtException', (err) => {
     const envelope = errorToEnvelope('pdd', err);
     emit(envelope, { json: true, noColor: true });
   }
-  closeAllBrowsers({ timeoutMs: 3000 }).catch(() => {}).finally(() => {
+  runCloseAllHooks({ timeoutMs: 3000 }).catch(() => {}).finally(() => {
     process.exit(ExitCodes.GENERAL);
   });
 });

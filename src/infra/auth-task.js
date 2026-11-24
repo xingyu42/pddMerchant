@@ -12,3 +12,13 @@ export function assertAuthTask({ signal, deadlineAt } = {}) {
     });
   }
 }
+
+/** Validate and extract bound merchant mall_id metadata from a stored auth state object. */
+export function boundMerchantMallId(state) {
+  const metadata = state?.merchant_auth;
+  if (!metadata) return null;
+  if (metadata.version !== 1 || (metadata.mall_id != null && !/^[1-9][0-9]{0,14}$/.test(String(metadata.mall_id)))) {
+    throw new PddCliError({ code: 'E_AUTH_STATE_CORRUPT', message: '商家登录态绑定元数据格式无效', exitCode: ExitCodes.AUTH });
+  }
+  return metadata.mall_id == null ? null : String(metadata.mall_id);
+}

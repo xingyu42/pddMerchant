@@ -1,8 +1,8 @@
-import { collectCheckCookies, hasPassId, probeCheckLogin, probeMerchantShop } from './merchant-auth-probe.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
-import { createCandidateSeal, deepFreeze } from '../infra/candidate-seal.js';
+import { createCandidateSeal } from '../infra/candidate-seal.js';
 import { isMockEnabled, mockCurrentMall } from './mock-dispatcher.js';
 import { verifyFixtureMerchantContext } from './fixtures/auth.js';
+import { verifyLiveMerchantContext } from './auth-port.js';
 
 const defaultCandidateSeal = createCandidateSeal();
 
@@ -39,29 +39,5 @@ export async function verifyMerchantContext(context, options = {}) {
       getCurrentMall: mockCurrentMall,
     });
   }
-  if (typeof options.createSnapshotContext !== 'function') {
-    throw new PddCliError({
-      code: 'E_CONFIG_INVALID',
-      message: 'verifyMerchantContext 需要 createSnapshotContext',
-      exitCode: ExitCodes.GENERAL,
-    });
-  }
-  const task = { ...options, deadlineAt: options.deadlineAt ?? Date.now() + 30500 };
-  const snapshot = deepFreeze(structuredClone(await context.storageState()));
-  const frozenContext = await options.createSnapshotContext(context.browser(), snapshot);
-  try {
-    const cookies = await collectCheckCookies(frozenContext);
-    if (!hasPassId(cookies)) {
-      return { verdict: 'rejected', reason: 'auth_missing', checked_at: new Date().toISOString(), http_status: null };
-    }
-    const check = await probeCheckLogin(cookies, task);
-    if (check.verdict !== 'verified') return check;
-    const shop = await probeMerchantShop(frozenContext, cookies, task);
-    if (shop.verdict !== 'verified') return shop;
-    if (options.expectedMallId != null && String(options.expectedMallId) !== shop.identity.mallId) {
-      return { verdict: 'failed', reason: 'identity_mismatch', checked_at: shop.checked_at, http_status: shop.http_status };
-    }
-    const candidate = seal.seal({ state: snapshot, identity: shop.identity, checked_at: shop.checked_at, scope: 'shop_read' });
-    return { verdict: 'verified', reason: 'shop_read', checked_at: shop.checked_at, http_status: shop.http_status, identity: shop.identity, candidate };
-  } finally { await frozenContext.close(); }
+  return verifyLiveMerchantContext(context, { ...options, seal });
 }
