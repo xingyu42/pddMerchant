@@ -1,5 +1,5 @@
 import { evaluateInMainWorld } from '../browser.js';
-import { normalizeGoodsPropertyTemplate } from '../goods-publish/property-mapper.js';
+import { normalizeGoodsPropertyTemplate } from '../goods-publish/property-template.js';
 import { isSuccessfulResponse, mapWriteBusinessError, WRITE_SUCCESS_RULE } from '../response-interpreter.js';
 
 export function mapPublishBusinessError(raw) {

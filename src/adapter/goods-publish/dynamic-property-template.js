@@ -1,5 +1,5 @@
 import { evaluateInMainWorld } from '../browser.js';
-import { normalizeGoodsPropertyTemplate } from './property-mapper.js';
+import { mergeDynamicPropertyTemplate } from './property-template.js';
 
 const MAX_VISIBLE_PROPERTY_ROWS = 100;
 const MAX_REACT_OBJECTS = 4_000;
@@ -12,74 +12,6 @@ function invalidDynamicTemplate(baseTemplate) {
     issues: ['dynamic_property_template_invalid'],
     propertysTid: baseTemplate?.propertysTid ?? null,
     properties: [],
-  };
-}
-
-function propertySignature(property) {
-  return JSON.stringify({
-    templateModuleId: String(property.templateModuleId),
-    templatePid: String(property.templatePid),
-    pid: String(property.pid),
-    refPid: String(property.refPid),
-    name: property.name,
-    required: property.required,
-    important: property.important,
-    controlType: property.controlType,
-    valueType: property.valueType,
-    chooseMaxNum: property.chooseMaxNum,
-    values: property.values.map((value) => [String(value.vid), value.value]),
-  });
-}
-
-function mergeDynamicPropertyTemplate(baseTemplate, rawDefinitions) {
-  if (baseTemplate?.ok !== true || !Array.isArray(baseTemplate.properties)) {
-    return invalidDynamicTemplate(baseTemplate);
-  }
-  if (!Array.isArray(rawDefinitions) || rawDefinitions.length === 0) return baseTemplate;
-
-  const baseModules = new Map(baseTemplate.properties.map((property) => [
-    String(property.templateModuleId),
-    property.templateModuleId,
-  ]));
-  const fallbackModuleId = baseModules.size === 1
-    ? [...baseModules.values()][0]
-    : null;
-  const grouped = new Map();
-  for (const definition of rawDefinitions) {
-    const moduleId = definition?.templateModuleId
-      ?? fallbackModuleId;
-    if (moduleId == null) return invalidDynamicTemplate(baseTemplate);
-    const key = String(moduleId);
-    if (!grouped.has(key)) grouped.set(key, { moduleId, propertys: [] });
-    grouped.get(key).propertys.push(definition);
-  }
-
-  const normalized = normalizeGoodsPropertyTemplate({
-    id: baseTemplate.propertysTid,
-    modules: [...grouped.values()].map(({ moduleId, propertys }) => ({
-      id: moduleId,
-      propertys,
-    })),
-  });
-  if (!normalized.ok) return invalidDynamicTemplate(baseTemplate);
-
-  const merged = new Map(baseTemplate.properties.map((property) => [
-    String(property.templatePid),
-    property,
-  ]));
-  for (const property of normalized.properties) {
-    const key = String(property.templatePid);
-    const existing = merged.get(key);
-    if (existing && propertySignature(existing) !== propertySignature(property)) {
-      return invalidDynamicTemplate(baseTemplate);
-    }
-    if (!existing) merged.set(key, property);
-  }
-  return {
-    ok: true,
-    issues: [],
-    propertysTid: baseTemplate.propertysTid,
-    properties: [...merged.values()],
   };
 }
 
@@ -187,7 +119,9 @@ function projectVisiblePropertyDefinitions(limits) {
   return { definitions, visibleLabels };
 }
 
-export async function readDynamicPropertyTemplate(page, baseTemplate) {
+export async function readDynamicPropertyTemplate(page, baseTemplate, {
+  mergeTemplate = mergeDynamicPropertyTemplate,
+} = {}) {
   let projected;
   try {
     projected = await evaluateInMainWorld(page, projectVisiblePropertyDefinitions, {
@@ -202,11 +136,9 @@ export async function readDynamicPropertyTemplate(page, baseTemplate) {
   } catch {
     return invalidDynamicTemplate(baseTemplate);
   }
-  const merged = mergeDynamicPropertyTemplate(baseTemplate, projected?.definitions ?? projected);
-  if (!merged.ok) return merged;
-
-  const knownNames = new Set(merged.properties.map((property) => property.name));
-  const unresolvedVisibleNames = (projected?.visibleLabels ?? [])
-    .filter((name) => !knownNames.has(name));
-  return unresolvedVisibleNames.length > 0 ? invalidDynamicTemplate(baseTemplate) : merged;
+  return mergeTemplate(
+    baseTemplate,
+    projected?.definitions ?? projected,
+    projected?.visibleLabels ?? null,
+  );
 }

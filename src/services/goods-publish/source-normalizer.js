@@ -1,6 +1,43 @@
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { parseYuanToFen } from '../../infra/units.js';
-import { normalizeSourceGoodsProperties } from '../../adapter/goods-publish/property-mapper.js';
+
+const MAX_SOURCE_PROPERTIES = 100;
+const MAX_VALUES_PER_PROPERTY = 20;
+const MAX_PROPERTY_TEXT_LENGTH = 200;
+
+function normalizePropertyText(value) {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .replace(/[‐‑‒–—―]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeSourceProperty(rawProperty) {
+  const property = asObject(rawProperty);
+  if (!property) return null;
+  const name = normalizePropertyText(property.name ?? property.key ?? property.propertyName ?? property.property_name);
+  const rawValues = property.values ?? property.valueList ?? property.value_list;
+  if (!name || !Array.isArray(rawValues)) return null;
+  const values = rawValues
+    .slice(0, MAX_VALUES_PER_PROPERTY)
+    .map((value) => normalizePropertyText(asObject(value)?.value ?? asObject(value)?.text ?? value))
+    .filter((value) => value && value.length <= MAX_PROPERTY_TEXT_LENGTH);
+  if (values.length === 0) return null;
+  const refPid = property.refPid ?? property.ref_pid;
+  const referenceId = property.referenceId ?? property.reference_id;
+  return {
+    name: name.slice(0, MAX_PROPERTY_TEXT_LENGTH),
+    values: [...new Set(values)],
+    refPid: refPid == null ? '' : normalizePropertyText(refPid),
+    referenceId: referenceId == null ? '' : normalizePropertyText(referenceId),
+  };
+}
+
+export function normalizeSourceGoodsProperties(rawProperties) {
+  if (!Array.isArray(rawProperties)) return [];
+  return rawProperties.slice(0, MAX_SOURCE_PROPERTIES).map(normalizeSourceProperty).filter(Boolean);
+}
 
 export const SOURCE_CACHE_VERSION = 4;
 
@@ -507,5 +544,3 @@ export function parseSourceCachePayload(goodsId, raw) {
   }
   return normalizeSourceForCache(normalizedId, payload.source);
 }
-
-export { normalizeSourceGoodsProperties };
