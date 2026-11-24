@@ -62,13 +62,49 @@ function precheckStoredState(state, expectedMallId, authoritative, nowIso) {
   return { shortCircuit: null, boundMallId };
 }
 
+async function verifyFrozenMerchantSnapshot(frozenContext, {
+  snapshot,
+  expectedMallId,
+  task,
+  seal,
+  nowIso,
+  collectCookies,
+  probeLogin,
+  probeShop,
+}) {
+  const cookies = await collectCookies(frozenContext);
+  if (!hasPassId(cookies)) {
+    return { verdict: 'rejected', reason: 'auth_missing', checked_at: nowIso(), http_status: null, authoritative: true };
+  }
+  const check = await probeLogin(cookies, task);
+  if (check.verdict !== 'verified') return { ...check, authoritative: true };
+  const shop = await probeShop(frozenContext, cookies, task);
+  if (shop.verdict !== 'verified') return { ...shop, authoritative: true };
+  if (expectedMallId != null && String(expectedMallId) !== shop.identity.mallId) {
+    return {
+      verdict: 'failed',
+      reason: 'identity_mismatch',
+      checked_at: shop.checked_at,
+      http_status: shop.http_status,
+      authoritative: true,
+    };
+  }
+  const candidate = seal.seal({ state: snapshot, identity: shop.identity, checked_at: shop.checked_at, scope: 'shop_read' });
+  return {
+    verdict: 'verified',
+    reason: 'shop_read',
+    checked_at: shop.checked_at,
+    http_status: shop.http_status,
+    identity: shop.identity,
+    candidate,
+    authoritative: true,
+  };
+}
+
 export async function verifyLiveMerchantContext(target, options = {}, deps = {}) {
   const seal = assertSealInstance(options.seal, 'verifyMerchantContext 需要有效的 CandidateSeal 实例');
   const now = deps.now ?? Date.now;
   const nowIso = () => new Date(now()).toISOString();
-  const collectCookies = deps.collectCookies ?? collectCheckCookies;
-  const probeLogin = deps.probeLogin ?? probeCheckLogin;
-  const probeShop = deps.probeShop ?? probeMerchantShop;
 
   const precheck = precheckStoredState(options.state, options.expectedMallId, true, nowIso);
   if (precheck.shortCircuit) return precheck.shortCircuit;
@@ -88,33 +124,16 @@ export async function verifyLiveMerchantContext(target, options = {}, deps = {})
   const snapshot = deepFreeze(structuredClone(await context.storageState()));
   const frozenContext = await createSnapshot(snapshot);
   try {
-    const cookies = await collectCookies(frozenContext);
-    if (!hasPassId(cookies)) {
-      return { verdict: 'rejected', reason: 'auth_missing', checked_at: nowIso(), http_status: null, authoritative: true };
-    }
-    const check = await probeLogin(cookies, task);
-    if (check.verdict !== 'verified') return { ...check, authoritative: true };
-    const shop = await probeShop(frozenContext, cookies, task);
-    if (shop.verdict !== 'verified') return { ...shop, authoritative: true };
-    if (expectedMallId != null && String(expectedMallId) !== shop.identity.mallId) {
-      return {
-        verdict: 'failed',
-        reason: 'identity_mismatch',
-        checked_at: shop.checked_at,
-        http_status: shop.http_status,
-        authoritative: true,
-      };
-    }
-    const candidate = seal.seal({ state: snapshot, identity: shop.identity, checked_at: shop.checked_at, scope: 'shop_read' });
-    return {
-      verdict: 'verified',
-      reason: 'shop_read',
-      checked_at: shop.checked_at,
-      http_status: shop.http_status,
-      identity: shop.identity,
-      candidate,
-      authoritative: true,
-    };
+    return await verifyFrozenMerchantSnapshot(frozenContext, {
+      snapshot,
+      expectedMallId,
+      task,
+      seal,
+      nowIso,
+      collectCookies: deps.collectCookies ?? collectCheckCookies,
+      probeLogin: deps.probeLogin ?? probeCheckLogin,
+      probeShop: deps.probeShop ?? probeMerchantShop,
+    });
   } finally {
     await frozenContext.close();
   }

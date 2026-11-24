@@ -51,7 +51,7 @@ function createScopedBrowserPort(parentBrowser) {
   });
 }
 
-async function resolveCommandRuntimeConfig({ runtimeConfigPolicy, configOptions, rawEnv, overrides }) {
+async function resolveCommandRuntimeConfig({ runtimeConfigPolicy, configOptions, env, overrides }) {
   if (runtimeConfigPolicy !== 'required' && runtimeConfigPolicy !== 'maintenance') {
     throw new PddCliError({
       code: 'E_CONFIG_INVALID',
@@ -65,10 +65,99 @@ async function resolveCommandRuntimeConfig({ runtimeConfigPolicy, configOptions,
   }
 
   const loaded = await loadRuntimeConfig({
-    env: rawEnv,
+    env,
     ...configOptions,
   });
   return overrides.runtimeConfig ? { ...loaded, ...overrides.runtimeConfig } : loaded;
+}
+
+async function loadCommandBundle({ parsedEnv, seal, clock, env, overrides }) {
+  if (parsedEnv.mode === 'fixture') {
+    const { createFixtureBundle } = await import('./bundles/fixture-bundle.js');
+    return createFixtureBundle({ seal, clock, parsedEnv, env, overrides });
+  }
+  const { createLiveBundle } = await import('./bundles/live-bundle.js');
+  return createLiveBundle({ seal, clock, env, overrides });
+}
+
+function createCommandEndpointPort({ runtimeConfig, transport, clock, overrides }) {
+  const effectiveEndpointConfig = {
+    ...DEFAULT_MAINTENANCE_ENDPOINT_CONFIG,
+    ...(runtimeConfig ?? {}),
+  };
+  const endpointState = overrides.endpointState ?? createEndpointRuntimeState(effectiveEndpointConfig);
+  const endpointPort = overrides.endpoint ?? createCommandEndpointClient({
+    runtimeConfig: effectiveEndpointConfig,
+    transport,
+    endpointState,
+    clock,
+  });
+  return { endpointState, endpointPort };
+}
+
+function makeScopeRuntime(shared, parentState) {
+  return function scopeRuntime({
+    signal = parentState.signal,
+    deadlineAt = parentState.deadlineAt,
+    correlationId = parentState.correlationId,
+  } = {}) {
+    const scopedBrowser = createScopedBrowserPort(shared.bundle.browser);
+    const scopedPorts = Object.freeze({ ...shared.basePorts, browser: scopedBrowser });
+    const closeScope = async () => {
+      shared.childClosers.delete(closeScope);
+      await scopedBrowser.closeAll();
+    };
+    shared.childClosers.add(closeScope);
+
+    return createRuntimeView(shared, {
+      ports: scopedPorts,
+      signal,
+      deadlineAt,
+      correlationId,
+      closeAll: closeScope,
+    });
+  };
+}
+
+function createRuntimeView(shared, viewState) {
+  const { ports, signal = null, deadlineAt = null, correlationId = null, closeAll } = viewState;
+  const scopeRuntime = makeScopeRuntime(shared, { signal, deadlineAt, correlationId });
+
+  return Object.freeze({
+    mode: shared.parsedEnv.mode,
+    runtimeConfig: shared.runtimeConfig,
+    env: shared.parsedEnv,
+    ports,
+    outputSink: shared.outputSink,
+    clock: shared.clock,
+    seal: shared.seal,
+    endpointState: shared.endpointState,
+    daemonIsRunning: shared.daemonIsRunning,
+    loadFixture: shared.bundle.loadFixture,
+    fixture: shared.bundle.fixture,
+    signal,
+    deadlineAt,
+    correlationId,
+    scopeRuntime,
+    closeAll,
+  });
+}
+
+function registerRootCloser({ childClosers, rootBrowser, bundleBrowser }) {
+  let unregisterCleanupHook = () => {};
+  const closeAll = async () => {
+    unregisterCleanupHook();
+    unregisterCleanupHook = () => {};
+    const scoped = [...childClosers];
+    childClosers.clear();
+    await Promise.allSettled([
+      ...scoped.map((fn) => fn()),
+      rootBrowser.closeAll(),
+      typeof bundleBrowser.closeAll === 'function' ? bundleBrowser.closeAll() : Promise.resolve(),
+    ]);
+  };
+  unregisterCleanupHook = registerCloseAllHook(closeAll);
+  return closeAll;
 }
 
 export async function composeCommandRuntime({
@@ -83,43 +172,14 @@ export async function composeCommandRuntime({
   const parsedEnv = parseRuntimeEnv(env, { mode });
   const clock = resolveClock(customClock);
   const seal = overrides.seal ?? createCandidateSeal();
-  const outputSink = overrides.outputSink ?? createOutputSink({
-    streams,
-    debugRaw: parsedEnv.debugRaw,
-  });
-
-  const runtimeConfig = await resolveCommandRuntimeConfig({
-    runtimeConfigPolicy,
-    configOptions,
-    rawEnv: env,
-    overrides,
-  });
-
-  const bundle = parsedEnv.mode === 'fixture'
-    ? (await import('./bundles/fixture-bundle.js')).createFixtureBundle({
-      seal,
-      clock,
-      parsedEnv,
-      rawEnv: env,
-      overrides,
-    })
-    : (await import('./bundles/live-bundle.js')).createLiveBundle({
-      seal,
-      clock,
-      rawEnv: env,
-      overrides,
-    });
-
-  const effectiveEndpointConfig = {
-    ...DEFAULT_MAINTENANCE_ENDPOINT_CONFIG,
-    ...(runtimeConfig ?? {}),
-  };
-  const endpointState = overrides.endpointState ?? createEndpointRuntimeState(effectiveEndpointConfig);
-  const endpointPort = overrides.endpoint ?? createCommandEndpointClient({
-    runtimeConfig: effectiveEndpointConfig,
+  const outputSink = overrides.outputSink ?? createOutputSink({ streams, debugRaw: parsedEnv.debugRaw });
+  const runtimeConfig = await resolveCommandRuntimeConfig({ runtimeConfigPolicy, configOptions, env, overrides });
+  const bundle = await loadCommandBundle({ parsedEnv, seal, clock, env, overrides });
+  const { endpointState, endpointPort } = createCommandEndpointPort({
+    runtimeConfig,
     transport: bundle.endpointTransport,
-    endpointState,
     clock,
+    overrides,
   });
 
   const rootBrowser = createScopedBrowserPort(bundle.browser);
@@ -130,83 +190,22 @@ export async function composeCommandRuntime({
     daemonProcess: bundle.daemonProcess,
     endpoint: endpointPort,
   });
-
   const daemonIsRunning = typeof overrides.daemonIsRunning === 'function'
     ? overrides.daemonIsRunning
     : defaultDaemonIsRunning;
-
   const childClosers = new Set();
-
-  function createRuntimeView({
-    ports,
-    signal = null,
-    deadlineAt = null,
-    correlationId = null,
-    closeAll,
-  }) {
-    function scopeRuntime({
-      signal: scopedSignal = signal,
-      deadlineAt: scopedDeadlineAt = deadlineAt,
-      correlationId: scopedCorrelationId = correlationId,
-    } = {}) {
-      const scopedBrowser = createScopedBrowserPort(bundle.browser);
-      const scopedPorts = Object.freeze({
-        ...basePorts,
-        browser: scopedBrowser,
-      });
-
-      const closeScope = async () => {
-        childClosers.delete(closeScope);
-        await scopedBrowser.closeAll();
-      };
-      childClosers.add(closeScope);
-
-      return createRuntimeView({
-        ports: scopedPorts,
-        signal: scopedSignal,
-        deadlineAt: scopedDeadlineAt,
-        correlationId: scopedCorrelationId,
-        closeAll: closeScope,
-      });
-    }
-
-    return Object.freeze({
-      mode: parsedEnv.mode,
-      runtimeConfig,
-      env: parsedEnv,
-      rawEnv: env,
-      ports,
-      outputSink,
-      clock,
-      seal,
-      endpointState,
-      daemonIsRunning,
-      loadFixture: bundle.loadFixture,
-      fixture: bundle.fixture,
-      signal,
-      deadlineAt,
-      correlationId,
-      scopeRuntime,
-      closeAll,
-    });
-  }
-
-  let unregisterCleanupHook = () => {};
-  const closeAll = async () => {
-    unregisterCleanupHook();
-    unregisterCleanupHook = () => {};
-    const scoped = [...childClosers];
-    childClosers.clear();
-    await Promise.allSettled([
-      ...scoped.map((fn) => fn()),
-      rootBrowser.closeAll(),
-      typeof bundle.browser.closeAll === 'function' ? bundle.browser.closeAll() : Promise.resolve(),
-    ]);
-  };
-  unregisterCleanupHook = registerCloseAllHook(closeAll);
+  const closeAll = registerRootCloser({ childClosers, rootBrowser, bundleBrowser: bundle.browser });
 
   return createRuntimeView({
-    ports: basePorts,
-    closeAll,
-  });
+    parsedEnv,
+    runtimeConfig,
+    outputSink,
+    clock,
+    seal,
+    endpointState,
+    daemonIsRunning,
+    bundle,
+    basePorts,
+    childClosers,
+  }, { ports: basePorts, closeAll });
 }

@@ -45,6 +45,23 @@ function resolveToggle(option, fallbackFn) {
   return fallbackFn;
 }
 
+function precheckFixtureVerification(initialState, expectedMallId, { signal, deadlineAt, now, checkedAt }) {
+  if (initialState?.merchant_auth?.last_check?.verdict === 'rejected') {
+    return { shortCircuit: { verdict: 'rejected', reason: 'known_rejected', checked_at: checkedAt(), http_status: null, authoritative: false } };
+  }
+  const boundMallId = boundMerchantMallId(initialState);
+  if (boundMallId && expectedMallId != null && String(expectedMallId) !== boundMallId) {
+    return { shortCircuit: { verdict: 'failed', reason: 'identity_mismatch', checked_at: checkedAt(), http_status: null, authoritative: false } };
+  }
+  if (signal?.aborted) {
+    return { shortCircuit: { verdict: 'indeterminate', reason: 'cancelled', checked_at: checkedAt(), http_status: null, authoritative: false } };
+  }
+  if (deadlineAt != null && now() >= deadlineAt) {
+    return { shortCircuit: { verdict: 'indeterminate', reason: 'deadline', checked_at: checkedAt(), http_status: null, authoritative: false } };
+  }
+  return { shortCircuit: null, boundMallId };
+}
+
 export async function verifyFixtureMerchantContext(sessionOrContext, {
   expectedMallId,
   seal,
@@ -58,25 +75,11 @@ export async function verifyFixtureMerchantContext(sessionOrContext, {
 } = {}) {
   assertValidSeal(seal, 'verifyFixtureMerchantContext 需要有效的 CandidateSeal 实例');
   const checkedAt = () => new Date(now()).toISOString();
-
-  if (initialState?.merchant_auth?.last_check?.verdict === 'rejected') {
-    return { verdict: 'rejected', reason: 'known_rejected', checked_at: checkedAt(), http_status: null, authoritative: false };
-  }
-  const boundMallId = boundMerchantMallId(initialState);
-  if (boundMallId && expectedMallId != null && String(expectedMallId) !== boundMallId) {
-    return { verdict: 'failed', reason: 'identity_mismatch', checked_at: checkedAt(), http_status: null, authoritative: false };
-  }
-  if (signal?.aborted) {
-    return { verdict: 'indeterminate', reason: 'cancelled', checked_at: checkedAt(), http_status: null, authoritative: false };
-  }
-  if (deadlineAt != null && now() >= deadlineAt) {
-    return { verdict: 'indeterminate', reason: 'deadline', checked_at: checkedAt(), http_status: null, authoritative: false };
-  }
+  const precheck = precheckFixtureVerification(initialState, expectedMallId, { signal, deadlineAt, now, checkedAt });
+  if (precheck.shortCircuit) return precheck.shortCircuit;
 
   const context = sessionOrContext?.context ?? sessionOrContext;
-  const rawState = context?.storageState
-    ? await context.storageState()
-    : (initialState ?? { cookies: [], origins: [] });
+  const rawState = context?.storageState ? await context.storageState() : (initialState ?? { cookies: [], origins: [] });
   const state = deepFreeze(structuredClone(rawState));
 
   if (isIndeterminate()) {
@@ -85,10 +88,8 @@ export async function verifyFixtureMerchantContext(sessionOrContext, {
   if (isInvalid() && !hasFixtureRelogin(state)) {
     return { verdict: 'rejected', reason: 'login_false', checked_at: checkedAt(), http_status: 200, authoritative: false };
   }
-  const resolvedExpectedMallId = expectedMallId ?? boundMallId;
-  const mall = context?.fixtureMallId != null
-    ? { id: context.fixtureMallId, name: '模拟店铺' }
-    : await getCurrentMall();
+  const resolvedExpectedMallId = expectedMallId ?? precheck.boundMallId;
+  const mall = context?.fixtureMallId != null ? { id: context.fixtureMallId, name: '模拟店铺' } : await getCurrentMall();
   const mallId = mall?.activeId ?? mall?.id;
   const mallName = mall?.activeName ?? mall?.name ?? '';
   if (resolvedExpectedMallId != null && String(resolvedExpectedMallId) !== String(mallId)) {
@@ -97,15 +98,7 @@ export async function verifyFixtureMerchantContext(sessionOrContext, {
   const time = checkedAt();
   const identity = { mallId: String(mallId), displayName: mallName };
   const candidate = seal.seal({ state, identity, checked_at: time, scope: 'shop_read' });
-  return {
-    verdict: 'verified',
-    reason: 'shop_read',
-    checked_at: time,
-    http_status: 200,
-    identity,
-    candidate,
-    authoritative: false,
-  };
+  return { verdict: 'verified', reason: 'shop_read', checked_at: time, http_status: 200, identity, candidate, authoritative: false };
 }
 
 /** Create the minimal 3-method Fixture AuthPort returning non-authoritative verdicts. */

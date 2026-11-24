@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { beforeEach, it, vi } from 'vitest';
 import { runDaemon } from '../../src/daemon/run.js';
+import { composeDaemonRuntime } from '../../src/runtime/daemon-runtime.js';
 import { daemonTimings } from '../../src/services/daemon-runtime.js';
 import { parseRuntimeEnv } from '../../src/runtime/env.js';
 import {
@@ -188,4 +189,35 @@ it('accepts positive fixture timing overrides and ignores them outside fixture m
     }, { mode: 'fixture' })),
     { ttlMs: 90000, heartbeatMs: 30000 },
   );
+});
+
+it('preserves runtime.runtimeConfig on component context when pre-composed runtime is passed', async () => {
+  const expectedConfig = {
+    logLevel: 'silent',
+    consoleHost: '127.0.0.1',
+    consolePort: 47999,
+    patrolIntervalMs: 300_000,
+  };
+  const runtime = await composeDaemonRuntime({
+    mode: 'live',
+    foreground: false,
+    runtimeConfig: expectedConfig,
+    env: {},
+    overrides: { browser },
+  });
+  const controller = new AbortController();
+  let seenConfig = null;
+  const part = component({
+    start: async (ctx) => {
+      seenConfig = ctx.runtimeConfig;
+      controller.abort();
+    },
+  });
+  try {
+    const res = await runDaemon({ runtime, signal: controller.signal, components: [part] });
+    assert.deepEqual(res, { stopped_reason: 'signal' });
+    assert.deepEqual(seenConfig, expectedConfig);
+  } finally {
+    await runtime.closeAll();
+  }
 });

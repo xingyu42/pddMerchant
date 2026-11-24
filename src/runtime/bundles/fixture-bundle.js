@@ -3,6 +3,7 @@ import { createFixtureBrowserRuntime } from '../../adapter/fixtures/browser.js';
 import { createFixtureMallPort } from '../../adapter/fixtures/mall.js';
 import {
   createFixtureAuthPort,
+  verifyFixtureMerchantContext,
   mockIsAuthValid,
   mockIsAuthIndeterminate,
   mockIsConsumerAuthValid,
@@ -14,7 +15,32 @@ import { createFixtureEndpointTransport } from '../../adapter/fixtures/endpoint.
 import { mockCurrentMall, mockListMalls, mockRunEndpoint, mockPasswordLogin } from '../../adapter/mock-dispatcher.js';
 import { FIXTURE_QR_IMAGE, openFixtureTakeover } from '../../adapter/console-login-fixture.js';
 
-export function createFixtureBundle({ seal, clock, parsedEnv, rawEnv, overrides = {} } = {}) {
+function createFixtureHelpers({ fixtureStore, loadFixture, parsedEnv, mall, clock, seal }) {
+  return Object.freeze({
+    fixtureStore,
+    loadFixture,
+    mockCurrentMall: () => mockCurrentMall(fixtureStore),
+    mockListMalls: () => mockListMalls(fixtureStore),
+    mockIsAuthValid: () => mockIsAuthValid(parsedEnv),
+    mockIsAuthIndeterminate: () => mockIsAuthIndeterminate(parsedEnv),
+    mockIsConsumerAuthValid: () => mockIsConsumerAuthValid(parsedEnv),
+    mockPasswordLogin: (task) => mockPasswordLogin(task, parsedEnv),
+    verifyFixtureMerchantContext: (sessionOrContext, options = {}) => verifyFixtureMerchantContext(sessionOrContext, {
+      getCurrentMall: () => mall.detectCurrentMall(),
+      isInvalid: () => Boolean(parsedEnv?.authInvalid),
+      isIndeterminate: () => Boolean(parsedEnv?.authIndeterminate),
+      now: clock.now,
+      ...options,
+      seal: options.seal === undefined ? seal : options.seal,
+    }),
+    hasFixtureRelogin,
+    createFixtureReloginContext,
+    FIXTURE_QR_IMAGE,
+    openFixtureTakeover,
+  });
+}
+
+export function createFixtureBundle({ seal, clock, parsedEnv, env, overrides = {} } = {}) {
   const fixtureStore = overrides.fixtureStore ?? new FixtureStore({
     fixtureDir: parsedEnv?.fixtureDir,
     env: parsedEnv?.testEnv,
@@ -29,7 +55,7 @@ export function createFixtureBundle({ seal, clock, parsedEnv, rawEnv, overrides 
     getCurrentMall: () => mall.detectCurrentMall(),
     now: clock.now,
   });
-  const daemonProcess = overrides.daemonProcess ?? createFixtureDaemonProcessPort({ env: rawEnv });
+  const daemonProcess = overrides.daemonProcess ?? createFixtureDaemonProcessPort({ env });
   const endpointTransport = overrides.endpointTransport ?? createFixtureEndpointTransport({
     fixtureStore,
     readEndpoint: mockRunEndpoint,
@@ -44,19 +70,6 @@ export function createFixtureBundle({ seal, clock, parsedEnv, rawEnv, overrides 
     daemonProcess,
     endpointTransport,
     loadFixture,
-    fixture: Object.freeze({
-      fixtureStore,
-      loadFixture,
-      mockCurrentMall: () => mockCurrentMall(fixtureStore),
-      mockListMalls: () => mockListMalls(fixtureStore),
-      mockIsAuthValid: () => mockIsAuthValid(parsedEnv),
-      mockIsAuthIndeterminate: () => mockIsAuthIndeterminate(parsedEnv),
-      mockIsConsumerAuthValid: () => mockIsConsumerAuthValid(parsedEnv),
-      mockPasswordLogin: (task) => mockPasswordLogin(task, parsedEnv),
-      hasFixtureRelogin,
-      createFixtureReloginContext,
-      FIXTURE_QR_IMAGE,
-      openFixtureTakeover,
-    }),
+    fixture: createFixtureHelpers({ fixtureStore, loadFixture, parsedEnv, mall, clock, seal }),
   });
 }

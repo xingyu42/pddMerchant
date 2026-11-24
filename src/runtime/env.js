@@ -14,28 +14,26 @@ function parseNonNegativeDelay(raw) {
   return Number.isFinite(num) && num > 0 ? num : 0;
 }
 
-/**
- * Resolve runtime mode and parse/freeze all whitelisted runtime, adapter and test env vars
- * strictly at the composition root boundary.
- */
-export function parseRuntimeEnv(env = process.env, { mode } = {}) {
-  const sourceEnv = env && typeof env === 'object' ? env : {};
-  let resolvedMode;
-  if (mode !== undefined) {
-    if (typeof mode !== 'string' || !VALID_MODES.has(mode)) {
-      throw new PddCliError({
-        code: 'E_CONFIG_INVALID',
-        message: `Unsupported runtime mode: ${String(mode)}`,
-        detail: { source: 'runtime', reason: 'invalid_mode', mode: mode ?? null },
-        exitCode: ExitCodes.GENERAL,
-      });
-    }
-    resolvedMode = mode;
-  } else {
-    resolvedMode = sourceEnv.PDD_TEST_ADAPTER === 'fixture' ? 'fixture' : 'live';
-  }
+function nonEmptyEnvString(value) {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
 
-  const isFixture = resolvedMode === 'fixture';
+function resolveRuntimeMode(sourceEnv, mode) {
+  if (mode === undefined) {
+    return sourceEnv.PDD_TEST_ADAPTER === 'fixture' ? 'fixture' : 'live';
+  }
+  if (typeof mode !== 'string' || !VALID_MODES.has(mode)) {
+    throw new PddCliError({
+      code: 'E_CONFIG_INVALID',
+      message: `Unsupported runtime mode: ${String(mode)}`,
+      detail: { source: 'runtime', reason: 'invalid_mode', mode: mode ?? null },
+      exitCode: ExitCodes.GENERAL,
+    });
+  }
+  return mode;
+}
+
+function collectPrefixedEnv(sourceEnv) {
   const testEntries = {};
   const sourceProxyEntries = {};
   for (const [key, value] of Object.entries(sourceEnv)) {
@@ -50,22 +48,27 @@ export function parseRuntimeEnv(env = process.env, { mode } = {}) {
       sourceProxyEntries[key] = String(value);
     }
   }
+  return { testEntries, sourceProxyEntries };
+}
 
-  const fixtureDir = isFixture && typeof sourceEnv.PDD_TEST_FIXTURE_DIR === 'string' && sourceEnv.PDD_TEST_FIXTURE_DIR.length > 0
-    ? sourceEnv.PDD_TEST_FIXTURE_DIR
-    : undefined;
-  const passwordLoginTrace = isFixture && typeof sourceEnv.PDD_TEST_PASSWORD_LOGIN_TRACE === 'string' && sourceEnv.PDD_TEST_PASSWORD_LOGIN_TRACE.length > 0
-    ? sourceEnv.PDD_TEST_PASSWORD_LOGIN_TRACE
-    : undefined;
+/**
+ * Resolve runtime mode and parse/freeze all whitelisted runtime, adapter and test env vars
+ * strictly at the composition root boundary.
+ */
+export function parseRuntimeEnv(env = process.env, { mode } = {}) {
+  const sourceEnv = env && typeof env === 'object' ? env : {};
+  const resolvedMode = resolveRuntimeMode(sourceEnv, mode);
+  const isFixture = resolvedMode === 'fixture';
+  const { testEntries, sourceProxyEntries } = collectPrefixedEnv(sourceEnv);
 
   return Object.freeze({
     mode: resolvedMode,
-    fixtureDir,
+    fixtureDir: isFixture ? nonEmptyEnvString(sourceEnv.PDD_TEST_FIXTURE_DIR) : undefined,
     authInvalid: isFixture && sourceEnv.PDD_TEST_AUTH_INVALID === '1',
     authIndeterminate: isFixture && sourceEnv.PDD_TEST_AUTH_INDETERMINATE === '1',
     consumerAuthInvalid: isFixture && sourceEnv.PDD_TEST_CONSUMER_AUTH_INVALID === '1',
     passwordLogin: isFixture ? (sourceEnv.PDD_TEST_PASSWORD_LOGIN ?? 'success') : null,
-    passwordLoginTrace,
+    passwordLoginTrace: isFixture ? nonEmptyEnvString(sourceEnv.PDD_TEST_PASSWORD_LOGIN_TRACE) : undefined,
     passwordLoginDelayMs: isFixture ? parseNonNegativeDelay(sourceEnv.PDD_TEST_PASSWORD_LOGIN_DELAY_MS) : 0,
     daemonLeaseTtlMs: isFixture ? parsePositiveSafeInt(sourceEnv.PDD_TEST_DAEMON_LEASE_TTL_MS) : null,
     daemonHeartbeatMs: isFixture ? parsePositiveSafeInt(sourceEnv.PDD_TEST_DAEMON_HEARTBEAT_MS) : null,

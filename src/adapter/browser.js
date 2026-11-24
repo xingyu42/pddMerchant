@@ -1,9 +1,13 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
 import { daemonBrowserDbPrefix } from '../infra/daemon-state.js';
 import { registerCloseAllHook } from '../infra/runtime-cleanup.js';
+import {
+  browserRuntimeError,
+  assertValidOwnerTag,
+  assertValidStorageState,
+} from './browser-validation.js';
 
 const DEFAULT_VIEWPORT = Object.freeze({ width: 1902, height: 984 });
 const DEFAULT_SCREEN = Object.freeze({ width: 1920, height: 1080 });
@@ -16,7 +20,6 @@ const HEADLESS_CONTEXT_BASE = Object.freeze({
   locale: 'zh-CN',
   timezoneId: 'Asia/Shanghai',
 });
-const OWNER_TAG_PATTERN = /^[a-z0-9-]{1,32}$/;
 
 // --- Legacy Module-Level Registry (retained until P0-1#04 & P1-3/P1-4 retire legacy callers) ---
 const activeBrowsers = new Set();
@@ -31,29 +34,6 @@ function syncLegacyCloseHook() {
   } else if (activeBrowsers.size === 0 && unregisterLegacyCloseHook) {
     unregisterLegacyCloseHook();
     unregisterLegacyCloseHook = null;
-  }
-}
-
-function browserRuntimeError(reason, message = '浏览器运行时配置无效') {
-  return new PddCliError({
-    code: 'E_BROWSER_RUNTIME',
-    message,
-    hint: '确认浏览器版本与当前操作系统受支持，并重新安装 Patchright Chromium',
-    detail: { reason },
-    exitCode: ExitCodes.GENERAL,
-  });
-}
-
-function assertValidOwnerTag(ownerTag) {
-  if (ownerTag !== undefined && (typeof ownerTag !== 'string' || !OWNER_TAG_PATTERN.test(ownerTag))) {
-    throw browserRuntimeError('invalid_owner_tag');
-  }
-}
-
-function assertValidStorageState(storageState, { required = false } = {}) {
-  if (!storageState && !required) return;
-  if (!Array.isArray(storageState?.cookies) || !Array.isArray(storageState?.origins)) {
-    throw browserRuntimeError('snapshot_shape_invalid');
   }
 }
 
@@ -448,6 +428,84 @@ export function cleanupOrphanBrowsers({ listProcesses = listBrowserProcesses, ki
   return reclaimMarkedBrowsers({ listProcesses, kill });
 }
 
+function resolveLiveSessionRecord(sessionRecords, session) {
+  const record = session && typeof session === 'object' ? sessionRecords.get(session) : null;
+  if (!record || record.closed) throw browserRuntimeError('browser_profile_missing');
+  return record;
+}
+
+async function closeLiveSessionRecord(record, state) {
+  if (!record || record.closed) return;
+  record.closed = true;
+  state.activeSessions.delete(record.session);
+  await closeBrowserResources(record.browser, {
+    closingSet: state.closingBrowsers,
+    profileMap: state.profileMap,
+  });
+}
+
+async function checkChromiumAvailability(resolveExecPath, exists) {
+  try {
+    const execPath = await resolveExecPath();
+    return { ok: Boolean(execPath) && exists(execPath), detail: { path: execPath || null } };
+  } catch (err) {
+    return { ok: false, detail: { error: err?.message || 'chromium 不可用' } };
+  }
+}
+
+async function openLiveBrowserSession(options, state, deps) {
+  const launched = await openBrowserWithProfile(options, {
+    resolveChromium: deps.resolveChromium,
+    resolveLogger: deps.resolveLogger,
+    platform: deps.platform,
+    profileMap: state.profileMap,
+    closingSet: state.closingBrowsers,
+  });
+
+  const record = { browser: launched.browser, profile: launched.profile, closed: false, session: null };
+  const session = Object.freeze({
+    page: launched.page,
+    context: launched.context,
+    close: () => closeLiveSessionRecord(record, state),
+    async createSnapshotContext(storageState) {
+      const current = resolveLiveSessionRecord(state.sessionRecords, session);
+      assertValidStorageState(storageState, { required: true });
+      return createConfiguredContext(current.browser, current.profile, { storageState });
+    },
+  });
+
+  record.session = session;
+  state.sessionRecords.set(session, record);
+  state.activeSessions.add(session);
+  return session;
+}
+
+async function runLiveWithSession(openSession, optionsOrFn, maybeFn, onCleanupError) {
+  const hasOptions = typeof optionsOrFn !== 'function';
+  const options = hasOptions ? (optionsOrFn ?? {}) : {};
+  const fn = hasOptions ? maybeFn : optionsOrFn;
+  const session = await openSession(options);
+  try {
+    return await fn(session);
+  } finally {
+    try { await session.close(); }
+    catch (err) { onCleanupError(err); }
+  }
+}
+
+async function closeAllLiveSessions(state, timeoutMs) {
+  if (state.closeAllInFlight) return state.closeAllInFlight;
+  state.closeAllInFlight = (async () => {
+    const snapshot = [...state.activeSessions];
+    await settleWithTimeout(snapshot.map((session) => session.close()), timeoutMs);
+  })();
+  try {
+    return await state.closeAllInFlight;
+  } finally {
+    state.closeAllInFlight = null;
+  }
+}
+
 /** Create an instance-scoped Live BrowserRuntimePort enforcing ADR-0002 & ADR-0003. */
 export function createLiveBrowserRuntime({
   loadChromium: resolveChromium = loadChromium,
@@ -459,123 +517,40 @@ export function createLiveBrowserRuntime({
   dbPrefix = daemonBrowserDbPrefix,
   log,
 } = {}) {
-  const activeSessions = new Set();
-  const sessionRecords = new WeakMap();
-  const closingBrowsers = new WeakSet();
-  const profileMap = new WeakMap();
-  let closeAllInFlight = null;
-
+  const state = {
+    activeSessions: new Set(),
+    sessionRecords: new WeakMap(),
+    closingBrowsers: new WeakSet(),
+    profileMap: new WeakMap(),
+    closeAllInFlight: null,
+  };
   const resolveLogger = () => log ?? getLogger();
   const resolveExecPath = getExecutablePath ?? (async () => (await resolveChromium()).executablePath());
 
-  function activeRecord(session) {
-    const record = session && typeof session === 'object' ? sessionRecords.get(session) : null;
-    if (!record || record.closed) throw browserRuntimeError('browser_profile_missing');
-    return record;
-  }
+  const openSession = (options = {}) => openLiveBrowserSession(options, state, {
+    resolveChromium,
+    resolveLogger,
+    platform,
+  });
 
-  async function closeSessionRecord(record) {
-    if (!record || record.closed) return;
-    record.closed = true;
-    activeSessions.delete(record.session);
-    await closeBrowserResources(record.browser, {
-      closingSet: closingBrowsers,
-      profileMap,
-    });
-  }
-
-  async function checkAvailability() {
-    try {
-      const execPath = await resolveExecPath();
-      return { ok: Boolean(execPath) && exists(execPath), detail: { path: execPath || null } };
-    } catch (err) {
-      return { ok: false, detail: { error: err?.message || 'chromium 不可用' } };
-    }
-  }
-
-  async function openSession(options = {}) {
-    const launched = await openBrowserWithProfile(options, {
-      resolveChromium,
-      resolveLogger,
-      platform,
-      profileMap,
-      closingSet: closingBrowsers,
-    });
-
-    const record = {
-      browser: launched.browser,
-      profile: launched.profile,
-      closed: false,
-      session: null,
-    };
-
-    const session = Object.freeze({
-      page: launched.page,
-      context: launched.context,
-      async close() {
-        await closeSessionRecord(record);
-      },
-      async createSnapshotContext(storageState) {
-        const current = activeRecord(session);
-        assertValidStorageState(storageState, { required: true });
-        return createConfiguredContext(current.browser, current.profile, { storageState });
-      },
-    });
-
-    record.session = session;
-    sessionRecords.set(session, record);
-    activeSessions.add(session);
-    return session;
-  }
-
-  async function withSession(optionsOrFn, maybeFn) {
-    const hasOptions = typeof optionsOrFn !== 'function';
-    const options = hasOptions ? (optionsOrFn ?? {}) : {};
-    const fn = hasOptions ? maybeFn : optionsOrFn;
-    const session = await openSession(options);
-    try {
-      return await fn(session);
-    } finally {
-      try {
-        await session.close();
-      } catch (err) {
-        resolveLogger().warn({ err: err?.message }, 'withSession: cleanup failed');
-      }
-    }
-  }
-
-  async function deriveConsumerContext(session, { storageState, proxy } = {}) {
-    const current = activeRecord(session);
-    return deriveConsumerFromProfile(current.browser, current.profile, { storageState, proxy });
-  }
-
-  async function reclaimOrphans(overrides = {}) {
-    return reclaimMarkedBrowsers({
+  return Object.freeze({
+    checkAvailability: () => checkChromiumAvailability(resolveExecPath, exists),
+    withSession: (optionsOrFn, maybeFn) => runLiveWithSession(
+      openSession,
+      optionsOrFn,
+      maybeFn,
+      (err) => resolveLogger().warn({ err: err?.message }, 'withSession: cleanup failed'),
+    ),
+    openSession,
+    deriveConsumerContext: async (session, { storageState, proxy } = {}) => {
+      const current = resolveLiveSessionRecord(state.sessionRecords, session);
+      return deriveConsumerFromProfile(current.browser, current.profile, { storageState, proxy });
+    },
+    reclaimOrphans: async (overrides = {}) => reclaimMarkedBrowsers({
       listProcesses: overrides.listProcesses ?? listProcesses,
       kill: overrides.kill ?? kill,
       dbPrefix: overrides.dbPrefix ?? dbPrefix,
-    });
-  }
-
-  async function closeAll({ timeoutMs = 5000 } = {}) {
-    if (closeAllInFlight) return closeAllInFlight;
-    closeAllInFlight = (async () => {
-      const snapshot = [...activeSessions];
-      await settleWithTimeout(snapshot.map((session) => session.close()), timeoutMs);
-    })();
-    try {
-      return await closeAllInFlight;
-    } finally {
-      closeAllInFlight = null;
-    }
-  }
-
-  return Object.freeze({
-    checkAvailability,
-    withSession,
-    openSession,
-    deriveConsumerContext,
-    reclaimOrphans,
-    closeAll,
+    }),
+    closeAll: ({ timeoutMs = 5000 } = {}) => closeAllLiveSessions(state, timeoutMs),
   });
 }

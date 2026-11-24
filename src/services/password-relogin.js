@@ -346,8 +346,9 @@ export async function reloginForFixture(accountId, runtime, { tx: heldTransactio
           seal: runtime?.seal,
         });
       } else {
-        const { verifyFixtureMerchantContext } = await import('../adapter/fixtures/auth.js');
-        verified = await verifyFixtureMerchantContext(context, {
+        const verify = fixtureHelpers.verifyFixtureMerchantContext
+          ?? (await import('../adapter/fixtures/auth.js')).verifyFixtureMerchantContext;
+        verified = await verify(context, {
           ...task,
           expectedMallId: tx.recoveryMallId,
           seal: runtime?.seal,
