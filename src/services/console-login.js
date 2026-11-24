@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { withMerchantAuthUpdate, assertAuthTask } from '../adapter/merchant-auth-storage.js';
+import { withMerchantAuthUpdate } from '../adapter/merchant-auth-storage.js';
+import { assertAuthTask } from '../infra/auth-task.js';
 import { isMockEnabled, mockPasswordLogin } from '../adapter/mock-dispatcher.js';
 import { FIXTURE_QR_IMAGE, openFixtureTakeover } from '../adapter/console-login-fixture.js';
 import { invalidTakeoverInput, validateSmsCode } from '../adapter/takeover.js';

@@ -5,7 +5,7 @@ import { verifyMerchantContext, assertMerchantVerified } from '../adapter/mercha
 import { hasPassId, MERCHANT_CHECK_URL } from '../adapter/merchant-auth-probe.js';
 import { attemptPasswordLogin, submitSmsCode } from '../adapter/password-login.js';
 import { loadPasswordCredential } from '../adapter/password-credential.js';
-import { assertAuthTask } from '../adapter/merchant-auth-storage.js';
+import { assertAuthTask } from '../infra/auth-task.js';
 import { deviceState } from './password-relogin.js';
 
 // 新增账号没有已存设备状态，调用方传入空白状态。
@@ -50,8 +50,12 @@ export async function verifyConsoleLogin(session, tx) {
   assertAuthTask(tx);
   await session.takeover?.close();
   await session.page?.close();
-  const verified = await verifyMerchantContext(session.context, { signal: tx.signal,
-    deadlineAt: tx.deadlineAt, expectedMallId: tx.recoveryMallId });
+  const verified = await verifyMerchantContext(session.context, {
+    signal: tx.signal,
+    deadlineAt: tx.deadlineAt,
+    expectedMallId: tx.recoveryMallId,
+    createSnapshotContext,
+  });
   assertMerchantVerified(verified);
   return verified;
 }

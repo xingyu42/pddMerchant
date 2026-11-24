@@ -3,6 +3,7 @@ import { ENV_AUTH_INVALID, ENV_AUTH_INDETERMINATE, ENV_CONSUMER_AUTH_INVALID } f
 import { appendFile } from 'node:fs/promises';
 import { abortableSleep, budgetMs } from '../../infra/abort.js';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
+import { assertAuthTask } from '../../infra/auth-task.js';
 
 export function mockIsAuthValid() {
   return process.env[ENV_AUTH_INVALID] !== '1';
@@ -26,9 +27,30 @@ export function mockIsConsumerAuthValid() {
   return process.env[ENV_CONSUMER_AUTH_INVALID] !== '1';
 }
 
+export async function verifyFixtureMerchantContext(context, { expectedMallId, seal, getCurrentMall } = {}) {
+  if (!seal || typeof seal.seal !== 'function') {
+    throw new PddCliError({
+      code: 'E_CONFIG_INVALID',
+      message: 'verifyFixtureMerchantContext 需要有效的 CandidateSeal 实例',
+      exitCode: ExitCodes.GENERAL,
+    });
+  }
+  const state = context?.storageState ? structuredClone(await context.storageState()) : { cookies: [], origins: [] };
+  if (mockIsAuthIndeterminate()) return { verdict: 'indeterminate', reason: 'network_error' };
+  if (!mockIsAuthValid() && !hasFixtureRelogin(state)) return { verdict: 'rejected', reason: 'login_false' };
+  const mall = context?.fixtureMallId != null
+    ? { id: context.fixtureMallId, name: '模拟店铺' }
+    : await getCurrentMall();
+  if (expectedMallId != null && String(expectedMallId) !== String(mall.id)) {
+    return { verdict: 'failed', reason: 'identity_mismatch' };
+  }
+  const checkedAt = new Date().toISOString();
+  const identity = { mallId: String(mall.id), displayName: mall.name };
+  const candidate = seal.seal({ state, identity, checked_at: checkedAt, scope: 'shop_read' });
+  return { verdict: 'verified', reason: 'shop_read', checked_at: checkedAt, identity, candidate };
+}
+
 export async function mockPasswordLogin(task = {}) {
-  // 浏览器模块会导入此模拟入口，认证检查按需加载以避免循环依赖。
-  const { assertAuthTask } = await import('../merchant-auth-storage.js');
   assertAuthTask(task);
   const value = process.env.PDD_TEST_PASSWORD_LOGIN ?? 'success';
   const challenge = /^challenge:(sms|slider|click|risk_confirm|unknown)$/.exec(value)?.[1];

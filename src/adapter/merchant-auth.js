@@ -1,18 +1,10 @@
-import { createSnapshotContext } from './browser.js';
 import { collectCheckCookies, hasPassId, probeCheckLogin, probeMerchantShop } from './merchant-auth-probe.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
-import { isMockEnabled, mockIsAuthValid, mockIsAuthIndeterminate, mockCurrentMall } from './mock-dispatcher.js';
-import { hasFixtureRelogin } from './fixtures/auth.js';
+import { createCandidateSeal, deepFreeze } from '../infra/candidate-seal.js';
+import { isMockEnabled, mockCurrentMall } from './mock-dispatcher.js';
+import { verifyFixtureMerchantContext } from './fixtures/auth.js';
 
-const verifiedCandidates = new WeakSet();
-
-function freeze(value) {
-  if (value && typeof value === 'object') {
-    for (const child of Object.values(value)) freeze(child);
-    Object.freeze(value);
-  }
-  return value;
-}
+const defaultCandidateSeal = createCandidateSeal();
 
 export function assertMerchantVerified(result, { detail } = {}) {
   if (result?.verdict === 'verified') return;
@@ -28,29 +20,35 @@ export function assertMerchantVerified(result, { detail } = {}) {
   });
 }
 
-export function assertVerifiedMerchantCandidate(candidate) {
-  if (!verifiedCandidates.has(candidate)) {
+export function assertVerifiedMerchantCandidate(candidate, seal = defaultCandidateSeal) {
+  if (!seal || typeof seal.assert !== 'function') {
     throw new PddCliError({ code: 'E_AUTH_CANDIDATE_INVALID', message: '只有本次校验通过的冻结材料可以提交', exitCode: ExitCodes.AUTH });
   }
+  seal.assert(candidate);
 }
 
 export async function verifyMerchantContext(context, options = {}) {
+  const seal = options.seal === undefined ? defaultCandidateSeal : options.seal;
+  if (!seal || typeof seal.seal !== 'function') {
+    throw new PddCliError({ code: 'E_CONFIG_INVALID', message: 'verifyMerchantContext 需要有效的 CandidateSeal 实例', exitCode: ExitCodes.GENERAL });
+  }
   if (isMockEnabled()) {
-    const state = context?.storageState ? structuredClone(await context.storageState()) : { cookies: [], origins: [] };
-    if (mockIsAuthIndeterminate()) return { verdict: 'indeterminate', reason: 'network_error' };
-    if (!mockIsAuthValid() && !hasFixtureRelogin(state)) return { verdict: 'rejected', reason: 'login_false' };
-    const mall = context?.fixtureMallId != null
-      ? { id: context.fixtureMallId, name: '模拟店铺' } : await mockCurrentMall();
-    if (options.expectedMallId != null && String(options.expectedMallId) !== String(mall.id)) return { verdict: 'failed', reason: 'identity_mismatch' };
-    const checkedAt = new Date().toISOString();
-    const identity = { mallId: String(mall.id), displayName: mall.name };
-    const candidate = freeze({ state, identity, checked_at: checkedAt, scope: 'shop_read' });
-    verifiedCandidates.add(candidate);
-    return { verdict: 'verified', reason: 'shop_read', checked_at: checkedAt, identity, candidate };
+    return verifyFixtureMerchantContext(context, {
+      expectedMallId: options.expectedMallId,
+      seal,
+      getCurrentMall: mockCurrentMall,
+    });
+  }
+  if (typeof options.createSnapshotContext !== 'function') {
+    throw new PddCliError({
+      code: 'E_CONFIG_INVALID',
+      message: 'verifyMerchantContext 需要 createSnapshotContext',
+      exitCode: ExitCodes.GENERAL,
+    });
   }
   const task = { ...options, deadlineAt: options.deadlineAt ?? Date.now() + 30500 };
-  const snapshot = freeze(structuredClone(await context.storageState()));
-  const frozenContext = await createSnapshotContext(context.browser(), snapshot);
+  const snapshot = deepFreeze(structuredClone(await context.storageState()));
+  const frozenContext = await options.createSnapshotContext(context.browser(), snapshot);
   try {
     const cookies = await collectCheckCookies(frozenContext);
     if (!hasPassId(cookies)) {
@@ -63,8 +61,7 @@ export async function verifyMerchantContext(context, options = {}) {
     if (options.expectedMallId != null && String(options.expectedMallId) !== shop.identity.mallId) {
       return { verdict: 'failed', reason: 'identity_mismatch', checked_at: shop.checked_at, http_status: shop.http_status };
     }
-    const candidate = freeze({ state: snapshot, identity: shop.identity, checked_at: shop.checked_at, scope: 'shop_read' });
-    verifiedCandidates.add(candidate);
+    const candidate = seal.seal({ state: snapshot, identity: shop.identity, checked_at: shop.checked_at, scope: 'shop_read' });
     return { verdict: 'verified', reason: 'shop_read', checked_at: shop.checked_at, http_status: shop.http_status, identity: shop.identity, candidate };
   } finally { await frozenContext.close(); }
 }

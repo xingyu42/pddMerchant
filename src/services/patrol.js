@@ -1,5 +1,6 @@
-import { withBrowser, closeBrowser } from '../adapter/browser.js';
-import { withMerchantAuthUpdate, assertAuthTask } from '../adapter/merchant-auth-storage.js';
+import { withBrowser, closeBrowser, createSnapshotContext } from '../adapter/browser.js';
+import { withMerchantAuthUpdate } from '../adapter/merchant-auth-storage.js';
+import { assertAuthTask } from '../infra/auth-task.js';
 import { isMockEnabled } from '../adapter/mock-dispatcher.js';
 import { listAccounts } from '../infra/account-store.js';
 import { armDeadline, abortableSleep } from '../infra/abort.js';
@@ -31,7 +32,7 @@ async function browserRelogin(runtime, tx, ownerTag) {
     try {
       assertAuthTask(runtime);
       await checkMerchantSession(context, { tx, runtime, browser, mode: 'patrol',
-        task: { signal: runtime.signal, deadlineAt: runtime.deadlineAt, expectedMallId: tx.recoveryMallId },
+        task: { signal: runtime.signal, deadlineAt: runtime.deadlineAt, expectedMallId: tx.recoveryMallId, createSnapshotContext },
       });
       assertAuthTask(runtime);
       // No business result: keep the saved snapshot; relogin owns its verified commit.

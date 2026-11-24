@@ -1,5 +1,5 @@
 import { isMockEnabled, mockPasswordLogin } from './mock-dispatcher.js';
-import { assertAuthTask } from './merchant-auth-storage.js';
+import { assertAuthTask } from '../infra/auth-task.js';
 import { hasPassId, MERCHANT_CHECK_URL } from './merchant-auth-probe.js';
 import { abortableSleep, budgetMs } from '../infra/abort.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
