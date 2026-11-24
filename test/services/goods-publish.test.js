@@ -2,7 +2,9 @@
 // Temporary direct-adapter vi.mock seams below will be replaced wholesale by an in-memory
 // GoodsPublishPort + raw EndpointPort once goods-publish-deepening#04/#05 land.
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { beforeEach, describe, it, vi } from 'vitest';
 
 vi.mock('../../src/adapter/browser.js', async (importOriginal) => {
@@ -68,7 +70,11 @@ import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-sta
 import { insertAccount } from '../../src/infra/account-store.js';
 import { getSharedBreaker } from '../../src/infra/circuit-breaker.js';
 import { ExitCodes, PddCliError, scrapeCooldownActive } from '../../src/infra/errors.js';
-import { DATA_DIR, GOODS_PUBLISH_SOURCE_CACHE_DIR } from '../../src/infra/paths.js';
+import {
+  DATA_DIR,
+  GOODS_PUBLISH_SOURCE_CACHE_DIR,
+  SCRAPE_COOLDOWN_PATH,
+} from '../../src/infra/paths.js';
 import { getSharedSessionHealth } from '../../src/infra/session-health.js';
 import { PUBLISH_VIEW_FIELDS } from '../../src/services/views/goods-publish.js';
 import { publishGoodsFromLink } from '../../src/services/goods-publish.js';
@@ -319,6 +325,42 @@ function toNormalizedTemplateProperty(raw, templateModuleId = 8001) {
   };
 }
 
+function snapshotFile(filePath) {
+  if (!existsSync(filePath)) return null;
+  const stat = lstatSync(filePath);
+  return { mtimeMs: stat.mtimeMs, size: stat.size };
+}
+
+function snapshotDir(dirPath) {
+  if (!existsSync(dirPath)) return null;
+  return readdirSync(dirPath)
+    .sort()
+    .map((name) => {
+      const stat = lstatSync(join(dirPath, name));
+      return { name, mtimeMs: stat.mtimeMs, size: stat.size };
+    });
+}
+
+function captureRepoIsolationState(goodsId = '123456') {
+  return {
+    goodsId,
+    dataDir: snapshotDir(DATA_DIR),
+    cacheDir: snapshotDir(GOODS_PUBLISH_SOURCE_CACHE_DIR),
+    cooldownFile: snapshotFile(SCRAPE_COOLDOWN_PATH),
+    goodsCacheFile: snapshotFile(join(GOODS_PUBLISH_SOURCE_CACHE_DIR, `${goodsId}.json`)),
+  };
+}
+
+function assertRepoIsolationUnchanged(before) {
+  assert.deepEqual(snapshotDir(DATA_DIR), before.dataDir);
+  assert.deepEqual(snapshotDir(GOODS_PUBLISH_SOURCE_CACHE_DIR), before.cacheDir);
+  assert.deepEqual(snapshotFile(SCRAPE_COOLDOWN_PATH), before.cooldownFile);
+  assert.deepEqual(
+    snapshotFile(join(GOODS_PUBLISH_SOURCE_CACHE_DIR, `${before.goodsId}.json`)),
+    before.goodsCacheFile,
+  );
+}
+
 function makeFakePage({
   url = 'https://mms.pinduoduo.com/goods/goods_add/index',
   extracted = makeExtractedSource(),
@@ -471,6 +513,7 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
   it('completes a direct draft publish in isolation without touching repo data or tmp dirs', async () => {
     seedConsumerAccount();
     const ctx = makePublishCtx();
+    const beforeRepoState = captureRepoIsolationState('123456');
 
     const result = await publishGoodsFromLink(ctx, 'https://mobile.yangkeduo.com/goods.html?goods_id=123456');
 
@@ -488,8 +531,43 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
     assert.deepEqual(ctx.sourceGoodsCache.calls.write, ['123456']);
     assert.deepEqual(ctx.sourceGoodsCache.calls.remove, ['123456']);
     assert.equal(ctx.sourceGoodsCache.peek('123456'), null);
-    assert.equal(existsSync(DATA_DIR), false);
-    assert.equal(existsSync(GOODS_PUBLISH_SOURCE_CACHE_DIR), false);
+    assertRepoIsolationUnchanged(beforeRepoState);
+  });
+
+  it('snapshots non-empty directories with pre-existing files and detects created or modified entries', () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'pdd-publish-snapshot-'));
+    try {
+      const fakeDataDir = join(tempRoot, 'data');
+      const fakeCacheDir = join(tempRoot, 'tmp', 'goods-publish-source-cache');
+      mkdirSync(fakeDataDir, { recursive: true });
+      mkdirSync(fakeCacheDir, { recursive: true });
+      writeFileSync(join(fakeDataDir, 'pdd.db'), 'sqlite-bytes', 'utf8');
+      writeFileSync(join(fakeDataDir, 'master.key'), 'key-bytes', 'utf8');
+
+      const beforeData = snapshotDir(fakeDataDir);
+      const beforeCache = snapshotDir(fakeCacheDir);
+      const beforeCooldown = snapshotFile(join(fakeDataDir, 'scrape-cooldown.json'));
+      const beforeGoodsCache = snapshotFile(join(fakeCacheDir, '123456.json'));
+
+      assert.deepEqual(beforeData?.map((entry) => entry.name), ['master.key', 'pdd.db']);
+      assert.deepEqual(beforeCache, []);
+      assert.equal(beforeCooldown, null);
+      assert.equal(beforeGoodsCache, null);
+      assert.deepEqual(snapshotDir(fakeDataDir), beforeData);
+
+      writeFileSync(join(fakeDataDir, 'scrape-cooldown.json'), '{"consecutiveSoftBlock":1}', 'utf8');
+      writeFileSync(join(fakeCacheDir, '123456.json'), '{"version":4}', 'utf8');
+      assert.notDeepEqual(snapshotDir(fakeDataDir), beforeData);
+      assert.notDeepEqual(snapshotFile(join(fakeDataDir, 'scrape-cooldown.json')), beforeCooldown);
+      assert.notDeepEqual(snapshotFile(join(fakeCacheDir, '123456.json')), beforeGoodsCache);
+
+      const modifiedBefore = snapshotFile(join(fakeDataDir, 'pdd.db'));
+      writeFileSync(join(fakeDataDir, 'pdd.db'), 'sqlite-bytes-modified', 'utf8');
+      assert.notDeepEqual(snapshotFile(join(fakeDataDir, 'pdd.db')), modifiedBefore);
+      assert.notDeepEqual(snapshotDir(fakeDataDir), beforeData);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   describe('Source Fetch Proxy retry and fail-closed contracts (L247-264)', () => {
@@ -804,6 +882,7 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       });
 
       const firstCtx = makePublishCtx({ scrapeCooldown: cooldown, sourceGoodsCache: sourceCache });
+      const beforeRepoState = captureRepoIsolationState('123456');
       await assert.rejects(
         publishGoodsFromLink(firstCtx, '123456'),
         (err) => err instanceof PddCliError
@@ -848,6 +927,7 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       );
       assert.equal(thirdCtx.client.execute.mock.calls.length, 0);
       assert.equal(acquireQingguoProxyLease.mock.calls.length, 2);
+      assertRepoIsolationUnchanged(beforeRepoState);
     });
   });
 
@@ -1301,6 +1381,7 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       }));
 
       const failCtx = makePublishCtx({ sourceGoodsCache: sourceCache });
+      const beforeRepoState = captureRepoIsolationState('123456');
       await assert.rejects(
         publishGoodsFromLink(failCtx, '123456', { draftOnly: false }),
         (err) => err instanceof PddCliError
@@ -1328,6 +1409,7 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       assert.equal(createConsumerContext.mock.calls.length, 0);
       assert.deepEqual(sourceCache.calls.remove, ['123456']);
       assert.equal(sourceCache.peek('123456'), null);
+      assertRepoIsolationUnchanged(beforeRepoState);
     });
 
     it('retains v4 cache if --confirm submit is rejected and clears cache only after submit succeeds', async () => {
