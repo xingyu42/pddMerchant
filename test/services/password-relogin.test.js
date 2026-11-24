@@ -1,21 +1,26 @@
 import assert from 'node:assert/strict';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { beforeEach, it, vi } from 'vitest';
 import { insertAccount, getCredential, putCredential, getReloginState, putReloginState,
   insertPendingAction, listPendingActions } from '../../src/infra/account-store.js';
-import { get, run, transaction, isInTransaction } from '../../src/infra/db.js';
+import { get, run, transaction, isInTransaction, closeDatabase, openDatabase, getDatabasePath } from '../../src/infra/db.js';
 import { getLogger } from '../../src/infra/logger.js';
 import { savePasswordCredential, deletePasswordCredential } from '../../src/adapter/password-credential.js';
-import { withMerchantAuthUpdate } from '../../src/adapter/merchant-auth-storage.js';
+import { withMerchantAuthUpdate, commitMerchantCandidate } from '../../src/adapter/merchant-auth-storage.js';
 import { assertMerchantVerified } from '../../src/adapter/merchant-auth.js';
 import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
 import { createFixtureReloginContext, verifyFixtureMerchantContext } from '../../src/adapter/fixtures/auth.js';
 import { composeCommandRuntime } from '../../src/runtime/command-runtime.js';
 import { createCandidateSeal } from '../../src/infra/candidate-seal.js';
 import { aad, seal } from '../../src/infra/secret-box.js';
+import { getMasterKey } from '../../src/infra/master-key.js';
 import { armDeadline } from '../../src/commands/runner/single-lifecycle.js';
-import { decideRelogin, recordReloginAttempt, recordReloginOutcome, markManualLoginSucceeded,
-  setAccountPassword, clearAccountPassword, clearReloginBlock, recordTakeoverTimeout, getReloginSummary, reloginInCommand,
-  deviceState, beginReloginAttempt, reloginForFixture, fixtureSessionRecovered } from '../../src/services/password-relogin.js';
+import * as reloginPolicy from '../../src/services/relogin-policy.js';
+import { decideRelogin, markManualLoginSucceeded, setAccountPassword, clearAccountPassword,
+  clearReloginBlock, recordTakeoverTimeout, getReloginSummary, getAccountActionWarnings,
+  extractDeviceState, beginReloginAttempt } from '../../src/services/relogin-policy.js';
+import { reloginInCommand, reloginForFixture, fixtureSessionRecovered } from '../../src/services/password-relogin.js';
 
 const credential = { loginName: 'synthetic-login-54639', password: 'synthetic-password-183646' };
 const now = Date.parse('2026-10-27T00:00:00.000Z');
@@ -107,6 +112,16 @@ it.each([undefined, null, 0, -1, NaN, Infinity, '1800000'])('defaults invalid mi
     { code: 'E_SECRET_DECRYPT_FAILED' });
 });
 
+it('accepts passwordReloginMinIntervalMs as configurable throttle interval', () => {
+  putCredential(account.id, 'damaged ciphertext');
+  seedState();
+  const result = decideRelogin(account.id, { now, passwordReloginMinIntervalMs: 5_000 });
+  safeError(result.error, 'E_AUTH_RELOGIN_FAILED');
+  assert.equal(result.error.detail.relogin, 'throttled');
+  assert.throws(() => decideRelogin(account.id, { now: now + 4_000, passwordReloginMinIntervalMs: 5_000 }),
+    { code: 'E_SECRET_DECRYPT_FAILED' });
+});
+
 it('does not write last_attempt_at when the command budget is exhausted before relogin', async () => {
   savePasswordCredential(account.id, credential);
   await withMerchantAuthUpdate(account.id, async (tx) => {
@@ -129,7 +144,9 @@ it('does not write last_attempt_at when the command budget is exhausted before r
 
 it('throttles a crashed first attempt with a null previous reason', async () => {
   savePasswordCredential(account.id, credential);
-  await withMerchantAuthUpdate(account.id, (tx) => recordReloginAttempt(tx));
+  await withMerchantAuthUpdate(account.id, (tx) => {
+    beginReloginAttempt(tx, { credentialUpdatedAt: getCredential(account.id).updated_at });
+  });
   const result = decideRelogin(account.id, { minIntervalMs });
   safeError(result.error, 'E_AUTH_RELOGIN_FAILED');
   assert.equal(result.error.detail.reason, null);
@@ -140,10 +157,10 @@ it('records an attempt before browser work, creating a default row and preservin
   await withMerchantAuthUpdate(account.id, (tx) => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(now);
-    recordReloginAttempt(tx);
+    beginReloginAttempt(tx);
     assert.deepEqual(getReloginSummary(account.id), { has_password: false, status: 'available', reason: null, last_attempt_at: new Date(now).toISOString() });
     seedState({ status: 'blocked', reason: 'wrong_password', consecutiveTakeoverTimeouts: 1 });
-    recordReloginAttempt(tx);
+    beginReloginAttempt(tx);
     const state = getReloginState(account.id);
     assert.equal(state.status, 'blocked');
     assert.equal(state.reason, 'wrong_password');
@@ -162,7 +179,12 @@ it('keeps both the held transaction and persisted state unchanged when success f
   const { candidate } = await verifyFixtureMerchantContext(createFixtureReloginContext(account.identity), { seal });
   await withMerchantAuthUpdate(account.id, (tx) => {
     const before = structuredClone(tx.state);
-    const handle = beginReloginAttempt(tx, { manual: true, seal, credentialUpdatedAt: getCredential(account.id).updated_at });
+    const handle = beginReloginAttempt(tx, {
+      manual: true,
+      seal,
+      commit: commitMerchantCandidate,
+      credentialUpdatedAt: getCredential(account.id).updated_at,
+    });
     run(`CREATE TEMP TRIGGER fail_handle_success BEFORE UPDATE ON relogin_states
       WHEN NEW.reason = 'success' BEGIN SELECT RAISE(ABORT, 'synthetic outcome failure'); END`);
     try {
@@ -195,17 +217,39 @@ it('rejects an unverified candidate through the attempt handle without advancing
   });
 });
 
-it('validates and commits candidates through an injected isolated CandidateSeal', async () => {
+it('validates and commits candidates through an injected isolated CandidateSeal and commit callback', async () => {
   const sealA = createCandidateSeal();
   const sealB = createCandidateSeal();
   savePasswordCredential(account.id, credential);
   const { candidate } = await verifyFixtureMerchantContext(createFixtureReloginContext(account.identity), { seal: sealA });
   await withMerchantAuthUpdate(account.id, (tx) => {
-    const wrongHandle = beginReloginAttempt(tx, { seal: sealB, credentialUpdatedAt: getCredential(account.id).updated_at });
+    const wrongHandle = beginReloginAttempt(tx, {
+      seal: sealB,
+      commit: commitMerchantCandidate,
+      credentialUpdatedAt: getCredential(account.id).updated_at,
+    });
     assert.throws(() => wrongHandle.succeed(candidate), { code: 'E_AUTH_CANDIDATE_INVALID' });
     assert.equal(tx.revision, 0);
-    const matchingHandle = beginReloginAttempt(tx, { seal: sealA, credentialUpdatedAt: getCredential(account.id).updated_at });
+    const missingCommitHandle = beginReloginAttempt(tx, {
+      seal: sealA,
+      credentialUpdatedAt: getCredential(account.id).updated_at,
+    });
+    assert.throws(() => missingCommitHandle.succeed(candidate), { code: 'E_CONFIG_INVALID' });
+    assert.equal(tx.revision, 0);
+    const commitCalls = [];
+    const customCommit = (cand, draft) => {
+      commitCalls.push({ cand, draftSeal: draft.seal });
+      return commitMerchantCandidate(cand, draft);
+    };
+    const matchingHandle = beginReloginAttempt(tx, {
+      seal: sealA,
+      commit: customCommit,
+      credentialUpdatedAt: getCredential(account.id).updated_at,
+    });
     matchingHandle.succeed(candidate);
+    assert.equal(commitCalls.length, 1);
+    assert.equal(commitCalls[0].cand, candidate);
+    assert.equal(commitCalls[0].draftSeal, sealA);
     assert.equal(tx.revision, 1);
   });
 });
@@ -265,22 +309,41 @@ const outcomes = [
   ]),
 ];
 
-it.each(outcomes)('applies outcome %j atomically', async (outcome, status, reason, kind, code) => {
+it.each(outcomes)('applies outcome %j atomically through beginReloginAttempt', async (outcome, status, reason, kind, code) => {
   savePasswordCredential(account.id, credential);
   seedState({ consecutiveTakeoverTimeouts: 1 });
   const credentialUpdatedAt = getCredential(account.id).updated_at;
-  await withMerchantAuthUpdate(account.id, (tx) => {
-    const error = recordReloginOutcome(tx, outcome, { credentialUpdatedAt });
-    if (code) {
-      safeError(error, code);
-      assert.deepEqual(error.detail, { account: account.slug, [kind === 'human_takeover' ? 'challenge' : 'reason']: reason });
-    } else assert.equal(error, null);
-  });
+  const candidateSeal = createCandidateSeal();
+  const verified = outcome.outcome === 'success'
+    ? await verifyFixtureMerchantContext(createFixtureReloginContext(account.identity), { seal: candidateSeal })
+    : null;
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(now);
+  try {
+    await withMerchantAuthUpdate(account.id, (tx) => {
+      const handle = beginReloginAttempt(tx, {
+        credentialUpdatedAt,
+        seal: candidateSeal,
+        commit: commitMerchantCandidate,
+      });
+      if (code) {
+        assert.throws(() => handle.fail(outcome), (error) => {
+          safeError(error, code);
+          assert.deepEqual(error.detail, { account: account.slug, [kind === 'human_takeover' ? 'challenge' : 'reason']: reason });
+          return true;
+        });
+      } else {
+        handle.succeed(verified.candidate);
+      }
+    });
+  } finally {
+    vi.useRealTimers();
+  }
   const state = getReloginState(account.id);
   assert.equal(state.status, status);
   assert.equal(state.reason, reason);
   assert.equal(state.consecutive_takeover_timeouts, reason === 'success' ? 0 : 1);
-  assert.equal(state.last_attempt_at, new Date(now - 1000).toISOString());
+  assert.equal(state.last_attempt_at, new Date(now).toISOString());
   assert.deepEqual(openActions().map((action) => [action.kind, action.reason]), kind ? [[kind, reason]] : []);
 });
 
@@ -289,9 +352,10 @@ it.each(['human_takeover', 'relogin_blocked'])('retains the existing open %s act
   const credentialUpdatedAt = getCredential(account.id).updated_at;
   const actionId = insertPendingAction(account.id, { kind, reason: 'original' });
   const outcome = kind === 'human_takeover' ? { outcome: 'challenge', challenge: 'sms' } : { outcome: 'wrong_password' };
+  const expectedCode = kind === 'human_takeover' ? 'E_AUTH_HUMAN_REQUIRED' : 'E_AUTH_RELOGIN_BLOCKED';
   await withMerchantAuthUpdate(account.id, (tx) => {
-    recordReloginOutcome(tx, outcome, { credentialUpdatedAt });
-    recordReloginOutcome(tx, outcome, { credentialUpdatedAt });
+    assert.throws(() => beginReloginAttempt(tx, { credentialUpdatedAt }).fail(outcome), { code: expectedCode });
+    assert.throws(() => beginReloginAttempt(tx, { credentialUpdatedAt }).fail(outcome), { code: expectedCode });
   });
   assert.equal(openActions().length, 1);
   assert.equal(openActions()[0].id, actionId);
@@ -303,12 +367,19 @@ it.each(['reset', 'clear'])('ignores old challenge/blocked transitions after pas
   const credentialUpdatedAt = getCredential(account.id).updated_at;
   const warning = vi.spyOn(getLogger(), 'warn').mockImplementation(() => {});
   await withMerchantAuthUpdate(account.id, (tx) => {
+    const handles = Array.from({ length: 3 }, () => beginReloginAttempt(tx, { credentialUpdatedAt }));
     if (change === 'reset') setAccountPassword(account.id, credential);
     else clearAccountPassword(account.id);
     const before = getReloginState(account.id);
-    for (const outcome of [{ outcome: 'challenge', challenge: 'sms' }, { outcome: 'wrong_password' }, { outcome: 'account_locked' }]) {
-      const error = recordReloginOutcome(tx, outcome, { credentialUpdatedAt });
-      assert.equal(error.exitCode, 3);
+    for (const [index, outcome] of [
+      { outcome: 'challenge', challenge: 'sms' },
+      { outcome: 'wrong_password' },
+      { outcome: 'account_locked' },
+    ].entries()) {
+      assert.throws(() => handles[index].fail(outcome), (error) => {
+        assert.equal(error.exitCode, 3);
+        return true;
+      });
       assert.deepEqual(getReloginState(account.id), before);
       assert.deepEqual(openActions(), []);
     }
@@ -328,9 +399,11 @@ it('changes credential versions even when passwords are reset in the same millis
 it('ignores blocking outcomes when both the saved credential and expected version are absent', async () => {
   const warning = vi.spyOn(getLogger(), 'warn').mockImplementation(() => {});
   await withMerchantAuthUpdate(account.id, (tx) => {
-    recordReloginOutcome(tx, 'wrong_password', { credentialUpdatedAt: undefined });
+    const handle = beginReloginAttempt(tx, { credentialUpdatedAt: undefined });
+    assert.throws(() => handle.fail('wrong_password'), { code: 'E_AUTH_RELOGIN_BLOCKED' });
   });
-  assert.equal(getReloginState(account.id), null);
+  assert.equal(getReloginState(account.id).status, 'available');
+  assert.equal(getReloginState(account.id).reason, null);
   assert.deepEqual(openActions(), []);
   assert.equal(warning.mock.calls.length, 1);
 });
@@ -339,8 +412,7 @@ it.each(['missing', 'stolen'])('rejects record writes for a %s lease and writes 
   savePasswordCredential(account.id, credential);
   const credentialUpdatedAt = getCredential(account.id).updated_at;
   const check = (tx) => {
-    assert.throws(() => recordReloginAttempt(tx), { code: 'E_AUTH_LOCK_LOST' });
-    assert.throws(() => recordReloginOutcome(tx, { outcome: 'wrong_password' }, { credentialUpdatedAt }), { code: 'E_AUTH_LOCK_LOST' });
+    assert.throws(() => beginReloginAttempt(tx, { credentialUpdatedAt }), { code: 'E_AUTH_LOCK_LOST' });
     assert.equal(getReloginState(account.id), null);
     assert.deepEqual(openActions(), []);
   };
@@ -348,15 +420,43 @@ it.each(['missing', 'stolen'])('rejects record writes for a %s lease and writes 
   else await withMerchantAuthUpdate(account.id, (tx) => check({ ...tx, token: 'stolen' }));
 });
 
+it('rejects handle fail and succeed when lease is lost after attempt starts', async () => {
+  savePasswordCredential(account.id, credential);
+  const credentialUpdatedAt = getCredential(account.id).updated_at;
+  const candidateSeal = createCandidateSeal();
+  const { candidate } = await verifyFixtureMerchantContext(createFixtureReloginContext(account.identity), { seal: candidateSeal });
+  await withMerchantAuthUpdate(account.id, (tx) => {
+    const staleTx = { ...tx };
+    const handle = beginReloginAttempt(staleTx, {
+      credentialUpdatedAt,
+      seal: candidateSeal,
+      commit: commitMerchantCandidate,
+    });
+    staleTx.token = 'stolen';
+    assert.throws(() => handle.fail({ outcome: 'wrong_password' }), { code: 'E_AUTH_LOCK_LOST' });
+    assert.throws(() => handle.succeed(candidate), { code: 'E_AUTH_LOCK_LOST' });
+    assert.equal(getReloginState(account.id).status, 'available');
+    assert.equal(getReloginState(account.id).reason, null);
+    assert.deepEqual(openActions(), []);
+    assert.equal(loadAuthState(account.id).exists, false);
+  });
+});
+
 it('rolls back the state update when inserting its pending action fails', async () => {
   savePasswordCredential(account.id, credential);
-  run(`CREATE TRIGGER reject_action BEFORE INSERT ON pending_actions
-    BEGIN SELECT RAISE(ABORT, 'synthetic private native error'); END`);
   await withMerchantAuthUpdate(account.id, (tx) => {
-    assert.throws(() => recordReloginOutcome(tx, 'wrong_password', { credentialUpdatedAt: getCredential(account.id).updated_at }),
-      { code: 'E_AUTH_ACCOUNT_SAVE_FAILED', message: '账号存储暂不可用' });
+    const handle = beginReloginAttempt(tx, { credentialUpdatedAt: getCredential(account.id).updated_at });
+    run(`CREATE TRIGGER reject_action BEFORE INSERT ON pending_actions
+      BEGIN SELECT RAISE(ABORT, 'synthetic private native error'); END`);
+    try {
+      assert.throws(() => handle.fail('wrong_password'),
+        { code: 'E_AUTH_ACCOUNT_SAVE_FAILED', message: '账号存储暂不可用' });
+    } finally {
+      run('DROP TRIGGER reject_action');
+    }
   });
-  assert.equal(getReloginState(account.id), null);
+  assert.equal(getReloginState(account.id).status, 'available');
+  assert.equal(getReloginState(account.id).reason, null);
   assert.deepEqual(openActions(), []);
 });
 
@@ -364,10 +464,16 @@ it('normalizes unknown challenges and rejects unknown outcomes without storing v
   savePasswordCredential(account.id, credential);
   await withMerchantAuthUpdate(account.id, (tx) => {
     const version = { credentialUpdatedAt: getCredential(account.id).updated_at };
-    assert.throws(() => recordReloginOutcome(tx, { outcome: credential.password }, version), { code: 'E_USAGE' });
-    assert.equal(getReloginState(account.id), null);
-    const error = recordReloginOutcome(tx, { outcome: 'challenge', challenge: credential.password }, version);
-    assert.equal(error.detail.challenge, 'unknown');
+    const invalidHandle = beginReloginAttempt(tx, version);
+    assert.throws(() => invalidHandle.fail({ outcome: credential.password }), { code: 'E_USAGE' });
+    assert.equal(getReloginState(account.id).status, 'available');
+    assert.equal(getReloginState(account.id).reason, null);
+    const challengeHandle = beginReloginAttempt(tx, version);
+    assert.throws(() => challengeHandle.fail({ outcome: 'challenge', challenge: credential.password }), (error) => {
+      assert.equal(error.code, 'E_AUTH_HUMAN_REQUIRED');
+      assert.equal(error.detail.challenge, 'unknown');
+      return true;
+    });
     assert.equal(getReloginState(account.id).reason, 'unknown');
   });
 });
@@ -415,11 +521,11 @@ it.each(['available', 'blocked'])('manual login resets consecutive timeouts whil
 
 it('exports a cloned device state with every PASS_ID removed and empty corrupt fallback', () => {
   const state = { cookies: [{ name: 'PASS_ID' }, { name: 'device', value: 'trust' }, { name: 'PASS_ID' }], origins: [] };
-  const device = deviceState({ state });
+  const device = extractDeviceState({ state });
   assert.deepEqual(device, { cookies: [{ name: 'device', value: 'trust' }], origins: [] });
   device.cookies[0].value = 'changed';
   assert.equal(state.cookies[1].value, 'trust');
-  for (const tx of [{ corrupt: true, state }, { state: {} }, {}]) assert.deepEqual(deviceState(tx), { cookies: [], origins: [] });
+  for (const tx of [{ corrupt: true, state }, { state: {} }, {}]) assert.deepEqual(extractDeviceState(tx), { cookies: [], origins: [] });
 });
 
 it('sets a password and resets state, attempt time, timeout count and every open action', () => {
@@ -533,4 +639,45 @@ it('creates the first timeout state and does not recreate deleted accounts', () 
     assert.throws(callback, { code: 'E_ACCOUNT_NOT_FOUND' });
   }
   assert.equal(get('SELECT COUNT(*) AS count FROM relogin_states').count, 0);
+});
+
+it('keeps getReloginSummary readable when master key is mismatched and reports open action warnings', () => {
+  setAccountPassword(account.id, credential);
+  insertPendingAction(account.id, { kind: 'relogin_blocked', reason: 'wrong_password' });
+  seedState({ status: 'blocked', reason: 'wrong_password' });
+  const dbPath = getDatabasePath();
+  writeFileSync(join(dirname(dbPath), 'master.key'), JSON.stringify({
+    version: 1,
+    key: Buffer.alloc(32, 0xaa).toString('base64'),
+  }));
+  closeDatabase();
+  openDatabase(dbPath);
+  assert.throws(() => getMasterKey(), { code: 'E_MASTER_KEY_MISMATCH' });
+  assert.deepEqual(getReloginSummary(account.id), {
+    has_password: true,
+    status: 'blocked',
+    reason: 'wrong_password',
+    last_attempt_at: new Date(now - 1000).toISOString(),
+  });
+  assert.deepEqual(getAccountActionWarnings(account.id, account.slug), [
+    { code: 'account_action_required', account: account.slug, reason: 'wrong_password' },
+  ]);
+});
+
+it('privatizes recordReloginAttempt/recordReloginOutcome and keeps relogin-policy free of browser, network, and fixture imports', () => {
+  assert.equal('recordReloginAttempt' in reloginPolicy, false);
+  assert.equal('recordReloginOutcome' in reloginPolicy, false);
+  const source = readFileSync(new URL('../../src/services/relogin-policy.js', import.meta.url), 'utf8');
+  for (const forbidden of [
+    'patchright',
+    'playwright',
+    'node:https',
+    'browser.js',
+    'fixtures/',
+    'password-login.js',
+    'merchant-auth.js',
+    'merchant-auth-storage.js',
+  ]) {
+    assert.equal(source.includes(forbidden), false, `relogin-policy.js must not reference ${forbidden}`);
+  }
 });

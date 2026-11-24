@@ -281,24 +281,23 @@ attemptPasswordLogin(page, { loginName, password }, { signal, deadlineAt }) ->
   | { outcome: 'challenge', challenge: 'sms' | 'slider' | 'click' | 'risk_confirm' | 'unknown' }
   | { outcome: 'wrong_password' | 'account_locked' | 'form_changed' | 'network_error' };
 
-// services/password-relogin.js
-decideRelogin(accountId, { now, minIntervalMs, authResult, manual = false, decrypt = true })
+// services/relogin-policy.js (zero-browser, zero-Playwright, zero-network, zero-fixture)
+decideRelogin(accountId, { now, minIntervalMs, passwordReloginMinIntervalMs, authResult, manual = false, decrypt = true })
   -> { action: 'attempt', credential, credentialUpdatedAt } | { action: 'fail', error }; // sync, read-only
-beginReloginAttempt(tx, { manual = false, password = true, credentialUpdatedAt, commit })
-  -> { fail(outcome), succeed(candidate) }; // sync; fail records then throws; succeed is atomic
-recordReloginAttempt(tx);                                  // sync; last_attempt_at before browser work
-recordReloginOutcome(tx, outcome, { credentialUpdatedAt }) -> PddCliError | null; // sync
-reloginInCommand(runtime, tx, browser, authResult) -> { context, page }; // live; lease already held
-reloginForFixture(accountId, runtime);                     // fixture; takes its own lease
+beginReloginAttempt(tx, { manual = false, password = true, credentialUpdatedAt, commit, seal })
+  -> { fail(outcome), succeed(candidate) }; // sync; owns attempt & outcome recording; fail throws; succeed is atomic
 markManualLoginSucceeded(accountId);                       // saveMerchantLogin, existing account only
-deviceState(tx);                                         // cloned cookies/origins, every PASS_ID removed
-// reserved for task ④ (implemented and tested in ③)
+extractDeviceState(tx);                                    // cloned cookies/origins, every PASS_ID removed
 setAccountPassword(accountId, { loginName, password });
 clearAccountPassword(accountId);
 clearReloginBlock(accountId);
 recordTakeoverTimeout(accountId);
 getReloginSummary(accountId) -> { has_password, status, reason, last_attempt_at };
 getAccountActionWarnings(accountId, slug) -> [{ code: 'account_action_required', account, reason }];
+
+// services/password-relogin.js
+reloginInCommand(runtime, tx, browser, authResult) -> { context, page }; // live; lease already held
+reloginForFixture(accountId, runtime);                     // fixture; takes its own lease
 ```
 
 ### 3. Contracts
@@ -327,8 +326,8 @@ getAccountActionWarnings(accountId, slug) -> [{ code: 'account_action_required',
 | `recordTakeoverTimeout` | counter +1; at 2 → blocked | `takeover_timeout` | opens `relogin_blocked`; an existing block is kept as is |
 
 - At most one open pending action per `(account, kind)`; a duplicate insert keeps the existing row.
-- Attempt/outcome writes (`recordReloginAttempt`, `recordReloginOutcome`, fixture commit) run in one short synchronous transaction after `assertLeaseOwner('account', accountId, tx.token)`. `markManualLoginSucceeded` runs inside `saveMerchantLogin`'s lease-checked transaction. The reserved ④ helpers (`setAccountPassword`, `clearAccountPassword`, `clearReloginBlock`, `recordTakeoverTimeout`) write in a short transaction without taking the lease; races with an in-flight attempt are resolved by the stale-outcome guard.
-- `beginReloginAttempt` owns attempt recording and finalization. `succeed(candidate)` requires a branded verified candidate and atomically saves the snapshot plus the password-success outcome; manual sessions also retain the existing manual reset/action-resolution rules. Console live sessions use `saveMerchantLogin` as the synchronous `commit(candidate, draftTx)` callback, preserving account display name and login timestamp updates. Only after commit does the held transaction advance; a failure leaves its revision/state/metadata/corrupt fields unchanged. QR manual sessions use `password:false` and retain blocked status/actions. Manual password preflight uses `decideRelogin({ manual:true, decrypt:false })`, retaining blocked-before-missing-password and allowing human retry without automatic throttle/awaiting-human guards.
+- Attempt/outcome writes (inside `beginReloginAttempt`, fixture commit) run in one short synchronous transaction after `assertLeaseOwner('account', accountId, tx.token)`. `markManualLoginSucceeded` runs inside `saveMerchantLogin`'s lease-checked transaction. The reserved ④ helpers (`setAccountPassword`, `clearAccountPassword`, `clearReloginBlock`, `recordTakeoverTimeout`) write in a short transaction without taking the lease; races with an in-flight attempt are resolved by the stale-outcome guard.
+- `beginReloginAttempt` owns attempt recording and finalization (with private attempt/outcome helpers) and takes explicit injected `seal` (`CandidateSeal`) and `commit` callback. `succeed(candidate)` requires a branded verified candidate and atomically saves the snapshot plus the password-success outcome; manual sessions also retain the existing manual reset/action-resolution rules. Console live sessions use `saveMerchantLogin` as the synchronous `commit(candidate, draftTx)` callback, preserving account display name and login timestamp updates. Only after commit does the held transaction advance; a failure leaves its revision/state/metadata/corrupt fields unchanged. QR manual sessions use `password:false` and retain blocked status/actions. Manual password preflight uses `decideRelogin({ manual:true, decrypt:false })`, retaining blocked-before-missing-password and allowing human retry without automatic throttle/awaiting-human guards.
 - Fixture recovery retains its marker and browser-free orchestration, but creates a branded candidate through `verifyMerchantContext` and commits through this same handle and `commitMerchantCandidate`; the former direct snapshot writer is removed. Marker creation/recognition lives in `adapter/fixtures/auth.js`.
 - Stale-outcome guard: when `credentials.updated_at` differs from `credentialUpdatedAt` captured at decision time, blocking outcomes (`awaiting_human` / `blocked`) are skipped and only the error is returned, so a password reset during an attempt wins.
 - The live relogin context is device-continuous: `tx.state` cookies/origins with every `PASS_ID` cookie removed. Only a corrupt or shape-invalid state falls back to an empty context.
@@ -405,6 +404,6 @@ putReloginState(accountId, { status: 'blocked', reason: 'wrong_password' });
 #### Correct
 
 ```js
-// recordReloginOutcome skips blocking writes when credentials.updated_at changed since decideRelogin.
-const error = recordReloginOutcome(tx, result, { credentialUpdatedAt: decision.credentialUpdatedAt });
+// beginReloginAttempt skips blocking writes on fail() when credentials.updated_at changed since decideRelogin.
+beginReloginAttempt(tx, { credentialUpdatedAt: decision.credentialUpdatedAt, seal, commit }).fail(result);
 ```

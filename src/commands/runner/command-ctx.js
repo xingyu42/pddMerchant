@@ -1,5 +1,5 @@
 // 命令上下文组装与行动告警附加（由 live / fixture / without-browser 三路径共享）。
-import { getAccountActionWarnings } from '../../services/password-relogin.js';
+import { getAccountActionWarnings } from '../../services/relogin-policy.js';
 import { daemonIsRunning as defaultDaemonIsRunning } from '../../services/daemon.js';
 
 export function buildCommandCtx(runtime, { client, page, mallCtx, ...extra }) {

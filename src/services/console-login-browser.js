@@ -6,10 +6,10 @@ import { hasPassId, MERCHANT_CHECK_URL } from '../adapter/merchant-auth-probe.js
 import { attemptPasswordLogin, submitSmsCode } from '../adapter/password-login.js';
 import { loadPasswordCredential } from '../adapter/password-credential.js';
 import { assertAuthTask } from '../infra/auth-task.js';
-import { deviceState } from './password-relogin.js';
+import { extractDeviceState } from './relogin-policy.js';
 
 // 新增账号没有已存设备状态，调用方传入空白状态。
-export async function openConsoleBrowser(session, tx, state = deviceState(tx)) {
+export async function openConsoleBrowser(session, tx, state = extractDeviceState(tx)) {
   const { browser, context } = await launchBrowser({ ownerTag: session.ownerTag });
   session.browser = browser;
   await context?.close();
