@@ -399,6 +399,8 @@ function makePublishCtx({
   signal,
   fullCountDiscountRate = 0.95,
   onExecute,
+  env = {},
+  runtime,
 } = {}) {
   const merchantPage = makeFakePage();
   const fakeBrowser = { kind: 'synthetic-browser' };
@@ -437,9 +439,9 @@ function makePublishCtx({
     log: makeFakeLogger(),
     config: {},
     signal,
-    runtime: {
+    runtime: runtime ?? {
       mode: 'live',
-      env: parseRuntimeEnv(process.env, { mode: 'live' }),
+      env: parseRuntimeEnv({ PDD_SCRAPE_SIMULATE: '0', ...env }, { mode: 'live' }),
     },
   };
 }
@@ -448,9 +450,6 @@ let consumerContexts;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.stubEnv('PDD_TEST_ADAPTER', '');
-  vi.stubEnv('PDD_SCRAPE_SIMULATE', '0');
-  vi.stubEnv('PDD_IMAGE_TRANSFORM', '');
   getSharedBreaker().reset();
   getSharedSessionHealth().reset();
   consumerContexts = [];
@@ -513,6 +512,11 @@ beforeEach(() => {
     };
   });
 });
+
+const qingguoProxyEnv = {
+  PDD_SOURCE_PROXY_PROVIDER: 'qingguo',
+  PDD_QINGGUO_AUTH_KEY: 'secret-qingguo-key',
+};
 
 describe('publishGoodsFromLink T0 characterization safety net', () => {
   it('completes a direct draft publish in isolation without touching repo data or tmp dirs', async () => {
@@ -579,8 +583,6 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
     it('retries proxy infra failures with [500, 1000]ms backoff using fresh contexts and emits source_proxy_retry_recovered', async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-11-24T10:00:00Z'));
-      vi.stubEnv('PDD_SOURCE_PROXY_PROVIDER', 'qingguo');
-      vi.stubEnv('PDD_QINGGUO_AUTH_KEY', 'secret-qingguo-key');
       seedConsumerAccount();
 
       const attemptTimes = [];
@@ -634,7 +636,7 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
           return entry;
         });
 
-      const ctx = makePublishCtx();
+      const ctx = makePublishCtx({ env: qingguoProxyEnv });
       const pending = publishGoodsFromLink(ctx, '123456');
 
       await vi.advanceTimersByTimeAsync(499);
@@ -663,8 +665,6 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
 
     it('exhausts 3 attempts on repeated proxy failures and fails closed without direct fallback', async () => {
       vi.useFakeTimers();
-      vi.stubEnv('PDD_SOURCE_PROXY_PROVIDER', 'qingguo');
-      vi.stubEnv('PDD_QINGGUO_AUTH_KEY', 'secret-qingguo-key');
       seedConsumerAccount();
 
       createConsumerContext.mockImplementation(async (_browser, options) => {
@@ -676,7 +676,7 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
         return entry;
       });
 
-      const ctx = makePublishCtx();
+      const ctx = makePublishCtx({ env: qingguoProxyEnv });
       const pending = publishGoodsFromLink(ctx, '123456');
       const captured = pending.catch((err) => err);
 
@@ -760,12 +760,10 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       expectedExit,
       expectedContexts,
     }) => {
-      vi.stubEnv('PDD_SOURCE_PROXY_PROVIDER', 'qingguo');
-      vi.stubEnv('PDD_QINGGUO_AUTH_KEY', 'secret-qingguo-key');
       seedConsumerAccount();
       setup();
 
-      const ctx = makePublishCtx();
+      const ctx = makePublishCtx({ env: qingguoProxyEnv });
       await assert.rejects(
         publishGoodsFromLink(ctx, '123456'),
         (err) => err instanceof PddCliError
@@ -780,8 +778,6 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
 
     it('aborts proxy retry backoff immediately when ctx.signal aborts', async () => {
       vi.useFakeTimers();
-      vi.stubEnv('PDD_SOURCE_PROXY_PROVIDER', 'qingguo');
-      vi.stubEnv('PDD_QINGGUO_AUTH_KEY', 'secret-qingguo-key');
       seedConsumerAccount();
 
       acquireQingguoProxyLease.mockRejectedValueOnce(new PddCliError({
@@ -791,7 +787,7 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       }));
 
       const controller = new AbortController();
-      const ctx = makePublishCtx({ signal: controller.signal });
+      const ctx = makePublishCtx({ signal: controller.signal, env: qingguoProxyEnv });
       const pending = publishGoodsFromLink(ctx, '123456');
       const captured = pending.catch((err) => err);
 
@@ -805,10 +801,8 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
     });
 
     it('rejects invalid proxy config before cost template call on cache miss, and skips cooldown/proxy on cache hit', async () => {
-      vi.stubEnv('PDD_SOURCE_PROXY_PROVIDER', 'qingguo');
-      vi.stubEnv('PDD_QINGGUO_AUTH_KEY', '');
-
-      const missCtx = makePublishCtx();
+      const invalidProxyEnv = { PDD_SOURCE_PROXY_PROVIDER: 'qingguo', PDD_QINGGUO_AUTH_KEY: '' };
+      const missCtx = makePublishCtx({ env: invalidProxyEnv });
       await assert.rejects(
         publishGoodsFromLink(missCtx, '123456'),
         (err) => err instanceof PddCliError && err.code === 'E_USAGE' && err.exitCode === ExitCodes.USAGE,
@@ -819,7 +813,7 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       const hitCooldown = createMemoryScrapeCooldown();
       hitCooldown.tripNow(30_000);
       const hitCache = createMemorySourceCache({ 123456: makeNormalizedCachedSource() });
-      const hitCtx = makePublishCtx({ scrapeCooldown: hitCooldown, sourceGoodsCache: hitCache });
+      const hitCtx = makePublishCtx({ scrapeCooldown: hitCooldown, sourceGoodsCache: hitCache, env: invalidProxyEnv });
 
       const result = await publishGoodsFromLink(hitCtx, '123456');
       assert.equal(result.data.status, '草稿');
@@ -829,17 +823,13 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
     });
 
     it('forwards normalized PDD_QINGGUO_AREA to proxy lease acquisition and rejects malformed area before cost templates', async () => {
-      vi.stubEnv('PDD_SOURCE_PROXY_PROVIDER', 'qingguo');
-      vi.stubEnv('PDD_QINGGUO_AUTH_KEY', 'secret-qingguo-key');
-      vi.stubEnv('PDD_QINGGUO_AREA', '330100, 440300');
       seedConsumerAccount();
 
-      const ctx = makePublishCtx();
+      const ctx = makePublishCtx({ env: { ...qingguoProxyEnv, PDD_QINGGUO_AREA: '330100, 440300' } });
       await publishGoodsFromLink(ctx, '123456');
       assert.equal(acquireQingguoProxyLease.mock.calls[0][0].area, '330100,440300');
 
-      vi.stubEnv('PDD_QINGGUO_AREA', 'bad-area');
-      const invalidAreaCtx = makePublishCtx();
+      const invalidAreaCtx = makePublishCtx({ env: { ...qingguoProxyEnv, PDD_QINGGUO_AREA: 'bad-area' } });
       await assert.rejects(
         publishGoodsFromLink(invalidAreaCtx, '123456'),
         (err) => err instanceof PddCliError && err.code === 'E_USAGE',
@@ -850,8 +840,6 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
 
   describe('empty-shell classification and immediate stop (source-scraper + goods-publish)', () => {
     it('classifies _fiberFound=false & _appWall=true as E_RATE_LIMIT, records cooldown, preserves consumer auth, and stops proxy rotation', async () => {
-      vi.stubEnv('PDD_SOURCE_PROXY_PROVIDER', 'qingguo');
-      vi.stubEnv('PDD_QINGGUO_AUTH_KEY', 'secret-qingguo-key');
       const consumer = seedConsumerAccount();
       const cooldown = createMemoryScrapeCooldown({ threshold: 2, cooldownMs: 60_000 });
       const sourceCache = createMemorySourceCache();
@@ -886,7 +874,7 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
         return entry;
       });
 
-      const firstCtx = makePublishCtx({ scrapeCooldown: cooldown, sourceGoodsCache: sourceCache });
+      const firstCtx = makePublishCtx({ scrapeCooldown: cooldown, sourceGoodsCache: sourceCache, env: qingguoProxyEnv });
       const beforeRepoState = captureRepoIsolationState('123456');
       await assert.rejects(
         publishGoodsFromLink(firstCtx, '123456'),
@@ -907,7 +895,7 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
 
       // Simulate a second process sharing the persistent scrapeCooldown state.
       getSharedBreaker().reset();
-      const secondCtx = makePublishCtx({ scrapeCooldown: cooldown, sourceGoodsCache: sourceCache });
+      const secondCtx = makePublishCtx({ scrapeCooldown: cooldown, sourceGoodsCache: sourceCache, env: qingguoProxyEnv });
       await assert.rejects(
         publishGoodsFromLink(secondCtx, '123456'),
         (err) => err instanceof PddCliError
@@ -922,7 +910,7 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
 
       // Third process hits active scrapeCooldown before cost-template or proxy lease.
       getSharedBreaker().reset();
-      const thirdCtx = makePublishCtx({ scrapeCooldown: cooldown, sourceGoodsCache: sourceCache });
+      const thirdCtx = makePublishCtx({ scrapeCooldown: cooldown, sourceGoodsCache: sourceCache, env: qingguoProxyEnv });
       await assert.rejects(
         publishGoodsFromLink(thirdCtx, '123456'),
         (err) => err instanceof PddCliError
@@ -1005,8 +993,6 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       reason,
       extracted,
     }) => {
-      vi.stubEnv('PDD_SOURCE_PROXY_PROVIDER', 'qingguo');
-      vi.stubEnv('PDD_QINGGUO_AUTH_KEY', 'secret-qingguo-key');
       const consumer = seedConsumerAccount();
       assert.equal(loadAuthState(consumer.id).exists, true);
 
@@ -1022,7 +1008,7 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
 
       const cooldown = createMemoryScrapeCooldown({ threshold: 2, cooldownMs: 60_000 });
       const sourceCache = createMemorySourceCache();
-      const ctx = makePublishCtx({ scrapeCooldown: cooldown, sourceGoodsCache: sourceCache });
+      const ctx = makePublishCtx({ scrapeCooldown: cooldown, sourceGoodsCache: sourceCache, env: qingguoProxyEnv });
 
       let caught;
       try {

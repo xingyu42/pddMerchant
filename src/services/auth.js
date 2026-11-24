@@ -54,16 +54,25 @@ async function performMerchantLogin(options) {
 
 async function acquireMerchantLogin(options, transaction) {
   const { signal, deadlineAt, headed, qr, expectedMallId, runtime, seal } = options;
+  const browserPort = runtime?.ports?.browser;
+  let browserSession;
   let browser;
+  let activeContext;
   let qrDirectory;
   let timer;
-  const onAbort = () => { void closeBrowser(browser).catch(() => {}); };
+  const onAbort = () => {
+    void (browserSession ? browserSession.close() : closeBrowser(browser)).catch(() => {});
+  };
   signal?.addEventListener('abort', onAbort, { once: true });
   try {
     timer = setTimeout(onAbort, budgetMs({ deadlineAt }));
     const reuseState = transaction.state && !transaction.corrupt;
-    const launched = await launchBrowser({ headed, storageState: reuseState ? transaction.state : undefined });
-    browser = launched.browser;
+    const launchOptions = { headed, storageState: reuseState ? transaction.state : undefined };
+    const launched = browserPort
+      ? await browserPort.openSession(launchOptions)
+      : await launchBrowser(launchOptions);
+    if (browserPort) browserSession = launched;
+    else browser = launched.browser;
     assertAuthTask(transaction);
     const activeSeal = seal ?? runtime?.seal;
     const verifyContext = runtime?.ports?.auth?.verifyAndSeal;
@@ -74,12 +83,13 @@ async function acquireMerchantLogin(options, transaction) {
       ...(activeSeal ? { seal: activeSeal } : {}),
       ...(typeof verifyContext === 'function' ? { verifyContext } : {}),
     };
-    const session = await prepareMerchantSession(launched, transaction, task, reuseState);
+    const session = await prepareMerchantSession(launched, transaction, task, reuseState, browserSession);
+    activeContext = session.context;
     let result = session.result;
     let qrContentPresent;
     if (!result || result.verdict !== 'verified') {
       if (qr) qrDirectory = await mkdtemp(join(tmpdir(), 'pdd-merchant-login-'));
-      const acquired = await authorizeMerchantSession(session, options, task, qrDirectory);
+      const acquired = await authorizeMerchantSession(session, options, task, qrDirectory, browserSession);
       result = acquired.result;
       qrContentPresent = acquired.qrContentPresent;
     }
@@ -92,21 +102,31 @@ async function acquireMerchantLogin(options, transaction) {
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', onAbort);
-    await closeBrowser(browser);
+    if (browserSession) {
+      if (activeContext && activeContext !== browserSession.context) {
+        await activeContext.close?.().catch(() => {});
+      }
+      await browserSession.close();
+    } else {
+      await closeBrowser(browser);
+    }
     if (qrDirectory) await rm(qrDirectory, { recursive: true, force: true });
   }
 }
 
-async function prepareMerchantSession({ browser, context, page }, transaction, task, reuseState) {
+async function prepareMerchantSession({ browser, context, page }, transaction, task, reuseState, browserSession) {
+  const checkTarget = browserSession ?? context;
   const { result } = reuseState
-    ? await checkMerchantSession(context, { tx: transaction, task, mode: 'login' }) : { result: null };
+    ? await checkMerchantSession(checkTarget, { tx: transaction, task, mode: 'login' }) : { result: null };
   if (!result || result.verdict === 'verified') return { context, page, result };
   await context.close();
-  const emptyContext = await createSnapshotContext(browser, { cookies: [], origins: [] });
+  const emptyContext = browserSession
+    ? await browserSession.createSnapshotContext({ cookies: [], origins: [] })
+    : await createSnapshotContext(browser, { cookies: [], origins: [] });
   return { context: emptyContext, page: await emptyContext.newPage(), result };
 }
 
-async function authorizeMerchantSession({ context, page }, options, task, qrDirectory) {
+async function authorizeMerchantSession({ context, page }, options, task, qrDirectory, browserSession) {
   assertAuthTask(task);
   let qrContentPresent;
   if (options.qr) {
@@ -122,7 +142,10 @@ async function authorizeMerchantSession({ context, page }, options, task, qrDire
   await waitForMerchantCandidate(context, task);
   await page.close();
   const verifyContext = typeof task.verifyContext === 'function' ? task.verifyContext : verifyMerchantContext;
-  return { result: await verifyContext(context, { ...task, createSnapshotContext }), qrContentPresent };
+  const verifyTarget = browserSession
+    ? { context, createSnapshotContext: (snapshot) => browserSession.createSnapshotContext(snapshot) }
+    : context;
+  return { result: await verifyContext(verifyTarget, { ...task, ...(browserSession ? {} : { createSnapshotContext }) }), qrContentPresent };
 }
 
 export function performQrLogin(options) {

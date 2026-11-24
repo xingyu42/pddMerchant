@@ -36,7 +36,6 @@ function live(verify, probe = async (cookies) => {
   authProbe.buildCheckHeader(cookies);
   return { verdict: 'verified', reason: 'login_true', checked_at: checkedAt };
 }) {
-  vi.stubEnv('PDD_TEST_ADAPTER', '');
   const session = { browser: {}, context: {}, page: { goto: vi.fn() } };
   const launch = vi.spyOn(browser, 'withBrowser').mockImplementation(async (_options, callback) => callback(session));
   const close = vi.spyOn(browser, 'closeBrowser').mockResolvedValue();
@@ -104,7 +103,13 @@ it('skips an occupied account immediately, logs only its slug and fixed code, an
   const occupied = account();
   account('900002');
   const lock = await acquireLease('account', occupied.id);
-  const ctx = context({ runtime: { mode: 'fixture' } });
+  const runtime = await composeDaemonRuntime({
+    mode: 'fixture',
+    foreground: false,
+    runtimeConfig: { logLevel: 'silent', patrolEnabled: true, patrolIntervalMs: 1000, passwordReloginMinIntervalMs: 1_800_000 },
+    env: {},
+  });
+  const ctx = context({ runtime });
   const update = vi.spyOn(authStorage, 'withMerchantAuthUpdate');
   try {
     await runPatrolRound(ctx);
@@ -114,18 +119,31 @@ it('skips an occupied account immediately, logs only its slug and fixed code, an
     assert.ok(update.mock.calls.every((call) => call[2].timeoutMs === 0));
     assertLeaseOwner('account', occupied.id, lock.token);
     assert.ok(getDaemonMeta('daemon_last_patrol_at'));
-  } finally { releaseLease('account', occupied.id, lock.token); }
+  } finally {
+    releaseLease('account', occupied.id, lock.token);
+    await runtime.closeAll();
+  }
 });
 
 it('checks every merchant but no consumer account, and never opens a fixture browser', async () => {
   const first = account();
   const second = account('900002');
   account('900003', 'consumer');
+  const runtime = await composeDaemonRuntime({
+    mode: 'fixture',
+    foreground: false,
+    runtimeConfig: { logLevel: 'silent', patrolEnabled: true, patrolIntervalMs: 1000, passwordReloginMinIntervalMs: 1_800_000 },
+    env: {},
+  });
   const update = vi.spyOn(authStorage, 'withMerchantAuthUpdate');
   const launch = vi.spyOn(browser, 'withBrowser');
-  await runPatrolRound(context({ runtime: { mode: 'fixture' } }));
-  assert.deepEqual(update.mock.calls.map((call) => call[0]), [first.id, second.id]);
-  assert.equal(launch.mock.calls.length, 0);
+  try {
+    await runPatrolRound(context({ runtime }));
+    assert.deepEqual(update.mock.calls.map((call) => call[0]), [first.id, second.id]);
+    assert.equal(launch.mock.calls.length, 0);
+  } finally {
+    await runtime.closeAll();
+  }
 });
 
 it('probes live accounts sequentially under their leases without a browser or verified-state write', async () => {
