@@ -73,10 +73,10 @@ export async function acquireLease(scope, key, {
   });
 }
 
-export function renewLease(scope, key, token, { ttlMs = DEFAULT_TIMEOUT_MS + 30_000 } = {}) {
+export function renewLease(scope, key, token, { ttlMs = DEFAULT_TIMEOUT_MS + 30_000, clock } = {}) {
   return transaction(() => {
     assertLeaseOwner(scope, key, token);
-    const now = Date.now();
+    const now = clock?.now ? clock.now() : Date.now();
     return run('UPDATE leases SET expires_at = ?, heartbeat_at = ? WHERE scope = ? AND key = ? AND owner_token = ?',
       new Date(now + ttlMs).toISOString(), new Date(now).toISOString(), scope, String(key), token);
   });

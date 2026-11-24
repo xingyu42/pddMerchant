@@ -133,6 +133,7 @@ function createRuntimeView(shared, viewState) {
     seal: shared.seal,
     endpointState: shared.endpointState,
     daemonIsRunning: shared.daemonIsRunning,
+    passwordLogin: shared.bundle.passwordLogin,
     loadFixture: shared.bundle.loadFixture,
     fixture: shared.bundle.fixture,
     signal,

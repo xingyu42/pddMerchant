@@ -50,6 +50,7 @@ export async function composeDaemonRuntime({
     clock,
     seal,
     routes: routesForMode(parsedEnv.mode),
+    passwordLogin: bundle.passwordLogin,
     fixture: bundle.fixture,
     loadFixture: bundle.loadFixture,
     ...lifecycle,

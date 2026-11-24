@@ -20,7 +20,8 @@ import * as reloginPolicy from '../../src/services/relogin-policy.js';
 import { decideRelogin, markManualLoginSucceeded, setAccountPassword, clearAccountPassword,
   clearReloginBlock, recordTakeoverTimeout, getReloginSummary, getAccountActionWarnings,
   extractDeviceState, beginReloginAttempt } from '../../src/services/relogin-policy.js';
-import { reloginInCommand, reloginForFixture, fixtureSessionRecovered } from '../../src/services/password-relogin.js';
+import { recover } from '../../src/services/auto-relogin.js';
+import { createInMemoryAuthPort, createInMemoryBrowserRuntime } from '../helpers/in-memory-ports.js';
 
 const credential = { loginName: 'synthetic-login-54639', password: 'synthetic-password-183646' };
 const now = Date.parse('2026-10-27T00:00:00.000Z');
@@ -124,6 +125,9 @@ it('accepts passwordReloginMinIntervalMs as configurable throttle interval', () 
 
 it('does not write last_attempt_at when the command budget is exhausted before relogin', async () => {
   savePasswordCredential(account.id, credential);
+  const seal = createCandidateSeal();
+  const authPort = createInMemoryAuthPort({ seal });
+  const browserPort = createInMemoryBrowserRuntime();
   await withMerchantAuthUpdate(account.id, async (tx) => {
     vi.useFakeTimers();
     const startedAt = Date.now();
@@ -132,7 +136,7 @@ it('does not write last_attempt_at when the command budget is exhausted before r
     vi.setSystemTime(startedAt + 101);
     assert.equal(deadline.signal.aborted, false);
     try {
-      await assert.rejects(() => reloginInCommand(runtime, tx, {}), { code: 'E_TIMEOUT' });
+      await assert.rejects(() => recover({ runtime, tx, authPort, browserPort, seal }), { code: 'E_TIMEOUT' });
     } finally {
       deadline.dispose();
       vi.useRealTimers();
@@ -279,7 +283,7 @@ it('fixture recovery repairs held metadata and corrupt bookkeeping and restores 
   try {
     await withMerchantAuthUpdate(account.id, async (tx) => {
       assert.equal(tx.corrupt, true);
-      await reloginForFixture(account.id, runtime, { tx });
+      await recover({ tx, runtime, retainContext: false });
       assert.equal(tx.revision, 2);
       assert.equal(tx.corrupt, false);
       assert.equal(tx.metadata.mall_id, account.identity);
@@ -288,7 +292,7 @@ it('fixture recovery repairs held metadata and corrupt bookkeeping and restores 
       assert.equal(tx.deadlineAt, runtime.deadlineAt);
       assert.equal(tx.signal, runtime.signal);
     }, { recoveryMallId: account.identity, signal: runtime.signal, deadlineAt: runtime.deadlineAt, seal: runtime.seal });
-    assert.equal(fixtureSessionRecovered(account.id), true);
+    assert.equal(loadAuthState(account.id).state.cookies.some((c) => c.name === 'PDD_FIXTURE_RELOGIN' && c.value === '1'), true);
     assert.equal(getReloginState(account.id).reason, 'success');
   } finally {
     deadline.dispose();

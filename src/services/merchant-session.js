@@ -2,18 +2,34 @@ import { assertMerchantVerified } from '../adapter/merchant-auth.js';
 import { verifyStoredMerchant, recordMerchantCheck } from '../adapter/merchant-auth-storage.js';
 import { assertAuthTask } from '../infra/auth-task.js';
 import { probeCheckLogin, selectCheckCookiesFromState } from '../adapter/merchant-auth-probe.js';
-import { PddCliError, ExitCodes } from '../infra/errors.js';
-import { reloginInCommand, reloginForFixture, fixtureSessionRecovered } from './password-relogin.js';
+import { recover } from './auto-relogin.js';
 
 // 核验已保存材料并记录非 verified 结果；login 把明确失效交回人工授权，command/patrol 进入重登。
 // 只读核验（doctor、成功后的复核）直接调用 adapter，不经过本模块。
-export async function checkMerchantSession(context, { tx, task = {}, mode = 'command', runtime = task, browser, session } = {}) {
-  const result = await verifyStoredMerchant(context, tx.state, task);
+export async function checkMerchantSession(context, {
+  tx,
+  task = {},
+  mode = 'command',
+  runtime = task,
+  browser,
+  session,
+  recoverFn = recover,
+} = {}) {
+  const verifyContext = task.verifyContext ?? runtime?.ports?.auth?.verifyAndSeal;
+  const effectiveTask = verifyContext && !task.verifyContext ? { ...task, verifyContext } : task;
+  const result = await verifyStoredMerchant(context, tx.state, effectiveTask);
   if (mode === 'patrol') assertAuthTask(task);
   if (result.verdict !== 'verified') recordMerchantCheck(result, tx);
   if (result.verdict === 'rejected') {
     if (mode === 'login') return { result };
-    const replacement = await reloginInCommand(runtime, tx, session ?? browser, result);
+    const replacement = await recoverFn({
+      tx,
+      runtime,
+      authResult: result,
+      session,
+      browser,
+      retainContext: mode !== 'patrol',
+    });
     return { result, replacement, mallId: tx.state?.merchant_auth?.mall_id };
   }
   assertMerchantVerified(result);
@@ -26,8 +42,13 @@ export async function probeMerchantSession(tx, task) {
   if (tx.state?.merchant_auth?.last_check?.verdict === 'rejected') return false;
   let result;
   try {
-    const cookies = selectCheckCookiesFromState(tx.state);
-    result = await probeCheckLogin(cookies, { signal: task.signal, deadlineAt: task.deadlineAt });
+    const checkMerchant = task?.authPort?.checkMerchant ?? task?.ports?.auth?.checkMerchant;
+    if (typeof checkMerchant === 'function') {
+      result = await checkMerchant(tx.state, { signal: task.signal, deadlineAt: task.deadlineAt });
+    } else {
+      const cookies = selectCheckCookiesFromState(tx.state);
+      result = await probeCheckLogin(cookies, { signal: task.signal, deadlineAt: task.deadlineAt });
+    }
   } catch (error) {
     if (error?.code === 'E_AUTH_CANDIDATE_INVALID') return false;
     throw error;
@@ -37,21 +58,4 @@ export async function probeMerchantSession(tx, task) {
   recordMerchantCheck(result, tx);
   if (result.verdict === 'rejected') return false;
   assertMerchantVerified(result);
-}
-
-// 保留 fixture 原有的免记录检查策略，成功恢复共用已验证候选提交。
-export async function checkFixtureMerchantSession(accountId, runtime, { tx } = {}) {
-  const fixtureHelpers = runtime?.fixture ?? await import('../adapter/fixtures/auth.js');
-  const isIndeterminate = runtime?.fixture
-    ? fixtureHelpers.mockIsAuthIndeterminate()
-    : fixtureHelpers.mockIsAuthIndeterminate(runtime?.env);
-  if (isIndeterminate) {
-    throw new PddCliError({ code: 'E_AUTH_CHECK_INDETERMINATE', message: '无法确认登录状态', exitCode: ExitCodes.NETWORK });
-  }
-  const isValid = runtime?.fixture
-    ? fixtureHelpers.mockIsAuthValid()
-    : fixtureHelpers.mockIsAuthValid(runtime?.env);
-  if (!isValid && !fixtureSessionRecovered(accountId)) {
-    await reloginForFixture(accountId, runtime, { tx });
-  }
 }
