@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { describe, it, vi } from 'vitest';
+import { describe, it } from 'vitest';
 import { isConsumerAuthValid } from '../../src/adapter/consumer-auth.js';
 import { composeCommandRuntime } from '../../src/runtime/command-runtime.js';
 
@@ -21,7 +21,6 @@ describe('isConsumerAuthValid', () => {
   });
 
   it('navigates to consumer home in live mode and rejects login redirects or navigation failures', async () => {
-    vi.stubEnv('PDD_TEST_ADAPTER', '');
     const calls = [];
     const okPage = {
       goto: async (url, opts) => { calls.push([url, opts]); },

@@ -314,7 +314,7 @@ async function deriveConsumerFromProfile(browser, profile, { storageState, proxy
   };
 }
 
-export async function closeAllBrowsers({ timeoutMs = 5000 } = {}) {
+async function closeAllBrowsers({ timeoutMs = 5000 } = {}) {
   if (closeAllPromise) return closeAllPromise;
   closeAllPromise = (async () => {
     const snapshot = [...activeBrowsers];

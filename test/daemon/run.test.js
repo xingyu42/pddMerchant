@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { beforeEach, it, vi } from 'vitest';
-import { cleanupOrphanBrowsers, closeAllBrowsers } from '../../src/adapter/browser.js';
 import { runDaemon } from '../../src/daemon/run.js';
 import { daemonTimings } from '../../src/services/daemon-runtime.js';
 import { parseRuntimeEnv } from '../../src/runtime/env.js';
@@ -10,26 +9,34 @@ import {
   acquireDaemonLease, readDaemonLease, readDaemonStopRequest, requestDaemonStop, readDaemonOwnerToken, DAEMON_LEASE,
 } from '../../src/infra/daemon-state.js';
 import { run, get, getDatabasePath } from '../../src/infra/db.js';
+import { createInMemoryBrowserRuntime } from '../helpers/in-memory-ports.js';
 
-vi.mock('../../src/adapter/browser.js', () => {
-  const cleanupOrphanBrowsers = vi.fn(() => 0);
-  const closeAllBrowsers = vi.fn(async () => {});
-  return {
-    cleanupOrphanBrowsers,
-    closeAllBrowsers,
-    createLiveBrowserRuntime: () => ({
-      reclaimOrphans: cleanupOrphanBrowsers,
-      closeAll: closeAllBrowsers,
-    }),
-  };
+const baseBrowser = createInMemoryBrowserRuntime();
+const browser = {
+  ...baseBrowser,
+  reclaimOrphans: vi.fn(async () => 0),
+  closeAll: vi.fn(async () => {}),
+};
+
+beforeEach(() => {
+  browser.reclaimOrphans.mockReset().mockResolvedValue(0);
+  browser.closeAll.mockReset().mockResolvedValue(undefined);
 });
-beforeEach(() => { cleanupOrphanBrowsers.mockClear(); closeAllBrowsers.mockReset().mockResolvedValue(undefined); });
 
 function component(overrides = {}) {
   return { start: vi.fn(async () => {}), stop: vi.fn(async () => {}), ...overrides };
 }
 
-function options(components = []) { return { mode: 'live', foreground: false, runtimeConfig: { logLevel: 'silent' }, components }; }
+function options(components = []) {
+  return {
+    mode: 'live',
+    foreground: false,
+    env: {},
+    runtimeConfig: { logLevel: 'silent' },
+    overrides: { browser },
+    components,
+  };
+}
 
 it('returns already_running without starting components or clearing another owner stop request', async () => {
   await acquireDaemonLease();
@@ -49,7 +56,7 @@ it('clears stale stop requests, heartbeats, purges rows and cleans components in
     const db8 = createHash('sha256').update(resolve(getDatabasePath())).digest('hex').slice(0, 8);
     assert.equal(ctx.ownerTag, `${db8}-${readDaemonOwnerToken().slice(0, 23)}`);
     assert.equal(readDaemonStopRequest(), null);
-    assert.equal(cleanupOrphanBrowsers.mock.calls.length, 1);
+    assert.equal(browser.reclaimOrphans.mock.calls.length, 1);
   }), stop: vi.fn(async () => { order.push('first'); }) });
   const second = component({ stop: vi.fn(async () => { order.push('second'); }) });
   run("INSERT INTO console_tokens VALUES ('old', NULL, ?, ?, NULL)", new Date().toISOString(), new Date().toISOString());
@@ -65,7 +72,7 @@ it('clears stale stop requests, heartbeats, purges rows and cleans components in
   assert.deepEqual(order, ['second', 'first']);
   assert.equal(readDaemonLease(), null);
   assert.equal(readDaemonStopRequest(), null);
-  assert.equal(closeAllBrowsers.mock.calls.length, 1);
+  assert.equal(browser.closeAll.mock.calls.length, 1);
 });
 
 it('notices a stop request well within the 15 s stop budget instead of waiting for the 30 s heartbeat', async () => {
@@ -137,7 +144,7 @@ it('forces exit after five seconds when graceful cleanup hangs', async () => {
 
 it('closes browsers before releasing the lease even when browser close fails', async () => {
   const controller = new AbortController();
-  closeAllBrowsers.mockImplementationOnce(async () => {
+  browser.closeAll.mockImplementationOnce(async () => {
     assert.equal(readDaemonLease().running, true);
     throw new Error('browser cleanup');
   });
@@ -153,7 +160,7 @@ it('foreground logging writes redacted diagnostics to stderr through the daemon 
     ctx.log.info({ consoleToken: 'private-token' }, 'test foreground daemon');
     controller.abort();
   } });
-  await runDaemon({ mode: 'live', foreground: true, signal: controller.signal, components: [part] });
+  await runDaemon({ mode: 'live', foreground: true, env: {}, overrides: { browser }, signal: controller.signal, components: [part] });
   const output = stderr.mock.calls.map(([chunk]) => chunk).join('');
   assert.match(output, /test foreground daemon/);
   assert.equal(output.includes('private-token'), false);

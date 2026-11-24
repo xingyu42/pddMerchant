@@ -3,7 +3,6 @@ import { describe, it, vi } from 'vitest';
 
 async function setupBrowser() {
   vi.resetModules();
-  vi.stubEnv('PDD_TEST_ADAPTER', '');
   const contexts = [];
   const browser = {
     version: vi.fn(async () => '136.0.1'), close: vi.fn(async () => {}),

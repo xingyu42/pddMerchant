@@ -10,6 +10,7 @@ import { acquireDaemonLease, readDaemonLease, getDaemonMeta, readDaemonOwnerToke
 import { insertAccount, putReloginState, insertPendingAction } from '../../src/infra/account-store.js';
 import { run } from '../../src/infra/db.js';
 import { consoleRequest } from '../helpers/console-http.js';
+import { createInMemoryBrowserRuntime } from '../helpers/in-memory-ports.js';
 import { CONSOLE_ACCOUNT_VIEW_FIELDS } from '../../src/services/views/console.js';
 
 const servers = [];
@@ -76,7 +77,6 @@ it('keeps every interactive POST behind session and JSON guards and omits fixtur
   assert.equal((await consoleRequest(port, add, { method: 'POST', headers: json, body: '{}' })).status, 401);
   assert.equal((await consoleRequest(port, add, { method: 'POST', headers, body: '{}' })).status, 403);
   assert.equal((await consoleRequest(port, add, { method: 'POST', headers: { ...headers, ...json }, body: '{}' })).status, 400);
-  vi.stubEnv('PDD_TEST_ADAPTER', '');
   const live = await consoleRequest(port, '/api/sessions/unknown/fixture-complete', {
     method: 'POST', headers: { ...headers, ...json }, body: '{"outcome":"success"}',
   });
@@ -337,8 +337,18 @@ it('maps occupied ports to the typed error and releases the daemon lease', async
   const occupied = createServer();
   await new Promise((resolve) => occupied.listen(0, '127.0.0.1', resolve));
   try {
-    await assert.rejects(runDaemon({ foreground: false, runtimeConfig: { logLevel: 'silent',
-      consoleHost: '127.0.0.1', consolePort: occupied.address().port, consolePublicUrl: '' } }),
+    await assert.rejects(runDaemon({
+      mode: 'live',
+      foreground: false,
+      env: {},
+      overrides: { browser: createInMemoryBrowserRuntime() },
+      runtimeConfig: {
+        logLevel: 'silent',
+        consoleHost: '127.0.0.1',
+        consolePort: occupied.address().port,
+        consolePublicUrl: '',
+      },
+    }),
     (error) => error.code === 'E_CONSOLE_PORT_IN_USE' && error.detail.reason === 'address_in_use');
     assert.equal(readDaemonLease(), null);
     assert.equal(getDaemonMeta('daemon_console_url'), null);

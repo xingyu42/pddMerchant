@@ -1,45 +1,72 @@
 import assert from 'node:assert/strict';
-import { afterEach, beforeEach, describe, it, vi } from 'vitest';
+import { PassThrough } from 'node:stream';
+import { beforeEach, describe, it } from 'vitest';
 import { run as updateStatus } from '../../src/commands/goods/update/status.js';
 import { run as updatePrice } from '../../src/commands/goods/update/price.js';
 import { run as updateStock } from '../../src/commands/goods/update/stock.js';
 import { run as updateTitle } from '../../src/commands/goods/update/title.js';
 import { run as updateBatch } from '../../src/commands/goods/update/batch.js';
+import { saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
+import { insertAccount } from '../../src/infra/account-store.js';
 import { PddCliError } from '../../src/infra/errors.js';
-import { createCliSandbox, runtimeConfig } from '../helpers/isolated-cli.js';
-import { seedDb, DEFAULT_ACCOUNT } from '../helpers/seed-db.js';
-import { openDatabase, closeDatabase } from '../../src/infra/db.js';
+import { composeCommandRuntime } from '../../src/runtime/command-runtime.js';
+import { runtimeConfig } from '../helpers/isolated-cli.js';
+import {
+  createInMemoryAuthPort,
+  createInMemoryBrowserRuntime,
+  createInMemoryMallPort,
+} from '../helpers/in-memory-ports.js';
+import { createMemoryEndpointTransport } from '../helpers/test-ctx.js';
 
-const { dispatch, emitSpy } = vi.hoisted(() => ({ dispatch: vi.fn(), emitSpy: vi.fn() }));
-vi.mock('../../src/adapter/mock-dispatcher.js', async (importOriginal) => ({
-  ...await importOriginal(), mockRunEndpoint: dispatch,
-}));
-vi.mock('../../src/infra/output.js', async (importOriginal) => ({
-  ...await importOriginal(), emit: emitSpy,
-}));
+function makeMemoryStreams() {
+  const stdoutChunks = [];
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  stdout.on('data', (chunk) => stdoutChunks.push(chunk.toString('utf8')));
+  return {
+    streams: { stdout, stderr },
+    readStdout: () => stdoutChunks.join(''),
+  };
+}
 
-let sandbox;
+let transport;
 beforeEach(() => {
-  sandbox = createCliSandbox();
-  seedDb(sandbox.env.PDD_DB_PATH, { accounts: [DEFAULT_ACCOUNT] });
-  openDatabase(sandbox.env.PDD_DB_PATH);
-  for (const [key, value] of Object.entries(sandbox.env)) {
-    if (key.startsWith('PDD_')) vi.stubEnv(key, value);
-  }
-  dispatch.mockReset().mockImplementation(async () => ({ success: true, fail_goods_num: 0 }));
-  emitSpy.mockClear();
+  const account = insertAccount({ identity: '900001', displayName: 'Synthetic Shop' }, { setDefault: true });
+  saveAuthStateSnapshot({ cookies: [{ name: 'PASS_ID', value: 'synthetic' }], origins: [] }, account.id);
+  transport = createMemoryEndpointTransport(async () => ({ success: true, fail_goods_num: 0 }));
 });
-afterEach(() => {
-  closeDatabase();
-  sandbox?.dispose();
-});
+
+async function createRuntime(streams) {
+  return composeCommandRuntime({
+    mode: 'live',
+    runtimeConfigPolicy: 'maintenance',
+    env: {},
+    streams,
+    overrides: {
+      browser: createInMemoryBrowserRuntime(),
+      mall: createInMemoryMallPort({ currentMall: { id: '900001', name: 'Synthetic Shop' } }),
+      auth: createInMemoryAuthPort({ merchantIdentity: { mallId: '900001', displayName: 'Synthetic Shop' } }),
+      endpointTransport: transport,
+      runtimeConfig,
+    },
+  });
+}
 
 async function invoke(run, opts) {
-  const envelope = await run({
-    json: true, timeoutMs: 2000, ...opts,
-  }, { runtimeConfig });
-  assert.equal(emitSpy.mock.calls.length, 1);
-  assert.equal(emitSpy.mock.calls[0][0], envelope);
+  const { streams, readStdout } = makeMemoryStreams();
+  const runtime = await createRuntime(streams);
+  let envelope;
+  try {
+    envelope = await run({
+      json: true, timeoutMs: 2000, ...opts,
+    }, { runtime });
+    assert.equal(runtime.outputSink.hasEmitted(), true);
+  } finally {
+    await runtime.closeAll();
+  }
+  const lines = readStdout().trim().split(/\r?\n/);
+  assert.equal(lines.length, 1);
+  assert.deepEqual(JSON.parse(lines[0]), envelope);
   return envelope;
 }
 
@@ -73,7 +100,7 @@ describe('single goods write commands', () => {
     });
     assert.equal(envelope.meta.xhr_count, 0);
     assert.equal(envelope.meta.exit_code, 0);
-    assert.equal(dispatch.mock.calls.length, 0);
+    assert.equal(transport.calls.length, 0);
   });
 
   it.each(singleWrites)('$field dispatches once only after confirmation', async ({ field, run, opts, value, payload, doneHeadline }) => {
@@ -86,9 +113,9 @@ describe('single goods write commands', () => {
     if ('skuId' in opts) assert.equal(envelope.data.sku_id, opts.skuId);
     assert.equal(envelope.meta.xhr_count, 1);
     assert.equal(envelope.meta.exit_code, 0);
-    assert.equal(dispatch.mock.calls.length, 1);
-    assert.equal(dispatch.mock.calls[0][0].name, `goods.update.${field}`);
-    assert.deepEqual(dispatch.mock.calls[0][1], payload);
+    assert.equal(transport.calls.length, 1);
+    assert.equal(transport.calls[0].name, `goods.update.${field}`);
+    assert.deepEqual(transport.calls[0].params, payload);
   });
 
   it.each(singleWrites)('$field returns a usage envelope without dispatch for invalid input', async ({ run, opts, invalid }) => {
@@ -96,14 +123,21 @@ describe('single goods write commands', () => {
     assert.equal(envelope.ok, false);
     assert.equal(envelope.error.code, 'E_USAGE');
     assert.equal(envelope.meta.exit_code, 2);
-    assert.equal(dispatch.mock.calls.length, 0);
+    assert.equal(transport.calls.length, 0);
   });
 
-  it.each([...singleWrites, { field: 'batch', run: updateBatch }])('$field rejects all-account writes before dispatch', ({ run }) => {
-    assert.throws(() => run({ allAccounts: true, confirm: true }, { runtimeConfig }),
-      (error) => error.code === 'E_USAGE' && error.exitCode === 2);
-    assert.equal(dispatch.mock.calls.length, 0);
-    assert.equal(emitSpy.mock.calls.length, 0);
+  it.each([...singleWrites, { field: 'batch', run: updateBatch }])('$field rejects all-account writes before dispatch', async ({ run }) => {
+    const { streams, readStdout } = makeMemoryStreams();
+    const runtime = await createRuntime(streams);
+    try {
+      assert.throws(() => run({ allAccounts: true, confirm: true }, { runtime }),
+        (error) => error.code === 'E_USAGE' && error.exitCode === 2);
+      assert.equal(transport.calls.length, 0);
+      assert.equal(runtime.outputSink.hasEmitted(), false);
+      assert.equal(readStdout(), '');
+    } finally {
+      await runtime.closeAll();
+    }
   });
 });
 
@@ -116,19 +150,19 @@ describe('price input in yuan', () => {
     assert.equal(envelope.error.code, 'E_USAGE');
     assert.equal(envelope.error.hint, '单位为元，例如 29.9');
     assert.equal(envelope.meta.exit_code, 2);
-    assert.equal(dispatch.mock.calls.length, 0);
+    assert.equal(transport.calls.length, 0);
   });
 
   it('never treats the removed cents option as a price', async () => {
     const envelope = await invoke(updatePrice, { goodsId: '101', price: '2999', confirm: true });
     assert.equal(envelope.error.code, 'E_USAGE');
-    assert.equal(dispatch.mock.calls.length, 0);
+    assert.equal(transport.calls.length, 0);
   });
 
   it.each([['0.01', 1, 0.01], ['19.99', 1999, 19.99], ['100', 10000, 100]])('submits %s yuan as %i fen', async (priceYuan, fen, echo) => {
     const envelope = await invoke(updatePrice, { goodsId: '101', priceYuan, confirm: true });
     assert.equal(envelope.data.value, echo);
-    assert.equal(dispatch.mock.calls[0][1].price, fen);
+    assert.equal(transport.calls[0].params.price, fen);
   });
 });
 
@@ -152,7 +186,7 @@ describe('batch goods write command', () => {
       count: 3, dry_run: true, mall_id: '900001',
     });
     assert.equal(envelope.meta.xhr_count, 0);
-    assert.equal(dispatch.mock.calls.length, 0);
+    assert.equal(transport.calls.length, 0);
   });
 
   it('submits batch price_yuan as fen', async () => {
@@ -161,7 +195,7 @@ describe('batch goods write command', () => {
       confirm: true,
     });
     assert.equal(envelope.ok, true);
-    assert.deepEqual(dispatch.mock.calls.map(([, payload]) => payload.price), [2990, 1]);
+    assert.deepEqual(transport.calls.map(({ params }) => params.price), [2990, 1]);
   });
 
   it.each([
@@ -179,7 +213,7 @@ describe('batch goods write command', () => {
     assert.equal(envelope.ok, false);
     assert.equal(envelope.error.code, 'E_USAGE');
     assert.equal(envelope.meta.exit_code, 2);
-    assert.equal(dispatch.mock.calls.length, 0);
+    assert.equal(transport.calls.length, 0);
   });
 
   it.each([
@@ -189,12 +223,12 @@ describe('batch goods write command', () => {
   ])('preserves ordered results for $label', async ({ failures, exit }) => {
     let inFlight = 0;
     let peakInFlight = 0;
-    dispatch.mockImplementation(async (_spec, payload) => {
+    transport.setHandler(async (_spec, params) => {
       inFlight += 1;
       peakInFlight = Math.max(peakInFlight, inFlight);
       try {
         await Promise.resolve();
-        if (failures.includes(payload.goods_id)) {
+        if (failures.includes(params.goods_id)) {
           throw new PddCliError({ code: 'E_BUSINESS', message: 'Synthetic rejection', exitCode: 6 });
         }
         return { success: true };
@@ -219,7 +253,7 @@ describe('batch goods write command', () => {
     assert.equal(envelope.meta.exit_code, exit);
     assert.equal(envelope.meta.xhr_count, 3);
     assert.equal(peakInFlight, 1, 'Batch writes must complete one at a time');
-    assert.deepEqual(dispatch.mock.calls.map(([spec, payload]) => [spec.name, payload.goods_id]), [
+    assert.deepEqual(transport.calls.map(({ name, params }) => [name, params.goods_id]), [
       ['goods.update.price', 101], ['goods.update.stock', 102], ['goods.update.title', 103],
     ]);
   });
