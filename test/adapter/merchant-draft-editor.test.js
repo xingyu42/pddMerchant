@@ -47,6 +47,7 @@ describe('MerchantDraftEditorPort (LiveMerchantDraftEditor + DraftSession)', () 
 
     const editor = createLiveMerchantDraftEditor({
       endpoint: client,
+      throttleEnabled: false,
       openCategoryDraft: async (page, searchText) => {
         order.push('openCategoryDraft');
         assert.equal(page, fakePage);
@@ -136,6 +137,7 @@ describe('MerchantDraftEditorPort (LiveMerchantDraftEditor + DraftSession)', () 
     };
 
     const editor = createLiveMerchantDraftEditor({
+      throttleEnabled: false,
       createDraftSession: () => session,
       convergeDynamic: convergeDynamicProperties,
       preparePayload: prepareEditPayload,
@@ -219,6 +221,7 @@ describe('MerchantDraftEditorPort (LiveMerchantDraftEditor + DraftSession)', () 
 
     const editor = createLiveMerchantDraftEditor({
       endpoint: client,
+      throttleEnabled: false,
       checkRisk: async (_page, { phase }) => {
         order.push(`risk:${phase}`);
       },
@@ -245,6 +248,7 @@ describe('MerchantDraftEditorPort (LiveMerchantDraftEditor + DraftSession)', () 
     // Pre-submit risk control stops submission before EndpointPort
     const blockedEditor = createLiveMerchantDraftEditor({
       endpoint: client,
+      throttleEnabled: false,
       checkRisk: async () => { throw captchaDetected({ phase: 'submit:before' }); },
     });
     transport.reset();
@@ -257,6 +261,7 @@ describe('MerchantDraftEditorPort (LiveMerchantDraftEditor + DraftSession)', () 
     // Post-submit risk control still detects and throws after EndpointPort call
     const postBlockedEditor = createLiveMerchantDraftEditor({
       endpoint: client,
+      throttleEnabled: false,
       checkRisk: async (_page, { phase }) => {
         if (phase === 'submit:after') throw captchaDetected({ phase });
       },

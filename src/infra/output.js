@@ -442,4 +442,11 @@ function batchRenderer(accountEnvelopes, { useColor }) {
   return lines.join('\n');
 }
 
+export function appendUniqueWarnings(target, incoming) {
+  if (!Array.isArray(target) || !Array.isArray(incoming)) return;
+  for (const warning of incoming) {
+    if (warning && !target.includes(warning)) target.push(warning);
+  }
+}
+
 export { buildEnvelope, buildBatchEnvelope, batchRenderer, formatRawDebugPayload };

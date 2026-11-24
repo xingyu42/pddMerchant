@@ -40,10 +40,3 @@ export async function findFirst(page, selectors, timeout = 5000) {
   }
   return null;
 }
-
-export function normalizeSkuSpecValue(value) {
-  const normalized = String(value ?? '').trim().toLowerCase().replace(/\s+/g, '');
-  return /^\d+(?:\.\d+)?(?:cm|厘米)$/.test(normalized)
-    ? normalized.replace(/(?:cm|厘米)$/, '')
-    : normalized;
-}

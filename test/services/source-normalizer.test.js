@@ -114,6 +114,18 @@ describe('source-normalizer', () => {
         );
       },
     );
+
+    it('strips query parameters from parseGoodsUrl error messages while keeping clean path', () => {
+      assert.throws(
+        () => parseGoodsUrl('https://mobile.yangkeduo.com/goods.html?goods_id=abc&uin=SECRET_UIN#frag'),
+        (err) => err instanceof PddCliError
+          && err.code === 'E_USAGE'
+          && err.message.includes('https://mobile.yangkeduo.com/goods.html')
+          && !err.message.includes('SECRET_UIN')
+          && !err.message.includes('goods_id=abc')
+          && !err.message.includes('#frag'),
+      );
+    });
   });
 
   describe('normalizeSourceSkuSnapshot (yuan/fen & no-markup rules)', () => {

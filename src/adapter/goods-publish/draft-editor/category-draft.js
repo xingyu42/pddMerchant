@@ -4,8 +4,8 @@ import { SELECTORS, findFirst } from './dom-helpers.js';
 
 const CATEGORY_URL = 'https://mms.pinduoduo.com/goods/category?msfrom=mms_sidenav';
 
-function normalizeCategoryText(s) {
-  return String(s ?? '').replace(/\s+/g, '').replace(/＞/g, '>');
+function normalizeCategoryText(value) {
+  return String(value ?? '').replace(/\s+/g, '').replace(/＞/g, '>');
 }
 
 /**
@@ -16,14 +16,14 @@ export function pickCategoryOptionIndex(itemTexts, searchText) {
   const target = normalizeCategoryText(searchText);
   const leaf = normalizeCategoryText(String(searchText ?? '').split(' > ').pop());
 
-  const exact = itemTexts.findIndex((t) => normalizeCategoryText(t) === target);
+  const exact = itemTexts.findIndex((text) => normalizeCategoryText(text) === target);
   if (exact >= 0) return exact;
 
   if (!leaf) return -1;
   const suffixMatches = [];
-  itemTexts.forEach((t, i) => {
-    const n = normalizeCategoryText(t);
-    if (n === leaf || n.endsWith('>' + leaf)) suffixMatches.push(i);
+  itemTexts.forEach((text, index) => {
+    const normalized = normalizeCategoryText(text);
+    if (normalized === leaf || normalized.endsWith('>' + leaf)) suffixMatches.push(index);
   });
   // 仅当后缀匹配唯一时才采用，避免"女装>连衣裙" vs "童装>连衣裙"选错
   return suffixMatches.length === 1 ? suffixMatches[0] : -1;

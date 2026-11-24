@@ -7,6 +7,7 @@ import {
   fillGoodsProperties,
 } from '../../src/adapter/goods-publish/draft-editor/property-final-state.js';
 import { clickSaveDraft } from '../../src/adapter/goods-publish/draft-editor/save-route.js';
+import { fillSkuTableRows } from '../../src/adapter/goods-publish/draft-editor/sku-media-fill.js';
 import { readDynamicPropertyTemplate } from '../../src/adapter/goods-publish/dynamic-property-template.js';
 import { prepareEditPayload, verifyDraftDetail } from '../../src/services/goods-publish/draft-guard.js';
 import { ExitCodes, PddCliError } from '../../src/infra/errors.js';
@@ -373,5 +374,133 @@ describe('draft-editor decomposed sub-modules', () => {
     const invalid = await readDynamicPropertyTemplate(failingPage, baseTemplate);
     assert.equal(invalid.ok, false);
     assert.deepEqual(invalid.issues, ['dynamic_property_template_invalid']);
+  });
+
+  it('sku-media-fill writes stock, group_price, and single_price sequentially with immediate readback', async () => {
+    const events = [];
+    const cellValues = { stock: '', group_price: '', single_price: '' };
+    const colKeyByIndex = { 1: 'stock', 2: 'group_price', 3: 'single_price' };
+
+    const makeInput = (fieldKey) => ({
+      count: async () => 1,
+      fill: async (val) => {
+        await Promise.resolve();
+        events.push(`${fieldKey}:fill`);
+        cellValues[fieldKey] = val;
+      },
+      inputValue: async () => {
+        events.push(`${fieldKey}:read`);
+        return cellValues[fieldKey];
+      },
+    });
+
+    const rowLocator = {
+      locator(selector) {
+        assert.equal(selector, 'td');
+        return {
+          nth: (domCellIndex) => ({
+            locator: () => ({
+              first: () => makeInput(colKeyByIndex[domCellIndex]),
+            }),
+          }),
+        };
+      },
+    };
+
+    const tableLocator = {
+      innerText: async () => '颜色 库存 拼单价 单买价',
+      locator(selector) {
+        if (selector === 'thead th') {
+          return { allInnerTexts: async () => ['颜色', '库存', '拼单价', '单买价'] };
+        }
+        if (selector === 'tbody tr') {
+          return {
+            count: async () => 1,
+            evaluateAll: async () => [{ texts: ['白色', '', '', ''], domCellIndexes: [0, 1, 2, 3] }],
+            nth: () => rowLocator,
+          };
+        }
+        return { count: async () => 0 };
+      },
+    };
+
+    const page = {
+      locator(selector) {
+        if (selector.includes('TB_outerWrapper')) {
+          return { count: async () => 1, nth: () => tableLocator };
+        }
+        return { count: async () => 0 };
+      },
+    };
+
+    await fillSkuTableRows(
+      page,
+      [{ sourceSkuId: 'sku-1', specValues: { 颜色: '白色' }, stock: 10, groupPrice: '14.70', singlePrice: '25.80' }],
+      { info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+    );
+
+    assert.deepEqual(events, [
+      'stock:fill',
+      'stock:read',
+      'group_price:fill',
+      'group_price:read',
+      'single_price:fill',
+      'single_price:read',
+    ]);
+  });
+
+  it('save-route calls verifyDraftDetail once and propagates strictVerify E_BUSINESS failures', async () => {
+    let activeHandler = null;
+    const unroute = vi.fn(async (_matcher, handler) => {
+      if (activeHandler === handler) activeHandler = null;
+    });
+    const verifySpy = vi.fn(verifyDraftDetail);
+
+    const page = {
+      waitForSelector: async () => ({
+        click: async () => {
+          await activeHandler({
+            request: () => ({
+              postData: () => JSON.stringify({
+                goods_name: 'Synthetic Tee',
+                gallery: ['https://img.pddpic.com/c-1.jpg'],
+                skus: [{ spec: '白色', multi_price: 1470, price: 2580, quantity: 10 }],
+                goods_properties: [],
+              }),
+            }),
+            continue: vi.fn(),
+            abort: vi.fn(),
+          });
+        },
+      }),
+      route: vi.fn(async (_matcher, handler) => { activeHandler = handler; }),
+      unroute,
+      waitForResponse: async () => ({ json: async () => ({ success: true }) }),
+      evaluate: async () => ({
+        http_status: 200,
+        http_ok: true,
+        payload: {
+          success: true,
+          result: { goods_name: '', cost_template_id: 3001, gallery: [] },
+        },
+      }),
+    };
+
+    await assert.rejects(
+      clickSaveDraft(page, '7001', {
+        costTemplateId: 3001,
+        strictPayload: true,
+        strictVerify: true,
+        prepareEditPayload,
+        verifyDraftDetail: verifySpy,
+      }),
+      (err) => err instanceof PddCliError
+        && err.code === 'E_BUSINESS'
+        && Array.isArray(err.detail?.issues)
+        && err.detail.issues.includes('title_empty'),
+    );
+
+    assert.equal(verifySpy.mock.calls.length, 1);
+    assert.equal(unroute.mock.calls.length, 1);
   });
 });

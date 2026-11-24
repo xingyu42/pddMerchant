@@ -59,139 +59,111 @@ function createTakeoverFacade(channel) {
   });
 }
 
+function assertSessionActive(state, { signal, deadlineAt, clock }, extra = {}) {
+  if (state.closed) throw closedSessionError();
+  const activeSignal = combineAbortSignals(signal, extra.signal);
+  const activeDeadline = extra.deadlineAt ?? deadlineAt;
+  assertAuthTask({ signal: activeSignal, deadlineAt: activeDeadline, clock });
+  return { activeSignal, activeDeadline };
+}
+
+async function closeActiveTakeover(state) {
+  const activeTakeover = state.takeover;
+  state.takeover = null;
+  if (activeTakeover) await activeTakeover.close();
+}
+
+async function runSessionQrCapture(state, deps) {
+  assertSessionActive(state, deps);
+  const capturePromise = (async () => {
+    const imageUrl = await deps.runCaptureQr();
+    assertAuthTask({ signal: deps.signal, deadlineAt: deps.deadlineAt, clock: deps.clock });
+    return imageUrl;
+  })();
+  state.inFlightQr = capturePromise;
+  try {
+    return await capturePromise;
+  } finally {
+    if (state.inFlightQr === capturePromise) state.inFlightQr = null;
+  }
+}
+
+async function openSessionTakeover(state, deps) {
+  assertSessionActive(state, deps);
+  await closeActiveTakeover(state).catch(() => {});
+  const channel = await deps.runOpenTakeover();
+  try {
+    assertSessionActive(state, deps);
+  } catch (error) {
+    await channel.close().catch(() => {});
+    throw error;
+  }
+  state.takeover = channel;
+  return createTakeoverFacade(channel);
+}
+
+async function verifySessionAcquisition(state, deps, { expectedMallId, state: accountState, signal, deadlineAt } = {}) {
+  if (state.inFlightQr) await state.inFlightQr.catch(() => {});
+  const { activeSignal, activeDeadline } = assertSessionActive(state, deps, { signal, deadlineAt });
+  await closeActiveTakeover(state);
+  if (!state.pageClosed) {
+    state.pageClosed = true;
+    await deps.closePage();
+  }
+  const target = await deps.getVerifyTarget({ expectedMallId, state: accountState });
+  const result = await deps.authPort.verifyAndSeal(target, {
+    expectedMallId,
+    state: accountState,
+    signal: activeSignal,
+    deadlineAt: activeDeadline,
+    seal: deps.seal,
+  });
+  assertMerchantVerified(result);
+  deps.seal.assert(result.candidate);
+  return result;
+}
+
+function closeSessionHandle(state, closeResources) {
+  if (state.closePromise) return state.closePromise;
+  state.closePromise = (async () => {
+    state.closed = true;
+    try { await closeActiveTakeover(state); } catch { /* Always attempt remaining cleanup. */ }
+    try { await closeResources(); } catch { /* Browser may have exited on cancellation. */ }
+  })();
+  return state.closePromise;
+}
+
 /**
  * Build an opaque DriverSessionHandle that encapsulates internal resources, tracks in-flight
  * QR captures, enforces drain -> close -> verify ordering, and guarantees idempotent cleanup.
  */
-export function createDriverSessionHandle({
-  signal,
-  deadlineAt,
-  clock,
-  authPort,
-  seal,
-  runPassword,
-  runCaptureQr,
-  runOpenTakeover,
-  runSubmitSms,
-  runWaitForAcquisition,
-  getVerifyTarget,
-  closePage,
-  closeResources,
-}) {
-  let takeover = null;
-  let inFlightQr = null;
-  let pageClosed = false;
-  let closed = false;
-  let closePromise = null;
-
-  function assertActive(extra = {}) {
-    if (closed) throw closedSessionError();
-    const activeSignal = combineAbortSignals(signal, extra.signal);
-    const activeDeadline = extra.deadlineAt ?? deadlineAt;
-    assertAuthTask({ signal: activeSignal, deadlineAt: activeDeadline, clock });
-    return { activeSignal, activeDeadline };
-  }
-
-  async function closeActiveTakeover() {
-    const activeTakeover = takeover;
-    takeover = null;
-    if (activeTakeover) await activeTakeover.close();
-  }
-
-  async function attemptPassword(credential, options = {}) {
-    const { activeSignal, activeDeadline } = assertActive(options);
-    const cappedDeadline = Math.min(activeDeadline ?? Infinity, clock.now() + 70_000);
-    return runPassword(credential, { ...options, signal: activeSignal, deadlineAt: cappedDeadline });
-  }
-
-  async function captureQr() {
-    assertActive();
-    const capturePromise = (async () => {
-      const imageUrl = await runCaptureQr();
-      assertAuthTask({ signal, deadlineAt, clock });
-      return imageUrl;
-    })();
-    inFlightQr = capturePromise;
-    try {
-      return await capturePromise;
-    } finally {
-      if (inFlightQr === capturePromise) inFlightQr = null;
-    }
-  }
-
-  async function openTakeover() {
-    assertActive();
-    await closeActiveTakeover().catch(() => {});
-    const channel = await runOpenTakeover();
-    try {
-      assertActive();
-    } catch (error) {
-      await channel.close().catch(() => {});
-      throw error;
-    }
-    takeover = channel;
-    return createTakeoverFacade(channel);
-  }
-
-  async function submitSmsCode(code) {
-    const validated = validateSmsCode(code);
-    assertActive();
-    const cappedDeadline = Math.min(deadlineAt ?? Infinity, clock.now() + 15_000);
-    return runSubmitSms(validated, { signal, deadlineAt: cappedDeadline });
-  }
-
-  async function waitForAcquisition({ signal: waitSignal, expiresAt } = {}) {
-    if (closed) throw closedSessionError();
-    const activeSignal = combineAbortSignals(signal, waitSignal);
-    assertAuthTask({ signal: activeSignal, deadlineAt, clock });
-    return runWaitForAcquisition({
-      signal: activeSignal,
-      expiresAt: expiresAt ?? deadlineAt,
-      sessionDeadlineAt: deadlineAt,
-    });
-  }
-
-  async function verify({ expectedMallId, state, signal: verifySignal, deadlineAt: verifyDeadlineAt } = {}) {
-    if (inFlightQr) await inFlightQr.catch(() => {});
-    const { activeSignal, activeDeadline } = assertActive({
-      signal: verifySignal,
-      deadlineAt: verifyDeadlineAt,
-    });
-    await closeActiveTakeover();
-    if (!pageClosed) {
-      pageClosed = true;
-      await closePage();
-    }
-    const target = await getVerifyTarget({ expectedMallId, state });
-    const result = await authPort.verifyAndSeal(target, {
-      expectedMallId,
-      state,
-      signal: activeSignal,
-      deadlineAt: activeDeadline,
-      seal,
-    });
-    assertMerchantVerified(result);
-    seal.assert(result.candidate);
-    return result;
-  }
-
-  async function close() {
-    if (closePromise) return closePromise;
-    closePromise = (async () => {
-      closed = true;
-      try { await closeActiveTakeover(); } catch { /* Always attempt remaining cleanup. */ }
-      try { await closeResources(); } catch { /* Browser may have exited on cancellation. */ }
-    })();
-    return closePromise;
-  }
-
+export function createDriverSessionHandle(deps) {
+  const state = { takeover: null, inFlightQr: null, pageClosed: false, closed: false, closePromise: null };
   return Object.freeze({
-    attemptPassword,
-    captureQr,
-    openTakeover,
-    submitSmsCode,
-    waitForAcquisition,
-    verify,
-    close,
+    async attemptPassword(credential, options = {}) {
+      const { activeSignal, activeDeadline } = assertSessionActive(state, deps, options);
+      const cappedDeadline = Math.min(activeDeadline ?? Infinity, deps.clock.now() + 70_000);
+      return deps.runPassword(credential, { ...options, signal: activeSignal, deadlineAt: cappedDeadline });
+    },
+    captureQr: () => runSessionQrCapture(state, deps),
+    openTakeover: () => openSessionTakeover(state, deps),
+    async submitSmsCode(code) {
+      const validated = validateSmsCode(code);
+      assertSessionActive(state, deps);
+      const cappedDeadline = Math.min(deps.deadlineAt ?? Infinity, deps.clock.now() + 15_000);
+      return deps.runSubmitSms(validated, { signal: deps.signal, deadlineAt: cappedDeadline });
+    },
+    async waitForAcquisition({ signal: waitSignal, expiresAt } = {}) {
+      if (state.closed) throw closedSessionError();
+      const activeSignal = combineAbortSignals(deps.signal, waitSignal);
+      assertAuthTask({ signal: activeSignal, deadlineAt: deps.deadlineAt, clock: deps.clock });
+      return deps.runWaitForAcquisition({
+        signal: activeSignal,
+        expiresAt: expiresAt ?? deps.deadlineAt,
+        sessionDeadlineAt: deps.deadlineAt,
+      });
+    },
+    verify: (options) => verifySessionAcquisition(state, deps, options),
+    close: () => closeSessionHandle(state, deps.closeResources),
   });
 }

@@ -8,7 +8,8 @@ import {
   uploadSkuPreviewImages,
 } from '../image-handler.js';
 import { parseSkuText } from '../source-scraper.js';
-import { SELECTORS, findFirst, normalizeSkuSpecValue } from './dom-helpers.js';
+import { normalizeSkuSpecValue } from '../draft-contract.js';
+import { SELECTORS, findFirst } from './dom-helpers.js';
 import { fillGoodsProperties } from './property-final-state.js';
 
 function countSkuCombinations(skuDims) {
@@ -236,14 +237,13 @@ async function fillSkuRowFields(row, rowModel, columns, sku) {
     { key: 'group_price', domCellIndex: rowModel.domCellIndexes[columns.groupPrice], value: sku.groupPrice },
     { key: 'single_price', domCellIndex: rowModel.domCellIndexes[columns.singlePrice], value: sku.singlePrice },
   ];
-  const locators = fields.map((f) => (Number.isInteger(f.domCellIndex) && f.domCellIndex >= 0 ? row.locator('td').nth(f.domCellIndex).locator('input').first() : null));
+  const locators = fields.map((field) => (
+    Number.isInteger(field.domCellIndex) && field.domCellIndex >= 0
+      ? row.locator('td').nth(field.domCellIndex).locator('input').first()
+      : null
+  ));
   if (locators.some((locator) => locator == null)) {
     return { ok: false, mode: 'invalid', results: fields.map(() => ({ ok: false, actual: null })) };
-  }
-  const counts = await Promise.all(locators.map((locator) => locator.count()));
-  if (counts.every((count) => count === 1)) {
-    const parallel = await Promise.all(locators.map((locator, index) => fillSkuCell(locator, fields[index].value)));
-    if (parallel.every((result) => result.ok)) return { ok: true, mode: 'parallel', results: parallel };
   }
   const sequential = [];
   for (let index = 0; index < fields.length; index += 1) {
@@ -318,7 +318,7 @@ async function loadAndMatchSkuRows(page, skuPricing) {
   return { rows, rowCount, rowModels, columns, rowIndexes: matched.rowIndexes };
 }
 
-async function fillSkuTableRows(page, skuPricing, log) {
+export async function fillSkuTableRows(page, skuPricing, log = getLogger()) {
   if (!Array.isArray(skuPricing) || skuPricing.length === 0) {
     throw new PddCliError({ code: 'E_BUSINESS', message: '缺少逐 SKU 定价与库存计划', exitCode: ExitCodes.BUSINESS });
   }

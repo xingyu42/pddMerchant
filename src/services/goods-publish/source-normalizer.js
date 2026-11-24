@@ -1,27 +1,20 @@
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { parseYuanToFen } from '../../infra/units.js';
+import { normalizeTemplateText } from '../../adapter/goods-publish/property-template.js';
 
 const MAX_SOURCE_PROPERTIES = 100;
 const MAX_VALUES_PER_PROPERTY = 20;
 const MAX_PROPERTY_TEXT_LENGTH = 200;
 
-function normalizePropertyText(value) {
-  return String(value ?? '')
-    .normalize('NFKC')
-    .replace(/[‐‑‒–—―]/g, '-')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 function normalizeSourceProperty(rawProperty) {
   const property = asObject(rawProperty);
   if (!property) return null;
-  const name = normalizePropertyText(property.name ?? property.key ?? property.propertyName ?? property.property_name);
+  const name = normalizeTemplateText(property.name ?? property.key ?? property.propertyName ?? property.property_name);
   const rawValues = property.values ?? property.valueList ?? property.value_list;
   if (!name || !Array.isArray(rawValues)) return null;
   const values = rawValues
     .slice(0, MAX_VALUES_PER_PROPERTY)
-    .map((value) => normalizePropertyText(asObject(value)?.value ?? asObject(value)?.text ?? value))
+    .map((value) => normalizeTemplateText(asObject(value)?.value ?? asObject(value)?.text ?? value))
     .filter((value) => value && value.length <= MAX_PROPERTY_TEXT_LENGTH);
   if (values.length === 0) return null;
   const refPid = property.refPid ?? property.ref_pid;
@@ -29,8 +22,8 @@ function normalizeSourceProperty(rawProperty) {
   return {
     name: name.slice(0, MAX_PROPERTY_TEXT_LENGTH),
     values: [...new Set(values)],
-    refPid: refPid == null ? '' : normalizePropertyText(refPid),
-    referenceId: referenceId == null ? '' : normalizePropertyText(referenceId),
+    refPid: refPid == null ? '' : normalizeTemplateText(refPid),
+    referenceId: referenceId == null ? '' : normalizeTemplateText(referenceId),
   };
 }
 
@@ -65,6 +58,15 @@ function safePathname(rawUrl) {
   }
 }
 
+function sanitizeGoodsUrlMessageInput(rawInput) {
+  try {
+    const parsed = new URL(rawInput);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return rawInput.split('?')[0].split('#')[0];
+  }
+}
+
 export function parseGoodsUrl(url) {
   if (!url || typeof url !== 'string') {
     throw new PddCliError({
@@ -88,7 +90,7 @@ export function parseGoodsUrl(url) {
 
   throw new PddCliError({
     code: 'E_USAGE',
-    message: `无法从链接中提取 goods_id: ${trimmed}`,
+    message: `无法从链接中提取 goods_id: ${sanitizeGoodsUrlMessageInput(trimmed)}`,
     hint: '确认链接包含 goods_id 参数，或直接传入数字 ID',
     exitCode: ExitCodes.USAGE,
   });
