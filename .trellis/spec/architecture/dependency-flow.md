@@ -32,7 +32,7 @@ commands -> services -> adapter -> infra
 
 ## 3. Contracts
 
-- `bin/pdd.js` MAY import command registrars、`commands/runtime-options.js`、infra helpers，以及 `adapter/browser.js` 的 `closeAllBrowsers`（信号关闭）。
+- `bin/pdd.js` MAY import command registrars、`commands/runtime-options.js`、`commands/_runner.js` 与 infra helpers（含经 `infra/runtime-cleanup.js` 挂载的运行时 `closeAll` 信号/异常清理钩子）；不再直接 import `adapter/browser.js`。
 - `src/commands/**` MAY import `src/services/**`、runner facade、infra types/helpers。
 - `src/commands/runner/**`、`commands/doctor.js`、`commands/login.js` MAY import `src/adapter/**`：它们拥有浏览器、鉴权、店铺与 fixture 生命周期；其他 handler 经 services 访问 adapter。
 - `src/commands/daemon.js` MAY import `src/daemon/run.js`；`src/daemon/**` MAY import `src/services/**` 与 infra，不直接 import adapter。

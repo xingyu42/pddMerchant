@@ -1,9 +1,11 @@
 // 登录态校验的模拟实现（设计 D-4）。
 import { ENV_AUTH_INVALID, ENV_AUTH_INDETERMINATE, ENV_CONSUMER_AUTH_INVALID } from './core.js';
+import { mockCurrentMall } from './mall.js';
 import { appendFile } from 'node:fs/promises';
 import { abortableSleep, budgetMs } from '../../infra/abort.js';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
-import { assertAuthTask } from '../../infra/auth-task.js';
+import { assertAuthTask, boundMerchantMallId } from '../../infra/auth-task.js';
+import { createCandidateSeal, deepFreeze } from '../../infra/candidate-seal.js';
 
 export function mockIsAuthValid() {
   return process.env[ENV_AUTH_INVALID] !== '1';
@@ -27,27 +29,144 @@ export function mockIsConsumerAuthValid() {
   return process.env[ENV_CONSUMER_AUTH_INVALID] !== '1';
 }
 
-export async function verifyFixtureMerchantContext(context, { expectedMallId, seal, getCurrentMall } = {}) {
-  if (!seal || typeof seal.seal !== 'function') {
+function assertValidSeal(seal, message) {
+  if (!seal || typeof seal.seal !== 'function' || typeof seal.assert !== 'function') {
     throw new PddCliError({
       code: 'E_CONFIG_INVALID',
-      message: 'verifyFixtureMerchantContext 需要有效的 CandidateSeal 实例',
+      message,
       exitCode: ExitCodes.GENERAL,
     });
   }
-  const state = context?.storageState ? structuredClone(await context.storageState()) : { cookies: [], origins: [] };
-  if (mockIsAuthIndeterminate()) return { verdict: 'indeterminate', reason: 'network_error' };
-  if (!mockIsAuthValid() && !hasFixtureRelogin(state)) return { verdict: 'rejected', reason: 'login_false' };
+  return seal;
+}
+
+function resolveToggle(option, fallbackFn) {
+  if (typeof option === 'function') return option;
+  if (option !== undefined) return () => Boolean(option);
+  return fallbackFn;
+}
+
+export async function verifyFixtureMerchantContext(sessionOrContext, {
+  expectedMallId,
+  seal,
+  getCurrentMall = mockCurrentMall,
+  state: initialState,
+  signal,
+  deadlineAt,
+  isInvalid = () => !mockIsAuthValid(),
+  isIndeterminate = mockIsAuthIndeterminate,
+  now = Date.now,
+} = {}) {
+  assertValidSeal(seal, 'verifyFixtureMerchantContext 需要有效的 CandidateSeal 实例');
+  const checkedAt = () => new Date(now()).toISOString();
+
+  if (initialState?.merchant_auth?.last_check?.verdict === 'rejected') {
+    return { verdict: 'rejected', reason: 'known_rejected', checked_at: checkedAt(), http_status: null, authoritative: false };
+  }
+  const boundMallId = boundMerchantMallId(initialState);
+  if (boundMallId && expectedMallId != null && String(expectedMallId) !== boundMallId) {
+    return { verdict: 'failed', reason: 'identity_mismatch', checked_at: checkedAt(), http_status: null, authoritative: false };
+  }
+  if (signal?.aborted) {
+    return { verdict: 'indeterminate', reason: 'cancelled', checked_at: checkedAt(), http_status: null, authoritative: false };
+  }
+  if (deadlineAt != null && now() >= deadlineAt) {
+    return { verdict: 'indeterminate', reason: 'deadline', checked_at: checkedAt(), http_status: null, authoritative: false };
+  }
+
+  const context = sessionOrContext?.context ?? sessionOrContext;
+  const rawState = context?.storageState
+    ? await context.storageState()
+    : (initialState ?? { cookies: [], origins: [] });
+  const state = deepFreeze(structuredClone(rawState));
+
+  if (isIndeterminate()) {
+    return { verdict: 'indeterminate', reason: 'network_error', checked_at: checkedAt(), http_status: null, authoritative: false };
+  }
+  if (isInvalid() && !hasFixtureRelogin(state)) {
+    return { verdict: 'rejected', reason: 'login_false', checked_at: checkedAt(), http_status: 200, authoritative: false };
+  }
+  const resolvedExpectedMallId = expectedMallId ?? boundMallId;
   const mall = context?.fixtureMallId != null
     ? { id: context.fixtureMallId, name: '模拟店铺' }
     : await getCurrentMall();
-  if (expectedMallId != null && String(expectedMallId) !== String(mall.id)) {
-    return { verdict: 'failed', reason: 'identity_mismatch' };
+  const mallId = mall?.activeId ?? mall?.id;
+  const mallName = mall?.activeName ?? mall?.name ?? '';
+  if (resolvedExpectedMallId != null && String(resolvedExpectedMallId) !== String(mallId)) {
+    return { verdict: 'failed', reason: 'identity_mismatch', checked_at: checkedAt(), http_status: 200, authoritative: false };
   }
-  const checkedAt = new Date().toISOString();
-  const identity = { mallId: String(mall.id), displayName: mall.name };
-  const candidate = seal.seal({ state, identity, checked_at: checkedAt, scope: 'shop_read' });
-  return { verdict: 'verified', reason: 'shop_read', checked_at: checkedAt, identity, candidate };
+  const time = checkedAt();
+  const identity = { mallId: String(mallId), displayName: mallName };
+  const candidate = seal.seal({ state, identity, checked_at: time, scope: 'shop_read' });
+  return {
+    verdict: 'verified',
+    reason: 'shop_read',
+    checked_at: time,
+    http_status: 200,
+    identity,
+    candidate,
+    authoritative: false,
+  };
+}
+
+/** Create the minimal 3-method Fixture AuthPort returning non-authoritative verdicts. */
+export function createFixtureAuthPort({
+  seal = createCandidateSeal(),
+  authInvalid,
+  authIndeterminate,
+  consumerAuthInvalid,
+  getCurrentMall = mockCurrentMall,
+  now = Date.now,
+} = {}) {
+  const defaultSeal = assertValidSeal(seal, 'createFixtureAuthPort 需要有效的 CandidateSeal 实例');
+  const isInvalid = resolveToggle(authInvalid, () => !mockIsAuthValid());
+  const isIndeterminate = resolveToggle(authIndeterminate, mockIsAuthIndeterminate);
+  const isConsumerInvalid = resolveToggle(consumerAuthInvalid, () => !mockIsConsumerAuthValid());
+  const checkedAt = () => new Date(now()).toISOString();
+
+  async function checkMerchant(state, options = {}) {
+    if (options.signal?.aborted) {
+      return { verdict: 'indeterminate', reason: 'cancelled', http_status: null, checked_at: checkedAt(), authoritative: false };
+    }
+    if (options.deadlineAt != null && now() >= options.deadlineAt) {
+      return { verdict: 'indeterminate', reason: 'deadline', http_status: null, checked_at: checkedAt(), authoritative: false };
+    }
+    if (!options.force && state?.merchant_auth?.last_check?.verdict === 'rejected') {
+      return { verdict: 'rejected', reason: 'known_rejected', http_status: null, checked_at: checkedAt(), authoritative: false };
+    }
+    if (isIndeterminate()) {
+      return { verdict: 'indeterminate', reason: 'network_error', http_status: null, checked_at: checkedAt(), authoritative: false };
+    }
+    if (isInvalid() && !hasFixtureRelogin(state)) {
+      return { verdict: 'rejected', reason: 'login_false', http_status: 200, checked_at: checkedAt(), authoritative: false };
+    }
+    return { verdict: 'verified', reason: 'login_true', http_status: 200, checked_at: checkedAt(), authoritative: false };
+  }
+
+  async function verifyAndSeal(sessionOrContext, options = {}) {
+    return verifyFixtureMerchantContext(sessionOrContext, {
+      ...options,
+      seal: options.seal === undefined ? defaultSeal : options.seal,
+      getCurrentMall,
+      isInvalid,
+      isIndeterminate,
+      now,
+    });
+  }
+
+  async function checkConsumerOnline() {
+    return {
+      ok: !isConsumerInvalid(),
+      authoritative: false,
+      detail: { url: null },
+    };
+  }
+
+  return Object.freeze({
+    checkMerchant,
+    verifyAndSeal,
+    checkConsumerOnline,
+  });
 }
 
 export async function mockPasswordLogin(task = {}) {
