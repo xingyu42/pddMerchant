@@ -121,6 +121,7 @@ async function executeLiveOperation(spec, runtime) {
       page,
       mallCtx,
       context,
+      browserSession: session,
       pageSession,
     });
 

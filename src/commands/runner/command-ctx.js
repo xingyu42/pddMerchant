@@ -19,6 +19,7 @@ export function buildCommandCtx(runtime, { client, page, mallCtx, ...extra }) {
     signal: runtime.signal,
     deadlineAt: runtime.deadlineAt,
     clock: runtime.clock ?? null,
+    scrapeCooldown: runtime.scrapeCooldown ?? null,
     runtime,
     ...extra,
   };

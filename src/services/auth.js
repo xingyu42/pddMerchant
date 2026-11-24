@@ -13,7 +13,6 @@ import {
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 import { getLogger } from '../infra/logger.js';
-import { getSharedScrapeCooldown } from '../infra/scrape-cooldown.js';
 import { createConsumerIdentityObserver } from '../adapter/consumer-identity.js';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -198,7 +197,7 @@ async function waitForConsumerAuth(target, identityObserver, {
   timeoutMs,
   hint,
   detail,
-  scrapeCooldownConfig,
+  scrapeCooldown,
 }) {
   const result = await waitForConsumerLogin(target.page, { timeoutMs });
   if (!result.success) {
@@ -212,7 +211,7 @@ async function waitForConsumerAuth(target, identityObserver, {
   }
   const identity = await identityObserver.wait();
   const state = await target.context.storageState();
-  getSharedScrapeCooldown(scrapeCooldownConfig).recordSuccess();
+  scrapeCooldown?.recordSuccess();
   return { state, identity, url: result.url };
 }
 
@@ -221,13 +220,14 @@ export async function performConsumerQrLogin({
   headed = false,
   onQrCaptured,
   consumerLoginUrl,
-  scrapeCooldownConfig,
+  scrapeCooldown,
   qrDir,
   runtime,
 }) {
   const log = getLogger();
   let target = null;
   let identityObserver = null;
+  const resolvedCooldown = scrapeCooldown ?? runtime?.scrapeCooldown ?? null;
   try {
     target = await openConsumerLoginTarget({
       headed,
@@ -246,7 +246,7 @@ export async function performConsumerQrLogin({
       timeoutMs,
       hint: `QR 可能已过期，重新执行；或查看 ${imagePath}`,
       detail: { imagePath, qr_content_present: Boolean(qrContent) },
-      scrapeCooldownConfig,
+      scrapeCooldown: resolvedCooldown,
     });
     return { ...auth, mode: 'consumer-qr', qrImagePath: imagePath };
   } finally {
@@ -258,12 +258,13 @@ export async function performConsumerQrLogin({
 export async function performConsumerHeadedLogin({
   timeoutMs,
   consumerLoginUrl,
-  scrapeCooldownConfig,
+  scrapeCooldown,
   runtime,
 }) {
   const log = getLogger();
   let target = null;
   let identityObserver = null;
+  const resolvedCooldown = scrapeCooldown ?? runtime?.scrapeCooldown ?? null;
   try {
     target = await openConsumerLoginTarget({
       headed: true,
@@ -278,7 +279,7 @@ export async function performConsumerHeadedLogin({
     const auth = await waitForConsumerAuth(target, identityObserver, {
       timeoutMs,
       hint: '重新执行 pdd login --consumer',
-      scrapeCooldownConfig,
+      scrapeCooldown: resolvedCooldown,
     });
     return { ...auth, mode: 'consumer-headed' };
   } finally {

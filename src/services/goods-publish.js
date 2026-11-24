@@ -1,19 +1,14 @@
-import { createConsumerContext } from '../adapter/browser.js';
-import { deleteAuthState, loadAuthState } from '../adapter/auth-state.js';
-import { resolveConsumerAccountContext } from '../infra/consumer-account-resolver.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getSharedBreaker } from '../infra/circuit-breaker.js';
-import { getSharedScrapeCooldown } from '../infra/scrape-cooldown.js';
-import { parseGoodsUrl, scrapeSourceGoods } from '../adapter/goods-publish/source-scraper.js';
 import {
   buildSkuPreviewPlan,
-} from '../adapter/goods-publish/source-sku-normalizer.js';
-import {
-  buildPropertyPlan,
   normalizeSourceGoodsProperties,
-} from '../adapter/goods-publish/property-mapper.js';
-import { readDynamicPropertyTemplate } from '../adapter/goods-publish/dynamic-property-template.js';
+  parseGoodsUrl,
+} from './goods-publish/source-normalizer.js';
+import { createSourceProductFetcher } from './goods-publish/source-product-fetcher.js';
 import { resolvePddCategory, buildCategorySearchText } from '../adapter/goods-publish/category-resolver.js';
+import { buildPropertyPlan } from '../adapter/goods-publish/property-mapper.js';
+import { readDynamicPropertyTemplate } from '../adapter/goods-publish/dynamic-property-template.js';
 import {
   selectCategory,
   fillGoodsForm,
@@ -32,18 +27,9 @@ import { withWriteRateControl } from '../infra/rate-control.js';
 import { assertNoRiskControl } from '../adapter/goods-publish/risk-detector.js';
 import { transformImages } from './image-transform.js';
 import { buildPricingPlan, validatePricingPlan } from './pricing-validator.js';
-import { defaultSourceGoodsCache } from './goods-publish-source-cache.js';
-import { abortableSleep } from '../infra/abort.js';
 import { toCostTemplateView } from './views/goods.js';
 import { toPublishView } from './views/goods-publish.js';
 import { mallIdOf } from './views/_shared.js';
-import {
-  acquireQingguoProxyLease,
-  readSourceProxyConfig,
-} from '../adapter/goods-publish/qingguo-proxy.js';
-
-const SOURCE_PROXY_MAX_ATTEMPTS = 3;
-const SOURCE_PROXY_RETRY_DELAYS = [500, 1000];
 
 // NOTE: The Phase 2 API-based publish path (payload-builder, property-matcher, sku-mapper)
 // was removed on 2026-07-10 in favor of the active UI-automation path. If PDD later exposes a
@@ -51,9 +37,8 @@ const SOURCE_PROXY_RETRY_DELAYS = [500, 1000];
 
 async function listCostTemplates(ctx) {
   const result = await runEndpoint(ctx.page, GOODS_PUBLISH_COST_TEMPLATE_LIST, {}, ctx);
-  // normalize() already maps endpoint variants into `templates`.
   const templates = result.templates ?? [];
-  return templates.map(t => ({
+  return templates.map((t) => ({
     id: t.id ?? t.cost_template_id ?? t.costTemplateId ?? null,
     name: t.name ?? t.costTemplateName ?? '',
     free_province_need: t.free_province_need ?? null,
@@ -69,7 +54,7 @@ export async function getCostTemplatesView(ctx) {
 }
 
 async function resolvePublishCostTemplate(ctx, requestedId = null) {
-  const templates = (await listCostTemplates(ctx)).filter(t => t.id != null && String(t.id) !== '');
+  const templates = (await listCostTemplates(ctx)).filter((t) => t.id != null && String(t.id) !== '');
   if (templates.length === 0) {
     throw new PddCliError({
       code: 'E_BUSINESS',
@@ -80,7 +65,7 @@ async function resolvePublishCostTemplate(ctx, requestedId = null) {
   }
 
   if (requestedId == null || String(requestedId).trim() === '') return templates[0];
-  const selected = templates.find(t => String(t.id ?? '') === String(requestedId));
+  const selected = templates.find((t) => String(t.id ?? '') === String(requestedId));
   if (selected) return selected;
 
   throw new PddCliError({
@@ -134,165 +119,6 @@ function assertSubmitSucceeded(result) {
     detail: { errorCode: raw?.error_code ?? raw?.errorCode },
     exitCode: mapped?.exitCode ?? ExitCodes.BUSINESS,
   });
-}
-
-function isRetryableProxyAttemptError(err) {
-  return err?.code === 'E_PROXY_UNAVAILABLE'
-    || err?.code === 'E_PROXY_NETWORK';
-}
-
-function mapProxyBrowserError(err) {
-  if (err instanceof PddCliError) return err;
-  const text = `${err?.name ?? ''} ${err?.code ?? ''} ${err?.message ?? ''}`;
-  // Chromium hides an upstream HTTP 407 behind ERR_TUNNEL_CONNECTION_FAILED for
-  // this IP-whitelist provider. Retrying fresh leases cannot repair provider auth.
-  if (/407|proxy.*auth|ERR_PROXY_AUTH_REQUESTED|ERR_INVALID_AUTH_CREDENTIALS|ERR_TUNNEL_CONNECTION_FAILED/i.test(text)) {
-    return new PddCliError({
-      code: 'E_PROXY_AUTH',
-      message: '青果代理连接认证失败',
-      hint: '当前未启用代理账号密码鉴权，请确认青果套餐或节点是否要求额外鉴权',
-      detail: { provider: 'qingguo' },
-      exitCode: ExitCodes.AUTH,
-    });
-  }
-  if (/TimeoutError|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ERR_(PROXY|TUNNEL|CONNECTION|TIMED_OUT)|net::ERR_/i.test(text)) {
-    return new PddCliError({
-      code: 'E_PROXY_NETWORK',
-      message: '青果代理连接超时、拒绝或提前断开',
-      hint: '系统会在重试预算内更换短效代理；不会自动回退直连',
-      detail: { provider: 'qingguo' },
-      exitCode: ExitCodes.NETWORK,
-    });
-  }
-  return new PddCliError({
-    code: 'E_GENERAL',
-    message: '源商品代理抓取发生未分类错误',
-    hint: '查看脱敏 verbose 日志定位问题；为避免泄露代理节点，原始错误不会写入普通输出',
-    detail: { provider: 'qingguo' },
-    exitCode: ExitCodes.GENERAL,
-  });
-}
-
-function proxyLeaseSummary(lease, attempt) {
-  return {
-    provider: lease.provider,
-    attempt,
-    area: lease.area,
-    isp: lease.isp,
-    remaining_ms: Math.max(0, lease.expiresAt - Date.now()),
-    request_id_hash: lease.requestIdHash,
-  };
-}
-
-async function invalidateDegradedConsumerAuth(ctx, err, consumerAccountId) {
-  if (err?.code !== 'E_RISK_CONTROL_SOFT') return;
-  const cleanup = await deleteAuthState(consumerAccountId);
-  err.detail = {
-    ...(err.detail && typeof err.detail === 'object' ? err.detail : {}),
-    consumer_account_degraded: true,
-    consumer_auth_removed: cleanup.removed,
-    consumer_auth_existed: cleanup.existed,
-  };
-  err.hint = '消费者账号已降级，旧登录态已删除；请更换账号并执行 pdd login --consumer';
-  ctx.log.warn({ reason: err.detail.reason, authExisted: cleanup.existed },
-    'goods-publish: degraded consumer auth removed');
-}
-
-async function scrapeSourceDirect(ctx, goodsId, consumerAccountId) {
-  const consumer = await createConsumerContext(ctx.context.browser(), {
-    storageState: loadAuthState(consumerAccountId).state,
-  });
-  try {
-    return await scrapeSourceGoods(consumer.page, goodsId, ctx);
-  } finally {
-    await consumer.close();
-  }
-}
-
-async function runProxyScrapeAttempt(ctx, goodsId, proxyConfig, attempt, consumerAccountId) {
-  let consumer = null;
-  let lease = null;
-  try {
-    lease = await acquireQingguoProxyLease(proxyConfig, { signal: ctx.signal });
-    ctx.log.debug(proxyLeaseSummary(lease, attempt), 'goods-publish: source proxy acquired');
-    consumer = await createConsumerContext(ctx.context.browser(), {
-      storageState: loadAuthState(consumerAccountId).state,
-      proxy: {
-        server: lease.server,
-      },
-    });
-    const source = await scrapeSourceGoods(consumer.page, goodsId, {
-      ...ctx,
-    });
-    ctx.log.debug({ ...proxyLeaseSummary(lease, attempt), result: 'success' },
-      'goods-publish: source proxy attempt completed');
-    return source;
-  } catch (err) {
-    const mapped = mapProxyBrowserError(err);
-    ctx.log.debug({
-      ...(lease ? proxyLeaseSummary(lease, attempt) : {
-        provider: 'qingguo',
-        attempt,
-        request_id_hash: mapped?.detail?.request_id_hash ?? null,
-      }),
-      result: mapped?.code ?? 'E_GENERAL',
-    }, 'goods-publish: source proxy attempt failed');
-    throw mapped;
-  } finally {
-    await consumer?.close();
-  }
-}
-
-async function scrapeSourceWithProxy(ctx, goodsId, proxyConfig, warnings, consumerAccountId) {
-  for (let attempt = 1; attempt <= SOURCE_PROXY_MAX_ATTEMPTS; attempt++) {
-    try {
-      const source = await runProxyScrapeAttempt(ctx, goodsId, proxyConfig, attempt, consumerAccountId);
-      if (attempt > 1) warnings.push('source_proxy_retry_recovered');
-      return source;
-    } catch (err) {
-      if (!isRetryableProxyAttemptError(err)) throw err;
-      if (attempt === SOURCE_PROXY_MAX_ATTEMPTS) throw err;
-      await abortableSleep(SOURCE_PROXY_RETRY_DELAYS[attempt - 1], ctx.signal);
-    }
-  }
-  throw new PddCliError({
-    code: 'E_PROXY_UNAVAILABLE',
-    message: '青果代理重试预算已耗尽',
-    exitCode: ExitCodes.NETWORK,
-  });
-}
-
-async function readCachedSource(ctx, sourceCache, goodsId) {
-  try {
-    const source = await sourceCache.read(goodsId);
-    if (source) ctx.log.info({ goodsId }, 'goods-publish: source cache hit');
-    return source;
-  } catch (error) {
-    ctx.log.warn({ goodsId, cache_error: error?.code ?? 'E_UNKNOWN' },
-      'goods-publish: source cache read failed, falling back to live scrape');
-    return null;
-  }
-}
-
-async function writeCachedSource(ctx, sourceCache, goodsId, source) {
-  try {
-    await sourceCache.write(goodsId, source);
-    ctx.log.debug({ goodsId }, 'goods-publish: source cache written');
-  } catch (error) {
-    ctx.log.warn({ goodsId, cache_error: error?.code ?? 'E_UNKNOWN' },
-      'goods-publish: source cache write failed');
-  }
-}
-
-async function clearCachedSource(ctx, sourceCache, goodsId, warnings) {
-  try {
-    const removed = await sourceCache.remove(goodsId);
-    if (removed) ctx.log.debug({ goodsId }, 'goods-publish: source cache cleared');
-  } catch (error) {
-    ctx.log.warn({ goodsId, cache_error: error?.code ?? 'E_UNKNOWN' },
-      'goods-publish: source cache cleanup failed after successful publish');
-    warnings.push('source_cache_cleanup_failed');
-  }
 }
 
 function sourceEvidenceError(issues, detail = {}) {
@@ -353,52 +179,42 @@ async function runPublishFlow(ctx, goodsUrl, opts = {}) {
   const goodsId = parseGoodsUrl(goodsUrl);
   const draftOnly = opts.draftOnly ?? true;
   const mockEnabled = ctx.runtime?.mode === 'fixture';
-  const sourceCache = ctx.sourceGoodsCache ?? defaultSourceGoodsCache;
+  if (mockEnabled) {
+    const selectedTemplate = await resolvePublishCostTemplate(ctx, opts.costTemplateId ?? null);
+    return buildMockPublishResult(ctx, goodsId, draftOnly, selectedTemplate.id);
+  }
+
   const warnings = [];
-  let source = null;
-  let pricingPlan = null;
-  let sourceProxyConfig = { enabled: false, provider: null };
-  const scrapeCooldown = ctx.scrapeCooldown ?? (!mockEnabled
-    ? getSharedScrapeCooldown({
-      threshold: ctx.runtimeConfig?.scrapeSoftBlockThreshold,
-      cooldownMs: ctx.runtimeConfig?.scrapeSoftBlockCooldownMs,
-    })
-    : null);
-  const publishCtx = scrapeCooldown ? { ...ctx, scrapeCooldown } : ctx;
+  const log = ctx.log;
+  const breaker = getSharedBreaker();
   const writeRateOptions = {
     tokensPerMinute: ctx.runtimeConfig?.writeRateTokensPerMinute,
   };
+  const sourceFetcher = ctx.sourceFetcher ?? createSourceProductFetcher({
+    sourceCache: ctx.sourceGoodsCache,
+    scrapeCooldown: ctx.scrapeCooldown ?? ctx.runtime?.scrapeCooldown,
+    sourceProxyEnv: ctx.runtime?.env?.sourceProxyEnv ?? {},
+    scrapeSimulate: ctx.runtime?.env?.scrapeSimulate ?? true,
+    browserPort: ctx.runtime?.ports?.browser,
+    browserSession: ctx.browserSession,
+    legacyBrowser: ctx.context?.browser?.(),
+    sleep: ctx.runtime?.clock?.sleep,
+    now: ctx.runtime?.clock?.now,
+    log,
+  });
 
-  if (!mockEnabled) {
-    source = await readCachedSource(ctx, sourceCache, goodsId);
-    if (!source) {
-      // IP 软封冷却期内：只在确实需要实时抓取时短路退避。缓存命中不消耗出口 IP。
-      // 放在 breaker.wrap 之外，避免把"主动退避"误记为 scrape 阶段失败而触发熔断。
-      scrapeCooldown.check();
-      sourceProxyConfig = readSourceProxyConfig(ctx.runtime?.env?.sourceProxyEnv ?? {});
-    }
-  }
-
+  const acquisition = await sourceFetcher.prepare(goodsUrl);
   const selectedTemplate = await resolvePublishCostTemplate(ctx, opts.costTemplateId ?? null);
 
-  if (mockEnabled) return buildMockPublishResult(ctx, goodsId, draftOnly, selectedTemplate.id);
-  const log = ctx.log;
-  const breaker = getSharedBreaker();
-
-  if (!source) {
-    const consumerAccount = await resolveConsumerAccountContext({ account: ctx.config?.consumerAccount });
-    const consumerAccountId = consumerAccount.accountId;
-    source = await breaker.wrap('scrape', async () => {
-      log.info({ goodsId }, 'goods-publish: Phase A — scraping source');
-      try {
-        if (!sourceProxyConfig.enabled) return await scrapeSourceDirect(publishCtx, goodsId, consumerAccountId);
-        return await scrapeSourceWithProxy(publishCtx, goodsId, sourceProxyConfig, warnings, consumerAccountId);
-      } catch (err) {
-        await invalidateDegradedConsumerAuth(ctx, err, consumerAccountId);
-        throw err;
-      }
-    });
-    await writeCachedSource(ctx, sourceCache, goodsId, source);
+  let source = await breaker.wrap('scrape', () => acquisition.fetch({
+    signal: ctx.signal,
+    consumerAccount: ctx.config?.consumerAccount,
+    warnings,
+    browserSession: ctx.browserSession,
+    legacyBrowser: ctx.context?.browser?.(),
+  }));
+  for (const warning of acquisition.warnings ?? []) {
+    if (!warnings.includes(warning)) warnings.push(warning);
   }
 
   const sourceEvidence = validateSourcePublishEvidence(source);
@@ -440,6 +256,7 @@ async function runPublishFlow(ctx, goodsUrl, opts = {}) {
   let propertyMapping = buildPropertyPlan(source.goodsProperties, template);
   if (!propertyMapping.ok) throw propertyMappingError(propertyMapping);
 
+  let pricingPlan = null;
   let uploadedSkuPreviewPlan = [];
   await withWriteRateControl('publish.fill_form', () =>
     breaker.wrap('fill_form', async () => {
@@ -457,9 +274,6 @@ async function runPublishFlow(ctx, goodsUrl, opts = {}) {
     }), writeRateOptions
   );
 
-  // Selecting one property can reveal new required rows even when every source
-  // property already matched the initial template. Always inspect the settled
-  // same-page form state instead of using skippedCount as a proxy for dynamics.
   const mappedTemplatePids = new Set(
     propertyMapping.plan.map((property) => String(property.templatePid)),
   );
@@ -553,7 +367,7 @@ async function runPublishFlow(ctx, goodsUrl, opts = {}) {
     submit = assertSubmitSucceeded(submitResult);
   }
 
-  await clearCachedSource(ctx, sourceCache, goodsId, warnings);
+  await acquisition.clearCache(warnings);
 
   return {
     goods_id: draft.goodsId,

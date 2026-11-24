@@ -1,18 +1,8 @@
 // 消费端选品抓取的「IP/会话软封识别 + 持久长冷却退避」。
-//
-// 背景：PDD 对当前出口 IP/会话软封/限流时，goods 页价格被脱敏（DOM 渲染 ¥0/缺失/"¥7.??" +
-// "前往APP查看价格"占位）。判据走 DOM 的 isPriceMasked：登录态 window.rawData 虽有值，但其
-// goods.enableSkuMask 在正常商品上也恒 true（非判据），软封态 rawData 签名又无抓包，故不依赖
-// SSR 字段（详见 source-scraper.js）。每次 `pdd goods publish` 是独立进程，进程内 session-health
-// 状态调用结束即丢失，导致用户反复重试、持续烧同一 IP。
-//
-// 本模块把「连续软封计数 + 冷却截止时间」落盘（data/scrape-cooldown.json），跨 CLI 调用
-// 记住封锁状态：连续软封达阈值 → 进入长冷却；冷却期内 check() 直接短路退避，不再发请求，
-// 让风控分随时间自然恢复。纯防御退避，不做任何绕过。
-//
-// 设计参照：category-resolver.js（模块级冷却）、session-health.js（getShared* 单例与注入）。
+// 冷却计数与截止时间落盘（默认 data/scrape-cooldown.json），由命令运行时组合根按实例注入。
 
-import { readFileSync, writeFileSync, renameSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, renameSync, rmSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { SCRAPE_COOLDOWN_PATH } from './paths.js';
 import { getLogger } from './logger.js';
 import { scrapeCooldownActive } from './errors.js';
@@ -28,7 +18,7 @@ function warn(obj, msg) {
  * @param {number} [opts.threshold] 触发冷却的连续软封阈值
  * @param {number} [opts.cooldownMs] 冷却时长（毫秒）
  */
-function createScrapeCooldown({
+export function createScrapeCooldown({
   now = Date.now,
   statePath = SCRAPE_COOLDOWN_PATH,
   threshold,
@@ -64,6 +54,7 @@ function createScrapeCooldown({
     if (!statePath) return;
     const tmp = `${statePath}.${process.pid}.tmp`;
     try {
+      mkdirSync(dirname(statePath), { recursive: true });
       writeFileSync(tmp, JSON.stringify(state), 'utf8');
       renameSync(tmp, statePath);
     } catch (err) {
@@ -129,11 +120,4 @@ function createScrapeCooldown({
       persist();
     },
   };
-}
-
-let _shared = null;
-
-export function getSharedScrapeCooldown(opts) {
-  if (!_shared) _shared = createScrapeCooldown(opts);
-  return _shared;
 }

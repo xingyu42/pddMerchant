@@ -105,6 +105,9 @@ describe('composeCommandRuntime', () => {
       assert.equal(typeof maintenance.clock.sleep, 'function');
       assert.equal(typeof maintenance.scopeRuntime, 'function');
       assert.equal(typeof maintenance.closeAll, 'function');
+      assert.equal(typeof maintenance.scrapeCooldown?.check, 'function');
+      assert.equal(typeof maintenance.scrapeCooldown?.recordSoftBlock, 'function');
+      assert.equal(typeof maintenance.scrapeCooldown?.recordSuccess, 'function');
       await maintenance.closeAll();
     } finally {
       temp.dispose();
@@ -403,5 +406,64 @@ describe('composeCommandRuntime', () => {
 
     checkIsolation('live', '/(?:adapter\\/fixtures\\/|mock-dispatcher\\.js|console-login-fixture\\.js)/');
     checkIsolation('fixture', '/^patchright$/');
+  });
+
+  it('provides instance-scoped persistent scrapeCooldown in live mode and memory-only scrapeCooldown in fixture mode', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'pdd-cmd-cooldown-'));
+    const statePath = join(tempDir, 'scrape-cooldown.json');
+    const config = makeTempConfigDir();
+    let nowMs = 1_700_000_000_000;
+    const clock = { now: () => nowMs, sleep: async () => {} };
+
+    try {
+      const liveA = await composeCommandRuntime({
+        mode: 'live',
+        env: {},
+        configOptions: config.configOptions,
+        clock,
+        overrides: {
+          scrapeCooldownStatePath: statePath,
+          runtimeConfig: { scrapeSoftBlockThreshold: 1, scrapeSoftBlockCooldownMs: 30_000 },
+        },
+      });
+      const liveB = await composeCommandRuntime({
+        mode: 'live',
+        env: {},
+        configOptions: config.configOptions,
+        clock,
+        overrides: {
+          scrapeCooldownStatePath: statePath,
+          runtimeConfig: { scrapeSoftBlockThreshold: 1, scrapeSoftBlockCooldownMs: 30_000 },
+        },
+      });
+
+      const scopedA = liveA.scopeRuntime();
+      assert.equal(scopedA.scrapeCooldown, liveA.scrapeCooldown);
+      assert.notEqual(liveA.scrapeCooldown, liveB.scrapeCooldown);
+
+      liveA.scrapeCooldown.recordSoftBlock({ reason: 'empty_shell' });
+      assert.throws(() => liveB.scrapeCooldown.check(), { code: 'E_RATE_LIMIT' });
+      liveB.scrapeCooldown.recordSuccess();
+      liveA.scrapeCooldown.check();
+
+      const fixtureRt = await composeCommandRuntime({
+        mode: 'fixture',
+        env: {},
+        configOptions: config.configOptions,
+        clock,
+      });
+      fixtureRt.scrapeCooldown.recordSoftBlock({ reason: 'empty_shell' });
+      fixtureRt.scrapeCooldown.recordSoftBlock({ reason: 'empty_shell' });
+      assert.throws(() => fixtureRt.scrapeCooldown.check(), { code: 'E_RATE_LIMIT' });
+      liveA.scrapeCooldown.check();
+
+      await scopedA.closeAll();
+      await liveA.closeAll();
+      await liveB.closeAll();
+      await fixtureRt.closeAll();
+    } finally {
+      config.dispose();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
