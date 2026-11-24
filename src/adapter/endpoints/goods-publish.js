@@ -6,6 +6,15 @@ export function mapPublishBusinessError(raw) {
   return mapWriteBusinessError(raw, { notFound: false, businessLabel: '发布业务错误' });
 }
 
+function mapPublishSubmitError(raw) {
+  const mapped = mapPublishBusinessError(raw);
+  if (!mapped) return null;
+  return {
+    ...mapped,
+    hint: '保存草稿已完成，但提交发布被平台拒绝',
+  };
+}
+
 export const SAVE_DRAFT_SUCCESS_RULE = { mode: 'flag-or-code', codeField: 'error_code', codes: [1000000] };
 
 export const GOODS_PUBLISH_CREATE_DRAFT = {
@@ -140,7 +149,7 @@ export const GOODS_PUBLISH_SUBMIT = {
     raw,
   }),
   successRule: WRITE_SUCCESS_RULE,
-  errorMapper: mapPublishBusinessError,
+  errorMapper: mapPublishSubmitError,
 };
 
 export const GOODS_PUBLISH_COST_TEMPLATE_LIST = {

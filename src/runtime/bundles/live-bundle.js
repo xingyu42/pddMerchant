@@ -5,6 +5,11 @@ import { createLiveDaemonProcessPort } from '../../adapter/daemon-process.js';
 import { createLiveEndpointTransport } from '../../adapter/endpoint-client.js';
 import { attemptPasswordLogin } from '../../adapter/password-login.js';
 import { createLiveConsoleLoginDriver } from '../../adapter/console-login-driver.js';
+import { createCategoryResolver } from '../../adapter/goods-publish/category-resolver.js';
+import { createLiveMerchantDraftEditor } from '../../adapter/goods-publish/merchant-draft-editor.js';
+import { createSourceProductFetcher } from '../../services/goods-publish/source-product-fetcher.js';
+import { convergeDynamicProperties } from '../../services/goods-publish/draft-planner.js';
+import { prepareEditPayload, verifyDraftDetail } from '../../services/goods-publish/draft-guard.js';
 
 export function createLiveBundle({ seal, clock, env, overrides = {}, includeConsole = false } = {}) {
   const browser = overrides.browser ?? createLiveBrowserRuntime();
@@ -22,6 +27,32 @@ export function createLiveBundle({ seal, clock, env, overrides = {}, includeCons
       }))
     : null;
 
+  function createGoodsPublishPort({ parsedEnv, runtimeConfig, browserPort, endpointPort, scrapeCooldown }) {
+    const sourceFetcher = createSourceProductFetcher({
+      scrapeCooldown,
+      sourceProxyEnv: parsedEnv.sourceProxyEnv,
+      scrapeSimulate: parsedEnv.scrapeSimulate,
+      browserPort,
+      sleep: clock.sleep,
+      now: clock.now,
+    });
+    const categoryResolver = createCategoryResolver({
+      apiBase: runtimeConfig?.categoryApiBase,
+      sleep: clock.sleep,
+      now: clock.now,
+    });
+    const draftEditor = createLiveMerchantDraftEditor({
+      endpoint: endpointPort,
+      writeRateTokensPerMinute: runtimeConfig?.writeRateTokensPerMinute ?? 20,
+      mode: parsedEnv.mode,
+      clock,
+      convergeDynamic: convergeDynamicProperties,
+      preparePayload: prepareEditPayload,
+      verifyDetail: verifyDraftDetail,
+    });
+    return Object.freeze({ sourceFetcher, categoryResolver, draftEditor });
+  }
+
   return Object.freeze({
     mode: 'live',
     browser,
@@ -31,6 +62,7 @@ export function createLiveBundle({ seal, clock, env, overrides = {}, includeCons
     endpointTransport,
     passwordLogin,
     consoleLoginDriver,
+    createGoodsPublishPort,
     consoleExtraRoutes: Object.freeze([]),
     loadFixture: null,
     fixture: null,

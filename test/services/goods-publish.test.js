@@ -45,10 +45,6 @@ vi.mock('../../src/adapter/goods-publish/qingguo-proxy.js', async (importOrigina
   };
 });
 
-vi.mock('../../src/infra/rate-control.js', () => ({
-  withWriteRateControl: vi.fn(async (_label, fn) => fn()),
-}));
-
 import { createConsumerContext } from '../../src/adapter/browser.js';
 import { resolvePddCategory } from '../../src/adapter/goods-publish/category-resolver.js';
 import { readDynamicPropertyTemplate } from '../../src/adapter/goods-publish/dynamic-property-template.js';
@@ -61,7 +57,6 @@ import {
   clickSaveDraft,
 } from '../../src/adapter/goods-publish/form-filler.js';
 import { acquireQingguoProxyLease } from '../../src/adapter/goods-publish/qingguo-proxy.js';
-import { withWriteRateControl } from '../../src/infra/rate-control.js';
 import {
   GOODS_PUBLISH_COST_TEMPLATE_LIST,
   GOODS_PUBLISH_TEMPLATE,
@@ -69,14 +64,12 @@ import {
 } from '../../src/adapter/endpoints/goods-publish.js';
 import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
 import { insertAccount } from '../../src/infra/account-store.js';
-import { getSharedBreaker } from '../../src/infra/circuit-breaker.js';
 import { ExitCodes, PddCliError, scrapeCooldownActive } from '../../src/infra/errors.js';
 import {
   DATA_DIR,
   GOODS_PUBLISH_SOURCE_CACHE_DIR,
   SCRAPE_COOLDOWN_PATH,
 } from '../../src/infra/paths.js';
-import { getSharedSessionHealth } from '../../src/infra/session-health.js';
 import { PUBLISH_VIEW_FIELDS } from '../../src/services/views/goods-publish.js';
 import { publishGoodsFromLink } from '../../src/services/goods-publish.js';
 
@@ -428,7 +421,6 @@ function makePublishCtx({
     client: { execute },
     scrapeCooldown,
     sourceGoodsCache,
-    sessionHealth: getSharedSessionHealth(),
     runtimeConfig: {
       fullCountDiscountRate,
       writeRateTokensPerMinute: 12,
@@ -450,11 +442,7 @@ let consumerContexts;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  getSharedBreaker().reset();
-  getSharedSessionHealth().reset();
   consumerContexts = [];
-
-  withWriteRateControl.mockImplementation(async (_label, fn) => fn());
 
   createConsumerContext.mockImplementation(async (_browser, options = {}) => {
     const page = makeFakePage({ url: 'https://mobile.yangkeduo.com/goods.html?goods_id=123456' });
@@ -894,7 +882,6 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       assert.equal(sourceCache.peek('123456'), null);
 
       // Simulate a second process sharing the persistent scrapeCooldown state.
-      getSharedBreaker().reset();
       const secondCtx = makePublishCtx({ scrapeCooldown: cooldown, sourceGoodsCache: sourceCache, env: qingguoProxyEnv });
       await assert.rejects(
         publishGoodsFromLink(secondCtx, '123456'),
@@ -909,7 +896,6 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       assert.equal(loadAuthState(consumer.id).exists, true);
 
       // Third process hits active scrapeCooldown before cost-template or proxy lease.
-      getSharedBreaker().reset();
       const thirdCtx = makePublishCtx({ scrapeCooldown: cooldown, sourceGoodsCache: sourceCache, env: qingguoProxyEnv });
       await assert.rejects(
         publishGoodsFromLink(thirdCtx, '123456'),

@@ -165,9 +165,10 @@ export const ORDER_LIST = {
 | --- | --- |
 | `source-scraper.js` | 消费端商品页浏览器观测（提取原始 SKU 维度、属性、价格、图片与风控状态） |
 | `qingguo-proxy.js` | 仅用于源商品抓取的青果代理（ADR 0001） |
-| `category-resolver.js` | 外部类目 API 解析类目搜索文本 |
-| `form-filler.js` | 商家发布表单填充 |
-| `property-mapper.js` / `dynamic-property-template.js` | 源属性与平台模板匹配、动态属性收敛 |
+| `category-resolver.js` | 实例级 `CategoryResolverPort`，外部类目 API 解析类目搜索文本 |
+| `merchant-draft-editor.js` | `MerchantDraftEditorPort`（`openDraft` / `populateAndSaveDraft` / `submitDraft`）与声明式 `DraftSession` |
+| `form-filler.js` / `draft-editor/` | 商家发布表单填充门面与私有子模块（类目建草稿、SKU/媒体、属性与终态、保存路由、私有可中止写节流） |
+| `property-template.js` / `dynamic-property-template.js` | 平台属性模板归一化、动态属性投影与合并 |
 | `image-handler.js` | 图片下载与上传 |
 | `risk-detector.js` | 风控弹窗检测 |
 
@@ -188,8 +189,7 @@ export const ORDER_LIST = {
 | `leases.js` / `daemon-state.js` | 账号租约、daemon 单实例状态 |
 | `goods-cost-store.js` | 商品成本表 |
 | `units.js` / `metrics.js` | 分转元、百分比、时间格式与指标投影 |
-| `circuit-breaker.js` | 商品发布各阶段的熔断器 |
-| `scrape-cooldown.js` / `session-health.js` / `rate-control.js` | 源抓取软封冷却与会话健康评分、写操作限速 |
+| `scrape-cooldown.js` | 源抓取软封冷却（实例级注入，消费端抓包与消费端登录共用） |
 | `timeouts.js` / `abort.js` | 超时预算与 AbortController 封装 |
 
 ---
@@ -205,14 +205,13 @@ export const ORDER_LIST = {
 
 ## 五、商品发布流程
 
-`publishGoodsFromLink(ctx, goodsUrl, options)`（`services/goods-publish.js`）：
+`publishGoodsFromLink(ctx, goodsUrl, options)`（`services/goods-publish.js`，经 `GoodsPublishPort = { sourceFetcher, categoryResolver, draftEditor }` 编排）：
 
-1. 解析商品链接，读取源商品缓存；未命中时用消费者登录态抓取并写入缓存。
-2. 校验源数据与 SKU 图片证据。
-3. 用外部类目 API 解析类目搜索文本，在商家页面选择类目并创建草稿。
-4. 解析运费模板，加载属性模板，构建定价与属性计划，填充表单。
-5. 动态属性最多 5 轮收敛；关闭尺码表、写入满件折扣（`fullCountDiscountRate`，默认 0.95）。
-6. 严格校验保存请求后保存草稿；仅在 `--confirm` 时提交发布。
+1. 解析商品链接并通过 `SourceProductFetcher.prepare` 读取源商品缓存；检查运费模板；缓存未命中时用消费者登录态抓取并写入缓存。
+2. 校验源数据、SKU 颜色预览图与定价计划（建草稿前纯规划 `planPreDraftPublish`）。
+3. 经 `CategoryResolverPort.resolve` 解析类目搜索文本，经 `MerchantDraftEditorPort.openDraft` 选择类目建草稿并提取绑定草稿 ID 的初始属性模板。
+4. 构建初始属性计划（`buildInitialPropertyPlan`），由 `MerchantDraftEditorPort.populateAndSaveDraft` 驱动 `DraftSession` 填充表单、完成最多 5 轮动态属性收敛、停用尺码表、写入满件折扣（`fullCountDiscountRate`，默认 0.95）并严格校验保存请求与草稿详情。
+5. 仅在 `--confirm` 时委托 `MerchantDraftEditorPort.submitDraft` 提交发布；保存/提交成功后清理源缓存。
 
 fixture 模式下发布流程在服务层短路。
 

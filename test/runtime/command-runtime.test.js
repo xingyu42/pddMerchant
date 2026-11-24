@@ -97,7 +97,7 @@ describe('composeCommandRuntime', () => {
       assert.equal(maintenance.mode, 'fixture');
       assert.equal(maintenance.runtimeConfig, null);
       assert.equal(Object.hasOwn(maintenance, 'rawEnv'), false);
-      assert.deepEqual(Object.keys(maintenance.ports).sort(), ['auth', 'browser', 'daemonProcess', 'endpoint', 'mall']);
+      assert.deepEqual(Object.keys(maintenance.ports).sort(), ['auth', 'browser', 'daemonProcess', 'endpoint', 'goodsPublish', 'mall']);
       assert.equal(typeof maintenance.outputSink.emit, 'function');
       assert.equal(typeof maintenance.outputSink.hasEmitted, 'function');
       assert.equal(typeof maintenance.outputSink.writeDebugRaw, 'function');
@@ -464,6 +464,26 @@ describe('composeCommandRuntime', () => {
     } finally {
       config.dispose();
       rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('wires instance-scoped GoodsPublishPort ({ sourceFetcher, categoryResolver, draftEditor }) in live mode', async () => {
+    const config = makeTempConfigDir();
+    try {
+      const liveRt = await composeCommandRuntime({
+        mode: 'live',
+        env: {},
+        configOptions: config.configOptions,
+      });
+      const port = liveRt.ports.goodsPublish;
+      assert.equal(typeof port?.sourceFetcher?.prepare, 'function');
+      assert.equal(typeof port?.categoryResolver?.resolve, 'function');
+      assert.equal(typeof port?.draftEditor?.openDraft, 'function');
+      assert.equal(typeof port?.draftEditor?.populateAndSaveDraft, 'function');
+      assert.equal(typeof port?.draftEditor?.submitDraft, 'function');
+      await liveRt.closeAll();
+    } finally {
+      config.dispose();
     }
   });
 });
