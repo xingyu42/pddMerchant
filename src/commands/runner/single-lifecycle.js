@@ -1,7 +1,7 @@
 // 单命令生命周期（design D-2）：账号解析 → 超时-abort → fixture/live 分派 →
 // live 浏览器流程（auth 校验、mall 解析/切换、pageSession）。
 import { randomUUID } from 'node:crypto';
-import { withBrowser } from '../../adapter/browser.js';
+import { withBrowser, createSnapshotContext } from '../../adapter/browser.js';
 import { PDD_HOME } from '../../adapter/auth-state.js';
 import { withMerchantAuthUpdate, commitMerchantCandidate } from '../../adapter/merchant-auth-storage.js';
 import { verifyMerchantContext } from '../../adapter/merchant-auth.js';
@@ -42,7 +42,7 @@ async function assertAuthValid(context, runtime, transaction, browser) {
   }
   const session = await checkMerchantSession(context, {
     tx: transaction, runtime, browser,
-    task: { signal, deadlineAt: deadlineAt ?? undefined, expectedMallId: runtime.accountCtx?.account?.identity },
+    task: { signal, deadlineAt: deadlineAt ?? undefined, expectedMallId: runtime.accountCtx?.account?.identity, createSnapshotContext },
   });
   runtime.verifiedMallId = session.mallId;
   return session;
@@ -69,6 +69,7 @@ async function persistAuthStateAfterSuccess(spec, runtime, context, transaction,
     await page.close();
     const result = await verifyMerchantContext(context, {
       signal: runtime.signal, deadlineAt: runtime.deadlineAt ?? undefined, expectedMallId: runtime.verifiedMallId,
+      createSnapshotContext,
     });
     if (result.verdict !== 'verified') {
       runtime.warnings.push(result.reason === 'identity_mismatch' ? 'auth_state_identity_mismatch' : 'auth_state_persist_unverified');

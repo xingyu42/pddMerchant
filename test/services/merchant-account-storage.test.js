@@ -17,12 +17,13 @@ vi.mock('../../src/adapter/browser.js', () => ({
 vi.mock('../../src/infra/output.js', () => ({ emit: vi.fn((envelope) => envelope) }));
 import { verifyMerchantContext, assertMerchantVerified } from '../../src/adapter/merchant-auth.js';
 import { provisionMerchantLogin, provisionConsumerAuth } from '../../src/services/auth-account-storage.js';
+import { createCandidateSeal } from '../../src/infra/candidate-seal.js';
 import { insertAccount, findAccountByIdentity, removeAccount, setDefaultAccount, getAccountById } from '../../src/infra/account-store.js';
 import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
 import { openDatabase, run, get, isInTransaction } from '../../src/infra/db.js';
 import { seal, aad } from '../../src/infra/secret-box.js';
 import { runInteractiveLogin } from '../../src/commands/init.js';
-import { launchBrowser } from '../../src/adapter/browser.js';
+import { launchBrowser, createSnapshotContext } from '../../src/adapter/browser.js';
 import * as authService from '../../src/services/auth.js';
 import { TIMEOUTS } from '../../src/infra/timeouts.js';
 import { acquireLease, releaseLease } from '../../src/infra/leases.js';
@@ -36,8 +37,8 @@ beforeEach(() => {
   mockMerchantProbeTransport(() => ({ mallId: control.mallId, mallName: 'Renamed Shop' }));
 });
 
-async function verifiedResult() {
-  const result = await verifyMerchantContext({ storageState: async () => state, browser: () => ({}) });
+async function verifiedResult(options) {
+  const result = await verifyMerchantContext({ storageState: async () => state, browser: () => ({}) }, { createSnapshotContext, ...options });
   assertMerchantVerified(result);
   return result;
 }
@@ -69,6 +70,26 @@ describe('atomic merchant login registration', () => {
     assert.equal(second.accountId, first.accountId);
     assert.equal(second.account.slug, first.account.slug);
     assert.equal(loadAuthState(first.accountId).revision, 2);
+  });
+
+  it('enforces isolated CandidateSeal matching during merchant login provisioning', async () => {
+    const sealA = createCandidateSeal();
+    const sealB = createCandidateSeal();
+    const candidateFromA = () => verifiedResult({ seal: sealA });
+
+    await assert.rejects(
+      provisionMerchantLogin(candidateFromA, { seal: sealB }),
+      { code: 'E_AUTH_CANDIDATE_INVALID' },
+    );
+    assert.equal(findAccountByIdentity('merchant', '900001'), null);
+
+    const provisioned = await provisionMerchantLogin(candidateFromA, { seal: sealA });
+    assert.equal(loadAuthState(provisioned.accountId).revision, 1);
+    await assert.rejects(
+      provisionMerchantLogin(candidateFromA, { accountId: provisioned.accountId, seal: sealB }),
+      { code: 'E_AUTH_CANDIDATE_INVALID' },
+    );
+    assert.equal(loadAuthState(provisioned.accountId).revision, 1);
   });
 
   it('keeps a selected slug and updates its display name after matching verification', async () => {

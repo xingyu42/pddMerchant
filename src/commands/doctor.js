@@ -3,9 +3,11 @@ import {
   launchBrowser,
   closeBrowser,
   createConsumerContext,
+  createSnapshotContext,
   getBrowserExecutablePath,
 } from '../adapter/browser.js';
-import { loadAuthState, isConsumerAuthValid } from '../adapter/auth-state.js';
+import { loadAuthState } from '../adapter/auth-state.js';
+import { isConsumerAuthValid } from '../adapter/consumer-auth.js';
 import { assertMerchantVerified } from '../adapter/merchant-auth.js';
 import { verifyStoredMerchant } from '../adapter/merchant-auth-storage.js';
 import { PddCliError, ExitCodes, secretDecryptFailed } from '../infra/errors.js';
@@ -72,7 +74,7 @@ async function checkLoginStates(accountId, consumerAccountId, task = {}) {
     browser = launched.browser;
     let merchant = { ok: false, detail: { configured: false, verdict: 'not_configured' } };
     if (accountId != null) {
-      const result = await verifyStoredMerchant(launched.context, loaded.state, task);
+      const result = await verifyStoredMerchant(launched.context, loaded.state, { ...task, createSnapshotContext });
       merchant = { ok: result.verdict === 'verified', detail: {
         configured: true, verdict: result.verdict, reason: result.reason,
         checked_at: result.checked_at, shops: result.identity ? 1 : null,

@@ -1,12 +1,9 @@
 import { get, run, transaction, isInTransaction } from '../infra/db.js';
 import { aad, seal, open } from '../infra/secret-box.js';
 import { getMasterKey } from '../infra/master-key.js';
-import { getLogger } from '../infra/logger.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
-import { isMockEnabled, mockIsConsumerAuthValid } from './mock-dispatcher.js';
 
 export const PDD_HOME = 'https://mms.pinduoduo.com';
-const CONSUMER_HOME = 'https://mobile.yangkeduo.com';
 
 function validateShape(state) {
   return Boolean(state && typeof state === 'object' && Array.isArray(state.cookies) && Array.isArray(state.origins));
@@ -100,15 +97,4 @@ export function deleteAuthState(accountId) {
   const remove = () => ({ removed: true, existed: run('DELETE FROM auth_states WHERE account_id = ?', accountId).changes > 0 });
   try { return isInTransaction() ? remove() : transaction(remove); }
   catch (error) { throw storageError(error, 'E_AUTH_STATE_DELETE_FAILED', '删除登录态失败'); }
-}
-
-export async function isConsumerAuthValid(page, { timeoutMs = 15000 } = {}) {
-  if (isMockEnabled()) return mockIsConsumerAuthValid();
-  try {
-    await page.goto(CONSUMER_HOME, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
-    return !page.url().includes('/login');
-  } catch (err) {
-    getLogger().debug({ err: err?.message }, 'isConsumerAuthValid navigation failed');
-    return false;
-  }
 }

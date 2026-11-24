@@ -3,7 +3,8 @@ import { assertMerchantVerified, assertVerifiedMerchantCandidate, verifyMerchant
 import { createSnapshotContext } from '../adapter/browser.js';
 import { attemptPasswordLogin } from '../adapter/password-login.js';
 import { loadAuthState } from '../adapter/auth-state.js';
-import { withMerchantAuthUpdate, commitMerchantCandidate, assertAuthTask } from '../adapter/merchant-auth-storage.js';
+import { withMerchantAuthUpdate, commitMerchantCandidate } from '../adapter/merchant-auth-storage.js';
+import { assertAuthTask } from '../infra/auth-task.js';
 import { mockPasswordLogin } from '../adapter/mock-dispatcher.js';
 import { hasFixtureRelogin, createFixtureReloginContext } from '../adapter/fixtures/auth.js';
 import { getAccountById, getCredential, getReloginState, putReloginState,
@@ -84,9 +85,10 @@ export function decideRelogin(accountId, { now = Date.now(), minIntervalMs, auth
 
 // 提交回调只负责候选保存；尝试结果与人工状态的收尾统一由句柄持有。
 export function beginReloginAttempt(tx, { manual = false, password = true, credentialUpdatedAt,
-  commit = commitMerchantCandidate } = {}) {
+  commit = commitMerchantCandidate, seal } = {}) {
   assertAuthTask(tx);
   if (password) recordReloginAttempt(tx);
+  const activeSeal = seal === undefined ? tx?.seal : seal;
   return {
     fail(outcome) {
       if ((typeof outcome === 'string' ? outcome : outcome?.outcome) === 'success') {
@@ -96,9 +98,9 @@ export function beginReloginAttempt(tx, { manual = false, password = true, crede
       if (error) throw error;
     },
     succeed(candidate) {
-      assertVerifiedMerchantCandidate(candidate);
+      assertVerifiedMerchantCandidate(candidate, activeSeal);
       getMasterKey();
-      const draft = { ...tx };
+      const draft = activeSeal === undefined ? { ...tx } : { ...tx, seal: activeSeal };
       const saved = write(() => {
         assertAuthTask(tx);
         assertLeaseOwner('account', tx.accountId, tx.token);
@@ -295,7 +297,11 @@ export async function reloginInCommand(runtime, tx, browser, authResult) {
         assertAuthTask(task);
         if (result.outcome !== 'success') return result;
         await loginPage.close();
-        const verified = await verifyMerchantContext(context, { ...task, expectedMallId: tx.recoveryMallId });
+        const verified = await verifyMerchantContext(context, {
+          ...task,
+          expectedMallId: tx.recoveryMallId,
+          createSnapshotContext,
+        });
         if (verified.verdict !== 'verified') return { outcome: 'verify_failed', verification: verified };
         return { ...result, candidate: verified.candidate };
       });
