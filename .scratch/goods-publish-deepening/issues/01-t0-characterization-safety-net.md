@@ -4,9 +4,13 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 用例内覆盖/停用 `PDD_TEST_ADAPTER` 跳过入口短路，并在每条用例前后隔离恢复环境，严格零触碰仓库真实数据目录与临时缓存目录
-- [ ] 注入内存或临时目录 `ctx.scrapeCooldown` 与 `ctx.sourceGoodsCache`，使用假计时器消除写节流等待并逐用例重置单例熔断器
-- [ ] 临时 `vi.mock` 覆盖范围清晰可替换，真实穿过 `publishGoodsFromLink` 验证五条写安全主边界：代理故障 `[500, 1000]ms` 重试与恢复告警、抓包空壳分类停转、首次消费者降级删态且跳过冷却写入、5 轮同页动态属性收敛、出站载荷校验拦截与成功后清缓存
-- [ ] 表征测试稳定可重复执行且 `npm run check` 通过
+- [x] 用例内覆盖/停用 `PDD_TEST_ADAPTER` 跳过入口短路，并在每条用例前后隔离恢复环境，严格零触碰仓库真实数据目录与临时缓存目录
+- [x] 注入内存或临时目录 `ctx.scrapeCooldown` 与 `ctx.sourceGoodsCache`，使用假计时器消除写节流等待并逐用例重置单例熔断器
+- [x] 临时 `vi.mock` 覆盖范围清晰可替换，真实穿过 `publishGoodsFromLink` 验证五条写安全主边界：代理故障 `[500, 1000]ms` 重试与恢复告警、抓包空壳分类停转、首次消费者降级删态且跳过冷却写入、5 轮同页动态属性收敛、出站载荷校验拦截与成功后清缓存
+- [x] 表征测试稳定可重复执行且 `npm run check` 通过
+
+## Comments
+
+- 2026-11-25: 已合入 `feat/runtime-adapter-seams`（合并提交 `60e77ba`、`dc55b51`）。新增 `test/services/goods-publish.test.js`（1519 行，27 个表征测试用例），覆盖代理 `[500, 1000]ms` 重试与恢复告警、抓包空壳冷却、首次消费者降级删态、5 轮动态属性收敛、出站载荷严格校验、保存/提交后清理缓存，以及针对仓库 `data/` 与 `tmp/goods-publish-source-cache/` 目录前后的快照隔离断言。合入后执行 `npm run check` 全量通过：`npm run lint`（`knip`）退出码 0；`npm test`（`vitest run`）141 个测试文件全部通过（`141 passed (141)`），2374 个用例通过、1 个 Windows 环境用例跳过（`2374 passed | 1 skipped (2375)`），其中 `test/services/goods-publish.test.js` 27/27 通过。
