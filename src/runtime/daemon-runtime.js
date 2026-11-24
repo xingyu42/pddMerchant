@@ -2,6 +2,7 @@ import { resolveClock } from '../infra/clock.js';
 import { createCandidateSeal } from '../infra/candidate-seal.js';
 import { routesForMode } from '../daemon/routes.js';
 import { createDaemonLogger, createDaemonLifecycleOps } from '../services/daemon-runtime.js';
+import { createConsoleApp } from '../services/console-login.js';
 import { parseRuntimeEnv } from './env.js';
 
 async function loadDaemonBundle({ parsedEnv, seal, clock, env, overrides }) {
@@ -35,11 +36,17 @@ export async function composeDaemonRuntime({
     consoleLoginDriver: bundle.consoleLoginDriver,
   });
   const consoleExtraRoutes = Object.freeze([...(bundle.consoleExtraRoutes ?? [])]);
+  const consoleApp = overrides.consoleApp ?? createConsoleApp({
+    driver: ports.consoleLoginDriver,
+    seal,
+    clock,
+    runtimeConfig: resolvedRuntimeConfig,
+  });
 
   const { log, closeLog } = createDaemonLogger({ foreground, runtimeConfig: resolvedRuntimeConfig ?? undefined });
   const lifecycle = createDaemonLifecycleOps({ parsedEnv, browser: ports.browser, log, closeLog });
   const closeAll = async () => {
-    await Promise.allSettled([lifecycle.closeBrowsers()]);
+    await Promise.allSettled([consoleApp.sessions.closeAll(), lifecycle.closeBrowsers()]);
     closeLog();
   };
 
@@ -51,6 +58,7 @@ export async function composeDaemonRuntime({
     ports,
     clock,
     seal,
+    consoleApp,
     consoleExtraRoutes,
     routes: routesForMode(parsedEnv.mode, consoleExtraRoutes),
     passwordLogin: bundle.passwordLogin,

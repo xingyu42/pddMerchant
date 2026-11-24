@@ -544,18 +544,29 @@ log.info({ method, route: '/c/:token', status, duration_ms });
 
 ### 1. Scope / Trigger
 
-Applies to `services/console-login*.js`, `daemon/routes.js`, `daemon/sse.js` and interactive auth persistence. Frontend contracts are consumed directly by `console/public/app/app.js`.
+Applies to `services/console-login.js`, `services/console-accounts.js`, `daemon/routes.js`, `daemon/server.js`, `daemon/sse.js` and interactive auth persistence. Frontend contracts are consumed directly by `console/public/app/app.js`.
 
 ### 2. Signatures
 
 ```js
-startConsoleSession(slug, { mode: 'password' | 'qr', ownerTag, signal }) -> { session_id };
-startConsoleAddSession({ login_name, password }, { ownerTag, signal }) -> { session_id }; // mode 'add', no account yet
-getConsoleSession(id) -> { state, message, remaining_seconds, expires_at, qr_image };
-consoleSessionFrames(id) -> { subscribe(callback), [Symbol.asyncIterator]() };
-consoleSessionPointer(id, { gesture_id, seq, events, cancel? }); // { ok: true, editable, numeric, result?: 'interrupted' }
-consoleSessionText(id, { text } | { key });
-refreshConsoleQr(id); cancelConsoleSession(id); closeAllConsoleSessions();
+// services/console-login.js — instance-scoped console application wired by composeDaemonRuntime / createConsoleServer
+createConsoleApp({ driver, seal, clock, commit, patrol, runtimeConfig }) -> {
+  health: { check() },
+  auth: { redeem(token), resolveSession(sessionValue), sessionCookie(sessionValue, config) },
+  patrol: { get(patrol, runtimeConfig), set(patrol, body, runtimeConfig) },
+  accounts: { list(), add(body, opts), savePassword(slug, body), clearPassword(slug), unblock(slug), remove(slug, body) },
+  sessions: {
+    start(slug, { mode: 'password' | 'qr', ownerTag, signal }) -> { session_id },
+    startAdd({ login_name, password }, { ownerTag, signal }) -> { session_id },
+    get(id) -> { state, message, remaining_seconds, expires_at, qr_image },
+    frames(id) -> { subscribe(callback), [Symbol.asyncIterator]() },
+    pointer(id, { gesture_id, seq, events, cancel? }), // { ok: true, editable, numeric, result?: 'interrupted' }
+    sms(id, { code }), text(id, { text } | { key }),
+    refreshQr(id), cancel(id), awaitDone(id), closeAll(),
+  },
+};
+// services/console-accounts.js — pure local account management (zero dependency on session state machine)
+removeConsoleAccount(slug, { confirm_name }, { isAccountLoggingIn }) -> { ok: true, removed: true };
 saveMerchantLogin(result, initial, task); // shared verified-candidate + lease/CAS/manual-success commit
 ```
 
@@ -594,8 +605,9 @@ saveMerchantLogin(result, initial, task); // shared verified-candidate + lease/C
 
 ### 6. Tests Required
 
-- `test/services/console-login.test.js`: device continuity, seventy-second budget, captcha takeover vs SMS input vs form/network failure, add sessions (blank state, new vs existing shop, SMS, failures without registration, credential validation and body clearing), lease outside transactions, shared verified commit, mismatch/rejected check/CAS preservation, partial resource cleanup, cancellation, real timer boundaries, retention, QR reuse and fixture-only control guards.
-- `test/adapter/takeover.test.js`, `test/daemon/sse.test.js`: CDP acks, latest-frame throttling, pointer timing/coordinates/serialization, validation, keys, backpressure, disconnect and decodable fixture images.
+- `test/services/console-login.test.js`: instance-scoped `createConsoleApp` with `InMemoryConsoleLoginDriver`, isolated temp SQLite, instance `CandidateSeal`, and controllable `clock` (zero module mocks or polling waits) covering device continuity, 70s budget, captcha takeover vs SMS single-flight vs form/network failure, add sessions (blank state, new vs existing shop, SMS, failures without registration, credential validation and body clearing), lease outside transactions, shared `beginReloginAttempt` + `saveMerchantLogin` commit, mismatch/rejected/foreign-seal/CAS preservation, partial resource cleanup, cancellation, 3-min/10-min/12-min/5-min timer boundaries, QR refresh single-flight & in-flight drain on `verifying`, same-key serial replacement & 2-key slot retention during cleanup, active-login removal guard, and `closeAll` 503 stopping gate.
+- `test/services/console-accounts.test.js`: `removeConsoleAccount` confirmation validation, 409 `E_CONSOLE_SESSION_STATE` via injected `isAccountLoggingIn`, and zero-dependency isolation from `console-login` / browser modules.
+- `test/adapter/takeover.test.js`, `test/adapter/console-login-driver-port.contract.test.js`, `test/daemon/sse.test.js`: CDP acks, latest-frame throttling, shared `createDeterministicTakeoverChannel` pointer timing/coordinates/serialization, validation, keys, backpressure, disconnect and decodable fixture images.
 - `test/e2e/console-login.e2e.test.js`: fixture random-port/temp-DB challenge through SSE/input to success, action resolution, ordinary marker reuse with no new attempt, two-timeout breaker/unblock, QR, account replacement/global limit, daemon stop and secret-free responses/streams/stdout/logs. Run full `npm test` after targeted tests.
 
 ### 7. Wrong vs Correct
