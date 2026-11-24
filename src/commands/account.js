@@ -8,7 +8,7 @@ import {
 import { performHeadedLogin } from '../services/auth.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
 import { provisionMerchantLogin } from '../services/auth-account-storage.js';
-import { getReloginSummary } from '../services/password-relogin.js';
+import { getReloginSummary } from '../services/relogin-policy.js';
 import { removeAccountView } from '../services/account-removal.js';
 import { toAccountAddedView, toAccountDefaultView, toAccountListView } from '../services/views/account.js';
 

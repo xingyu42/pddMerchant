@@ -7,7 +7,7 @@ import { listAccounts } from '../infra/account-store.js';
 import { resolveConsumerAccountContext } from '../infra/consumer-account-resolver.js';
 import { toDoctorView } from '../services/views/auth.js';
 import { hasLegacyStorage } from '../services/doctor-storage.js';
-import { getReloginSummary } from '../services/password-relogin.js';
+import { getReloginSummary } from '../services/relogin-policy.js';
 import { AUTH_REASON_LABEL, AUTH_VERDICT_LABEL, formatPasswordReloginStatus } from '../services/views/labels.js';
 
 const LEGACY_STORAGE_MESSAGE = '检测到旧版数据，已不再使用，可手动删除';
