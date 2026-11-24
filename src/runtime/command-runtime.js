@@ -3,6 +3,8 @@ import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { resolveClock } from '../infra/clock.js';
 import { createOutputSink } from '../infra/output-sink.js';
 import { createCandidateSeal } from '../infra/candidate-seal.js';
+import { SCRAPE_COOLDOWN_PATH } from '../infra/paths.js';
+import { createScrapeCooldown } from '../infra/scrape-cooldown.js';
 import { registerCloseAllHook } from '../infra/runtime-cleanup.js';
 import { createCommandEndpointClient, createEndpointRuntimeState } from '../adapter/endpoint-client.js';
 import { daemonIsRunning as defaultDaemonIsRunning } from '../services/daemon.js';
@@ -13,6 +15,11 @@ const DEFAULT_MAINTENANCE_ENDPOINT_CONFIG = Object.freeze({
   rateLimitBurst: 2,
   cooldownThreshold: 3,
   cooldownMs: 60_000,
+});
+
+const DEFAULT_MAINTENANCE_SCRAPE_COOLDOWN_CONFIG = Object.freeze({
+  scrapeSoftBlockThreshold: 2,
+  scrapeSoftBlockCooldownMs: 7_200_000,
 });
 
 function createScopedBrowserPort(parentBrowser) {
@@ -95,6 +102,19 @@ function createCommandEndpointPort({ runtimeConfig, transport, clock, overrides 
   return { endpointState, endpointPort };
 }
 
+function createCommandScrapeCooldown({ parsedEnv, runtimeConfig, clock, overrides }) {
+  if (overrides.scrapeCooldown) return overrides.scrapeCooldown;
+  const statePath = overrides.scrapeCooldownStatePath !== undefined
+    ? overrides.scrapeCooldownStatePath
+    : (parsedEnv.mode === 'fixture' ? null : SCRAPE_COOLDOWN_PATH);
+  return createScrapeCooldown({
+    now: clock.now,
+    statePath,
+    threshold: runtimeConfig?.scrapeSoftBlockThreshold ?? DEFAULT_MAINTENANCE_SCRAPE_COOLDOWN_CONFIG.scrapeSoftBlockThreshold,
+    cooldownMs: runtimeConfig?.scrapeSoftBlockCooldownMs ?? DEFAULT_MAINTENANCE_SCRAPE_COOLDOWN_CONFIG.scrapeSoftBlockCooldownMs,
+  });
+}
+
 function makeScopeRuntime(shared, parentState) {
   return function scopeRuntime({
     signal = parentState.signal,
@@ -132,6 +152,7 @@ function createRuntimeView(shared, viewState) {
     clock: shared.clock,
     seal: shared.seal,
     endpointState: shared.endpointState,
+    scrapeCooldown: shared.scrapeCooldown,
     daemonIsRunning: shared.daemonIsRunning,
     passwordLogin: shared.bundle.passwordLogin,
     loadFixture: shared.bundle.loadFixture,
@@ -182,6 +203,7 @@ export async function composeCommandRuntime({
     clock,
     overrides,
   });
+  const scrapeCooldown = createCommandScrapeCooldown({ parsedEnv, runtimeConfig, clock, overrides });
 
   const rootBrowser = createScopedBrowserPort(bundle.browser);
   const basePorts = Object.freeze({
@@ -204,6 +226,7 @@ export async function composeCommandRuntime({
     clock,
     seal,
     endpointState,
+    scrapeCooldown,
     daemonIsRunning,
     bundle,
     basePorts,
