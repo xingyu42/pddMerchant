@@ -798,7 +798,7 @@ function costTemplateBodyError(message) {
   });
 }
 
-function injectCostTemplateIntoEditBody(postData, costTemplateId) {
+function injectCostTemplateOnly(postData, costTemplateId) {
   if (!postData) throw costTemplateBodyError('保存草稿请求体为空，无法写入运费模板');
   let body;
   try {
@@ -808,159 +808,6 @@ function injectCostTemplateIntoEditBody(postData, costTemplateId) {
   }
   body.cost_template_id = costTemplateId;
   return JSON.stringify(body);
-}
-
-function readSpecText(spec) {
-  if (typeof spec === 'string') return spec;
-  if (Array.isArray(spec)) return spec.map(readSpecText).join('|');
-  if (spec && typeof spec === 'object') return Object.values(spec).map(readSpecText).join('|');
-  return String(spec ?? '');
-}
-
-function toPriceCents(price) {
-  const value = Number(price);
-  return Number.isFinite(value) && value > 0 ? Math.round(value * 100) : null;
-}
-
-function matchExpectedSku(rawSkus, expectedSku, usedIndexes) {
-  const expectedValues = Object.values(expectedSku.specValues ?? {})
-    .map(normalizeSkuSpecValue)
-    .filter(Boolean);
-  for (let index = 0; index < rawSkus.length; index += 1) {
-    if (usedIndexes.has(index)) continue;
-    const tokens = readSpecText(rawSkus[index]?.spec)
-      .split(/[|,，;/\s]+/)
-      .map(normalizeSkuSpecValue)
-      .filter(Boolean);
-    if (expectedValues.every((value) => tokens.includes(value))) return index;
-  }
-  return -1;
-}
-
-function scalarValues(value) {
-  if (Array.isArray(value)) return value.flatMap(scalarValues);
-  if (value && typeof value === 'object') return Object.values(value).flatMap(scalarValues);
-  if (value == null) return [];
-  return [String(value)];
-}
-
-function rawPropertyMatches(rawProperty, expectedProperty, expectedValue) {
-  const idsMatch = String(rawProperty?.template_pid ?? '') === String(expectedProperty.templatePid)
-    && String(rawProperty?.template_module_id ?? '') === String(expectedProperty.templateModuleId)
-    && String(rawProperty?.pid ?? '') === String(expectedProperty.pid);
-  if (!idsMatch) return false;
-  const vids = scalarValues(rawProperty?.vid);
-  const values = scalarValues(rawProperty?.value).map(normalizePropertyText).filter(Boolean);
-  const valueMatches = values.includes(normalizePropertyText(expectedValue.value));
-  const enumeratedValueUsesVidOnly = expectedProperty.controlType === 1;
-  return vids.includes(String(expectedValue.vid))
-    && (valueMatches || enumeratedValueUsesVidOnly);
-}
-
-function expectedSkuColor(expectedSku) {
-  const entries = Object.entries(expectedSku?.specValues ?? {})
-    .filter(([name]) => /颜色|花色/.test(name));
-  return entries.length === 1 ? normalizeSkuSpecValue(entries[0][1]) : '';
-}
-
-function validateDraftEditPayload(body, options = {}) {
-  const issues = new Set();
-  const payload = typeof body === 'string' ? JSON.parse(body) : body;
-  const gallery = Array.isArray(payload?.gallery) ? payload.gallery : [];
-  const goodsProperties = Array.isArray(payload?.goods_properties) ? payload.goods_properties : [];
-  const skus = Array.isArray(payload?.skus) ? payload.skus : [];
-  if (!String(payload?.goods_name ?? '').trim()) issues.add('title_empty');
-  if (gallery.length === 0) issues.add('no_images');
-  const templateId = payload?.cost_template_id ?? payload?.costTemplateId;
-  if (!templateId) issues.add('no_cost_template');
-  else if (options.expectedCostTemplateId != null && String(templateId) !== String(options.expectedCostTemplateId)) {
-    issues.add('cost_template_mismatch');
-  }
-  if (options.expectedFullCountDiscountRate != null) {
-    const expectedDiscount = fullCountDiscountPayloadValue(options.expectedFullCountDiscountRate);
-    const actualDiscount = payload?.two_pieces_discount;
-    if (actualDiscount == null || actualDiscount === '') {
-      issues.add('full_count_discount_missing');
-    } else if (Number(actualDiscount) !== expectedDiscount) {
-      issues.add('full_count_discount_mismatch');
-    }
-  }
-  if (skus.length === 0) issues.add('no_skus');
-  for (const sku of skus) {
-    if (!(Number(sku?.multi_price) > 0)) issues.add('sku_group_price_invalid');
-    if (!(Number(sku?.price) > 0)) issues.add('sku_single_price_invalid');
-    const stock = sku?.quantity_delta ?? sku?.quantity;
-    if (!Number.isSafeInteger(Number(stock)) || Number(stock) < 0) issues.add('sku_stock_missing');
-  }
-
-  const expectedProperties = Array.isArray(options.expectedPropertyPlan)
-    ? options.expectedPropertyPlan
-    : null;
-  let expectedPropertyValueCount = 0;
-  let matchedPropertyValueCount = 0;
-  let expectedEnumeratedPropertyValueCount = 0;
-  if (expectedProperties) {
-    if (goodsProperties.length === 0) issues.add('goods_properties_missing');
-    for (const property of expectedProperties) {
-      for (const value of property.values ?? []) {
-        expectedPropertyValueCount += 1;
-        if (property.controlType === 1) expectedEnumeratedPropertyValueCount += 1;
-        if (goodsProperties.some((rawProperty) => rawPropertyMatches(rawProperty, property, value))) {
-          matchedPropertyValueCount += 1;
-        } else {
-          issues.add('goods_property_mismatch');
-        }
-      }
-    }
-  }
-
-  const expectedSkus = Array.isArray(options.expectedSkuPricing) ? options.expectedSkuPricing : null;
-  const expectedPreview = Array.isArray(options.expectedSkuPreviewPlan)
-    ? new Map(options.expectedSkuPreviewPlan.map((item) => [
-        normalizeSkuSpecValue(item.merchantColor),
-        String(item.uploadedImageUrl ?? '').trim(),
-      ]))
-    : null;
-  if (expectedSkus) {
-    if (expectedSkus.length !== skus.length) issues.add('sku_combination_count_mismatch');
-    const usedIndexes = new Set();
-    for (const expectedSku of expectedSkus) {
-      const index = matchExpectedSku(skus, expectedSku, usedIndexes);
-      if (index < 0) {
-        issues.add('sku_combination_mismatch');
-        continue;
-      }
-      usedIndexes.add(index);
-      const rawSku = skus[index];
-      if (Number(rawSku.multi_price) !== toPriceCents(expectedSku.groupPrice)) issues.add('sku_group_price_mismatch');
-      if (Number(rawSku.price) !== toPriceCents(expectedSku.singlePrice)) issues.add('sku_single_price_mismatch');
-      const stock = Number(rawSku.quantity_delta ?? rawSku.quantity);
-      if (stock !== expectedSku.stock) issues.add('sku_stock_mismatch');
-      if (expectedPreview) {
-        const expectedThumb = expectedPreview.get(expectedSkuColor(expectedSku)) ?? '';
-        const actualThumb = String(rawSku.thumb_url ?? '').trim();
-        if (!actualThumb) issues.add('sku_thumb_url_missing');
-        else if (!expectedThumb || actualThumb !== expectedThumb) {
-          issues.add('sku_thumb_url_mismatch');
-        }
-      }
-    }
-  } else if (expectedPreview) {
-    issues.add('sku_thumb_url_mismatch');
-  }
-  return {
-    ok: issues.size === 0,
-    issues: [...issues],
-    summary: {
-      gallery_count: gallery.length,
-      goods_property_count: goodsProperties.length,
-      goods_property_expected_value_count: expectedPropertyValueCount,
-      goods_property_expected_enumerated_value_count: expectedEnumeratedPropertyValueCount,
-      goods_property_matched_value_count: matchedPropertyValueCount,
-      sku_count: skus.length,
-      sku_thumb_count: skus.filter((sku) => String(sku?.thumb_url ?? '').trim()).length,
-    },
-  };
 }
 
 async function routeSaveDraftWithCostTemplate(page, options, run) {
@@ -977,26 +824,23 @@ async function routeSaveDraftWithCostTemplate(page, options, run) {
   const handler = async (route) => {
     try {
       const postData = route.request().postData();
-      const nextPostData = hasTemplate
-        ? injectCostTemplateIntoEditBody(postData, costTemplateId)
-        : postData;
-      if (options.strictPayload) {
-        payloadValidation = validateDraftEditPayload(nextPostData, {
+      let nextPostData;
+      if (typeof options.prepareEditPayload === 'function') {
+        const prepared = options.prepareEditPayload(postData, {
+          costTemplateId: hasTemplate ? costTemplateId : undefined,
           expectedCostTemplateId: costTemplateId,
           expectedSkuPricing: options.expectedSkuPricing,
           expectedPropertyPlan: options.expectedPropertyPlan,
           expectedSkuPreviewPlan: options.expectedSkuPreviewPlan,
           expectedFullCountDiscountRate: options.expectedFullCountDiscountRate,
+          strictPayload: Boolean(options.strictPayload),
         });
-        if (!payloadValidation.ok) {
-          throw new PddCliError({
-            code: 'E_BUSINESS',
-            message: `保存草稿请求校验失败: ${payloadValidation.issues.join('; ')}`,
-            hint: '页面表单状态与源商品数据不一致，已在请求发出前停止',
-            detail: { issues: payloadValidation.issues, ...payloadValidation.summary },
-            exitCode: ExitCodes.BUSINESS,
-          });
-        }
+        nextPostData = prepared.postData;
+        payloadValidation = prepared.validation;
+      } else if (options.strictPayload) {
+        throw costTemplateBodyError('缺少出站载荷校验器 prepareEditPayload');
+      } else {
+        nextPostData = injectCostTemplateOnly(postData, costTemplateId);
       }
       injected = true;
       await route.continue({ postData: nextPostData });
@@ -1063,127 +907,18 @@ export async function clickSaveDraft(page, goodsCommitId, options = {}) {
     verification = await verifyDraft(page, goodsCommitId, log, {
       expectedCostTemplateId: options.costTemplateId,
       expectedFullCountDiscountRate: options.expectedFullCountDiscountRate,
+      strictVerify: Boolean(options.strictVerify),
+      verifyDraftDetail: options.verifyDraftDetail,
     });
-    if (options.strictVerify) assertDraftVerification(verification, goodsCommitId);
   }
 
   return { ...result, payload_validation: routed.payloadValidation?.summary ?? null, verification };
 }
 
-function collectDraftIssues(d, expectedCostTemplateId, expectedFullCountDiscountRate) {
-  const issues = [];
-  if (!d.goods_name) issues.push('title_empty');
-  const actualTemplateId = d.cost_template_id ?? d.costTemplateId;
-  if (!actualTemplateId) {
-    issues.push('no_cost_template');
-  } else if (expectedCostTemplateId != null && String(actualTemplateId) !== String(expectedCostTemplateId)) {
-    issues.push('cost_template_mismatch');
-  }
-  if (expectedFullCountDiscountRate != null) {
-    const expectedDiscount = fullCountDiscountPayloadValue(expectedFullCountDiscountRate);
-    const hasActualDiscount = Object.hasOwn(d, 'two_pieces_discount')
-      || Object.hasOwn(d, 'twoPiecesDiscount');
-    const actualDiscount = d.two_pieces_discount ?? d.twoPiecesDiscount;
-    if (hasActualDiscount && Number(actualDiscount) !== expectedDiscount) {
-      issues.push('full_count_discount_mismatch');
-    }
-  }
-  if (!Array.isArray(d.gallery) || d.gallery.length === 0) issues.push('no_images');
-  return issues;
-}
-
-const DRAFT_DETAIL_SUCCESS_CODES = new Set(['0', '1000000']);
-
-function valueType(value) {
-  if (value === null) return 'null';
-  if (Array.isArray(value)) return 'array';
-  return typeof value;
-}
-
-function isObject(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function resolveDraftDetailCandidate(payload) {
-  if (!isObject(payload)) return { candidate: null, path: null, resultValue: undefined };
-  if (Object.hasOwn(payload, 'result')) {
-    const resultValue = payload.result;
-    if (!isObject(resultValue)) return { candidate: null, path: null, resultValue };
-    if (isObject(resultValue.data)) {
-      return { candidate: resultValue.data, path: 'result.data', resultValue };
-    }
-    return { candidate: resultValue, path: 'result', resultValue };
-  }
-  if (Object.hasOwn(payload, 'data')) {
-    const dataValue = payload.data;
-    if (!isObject(dataValue)) return { candidate: null, path: null, resultValue: dataValue };
-    if (isObject(dataValue.result)) {
-      return { candidate: dataValue.result, path: 'data.result', resultValue: dataValue };
-    }
-    return { candidate: dataValue, path: 'data', resultValue: dataValue };
-  }
-  const hasDraftField = [
-    'goods_name', 'goodsName', 'cost_template_id', 'costTemplateId', 'gallery',
-  ].some((key) => Object.hasOwn(payload, key));
-  return hasDraftField
-    ? { candidate: payload, path: 'root', resultValue: payload }
-    : { candidate: null, path: null, resultValue: undefined };
-}
-
-function normalizeDraftDetailResponse(response) {
-  const wrapped = isObject(response) && Object.hasOwn(response, 'payload');
-  const payload = wrapped ? response.payload : response;
-  const httpStatus = wrapped ? response.http_status ?? null : null;
-  const httpOk = wrapped ? response.http_ok !== false : true;
-  const errorCode = isObject(payload) ? payload.error_code ?? payload.errorCode ?? null : null;
-  const successFlag = isObject(payload) && typeof payload.success === 'boolean'
-    ? payload.success
-    : null;
-  const businessFailed = successFlag === false
-    || (errorCode != null && !DRAFT_DETAIL_SUCCESS_CODES.has(String(errorCode)));
-  const { candidate, path, resultValue } = resolveDraftDetailCandidate(payload);
-  const observation = {
-    http_status: httpStatus,
-    business_success: successFlag,
-    error_code: errorCode,
-    result_type: valueType(resultValue),
-    candidate_path: path,
-    field_keys: candidate ? Object.keys(candidate).sort().slice(0, 50) : [],
-    reason: null,
-  };
-
-  if (!httpOk || businessFailed || !candidate) {
-    observation.reason = !httpOk
-      ? 'http_failure'
-      : (businessFailed ? 'business_failure' : 'result_unavailable');
-    return { available: false, data: null, observation };
-  }
-
-  const data = {
-    goods_name: candidate.goods_name ?? candidate.goodsName ?? '',
-    cost_template_id: candidate.cost_template_id ?? candidate.costTemplateId ?? null,
-    gallery: candidate.gallery ?? [],
-  };
-  if (Object.hasOwn(candidate, 'two_pieces_discount')) {
-    data.two_pieces_discount = candidate.two_pieces_discount;
-  } else if (Object.hasOwn(candidate, 'twoPiecesDiscount')) {
-    data.two_pieces_discount = candidate.twoPiecesDiscount;
-  }
-  return { available: true, data, observation };
-}
-
-function assertDraftVerification(verification, goodsCommitId) {
-  if (verification.ok) return;
-  throw new PddCliError({
-    code: 'E_BUSINESS',
-    message: `草稿校验失败: ${verification.issues.join('; ')}`,
-    hint: '保存草稿后关键字段缺失，已阻止继续提交发布',
-    detail: { goods_commit_id: goodsCommitId, issues: verification.issues },
-    exitCode: ExitCodes.BUSINESS,
-  });
-}
-
 async function verifyDraft(page, goodsCommitId, log, options = {}) {
+  if (typeof options.verifyDraftDetail !== 'function') {
+    throw costTemplateBodyError('缺少草稿详情校验器 verifyDraftDetail');
+  }
   try {
     const response = await evaluateInMainWorld(page, async (id) => {
       const r = await fetch('/glide/v2/mms/query/commit/detail', {
@@ -1199,51 +934,37 @@ async function verifyDraft(page, goodsCommitId, log, options = {}) {
       };
     }, goodsCommitId);
 
-    const normalized = normalizeDraftDetailResponse(response);
-    log.debug({ goodsCommitId, ...normalized.observation },
+    const verification = options.verifyDraftDetail(response, {
+      goodsCommitId,
+      expectedCostTemplateId: options.expectedCostTemplateId,
+      expectedFullCountDiscountRate: options.expectedFullCountDiscountRate,
+      strictVerify: false,
+    });
+    log.debug({ goodsCommitId, ...verification.observation },
       'goods-publish: draft verification response observed');
-    if (!normalized.available) {
-      log.warn({ goodsCommitId, ...normalized.observation },
+    if (verification.skipped) {
+      log.warn({ goodsCommitId, ...verification.observation },
         'goods-publish: draft verification unavailable');
-      return {
-        ok: true,
-        issues: [],
-        skipped: true,
-        warnings: ['draft_verification_unavailable'],
-        observation: normalized.observation,
-      };
+      return verification;
     }
-
-    const issues = collectDraftIssues(
-      normalized.data,
-      options.expectedCostTemplateId,
-      options.expectedFullCountDiscountRate,
-    );
-
-    if (issues.length > 0) {
-      log.warn({ issues, goodsCommitId }, 'goods-publish: draft verification found issues');
+    if (!verification.ok) {
+      log.warn({ issues: verification.issues, goodsCommitId }, 'goods-publish: draft verification found issues');
+      if (options.strictVerify) {
+        return options.verifyDraftDetail(response, {
+          goodsCommitId,
+          expectedCostTemplateId: options.expectedCostTemplateId,
+          expectedFullCountDiscountRate: options.expectedFullCountDiscountRate,
+          strictVerify: true,
+        });
+      }
     } else {
       log.info({ goodsCommitId }, 'goods-publish: draft verified OK');
     }
-    return { ok: issues.length === 0, issues, skipped: false, warnings: [] };
+    return verification;
   } catch (err) {
-    const observation = {
-      http_status: null,
-      business_success: null,
-      error_code: err?.code ?? null,
-      result_type: 'undefined',
-      candidate_path: null,
-      field_keys: [],
-      reason: 'transport_error',
-    };
-    log.warn({ goodsCommitId, ...observation }, 'goods-publish: draft verification unavailable');
-    return {
-      ok: true,
-      issues: [],
-      skipped: true,
-      warnings: ['draft_verification_unavailable'],
-      observation,
-    };
+    const verification = options.verifyDraftDetail(err);
+    log.warn({ goodsCommitId, ...verification.observation }, 'goods-publish: draft verification unavailable');
+    return verification;
   }
 }
 

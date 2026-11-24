@@ -1506,5 +1506,32 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       assert.equal(resolvePddCategory.mock.calls.length, 0);
       assert.equal(selectCategory.mock.calls.length, 0);
     });
+
+    it('stops invalid pricing plan and invalid fullCountDiscountRate before category resolution and draft creation', async () => {
+      const badRefCache = createMemorySourceCache({
+        123456: makeNormalizedCachedSource({ sourceReferencePriceCents: 2800 }),
+      });
+      await assert.rejects(
+        publishGoodsFromLink(makePublishCtx({ sourceGoodsCache: badRefCache }), '123456'),
+        (err) => err instanceof PddCliError
+          && err.code === 'E_BUSINESS'
+          && err.detail?.issues?.includes('pricing_plan_invalid'),
+      );
+      assert.equal(resolvePddCategory.mock.calls.length, 0);
+      assert.equal(selectCategory.mock.calls.length, 0);
+
+      const validCache = createMemorySourceCache({
+        123456: makeNormalizedCachedSource(),
+      });
+      await assert.rejects(
+        publishGoodsFromLink(
+          makePublishCtx({ sourceGoodsCache: validCache, fullCountDiscountRate: 0.49 }),
+          '123456',
+        ),
+        (err) => err instanceof PddCliError && err.code === 'E_CONFIG_INVALID',
+      );
+      assert.equal(resolvePddCategory.mock.calls.length, 0);
+      assert.equal(selectCategory.mock.calls.length, 0);
+    });
   });
 });

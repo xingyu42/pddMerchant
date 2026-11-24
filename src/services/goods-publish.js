@@ -1,13 +1,19 @@
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getSharedBreaker } from '../infra/circuit-breaker.js';
-import {
-  buildSkuPreviewPlan,
-  normalizeSourceGoodsProperties,
-  parseGoodsUrl,
-} from './goods-publish/source-normalizer.js';
+import { parseGoodsUrl } from './goods-publish/source-normalizer.js';
 import { createSourceProductFetcher } from './goods-publish/source-product-fetcher.js';
+import {
+  planPreDraftPublish,
+  buildInitialPropertyPlan,
+  convergeDynamicProperties,
+  mergeDynamicPropertyTemplate,
+  propertyMappingError,
+} from './goods-publish/draft-planner.js';
+import {
+  prepareEditPayload,
+  verifyDraftDetail,
+} from './goods-publish/draft-guard.js';
 import { resolvePddCategory, buildCategorySearchText } from '../adapter/goods-publish/category-resolver.js';
-import { buildPropertyPlan } from '../adapter/goods-publish/property-mapper.js';
 import { readDynamicPropertyTemplate } from '../adapter/goods-publish/dynamic-property-template.js';
 import {
   selectCategory,
@@ -26,7 +32,6 @@ import {
 import { withWriteRateControl } from '../infra/rate-control.js';
 import { assertNoRiskControl } from '../adapter/goods-publish/risk-detector.js';
 import { transformImages } from './image-transform.js';
-import { buildPricingPlan, validatePricingPlan } from './pricing-validator.js';
 import { toCostTemplateView } from './views/goods.js';
 import { toPublishView } from './views/goods-publish.js';
 import { mallIdOf } from './views/_shared.js';
@@ -121,53 +126,6 @@ function assertSubmitSucceeded(result) {
   });
 }
 
-function sourceEvidenceError(issues, detail = {}) {
-  return new PddCliError({
-    code: 'E_BUSINESS',
-    message: '源商品属性或 SKU 颜色预览图证据不完整',
-    hint: '已在创建商家草稿前停止；不会从详情文本、SKU 顺序或相近名称猜测',
-    detail: { issues, ...detail },
-    exitCode: ExitCodes.BUSINESS,
-  });
-}
-
-function validateSourcePublishEvidence(source) {
-  const goodsProperties = normalizeSourceGoodsProperties(
-    source?.goodsProperties ?? source?.goodsProperty,
-  );
-  const preview = buildSkuPreviewPlan({
-    skuDimensions: source?.skuDimensions,
-    skus: source?.skus,
-  });
-  const issues = [];
-  if (goodsProperties.length === 0) issues.push('source_properties_missing');
-  issues.push(...preview.issues);
-  if (issues.length > 0) {
-    throw sourceEvidenceError([...new Set(issues)], {
-      property_count: goodsProperties.length,
-      preview_color_count: preview.plan.length,
-    });
-  }
-  return {
-    source: { ...source, goodsProperties },
-    skuPreviewPlan: preview.plan,
-  };
-}
-
-function propertyMappingError(mapping) {
-  return new PddCliError({
-    code: 'E_BUSINESS',
-    message: '商品属性无法与商家后台模板安全匹配',
-    hint: '平台必填或重要属性缺失，或属性模板结构已变化；不会自动选择相近候选',
-    detail: {
-      issues: mapping.issues,
-      mapped_property_count: mapping.plan.length,
-      skipped_property_count: mapping.skippedCount,
-    },
-    exitCode: ExitCodes.BUSINESS,
-  });
-}
-
 // 对外入口：内部流程（live / mock）结果统一投影为 v2 视图；warnings 单独返回供 runner 汇入 meta.warnings
 export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
   const sourceGoodsId = parseGoodsUrl(goodsUrl);
@@ -217,9 +175,11 @@ async function runPublishFlow(ctx, goodsUrl, opts = {}) {
     if (!warnings.includes(warning)) warnings.push(warning);
   }
 
-  const sourceEvidence = validateSourcePublishEvidence(source);
-  source = sourceEvidence.source;
-  const skuPreviewPlan = sourceEvidence.skuPreviewPlan;
+  const preDraftPlan = planPreDraftPublish(source, {
+    fullCountDiscountRate: ctx.runtimeConfig?.fullCountDiscountRate,
+  });
+  source = preDraftPlan.source;
+  const { skuPreviewPlan, pricingPlan, pricingValidation } = preDraftPlan;
 
   const categorySearchText = await breaker.wrap('category', async () => {
     const catId3 = source.catID3 || source.catID;
@@ -253,16 +213,13 @@ async function runPublishFlow(ctx, goodsUrl, opts = {}) {
       goods_id: draft.goodsId,
     }, ctx);
   });
-  let propertyMapping = buildPropertyPlan(source.goodsProperties, template);
+  let propertyMapping = buildInitialPropertyPlan(source.goodsProperties, template);
   if (!propertyMapping.ok) throw propertyMappingError(propertyMapping);
 
-  let pricingPlan = null;
   let uploadedSkuPreviewPlan = [];
   await withWriteRateControl('publish.fill_form', () =>
     breaker.wrap('fill_form', async () => {
       log.info({ ...draft }, 'goods-publish: Phase D — filling form');
-      pricingPlan = buildPricingPlan(source);
-      const pricingValidation = validatePricingPlan(pricingPlan);
       const fillResult = await fillGoodsForm(ctx.page, source, warnings, {
         pricingPlan,
         pricingValidation,
@@ -274,49 +231,24 @@ async function runPublishFlow(ctx, goodsUrl, opts = {}) {
     }), writeRateOptions
   );
 
-  const mappedTemplatePids = new Set(
-    propertyMapping.plan.map((property) => String(property.templatePid)),
-  );
-  let dynamicTemplate = template;
-  let stable = false;
-  for (let round = 0; round < 5; round += 1) {
-    dynamicTemplate = await breaker.wrap('property_template_dynamic', async () =>
-      readDynamicPropertyTemplate(ctx.page, dynamicTemplate)
-    );
-    if (dynamicTemplate?.ok !== true) {
-      throw propertyMappingError({
-        issues: dynamicTemplate?.issues ?? ['dynamic_property_template_invalid'],
-        plan: propertyMapping.plan,
-        skippedCount: propertyMapping.skippedCount,
-      });
-    }
-    const dynamicMapping = buildPropertyPlan(source.goodsProperties, dynamicTemplate);
-    if (!dynamicMapping.ok) throw propertyMappingError(dynamicMapping);
-    const dependentPropertyPlan = dynamicMapping.plan.filter((property) =>
-      !mappedTemplatePids.has(String(property.templatePid))
-    );
-    propertyMapping = dynamicMapping;
-    if (dependentPropertyPlan.length === 0) {
-      stable = true;
-      break;
-    }
-    await withWriteRateControl('publish.fill_dependent_properties', () =>
-      breaker.wrap('fill_dependent_properties', async () => {
+  ({ propertyPlan: propertyMapping } = await convergeDynamicProperties({
+    sourceProperties: source.goodsProperties,
+    initialTemplate: template,
+    initialPlan: propertyMapping,
+    readDynamicTemplate: (currentTemplate) => breaker.wrap('property_template_dynamic', async () =>
+      readDynamicPropertyTemplate(ctx.page, currentTemplate, {
+        mergeTemplate: mergeDynamicPropertyTemplate,
+      })
+    ),
+    fillDependentProperties: (dependentPropertyPlan) => withWriteRateControl(
+      'publish.fill_dependent_properties',
+      () => breaker.wrap('fill_dependent_properties', async () => {
         await fillGoodsProperties(ctx.page, dependentPropertyPlan);
         await assertNoRiskControl(ctx.page, { phase: 'form:dependent-properties' });
-      }), writeRateOptions
-    );
-    for (const property of dependentPropertyPlan) {
-      mappedTemplatePids.add(String(property.templatePid));
-    }
-  }
-  if (!stable) {
-    throw propertyMappingError({
-      issues: ['dynamic_property_template_unstable'],
-      plan: propertyMapping.plan,
-      skippedCount: propertyMapping.skippedCount,
-    });
-  }
+      }),
+      writeRateOptions,
+    ),
+  }));
 
   await breaker.wrap('disable_size_chart', async () => {
     const result = await disableSizeChart(ctx.page);
@@ -344,6 +276,8 @@ async function runPublishFlow(ctx, goodsUrl, opts = {}) {
         expectedFullCountDiscountRate: ctx.runtimeConfig?.fullCountDiscountRate,
         strictPayload: true,
         strictVerify: true,
+        prepareEditPayload,
+        verifyDraftDetail,
       });
       for (const warning of saved.verification?.warnings ?? []) {
         if (!warnings.includes(warning)) warnings.push(warning);

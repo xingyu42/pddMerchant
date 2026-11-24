@@ -2,7 +2,7 @@
 
 ## 1. Scope / Trigger
 
-适用于修改商品发布与选品链路：`src/services/goods-publish.js`、`src/services/goods-publish-source-cache.js`、`src/adapter/goods-publish/**`、`src/adapter/endpoints/goods-publish.js`、`docs/goods-publish-api-recon.md` 相关实现。
+适用于修改商品发布与选品链路：`src/services/goods-publish.js`、`src/services/goods-publish/**`、`src/services/goods-publish-source-cache.js`、`src/adapter/goods-publish/**`、`src/adapter/endpoints/goods-publish.js`、`docs/goods-publish-api-recon.md` 相关实现。
 
 ## 2. Signatures
 
@@ -12,8 +12,8 @@
 goods publish command
   -> resolve cost template and source cache
   -> scrape/normalize source only on cache miss
-  -> validate source evidence and resolve category
-  -> create merchant draft, load property template, fill and verify form
+  -> run pre-draft plan (evidence, SKU previews, pricing, full-count discount) and resolve category
+  -> create merchant draft, load property template, run post-draft property plan & dynamic convergence, fill and verify form
   -> save verified draft
   -> draftOnly returns OR --confirm calls submit endpoint
   -> stable publish result
@@ -283,9 +283,18 @@ raw PDD SKU price fields:
 raw PDD goods reference-price field:
   linePrice: yuan decimal -> sourceReferencePriceCents
 
+// src/services/goods-publish/draft-planner.js & draft-guard.js
 buildPricingPlan(source) -> {
   marketPrice,
   skuPricing: [{ sourceSkuId, specValues, groupPrice, singlePrice, stock }],
+}
+
+planPreDraftPublish(source, { fullCountDiscountRate, pricingConstraints }) -> {
+  source, skuPreviewPlan, pricingPlan, pricingValidation, fullCountDiscount,
+}
+
+prepareEditPayload(postData, options) -> {
+  body, postData, validation,
 }
 
 validateDraftEditPayload(body, {
@@ -301,6 +310,10 @@ normalizeDraftDetailResponse(response) -> {
   available,
   data,
   observation,
+}
+
+verifyDraftDetail(response, options) -> {
+  ok, issues, skipped, warnings, observation,
 }
 ```
 
@@ -421,13 +434,19 @@ normalizeSourceGoodsProperties(raw) -> [{
   name, values, refPid, referenceId,
 }]
 
-buildPropertyPlan(goodsProperties, merchantTemplate) -> {
+buildInitialPropertyPlan(goodsProperties, merchantTemplate) -> {
   ok, issues, warnings, skippedCount, propertysTid,
   plan: [{
     templateModuleId, templatePid, pid, refPid, name,
     required, important, controlType, valueType, chooseMaxNum,
     values: [{ vid, value }],
   }],
+}
+
+reconcileDynamicTemplate({
+  sourceProperties, baseTemplate, mappedTemplatePids, candidateTemplate,
+}) -> {
+  ok, converged, issues, template, propertyPlan, addedPlan, nextMappedTemplatePids,
 }
 
 buildSkuPreviewPlan({ skuDimensions, skus }) -> {
