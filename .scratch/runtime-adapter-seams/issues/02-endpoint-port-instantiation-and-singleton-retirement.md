@@ -4,11 +4,15 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `EndpointPort`（挂载于 `ctx.client`，含 `call` 与 `execute`，兼容 `{ execute }`）与单一内部 `EndpointTransportPort.send` 就位
-- [ ] 限流令牌桶、按端点冷却表与 `FixtureStore` 转为按实例持有，共享端点客户端/限流全局单例及复位测试后门彻底移除
-- [ ] `runEndpoint` 收窄为无状态转发辅助并保留不透明 `ctx.page` 令牌透传；缺失注入客户端时抛出 `E_CONFIG_INVALID` 杜绝静默回落
-- [ ] Fixture 传输实现对齐共享管道（支持 `page: null`、跳过等待、保留分页与变体后缀、合成空页及 `__throws` 注入）
-- [ ] 提供默认工作在 `raw` 上游响应层的 `createTestCtx`，原 12 处端点运行入口模块劫持迁移为内存 `EndpointTransportPort` 注入
-- [ ] 同步更新受全局限流器模块退役影响的技能文档路径，确保契约守卫与 `npm run check` 通过
+- [x] `EndpointPort`（挂载于 `ctx.client`，含 `call` 与 `execute`，兼容 `{ execute }`）与单一内部 `EndpointTransportPort.send` 就位
+- [x] 限流令牌桶、按端点冷却表与 `FixtureStore` 转为按实例持有，共享端点客户端/限流全局单例及复位测试后门彻底移除
+- [x] `runEndpoint` 收窄为无状态转发辅助并保留不透明 `ctx.page` 令牌透传；缺失注入客户端时抛出 `E_CONFIG_INVALID` 杜绝静默回落
+- [x] Fixture 传输实现对齐共享管道（支持 `page: null`、跳过等待、保留分页与变体后缀、合成空页及 `__throws` 注入）
+- [x] 提供默认工作在 `raw` 上游响应层的 `createTestCtx`，原 12 处端点运行入口模块劫持迁移为内存 `EndpointTransportPort` 注入
+- [x] 同步更新受全局限流器模块退役影响的技能文档路径，确保契约守卫与 `npm run check` 通过
+
+## Comments
+
+- 2026-11-25: 已合入 `feat/runtime-adapter-seams`（合并提交 `3dfeb1c`）。共变更 33 个文件：退役 `src/adapter/rate-limiter-singleton.js` 及 `_resetRateLimitState()` / `clearFixtureCache()` 全局复位后门；建立挂载于 `ctx.client` 的 `EndpointPort`（公开 `call`/`execute`）与 `EndpointTransportPort.send`，并将 `FixtureStore` 及限流/冷却运行态收拢至 `single-lifecycle`、`fixture-runtime` 与 `batch-executor` 实例作用域；新增默认工作在 `raw` 层的 `test/helpers/test-ctx.js` 与 `test/adapter/run-endpoint.test.js`，将 12 处原 `run-endpoint` 模块劫持测试迁移为 `EndpointTransportPort` 注入，并同步更新 `.agents/skills/` 与 `.trellis/spec/` 文档引用。合入后执行 `npm run check` 全量通过：`npm run lint`（`knip`）退出码 0；`npm test`（`vitest run`）145 个测试文件全部通过（`145 passed (145)`），2397 个用例通过、1 个 Windows 环境用例跳过（`2397 passed | 1 skipped (2398)`，耗时 `63.42s`）。
