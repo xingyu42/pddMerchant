@@ -107,6 +107,7 @@ export function createFixtureBundle({ seal, clock, parsedEnv, env, overrides = {
     endpointTransport,
     passwordLogin,
     consoleLoginDriver,
+    createGoodsPublishPort: () => null,
     consoleExtraRoutes,
     loadFixture,
     fixture: createFixtureHelpers({ fixtureStore, loadFixture, parsedEnv, mall, clock, seal }),

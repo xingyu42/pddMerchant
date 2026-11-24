@@ -206,12 +206,21 @@ export async function composeCommandRuntime({
   const scrapeCooldown = createCommandScrapeCooldown({ parsedEnv, runtimeConfig, clock, overrides });
 
   const rootBrowser = createScopedBrowserPort(bundle.browser);
+  const goodsPublish = overrides.goodsPublish ?? bundle.createGoodsPublishPort?.({
+    parsedEnv,
+    runtimeConfig,
+    clock,
+    browserPort: rootBrowser,
+    endpointPort,
+    scrapeCooldown,
+  }) ?? null;
   const basePorts = Object.freeze({
     browser: rootBrowser,
     mall: bundle.mall,
     auth: bundle.auth,
     daemonProcess: bundle.daemonProcess,
     endpoint: endpointPort,
+    goodsPublish,
   });
   const daemonIsRunning = typeof overrides.daemonIsRunning === 'function'
     ? overrides.daemonIsRunning

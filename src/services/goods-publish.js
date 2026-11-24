@@ -1,44 +1,100 @@
 import { PddCliError, ExitCodes } from '../infra/errors.js';
-import { getSharedBreaker } from '../infra/circuit-breaker.js';
+import { redactRecursive } from '../infra/logger.js';
 import { parseGoodsUrl } from './goods-publish/source-normalizer.js';
-import { createSourceProductFetcher } from './goods-publish/source-product-fetcher.js';
+import { createCompatGoodsPublishPort } from './goods-publish/default-port.js';
 import {
   planPreDraftPublish,
   buildInitialPropertyPlan,
-  convergeDynamicProperties,
-  mergeDynamicPropertyTemplate,
   propertyMappingError,
 } from './goods-publish/draft-planner.js';
-import {
-  prepareEditPayload,
-  verifyDraftDetail,
-} from './goods-publish/draft-guard.js';
-import { resolvePddCategory, buildCategorySearchText } from '../adapter/goods-publish/category-resolver.js';
-import { readDynamicPropertyTemplate } from '../adapter/goods-publish/dynamic-property-template.js';
-import {
-  selectCategory,
-  fillGoodsForm,
-  fillGoodsProperties,
-  fillFullCountDiscount,
-  disableSizeChart,
-  clickSaveDraft,
-} from '../adapter/goods-publish/form-filler.js';
 import { runEndpoint } from '../adapter/run-endpoint.js';
 import {
   GOODS_PUBLISH_COST_TEMPLATE_LIST,
   GOODS_PUBLISH_SUBMIT,
-  GOODS_PUBLISH_TEMPLATE,
 } from '../adapter/endpoints/goods-publish.js';
-import { withWriteRateControl } from '../infra/rate-control.js';
-import { assertNoRiskControl } from '../adapter/goods-publish/risk-detector.js';
 import { transformImages } from './image-transform.js';
 import { toCostTemplateView } from './views/goods.js';
 import { toPublishView } from './views/goods-publish.js';
 import { mallIdOf } from './views/_shared.js';
 
-// NOTE: The Phase 2 API-based publish path (payload-builder, property-matcher, sku-mapper)
-// was removed on 2026-07-10 in favor of the active UI-automation path. If PDD later exposes a
-// stable publish API, reintroduce those modules from git history rather than reviving stale code.
+void transformImages;
+
+const STRIPPED_DETAIL_KEYS = new Set([
+  'proxy',
+  'server',
+  'authKey',
+  'auth_key',
+  'imageUrl',
+  'image_url',
+  'sourceImageUrl',
+  'source_image_url',
+  'uploadedImageUrl',
+  'uploaded_image_url',
+  'thumbUrl',
+  'thumb_url',
+  'carousel',
+  'detailImgs',
+  'detail_imgs',
+  'react',
+  'rawReact',
+  'reactFiber',
+  'rawTemplate',
+  'raw_template',
+]);
+
+const URL_PATH_KEYS = new Set(['url', 'pageUrl', 'page_url']);
+
+function stripUrlQuery(rawUrl) {
+  if (typeof rawUrl !== 'string' || !rawUrl) return rawUrl;
+  try {
+    return new URL(rawUrl).pathname;
+  } catch {
+    return rawUrl.split('?')[0].split('#')[0];
+  }
+}
+
+function sanitizeDetailValue(value, seen = new WeakSet()) {
+  if (value == null || typeof value !== 'object') return value;
+  if (seen.has(value)) return '[Circular]';
+  seen.add(value);
+  if (Array.isArray(value)) return value.map((item) => sanitizeDetailValue(item, seen));
+
+  const out = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (STRIPPED_DETAIL_KEYS.has(key) || key.startsWith('__react')) continue;
+    out[key] = URL_PATH_KEYS.has(key) ? stripUrlQuery(entry) : sanitizeDetailValue(entry, seen);
+  }
+  return out;
+}
+
+function attachPublishErrorDetail(err, { stage, sourceCached }) {
+  if (!(err instanceof PddCliError)) return err;
+  const existing = err.detail && typeof err.detail === 'object' && !Array.isArray(err.detail)
+    ? err.detail
+    : {};
+  const cleaned = sanitizeDetailValue(existing);
+  err.detail = redactRecursive({
+    ...cleaned,
+    stage: cleaned.stage ?? stage,
+    source_cached: typeof cleaned.source_cached === 'boolean' ? cleaned.source_cached : Boolean(sourceCached),
+  });
+  return err;
+}
+
+async function runPublishStage(stage, getSourceCached, fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    throw attachPublishErrorDetail(err, { stage, sourceCached: getSourceCached() });
+  }
+}
+
+function appendUniqueWarnings(target, incoming) {
+  if (!Array.isArray(target) || !Array.isArray(incoming)) return;
+  for (const warning of incoming) {
+    if (warning && !target.includes(warning)) target.push(warning);
+  }
+}
 
 async function listCostTemplates(ctx) {
   const result = await runEndpoint(ctx.page, GOODS_PUBLISH_COST_TEMPLATE_LIST, {}, ctx);
@@ -99,36 +155,111 @@ async function buildMockPublishResult(ctx, goodsId, draftOnly, costTemplateId) {
       goods_commit_id: fixture.goods_commit_id,
       goods_id: fixture.goods_id,
     }, ctx);
-    result.submit = assertSubmitSucceeded(submit);
+    result.submit = { success: submit?.success === true };
   }
   return result;
 }
 
-function summarizeSubmitResult(result) {
-  const raw = result?.raw ?? result;
-  const code = raw?.error_code ?? raw?.errorCode ?? result?.error_code ?? result?.errorCode;
-  return {
-    success: result?.success === true || code === 0 || code === 1000000,
-  };
+function resolveGoodsPublishPort(ctx) {
+  const port = ctx.goodsPublish ?? ctx.runtime?.ports?.goodsPublish;
+  if (port?.sourceFetcher && port?.categoryResolver && port?.draftEditor) {
+    return port;
+  }
+  return createCompatGoodsPublishPort(ctx);
 }
 
-function assertSubmitSucceeded(result) {
-  const summary = summarizeSubmitResult(result);
-  if (summary.success) return summary;
-  const raw = result?.raw ?? result;
-  const mapped = GOODS_PUBLISH_SUBMIT.errorMapper?.(raw);
-  throw new PddCliError({
-    code: mapped?.code ?? 'E_BUSINESS',
-    message: mapped?.message || '商品提交发布失败',
-    hint: '保存草稿已完成，但提交发布被平台拒绝',
-    detail: { errorCode: raw?.error_code ?? raw?.errorCode },
-    exitCode: mapped?.exitCode ?? ExitCodes.BUSINESS,
+function categoryTextOf(category) {
+  if (typeof category?.searchText === 'string' && category.searchText) return category.searchText;
+  const cates = category?.cates || category?.cats || [];
+  return Array.isArray(cates) ? cates.filter(Boolean).join(' > ') : '';
+}
+
+async function prepareAndFetchSource({ ctx, goodsUrl, sourceFetcher, warnings, getSourceCached, setSourceCached }) {
+  const acquisition = await runPublishStage('prepare_source', getSourceCached, async () => {
+    const prepared = await sourceFetcher.prepare(goodsUrl);
+    setSourceCached(Boolean(prepared?.cacheHit));
+    return prepared;
   });
+
+  const selectedTemplate = await runPublishStage('cost_template', getSourceCached, () =>
+    resolvePublishCostTemplate(ctx, ctx._costTemplateId ?? null),
+  );
+
+  const source = await runPublishStage('scrape_source', getSourceCached, async () => {
+    const fetched = await acquisition.fetch({
+      signal: ctx.signal,
+      consumerAccount: ctx.config?.consumerAccount,
+      warnings,
+      browserSession: ctx.browserSession,
+      legacyBrowser: ctx.context?.browser?.(),
+    });
+    appendUniqueWarnings(warnings, acquisition.warnings);
+    return fetched;
+  });
+
+  return { acquisition, selectedTemplate, source };
+}
+
+async function createAndPopulateDraft({
+  ctx,
+  draftEditor,
+  categorySearchText,
+  preDraftPlan,
+  selectedTemplate,
+  warnings,
+  getSourceCached,
+}) {
+  const { source } = preDraftPlan;
+  const { draft, initialTemplate } = await runPublishStage('open_draft', getSourceCached, () =>
+    draftEditor.openDraft({
+      categorySearchText,
+      catId: source.catID3 || source.catID,
+      page: ctx.page,
+      client: ctx.client,
+      signal: ctx.signal,
+      deadlineAt: ctx.deadlineAt,
+      clock: ctx.runtime?.clock ?? ctx.clock,
+      log: ctx.log,
+    }),
+  );
+
+  const initialPropertyPlan = await runPublishStage('plan_initial_properties', getSourceCached, () => {
+    const mapping = buildInitialPropertyPlan(source.goodsProperties, initialTemplate);
+    if (!mapping.ok) throw propertyMappingError(mapping);
+    return mapping;
+  });
+
+  const savedDraft = await runPublishStage('populate_and_save_draft', getSourceCached, () =>
+    draftEditor.populateAndSaveDraft({
+      draft,
+      plan: {
+        source,
+        costTemplateId: selectedTemplate.id,
+        pricingPlan: preDraftPlan.pricingPlan,
+        pricingValidation: preDraftPlan.pricingValidation,
+        skuPreviewPlan: preDraftPlan.skuPreviewPlan,
+        fullCountDiscountRate: ctx.runtimeConfig?.fullCountDiscountRate,
+      },
+      initialTemplate,
+      initialPropertyPlan,
+      page: ctx.page,
+      signal: ctx.signal,
+      warnings,
+      log: ctx.log,
+    }),
+  );
+
+  appendUniqueWarnings(warnings, savedDraft.warnings);
+  return {
+    draft,
+    propertyMapping: savedDraft.propertyMapping ?? initialPropertyPlan,
+    uploadedSkuPreviewPlan: savedDraft.uploadedSkuPreviewPlan ?? [],
+  };
 }
 
 // 对外入口：内部流程（live / mock）结果统一投影为 v2 视图；warnings 单独返回供 runner 汇入 meta.warnings
 export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
-  const sourceGoodsId = parseGoodsUrl(goodsUrl);
+  const sourceGoodsId = await runPublishStage('parse_url', () => false, () => parseGoodsUrl(goodsUrl));
   const { warnings = [], ...result } = await runPublishFlow(ctx, goodsUrl, opts);
   return { data: toPublishView(result, { sourceGoodsId, mallId: mallIdOf(ctx) }), warnings };
 }
@@ -136,170 +267,69 @@ export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
 async function runPublishFlow(ctx, goodsUrl, opts = {}) {
   const goodsId = parseGoodsUrl(goodsUrl);
   const draftOnly = opts.draftOnly ?? true;
-  const mockEnabled = ctx.runtime?.mode === 'fixture';
-  if (mockEnabled) {
-    const selectedTemplate = await resolvePublishCostTemplate(ctx, opts.costTemplateId ?? null);
+  if (ctx.runtime?.mode === 'fixture') {
+    const selectedTemplate = await runPublishStage(
+      'cost_template',
+      () => false,
+      () => resolvePublishCostTemplate(ctx, opts.costTemplateId ?? null),
+    );
     return buildMockPublishResult(ctx, goodsId, draftOnly, selectedTemplate.id);
   }
 
   const warnings = [];
-  const log = ctx.log;
-  const breaker = getSharedBreaker();
-  const writeRateOptions = {
-    tokensPerMinute: ctx.runtimeConfig?.writeRateTokensPerMinute,
-  };
-  const sourceFetcher = ctx.sourceFetcher ?? createSourceProductFetcher({
-    sourceCache: ctx.sourceGoodsCache,
-    scrapeCooldown: ctx.scrapeCooldown ?? ctx.runtime?.scrapeCooldown,
-    sourceProxyEnv: ctx.runtime?.env?.sourceProxyEnv ?? {},
-    scrapeSimulate: ctx.runtime?.env?.scrapeSimulate ?? true,
-    browserPort: ctx.runtime?.ports?.browser,
-    browserSession: ctx.browserSession,
-    legacyBrowser: ctx.context?.browser?.(),
-    sleep: ctx.runtime?.clock?.sleep,
-    now: ctx.runtime?.clock?.now,
-    log,
-  });
+  let sourceCached = false;
+  const getSourceCached = () => sourceCached;
+  const { sourceFetcher, categoryResolver, draftEditor } = resolveGoodsPublishPort(ctx);
+  const flowCtx = { ...ctx, _costTemplateId: opts.costTemplateId ?? null };
 
-  const acquisition = await sourceFetcher.prepare(goodsUrl);
-  const selectedTemplate = await resolvePublishCostTemplate(ctx, opts.costTemplateId ?? null);
-
-  let source = await breaker.wrap('scrape', () => acquisition.fetch({
-    signal: ctx.signal,
-    consumerAccount: ctx.config?.consumerAccount,
+  const { acquisition, selectedTemplate, source: fetchedSource } = await prepareAndFetchSource({
+    ctx: flowCtx,
+    goodsUrl,
+    sourceFetcher,
     warnings,
-    browserSession: ctx.browserSession,
-    legacyBrowser: ctx.context?.browser?.(),
-  }));
-  for (const warning of acquisition.warnings ?? []) {
-    if (!warnings.includes(warning)) warnings.push(warning);
-  }
-
-  const preDraftPlan = planPreDraftPublish(source, {
-    fullCountDiscountRate: ctx.runtimeConfig?.fullCountDiscountRate,
+    getSourceCached,
+    setSourceCached: (value) => { sourceCached = value; },
   });
-  source = preDraftPlan.source;
-  const { skuPreviewPlan, pricingPlan, pricingValidation } = preDraftPlan;
 
-  const categorySearchText = await breaker.wrap('category', async () => {
-    const catId3 = source.catID3 || source.catID;
-    log.info({ catId3 }, 'goods-publish: Phase B — resolving category');
-    const category = await resolvePddCategory(catId3, source.catID1, source.catID2, {
-      apiBase: ctx.runtimeConfig?.categoryApiBase,
-      runtime: ctx.runtime,
-    });
-    return buildCategorySearchText(category);
-  });
-  log.info({ categorySearchText }, 'goods-publish: category search text');
-
-  // NOTE: Image transform integration point (Phase C+).
-  // transformImages() is available when PDD_IMAGE_TRANSFORM=1.
-  // Full integration requires form-filler to accept pre-transformed file paths via source.carouselFiles.
-
-  const draft = await withWriteRateControl('publish.create_draft', () =>
-    breaker.wrap('create_draft', async () => {
-      log.info('goods-publish: Phase C — UI category selection + draft creation');
-      const result = await selectCategory(ctx.page, categorySearchText);
-      await assertNoRiskControl(ctx.page, { phase: 'category' });
-      return result;
-    }), writeRateOptions
+  const preDraftPlan = await runPublishStage('plan_pre_draft', getSourceCached, () =>
+    planPreDraftPublish(fetchedSource, {
+      fullCountDiscountRate: ctx.runtimeConfig?.fullCountDiscountRate,
+    }),
   );
 
-  const template = await breaker.wrap('property_template', async () => {
-    log.info('goods-publish: loading merchant property template');
-    return runEndpoint(ctx.page, GOODS_PUBLISH_TEMPLATE, {
-      cat_id: source.catID3 || source.catID,
-      goods_commit_id: draft.goodsCommitId,
-      goods_id: draft.goodsId,
-    }, ctx);
-  });
-  let propertyMapping = buildInitialPropertyPlan(source.goodsProperties, template);
-  if (!propertyMapping.ok) throw propertyMappingError(propertyMapping);
-
-  let uploadedSkuPreviewPlan = [];
-  await withWriteRateControl('publish.fill_form', () =>
-    breaker.wrap('fill_form', async () => {
-      log.info({ ...draft }, 'goods-publish: Phase D — filling form');
-      const fillResult = await fillGoodsForm(ctx.page, source, warnings, {
-        pricingPlan,
-        pricingValidation,
-        propertyPlan: propertyMapping.plan,
-        skuPreviewPlan,
-      });
-      uploadedSkuPreviewPlan = fillResult.uploadedSkuPreviewPlan;
-      await assertNoRiskControl(ctx.page, { phase: 'form' });
-    }), writeRateOptions
-  );
-
-  ({ propertyPlan: propertyMapping } = await convergeDynamicProperties({
-    sourceProperties: source.goodsProperties,
-    initialTemplate: template,
-    initialPlan: propertyMapping,
-    readDynamicTemplate: (currentTemplate) => breaker.wrap('property_template_dynamic', async () =>
-      readDynamicPropertyTemplate(ctx.page, currentTemplate, {
-        mergeTemplate: mergeDynamicPropertyTemplate,
-      })
-    ),
-    fillDependentProperties: (dependentPropertyPlan) => withWriteRateControl(
-      'publish.fill_dependent_properties',
-      () => breaker.wrap('fill_dependent_properties', async () => {
-        await fillGoodsProperties(ctx.page, dependentPropertyPlan);
-        await assertNoRiskControl(ctx.page, { phase: 'form:dependent-properties' });
-      }),
-      writeRateOptions,
-    ),
-  }));
-
-  await breaker.wrap('disable_size_chart', async () => {
-    const result = await disableSizeChart(ctx.page);
-    log.info({ changed: result.changed }, 'goods-publish: size chart disabled before draft save');
-    await assertNoRiskControl(ctx.page, { phase: 'form:size-chart-disabled' });
-  });
-  await withWriteRateControl('publish.fill_full_count_discount', () =>
-    breaker.wrap('fill_full_count_discount', async () => {
-      await fillFullCountDiscount(ctx.page, ctx.runtimeConfig?.fullCountDiscountRate, log);
-      await assertNoRiskControl(ctx.page, { phase: 'form:full-count-discount' });
-    }), writeRateOptions
-  );
-  for (const warning of propertyMapping.warnings) {
-    if (!warnings.includes(warning)) warnings.push(warning);
-  }
-
-  await withWriteRateControl('publish.save_draft', () =>
-    breaker.wrap('save_draft', async () => {
-      log.info({ costTemplateId: selectedTemplate.id }, 'goods-publish: Phase E — saving draft');
-      const saved = await clickSaveDraft(ctx.page, draft.goodsCommitId, {
-        costTemplateId: selectedTemplate.id,
-        expectedSkuPricing: pricingPlan?.skuPricing,
-        expectedPropertyPlan: propertyMapping.plan,
-        expectedSkuPreviewPlan: uploadedSkuPreviewPlan,
-        expectedFullCountDiscountRate: ctx.runtimeConfig?.fullCountDiscountRate,
-        strictPayload: true,
-        strictVerify: true,
-        prepareEditPayload,
-        verifyDraftDetail,
-      });
-      for (const warning of saved.verification?.warnings ?? []) {
-        if (!warnings.includes(warning)) warnings.push(warning);
-      }
-    }), writeRateOptions
-  );
-
-  let submit = null;
-  if (!draftOnly) {
-    await assertNoRiskControl(ctx.page, { phase: 'submit:before' });
-    const submitResult = await withWriteRateControl('publish.submit', () =>
-      breaker.wrap('submit', async () => {
-        log.info('goods-publish: Phase F — submitting goods');
-        return runEndpoint(ctx.page, GOODS_PUBLISH_SUBMIT, {
-          goods_commit_id: draft.goodsCommitId,
-          goods_id: draft.goodsId,
-        }, ctx);
-      }), writeRateOptions
+  const category = await runPublishStage('resolve_category', getSourceCached, () => {
+    const catId3 = preDraftPlan.source.catID3 || preDraftPlan.source.catID;
+    ctx.log?.info?.({ catId3 }, 'goods-publish: Phase B — resolving category');
+    return categoryResolver.resolve(
+      { catId1: preDraftPlan.source.catID1, catId2: preDraftPlan.source.catID2, catId3 },
+      { signal: ctx.signal, apiBase: ctx.runtimeConfig?.categoryApiBase },
     );
-    await assertNoRiskControl(ctx.page, { phase: 'submit:after' });
-    submit = assertSubmitSucceeded(submitResult);
-  }
+  });
+  const categorySearchText = categoryTextOf(category);
+  ctx.log?.info?.({ categorySearchText }, 'goods-publish: category search text');
+
+  const { draft, propertyMapping, uploadedSkuPreviewPlan } = await createAndPopulateDraft({
+    ctx,
+    draftEditor,
+    categorySearchText,
+    preDraftPlan,
+    selectedTemplate,
+    warnings,
+    getSourceCached,
+  });
+
+  const submit = draftOnly
+    ? null
+    : await runPublishStage('submit_draft', getSourceCached, () =>
+        draftEditor.submitDraft(draft, {
+          page: ctx.page,
+          client: ctx.client,
+          signal: ctx.signal,
+          deadlineAt: ctx.deadlineAt,
+          clock: ctx.runtime?.clock ?? ctx.clock,
+          log: ctx.log,
+        }),
+      );
 
   await acquisition.clearCache(warnings);
 
@@ -308,7 +338,7 @@ async function runPublishFlow(ctx, goodsUrl, opts = {}) {
     goods_commit_id: draft.goodsCommitId,
     status: draftOnly ? 'draft' : 'submitted',
     cost_template_id: selectedTemplate.id,
-    source_title: source.goodsName,
+    source_title: preDraftPlan.source.goodsName,
     category_path: categorySearchText,
     property_mapping: {
       mapped_count: propertyMapping.plan.length,
