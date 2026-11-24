@@ -7,10 +7,10 @@ import { parseRuntimeEnv } from './env.js';
 async function loadDaemonBundle({ parsedEnv, seal, clock, env, overrides }) {
   if (parsedEnv.mode === 'fixture') {
     const { createFixtureBundle } = await import('./bundles/fixture-bundle.js');
-    return createFixtureBundle({ seal, clock, parsedEnv, env, overrides });
+    return createFixtureBundle({ seal, clock, parsedEnv, env, overrides, includeConsole: true });
   }
   const { createLiveBundle } = await import('./bundles/live-bundle.js');
-  return createLiveBundle({ seal, clock, env, overrides });
+  return createLiveBundle({ seal, clock, env, overrides, includeConsole: true });
 }
 
 export async function composeDaemonRuntime({
@@ -32,7 +32,9 @@ export async function composeDaemonRuntime({
     mall: bundle.mall,
     auth: bundle.auth,
     daemonProcess: bundle.daemonProcess,
+    consoleLoginDriver: bundle.consoleLoginDriver,
   });
+  const consoleExtraRoutes = Object.freeze([...(bundle.consoleExtraRoutes ?? [])]);
 
   const { log, closeLog } = createDaemonLogger({ foreground, runtimeConfig: resolvedRuntimeConfig ?? undefined });
   const lifecycle = createDaemonLifecycleOps({ parsedEnv, browser: ports.browser, log, closeLog });
@@ -49,7 +51,8 @@ export async function composeDaemonRuntime({
     ports,
     clock,
     seal,
-    routes: routesForMode(parsedEnv.mode),
+    consoleExtraRoutes,
+    routes: routesForMode(parsedEnv.mode, consoleExtraRoutes),
     passwordLogin: bundle.passwordLogin,
     fixture: bundle.fixture,
     loadFixture: bundle.loadFixture,

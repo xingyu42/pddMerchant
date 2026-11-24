@@ -173,7 +173,7 @@ export const ORDER_LIST = {
 
 #### 3.4.5 常驻进程相关
 
-`daemon-process.js`（后台进程启动）、`takeover.js` / `takeover-dialog.js`（控制台 CDP 接管登录页面）、`latest-frames.js`（画面帧缓存）。
+`daemon-process.js`（后台进程启动）、`takeover.js` / `takeover-dialog.js`（控制台 CDP 接管登录页面）、`latest-frames.js`（画面帧缓存）、`console-login-driver.js` / `console-login-fixture.js`（`ConsoleLoginDriverPort` Live/Fixture 适配器）。
 
 ### 3.5 基础设施层 (`src/infra/`)
 
