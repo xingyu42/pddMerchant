@@ -253,6 +253,20 @@ describe('MerchantDraftEditorPort (LiveMerchantDraftEditor + DraftSession)', () 
       { code: 'E_CAPTCHA_DOM' },
     );
     assert.equal(transport.calls.length, 0);
+
+    // Post-submit risk control still detects and throws after EndpointPort call
+    const postBlockedEditor = createLiveMerchantDraftEditor({
+      endpoint: client,
+      checkRisk: async (_page, { phase }) => {
+        if (phase === 'submit:after') throw captchaDetected({ phase });
+      },
+    });
+    transport.set(GOODS_PUBLISH_SUBMIT.name, { success: true, error_code: 1000000 });
+    await assert.rejects(
+      postBlockedEditor.submitDraft({ goodsCommitId: '7001', goodsId: '5001' }, { page: fakePage }),
+      (err) => err instanceof PddCliError && err.code === 'E_CAPTCHA_DOM' && err.detail?.phase === 'submit:after',
+    );
+    assert.equal(transport.calls.length, 1);
   });
 
   it('submitDraft write throttle interrupts wait immediately on AbortSignal', async () => {

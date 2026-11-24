@@ -467,21 +467,23 @@ describe('composeCommandRuntime', () => {
     }
   });
 
-  it('wires instance-scoped GoodsPublishPort ({ sourceFetcher, categoryResolver, draftEditor }) in live mode', async () => {
+  it('wires instance-scoped GoodsPublishPort ({ sourceFetcher, categoryResolver, draftEditor }) in live and fixture modes', async () => {
     const config = makeTempConfigDir();
     try {
-      const liveRt = await composeCommandRuntime({
-        mode: 'live',
-        env: {},
-        configOptions: config.configOptions,
-      });
-      const port = liveRt.ports.goodsPublish;
-      assert.equal(typeof port?.sourceFetcher?.prepare, 'function');
-      assert.equal(typeof port?.categoryResolver?.resolve, 'function');
-      assert.equal(typeof port?.draftEditor?.openDraft, 'function');
-      assert.equal(typeof port?.draftEditor?.populateAndSaveDraft, 'function');
-      assert.equal(typeof port?.draftEditor?.submitDraft, 'function');
-      await liveRt.closeAll();
+      for (const mode of ['live', 'fixture']) {
+        const rt = await composeCommandRuntime({
+          mode,
+          env: {},
+          configOptions: config.configOptions,
+        });
+        const port = rt.ports.goodsPublish;
+        assert.equal(typeof port?.sourceFetcher?.prepare, 'function', mode);
+        assert.equal(typeof port?.categoryResolver?.resolve, 'function', mode);
+        assert.equal(typeof port?.draftEditor?.openDraft, 'function', mode);
+        assert.equal(typeof port?.draftEditor?.populateAndSaveDraft, 'function', mode);
+        assert.equal(typeof port?.draftEditor?.submitDraft, 'function', mode);
+        await rt.closeAll();
+      }
     } finally {
       config.dispose();
     }

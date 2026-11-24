@@ -1,7 +1,6 @@
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { redactRecursive } from '../infra/logger.js';
 import { parseGoodsUrl } from './goods-publish/source-normalizer.js';
-import { createCompatGoodsPublishPort } from './goods-publish/default-port.js';
 import {
   planPreDraftPublish,
   buildInitialPropertyPlan,
@@ -10,7 +9,6 @@ import {
 import { runEndpoint } from '../adapter/run-endpoint.js';
 import {
   GOODS_PUBLISH_COST_TEMPLATE_LIST,
-  GOODS_PUBLISH_SUBMIT,
 } from '../adapter/endpoints/goods-publish.js';
 import { transformImages } from './image-transform.js';
 import { toCostTemplateView } from './views/goods.js';
@@ -138,34 +136,18 @@ async function resolvePublishCostTemplate(ctx, requestedId = null) {
   });
 }
 
-async function buildMockPublishResult(ctx, goodsId, draftOnly, costTemplateId) {
-  const fixture = ctx.runtime.loadFixture('goods-publish/publish-result.json');
-  const status = draftOnly ? 'draft' : 'submitted';
-  const result = {
-    goods_id: fixture.goods_id,
-    goods_commit_id: fixture.goods_commit_id,
-    source_goods_id: fixture.source_goods_id ?? goodsId,
-    status,
-    source_title: fixture.source_title ?? fixture.goods_name,
-    cost_template_id: costTemplateId,
-    warnings: fixture.warnings ?? [],
-  };
-  if (!draftOnly) {
-    const submit = await runEndpoint(ctx.page, GOODS_PUBLISH_SUBMIT, {
-      goods_commit_id: fixture.goods_commit_id,
-      goods_id: fixture.goods_id,
-    }, ctx);
-    result.submit = { success: submit?.success === true };
-  }
-  return result;
-}
-
 function resolveGoodsPublishPort(ctx) {
   const port = ctx.goodsPublish ?? ctx.runtime?.ports?.goodsPublish;
   if (port?.sourceFetcher && port?.categoryResolver && port?.draftEditor) {
     return port;
   }
-  return createCompatGoodsPublishPort(ctx);
+  throw new PddCliError({
+    code: 'E_CONFIG_INVALID',
+    message: 'publishGoodsFromLink: GoodsPublishPort is required',
+    hint: '请通过命令运行时或 ctx.goodsPublish 注入 GoodsPublishPort 实例',
+    detail: { source: 'runtime', reason: 'goods_publish_port_missing' },
+    exitCode: ExitCodes.GENERAL,
+  });
 }
 
 function categoryTextOf(category) {
@@ -265,17 +247,7 @@ export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
 }
 
 async function runPublishFlow(ctx, goodsUrl, opts = {}) {
-  const goodsId = parseGoodsUrl(goodsUrl);
   const draftOnly = opts.draftOnly ?? true;
-  if (ctx.runtime?.mode === 'fixture') {
-    const selectedTemplate = await runPublishStage(
-      'cost_template',
-      () => false,
-      () => resolvePublishCostTemplate(ctx, opts.costTemplateId ?? null),
-    );
-    return buildMockPublishResult(ctx, goodsId, draftOnly, selectedTemplate.id);
-  }
-
   const warnings = [];
   let sourceCached = false;
   const getSourceCached = () => sourceCached;
