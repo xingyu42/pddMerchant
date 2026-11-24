@@ -11,7 +11,8 @@ Fixture 相关路径与 env：
 ```text
 PDD_TEST_ADAPTER=fixture                 enable fixture mode
 PDD_TEST_FIXTURE_DIR=<path>              override fixture root
-src/adapter/fixtures/core.js             owns single fixture cache
+src/adapter/fixtures/core.js             owns instance-level FixtureStore
+src/adapter/fixtures/endpoint.js         createFixtureEndpointTransport (EndpointTransportPort)
 src/adapter/mock-dispatcher.js           facade for mock payload routing
 test/fixtures/test-data.js               synthetic fixture builders (no checked-in endpoint JSON)
 test/helpers/isolated-cli.js             createCliSandbox / runCli：写入临时 fixture 目录
@@ -31,8 +32,8 @@ Endpoint 执行链路：
 
 ```text
 runEndpoint(page, spec, params, ctx)
-  -> PlaywrightEndpointClient.execute(spec, params, ctx)
-  -> send(spec, params, ctx) -> { status, raw, response }
+  -> EndpointClient.call/execute(spec, params, ctx)
+  -> send(spec, params, ctx) -> EndpointTransportPort.send -> { status, raw, response }
   -> interpretResponse(spec, { status, raw, response, url, retries })
   -> spec.normalize(raw, params) 或 { raw }
 ```
@@ -41,7 +42,7 @@ runEndpoint(page, spec, params, ctx)
 
 - Endpoint fixture transport MUST work with `page: null` and skip browser/network/backend calls; existing merchant auth fixture branches retain their own lifecycle。
 - Fixture responses MUST preserve the same normalized output and envelope semantics as real mode。
-- `mock-dispatcher.js` is a facade; shared cache ownership stays in `fixtures/core.js`。
+- `mock-dispatcher.js` is a facade; `FixtureStore` in `fixtures/core.js` holds per-instance fixture caches.
 - New endpoint fixtures MUST be named/aligned with `spec.name`。
 - Tests MUST NOT rely on fixture cache mutation leaking across test cases。
 - Fixture runtime resolves the mock shop context through the adapter's `buildMallContext` (`normalizeMallRecord`), so fixture and live shop records share one shape (`{ id, name, is_current }`)。
@@ -58,7 +59,7 @@ runEndpoint(page, spec, params, ctx)
 | fixture file missing for endpoint        | deterministic fixture error; no browser fallback in fixture tests |
 | alternate `PDD_TEST_FIXTURE_DIR` set     | load fixtures from override directory                             |
 | fixture payload simulates business error | same `PddCliError` mapping as real adapter                        |
-| fixture cache stale across tests         | clear/reset via core owner, not ad-hoc module globals             |
+| fixture cache stale across tests         | instantiate a fresh `FixtureStore` per runtime/test; no global cache |
 | `PDD_TEST_PASSWORD_LOGIN` unknown value  | `E_USAGE`（"PDD_TEST_PASSWORD_LOGIN 配置无效"）                     |
 | `PDD_TEST_AUTH_INVALID=1`, no credential | original `E_AUTH_EXPIRED`; no trace line                          |
 
@@ -95,34 +96,12 @@ return data;
 
 ## 8. Real Code Examples
 
-### Fixture core (`src/adapter/fixtures/core.js:13-46`)
+### FixtureStore (`src/adapter/fixtures/core.js`)
 
 ```js
-export function isMockEnabled() {
-  return process.env[ENV_ENABLED] === 'fixture';
-}
-
-const cache = new Map();
-
-export function loadFixture(relPath) {
-  const full = join(fixtureDir(), relPath);
-  if (cache.has(full)) return cache.get(full);
-  if (!existsSync(full)) {
-    throw new PddCliError({
-      code: 'E_FIXTURE_MISSING',
-      message: `mock adapter: fixture not found at ${full}`,
-      hint: `确认 ${ENV_FIXTURE_DIR} 与 fixture 文件名`,
-      exitCode: ExitCodes.GENERAL,
-    });
-  }
-  const raw = readFileSync(full, 'utf8');
-  const parsed = JSON.parse(raw);
-  cache.set(full, parsed);
-  return parsed;
-}
-
-export function clearFixtureCache() {
-  cache.clear();
+export class FixtureStore {
+  constructor({ fixtureDir, env } = {}) { /* resolves dir and creates per-instance Map cache */ }
+  load(relPath) { /* reads JSON once per store instance or throws E_FIXTURE_MISSING */ }
 }
 ```
 
@@ -137,7 +116,7 @@ export const ENV_CONSUMER_AUTH_INVALID = 'PDD_TEST_CONSUMER_AUTH_INVALID';
 
 ## 9. Endpoint Transport Parity
 
-- `PlaywrightEndpointClient.send(spec, params, ctx)` selects fixture transport by `isMockEnabled()`; live transport keeps page-api/fetch/legacy attempts and body parsing。
+- `EndpointClient.send(spec, params, ctx)` delegates to the injected `EndpointTransportPort` (`createFixtureEndpointTransport` in fixture mode; `createLiveEndpointTransport` keeps page-api/fetch/legacy attempts and body parsing)。
 - Fixture transport returns HTTP status 200, a cloned upstream body and a minimal response object with `status()`; business failures should use raw error bodies to exercise `successRule`, `errorMap`/`errorMapper` and rate-limit classification。
 - Both transports share HTTP 429 retry handling, `interpretResponse()`, normalization and cooldown accounting. Fixture requests skip token waiting。
 - Specs without `normalize` return `{ raw }` through both transports。
@@ -145,5 +124,5 @@ export const ENV_CONSUMER_AUTH_INVALID = 'PDD_TEST_CONSUMER_AUTH_INVALID';
 - Fixtures are named `endpoints/<spec.name>.json`; `<spec.name>.page<N>.json` takes precedence. Missing page 1 falls back to the base fixture。
 - A spec MAY declare `fixtureVariantKey: '<param>'`（例如 `'goods_id'`）; the key MUST name a scalar request param (string / number), never an array or object. When the request param is present, `<spec.name>.<param value>.json` is loaded first; a missing variant file falls back to the normal page/base lookup. `__throws` in a variant fixture applies as usual. Specs without the key ignore variant files。
 - Missing later pages clone the base body and empty the array at the dotted upstream `spec.fixtureListKey` (for example `result.pageItems`), preserving envelope, totals and aggregates. Invalid list paths fail with `E_FIXTURE_SHAPE`。
-- `fixtures/core.js` owns the cache; endpoint fixture reads return isolated clones. Missing fixtures fail with `E_FIXTURE_MISSING` without browser fallback。
+- `fixtures/core.js` provides `FixtureStore` for per-instance caching; endpoint fixture reads return isolated clones. Missing fixtures fail with `E_FIXTURE_MISSING` without browser fallback。
 - Regression coverage: `test/adapter/fixture-transport.test.js` compares raw 40002/54001 failures with live transport, proves normalization with a null page, raw-wrapper parity, pagination/cache isolation and cooldown accounting。

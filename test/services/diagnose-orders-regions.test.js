@@ -2,22 +2,11 @@ import assert from 'node:assert/strict';
 import { beforeEach, describe, it, vi } from 'vitest';
 import { PddCliError } from '../../src/infra/errors.js';
 import { renderSingleDashboard } from '../../src/commands/diagnose/_render.js';
+import { getOrdersDiagnosis } from '../../src/services/diagnose/reports.js';
 import {
   toOrdersDiagnosisView, ORDER_REGIONS_FIELDS, ORDER_REGION_ITEM_FIELDS,
 } from '../../src/services/views/diagnose.js';
-
-const mockState = vi.hoisted(() => ({ calls: [], responses: {}, errors: {} }));
-
-vi.mock('../../src/adapter/run-endpoint.js', async (importOriginal) => ({
-  ...(await importOriginal()),
-  async runEndpoint(_page, spec, params) {
-    mockState.calls.push({ name: spec.name, params });
-    if (mockState.errors[spec.name]) throw mockState.errors[spec.name];
-    return mockState.responses[spec.name];
-  },
-}));
-
-const { getOrdersDiagnosis } = await import('../../src/services/diagnose/reports.js');
+import { createMemoryEndpointTransport, createTestCtx } from '../helpers/test-ctx.js';
 
 const baseSummary = {
   status: 'full',
@@ -108,60 +97,74 @@ describe('orders diagnosis regions view', () => {
 });
 
 describe('getOrdersDiagnosis regions collection', () => {
-  const ctx = {
-    page: { context: () => ({ newPage: vi.fn(async () => ({ close: vi.fn(async () => {}) })) }) },
-    mallCtx: { activeId: '900001' },
-    log: { debug() {} },
-  };
+  let transport;
+  let ctx;
 
   beforeEach(() => {
-    mockState.calls = [];
-    mockState.errors = {};
-    mockState.responses = {
-      'orders.stats': { unship: 1, unship12h: 0, delay: 0, unreceive: 0 },
-      'orders.list': { orders: [{ order_time: 1700000000, shipping_time: 1700003600, after_sales_status: null }], total: 1 },
-      'orders.regionDistribution': {
-        delayData: 0,
-        geographyDistributionVOList: [],
-        items: [{ provinceName: '浙江', statDate: '2026-11-21', cfmOrdrAmt: 25.4, cfmOrdrCnt: 1,
-          cfmOrdrUsrCnt: 1, cfmOrdrAup: 25.4, cfmOrdrAop: 25.4 }],
+    transport = createMemoryEndpointTransport({
+      responses: {
+        'orders.stats': { success: true, result: { unship: 1, unship12h: 0, delay: 0, unreceive: 0 } },
+        'orders.list': {
+          success: true,
+          result: {
+            totalItemNum: 1,
+            pageItems: [{ order_time: 1700000000, shipping_time: 1700003600, after_sales_status: null }],
+          },
+        },
+        'orders.regionDistribution': {
+          success: true,
+          errorCode: 0,
+          result: {
+            delayData: 0,
+            geographyDistributionVOList: [{ provinceName: '浙江', statDate: '2026-11-21', cfmOrdrAmt: 25.4, cfmOrdrCnt: 1,
+              cfmOrdrUsrCnt: 1, cfmOrdrAup: 25.4, cfmOrdrAop: 25.4 }],
+          },
+        },
       },
-    };
+    });
+    ctx = createTestCtx({
+      transport,
+      page: { context: () => ({ newPage: vi.fn(async () => ({ close: vi.fn(async () => {}) })) }) },
+      mallId: '900001',
+    });
   });
 
   it('queries with empty params and degrades domain/PUA/auth errors while propagating internal, timeout and bug errors', async () => {
     const { data, warnings } = await getOrdersDiagnosis(ctx);
     assert.deepEqual(warnings, []);
-    assert.deepEqual(mockState.calls.find((call) => call.name === 'orders.regionDistribution'),
-      { name: 'orders.regionDistribution', params: {} });
+    assert.deepEqual(transport.calls.find((call) => call.name === 'orders.regionDistribution')?.params, {});
     assert.equal(data.regions.province_count, 1);
 
-    mockState.errors['orders.regionDistribution'] = new PddCliError({
-      code: 'E_BUSINESS', message: '平台返回字体混淆数据', detail: { reason: 'pua_obfuscated', field: 'cfmOrdrAmt' }, exitCode: 6,
+    transport.set('orders.regionDistribution', {
+      success: true,
+      errorCode: 0,
+      result: {
+        delayData: 0,
+        geographyDistributionVOList: [{ provinceName: '浙江', statDate: '2026-11-21', cfmOrdrAmt: '\uE001', cfmOrdrCnt: 1,
+          cfmOrdrUsrCnt: 1, cfmOrdrAup: 25.4, cfmOrdrAop: 25.4 }],
+      },
     });
     const { data: puaDegraded } = await getOrdersDiagnosis(ctx);
     assert.equal(puaDegraded.regions, null);
     assert.equal(puaDegraded.status, '数据完整');
     assert.ok(puaDegraded.hints.includes('省级成团地域分布返回字体混淆数据，regions 为 null'));
 
-    mockState.errors['orders.regionDistribution'] = new PddCliError({
-      code: 'E_AUTH_EXPIRED', message: 'auth expired', exitCode: 3,
-    });
+    transport.set('orders.regionDistribution', { status: 401, raw: null });
     const { data: authDegraded } = await getOrdersDiagnosis(ctx);
     assert.equal(authDegraded.regions, null);
     assert.equal(authDegraded.status, '数据完整');
     assert.ok(authDegraded.hints.includes('省级成团地域分布拉取失败，regions 为 null'));
 
     const internal = new PddCliError({ code: 'E_INTERNAL', message: 'internal', exitCode: 1 });
-    mockState.errors['orders.regionDistribution'] = internal;
+    transport.fail('orders.regionDistribution', internal);
     await assert.rejects(getOrdersDiagnosis(ctx), (actual) => actual === internal);
 
     const timeout = new PddCliError({ code: 'E_TIMEOUT', message: 'timeout', exitCode: 5 });
-    mockState.errors['orders.regionDistribution'] = timeout;
+    transport.fail('orders.regionDistribution', timeout);
     await assert.rejects(getOrdersDiagnosis(ctx), (actual) => actual === timeout);
 
     const bug = new TypeError('unexpected bug');
-    mockState.errors['orders.regionDistribution'] = bug;
+    transport.fail('orders.regionDistribution', bug);
     await assert.rejects(getOrdersDiagnosis(ctx), (actual) => actual === bug);
   });
 });

@@ -8,7 +8,7 @@ import { verifyMerchantContext } from '../../adapter/merchant-auth.js';
 import { resolveMallContext } from '../../adapter/mall-reader.js';
 import { switchTo } from '../../adapter/mall-writer.js';
 import { isMockEnabled } from '../../adapter/mock-dispatcher.js';
-import { getSharedClient } from '../../adapter/rate-limiter-singleton.js';
+import { createCommandEndpointClient, createLiveEndpointTransport } from '../../adapter/endpoint-client.js';
 import { createPageSession } from '../../adapter/page-session.js';
 import { getLogger } from '../../infra/logger.js';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
@@ -103,7 +103,11 @@ async function executeLiveOperation(spec, runtime) {
     runtime.selectedMallId = mallCtx?.activeId ?? null;
     const pageSession = createPageSession(context);
     const ctx = buildCommandCtx(runtime, {
-      client: getSharedClient(runtime.runtimeConfig),
+      client: createCommandEndpointClient({
+        runtimeConfig: runtime.runtimeConfig,
+        transport: createLiveEndpointTransport({ pageSession }),
+        endpointState: runtime.endpointState,
+      }),
       page,
       mallCtx,
       context,
@@ -145,6 +149,7 @@ export async function executeSingle(spec, opts = {}, {
   emitResult = true,
   parentSignal,
   runtimeConfig,
+  endpointState = null,
 } = {}) {
   const { name, needsAuth = true, needsMall = 'current', run, render } = spec;
   const normSpec = { name, needsAuth, needsMall, run, render };
@@ -172,6 +177,7 @@ export async function executeSingle(spec, opts = {}, {
     get deadlineAt() { return deadline.deadlineAt; },
     deadline,
     runtimeConfig,
+    endpointState,
   };
 
   try {

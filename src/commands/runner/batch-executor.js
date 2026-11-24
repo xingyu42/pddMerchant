@@ -7,6 +7,7 @@ import { emit, buildBatchEnvelope, batchRenderer } from '../../infra/output.js';
 import { PddCliError, ExitCodes, errorToEnvelope, batchExitCode } from '../../infra/errors.js';
 import { abortableSleep } from '../../infra/abort.js';
 import { listAccounts } from '../../infra/account-store.js';
+import { createEndpointRuntimeState } from '../../adapter/endpoint-client.js';
 import { executeSingle } from './single-lifecycle.js';
 
 const BATCH_JITTER_MIN = 2000;
@@ -97,6 +98,7 @@ async function runOneAccount(spec, opts, account, batch, runtimeConfig) {
     emitResult: false,
     parentSignal: batch.signal,
     ...(runtimeConfig ? { runtimeConfig } : {}),
+    ...(batch.endpointState ? { endpointState: batch.endpointState } : {}),
   }).catch((err) => errorToEnvelope(spec.name, err, {
     latency_ms: Date.now() - batch.startedAt,
     correlation_id: perAccountCorrelation,
@@ -187,7 +189,8 @@ async function executeBatch(spec, opts, runtimeConfig) {
   const onSigint = () => abortController.abort();
   process.prependListener('SIGINT', onSigint);
 
-  const batch = { startedAt, correlationId, warnings, log, signal: abortController.signal };
+  const endpointState = runtimeConfig ? createEndpointRuntimeState(runtimeConfig) : null;
+  const batch = { startedAt, correlationId, warnings, log, signal: abortController.signal, endpointState };
   let accountResults;
   try {
     accountResults = await runAccountLoop(spec, opts, accounts, batch, runtimeConfig);

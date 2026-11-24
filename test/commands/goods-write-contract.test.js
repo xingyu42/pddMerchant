@@ -5,7 +5,6 @@ import { run as updatePrice } from '../../src/commands/goods/update/price.js';
 import { run as updateStock } from '../../src/commands/goods/update/stock.js';
 import { run as updateTitle } from '../../src/commands/goods/update/title.js';
 import { run as updateBatch } from '../../src/commands/goods/update/batch.js';
-import { clearFixtureCache } from '../../src/adapter/mock-dispatcher.js';
 import { PddCliError } from '../../src/infra/errors.js';
 import { createCliSandbox, runtimeConfig } from '../helpers/isolated-cli.js';
 import { seedDb, DEFAULT_ACCOUNT } from '../helpers/seed-db.js';
@@ -27,12 +26,10 @@ beforeEach(() => {
   for (const [key, value] of Object.entries(sandbox.env)) {
     if (key.startsWith('PDD_')) vi.stubEnv(key, value);
   }
-  clearFixtureCache();
   dispatch.mockReset().mockImplementation(async () => ({ success: true, fail_goods_num: 0 }));
   emitSpy.mockClear();
 });
 afterEach(() => {
-  clearFixtureCache();
   closeDatabase();
   sandbox?.dispose();
 });

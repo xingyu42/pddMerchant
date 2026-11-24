@@ -38,7 +38,7 @@ Imports flow `commands -> services -> adapter -> infra`. Known downward shortcut
 1. Registrars attach commands; `program.parseAsync()` parses options. Parser rejections become an `E_USAGE` envelope (exit 2) before the runner starts.
 2. `wireAction(cmd, name, runFn)` merges global options, loads runtime config and logger, then calls the command.
 3. `withCommand()` → `executeSingle` (or `executeBatch` for `--all-accounts`): resolve account, arm deadline, then no-browser / fixture / live path.
-4. Live path: account lease → browser → `checkMerchantSession` (password relogin on rejection) → merchant home → mall resolve/switch → page session + shared endpoint client → command body → close pages → re-verify and persist auth → finalize envelope.
+4. Live path: account lease → browser → `checkMerchantSession` (password relogin on rejection) → merchant home → mall resolve/switch → page session + endpoint client → command body → close pages → re-verify and persist auth → finalize envelope.
 5. Service code calls `runEndpoint(page, ENDPOINT_SPEC, params, ctx)` or pure helpers.
 6. `endpoint-client.js` applies rate limiting, per-endpoint cooldown and 429 retries; `send()` uses page-api, fetch/legacy capture, or fixture raw responses; `response-interpreter.js` decides success, rate limit and business errors, then calls `normalize(raw, params)`.
 
@@ -52,7 +52,7 @@ Imports flow `commands -> services -> adapter -> infra`. Known downward shortcut
 
 - `src/commands/runner/single-lifecycle.js`: auth leases, merchant session check and auth persistence for every live command.
 - `src/services/merchant-session.js`, `src/adapter/merchant-auth*.js`, `src/infra/db.js`, `leases.js`, `master-key.js`.
-- Endpoint transport: `run-endpoint.js`, `endpoint-client.js`, `response-interpreter.js`, `endpoint-strategy-resolver.js`, `page-api-client.js`, `endpoint-attempt.js`, `xhr-collector.js`, `page-session.js`, `rate-limiter-singleton.js`.
+- Endpoint transport: `run-endpoint.js`, `endpoint-client.js`, `rate-limiter.js`, `response-interpreter.js`, `endpoint-strategy-resolver.js`, `page-api-client.js`, `endpoint-attempt.js`, `xhr-collector.js`, `page-session.js`.
 - Mall context: `mall-reader` (probe chain), `mall-writer`, `mall-xhr-probe`, `mall-id`; `mall-switcher` only re-exports.
 - Envelope and exit-code behavior is widely tested; update specs/tests first when changing it.
 - `goods publish` spans consumer login state, category resolution, source scraping (Qingguo proxy, ADR 0001), form filling, pricing/image helpers and endpoint specs.
