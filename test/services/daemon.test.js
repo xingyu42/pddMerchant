@@ -82,6 +82,7 @@ it('polls until the child acquires the lease and reports started', async () => {
   const result = await advance(startDaemon({ runtime }), 400);
   assert.equal(result.started, true);
   assert.equal(spawnDetached.mock.calls.length, 1);
+  assert.deepEqual(spawnDetached.mock.calls[0], []);
 });
 
 it('clears a stale address and waits for the new listener to publish its URL', async () => {

@@ -41,7 +41,7 @@ export async function startDaemon({ signal, runtimeConfig, runtime, clock } = {}
     return true;
   });
   if (started) {
-    if (runtime?.ports?.daemonProcess) runtime.ports.daemonProcess.spawnDetached({ env: runtime.rawEnv });
+    if (runtime?.ports?.daemonProcess) runtime.ports.daemonProcess.spawnDetached();
     else spawnDaemonProcess();
   }
   if (!await pollLease((lease) => lease?.running && Boolean(getDaemonMeta('daemon_console_url')), 200, 10_000, signal, activeClock)) {

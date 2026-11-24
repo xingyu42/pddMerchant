@@ -178,18 +178,22 @@ function consoleReloginAttempt(session, tx, decision = {}) {
 }
 
 async function verifyFixtureConsoleLogin(session, tx) {
-  const { createFixtureReloginContext, verifyFixtureMerchantContext } = session.runtime?.fixture
-    ?? await import('../adapter/fixtures/auth.js');
-  const context = createFixtureReloginContext(tx.recoveryMallId);
+  const fixtureHelpers = session.runtime?.fixture ?? await import('../adapter/fixtures/auth.js');
+  const createContext = fixtureHelpers.createFixtureReloginContext
+    ?? (await import('../adapter/fixtures/auth.js')).createFixtureReloginContext;
+  const context = createContext(tx.recoveryMallId);
+  const seal = tx.seal ?? session.runtime?.seal;
+  const verifyOptions = {
+    ...tx,
+    expectedMallId: tx.recoveryMallId,
+    ...(seal !== undefined ? { seal } : {}),
+  };
   if (session.runtime?.ports?.auth?.verifyAndSeal) {
-    return session.runtime.ports.auth.verifyAndSeal(context, {
-      ...tx,
-      expectedMallId: tx.recoveryMallId,
-      seal: session.runtime.seal,
-    });
+    return session.runtime.ports.auth.verifyAndSeal(context, verifyOptions);
   }
-  const verify = verifyFixtureMerchantContext ?? (await import('../adapter/fixtures/auth.js')).verifyFixtureMerchantContext;
-  return verify(context, { ...tx, expectedMallId: tx.recoveryMallId });
+  const verify = fixtureHelpers.verifyFixtureMerchantContext
+    ?? (await import('../adapter/fixtures/auth.js')).verifyFixtureMerchantContext;
+  return verify(context, verifyOptions);
 }
 
 async function commitLogin(session, tx) {

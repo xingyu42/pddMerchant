@@ -40,10 +40,19 @@ async function performMerchantLogin(options) {
     throw new PddCliError({ code: 'E_USAGE', message: '登录超时必须是正数', exitCode: ExitCodes.USAGE });
   }
   if (runtime?.mode === 'fixture') {
-    const authPort = runtime.ports?.auth;
-    const result = authPort
-      ? await authPort.verifyAndSeal(null, { expectedMallId, seal: seal ?? runtime.seal })
-      : await (await import('../adapter/fixtures/auth.js')).verifyFixtureMerchantContext(null, { expectedMallId });
+    const resolvedSeal = seal ?? runtime.seal;
+    const verifyOptions = {
+      expectedMallId,
+      ...(resolvedSeal !== undefined ? { seal: resolvedSeal } : {}),
+    };
+    let result;
+    if (runtime.ports?.auth) {
+      result = await runtime.ports.auth.verifyAndSeal(null, verifyOptions);
+    } else {
+      const verify = runtime.fixture?.verifyFixtureMerchantContext
+        ?? (await import('../adapter/fixtures/auth.js')).verifyFixtureMerchantContext;
+      result = await verify(null, verifyOptions);
+    }
     assertMerchantVerified(result);
     return { identity: result.identity, mode: qr ? 'qr' : 'headed', url: PDD_HOME, candidate: result.candidate };
   }
@@ -156,47 +165,93 @@ export function performHeadedLogin(options) {
   return performMerchantLogin({ ...options, qr: false, headed: true });
 }
 
+async function closeConsumerLoginResources(deriveConsumer, target, cleanupRoot) {
+  if (deriveConsumer) await target.close?.().catch(() => {});
+  await cleanupRoot();
+}
+
+async function openConsumerLoginTarget({ headed, deriveConsumer, browserPort }) {
+  const root = browserPort
+    ? await browserPort.openSession({ headed })
+    : await launchBrowser({ headed });
+  const cleanupRoot = browserPort
+    ? () => root.close().catch(() => {})
+    : () => closeBrowser(root.browser);
+  const resolveTarget = deriveConsumer
+    ? () => (browserPort ? browserPort.deriveConsumerContext(root) : createConsumerContext(root.browser))
+    : () => root;
+
+  try {
+    const target = await resolveTarget();
+    return {
+      context: target.context,
+      page: target.page,
+      close: () => closeConsumerLoginResources(deriveConsumer, target, cleanupRoot),
+    };
+  } catch (err) {
+    await cleanupRoot();
+    throw err;
+  }
+}
+
+async function waitForConsumerAuth(target, identityObserver, {
+  timeoutMs,
+  hint,
+  detail,
+  scrapeCooldownConfig,
+}) {
+  const result = await waitForConsumerLogin(target.page, { timeoutMs });
+  if (!result.success) {
+    throw new PddCliError({
+      code: 'E_AUTH_TIMEOUT',
+      message: `消费端登录超时：${Math.round(timeoutMs / 1000)}s 内未检测到登录成功`,
+      hint,
+      ...(detail ? { detail } : {}),
+      exitCode: ExitCodes.AUTH,
+    });
+  }
+  const identity = await identityObserver.wait();
+  const state = await target.context.storageState();
+  getSharedScrapeCooldown(scrapeCooldownConfig).recordSuccess();
+  return { state, identity, url: result.url };
+}
+
 export async function performConsumerQrLogin({
   timeoutMs,
   headed = false,
   onQrCaptured,
   consumerLoginUrl,
   scrapeCooldownConfig,
+  qrDir,
+  runtime,
 }) {
   const log = getLogger();
-  let browser = null;
+  let target = null;
   let identityObserver = null;
   try {
-    const launched = await launchBrowser({ headed });
-    browser = launched.browser;
-    const consumer = await createConsumerContext(browser);
-    identityObserver = createConsumerIdentityObserver(consumer.page);
+    target = await openConsumerLoginTarget({
+      headed,
+      deriveConsumer: true,
+      browserPort: runtime?.ports?.browser,
+    });
+    identityObserver = createConsumerIdentityObserver(target.page);
 
     log.info({ headed }, '消费端：抓取登录二维码中');
-    const pngBuffer = await captureConsumerQr(consumer.page, { loginUrl: consumerLoginUrl });
-    const imagePath = await saveQrPng(pngBuffer);
+    const pngBuffer = await captureConsumerQr(target.page, { loginUrl: consumerLoginUrl });
+    const imagePath = await saveQrPng(pngBuffer, qrDir ? { dir: qrDir } : undefined);
     const qrContent = decodeQrContent(pngBuffer);
-
     if (onQrCaptured) await onQrCaptured({ imagePath, qrContent, pngBuffer });
 
-    const result = await waitForConsumerLogin(consumer.page, { timeoutMs });
-    if (!result.success) {
-      throw new PddCliError({
-        code: 'E_AUTH_TIMEOUT',
-        message: `消费端登录超时：${Math.round(timeoutMs / 1000)}s 内未检测到登录成功`,
-        hint: `QR 可能已过期，重新执行；或查看 ${imagePath}`,
-        detail: { imagePath, qr_content_present: Boolean(qrContent) },
-        exitCode: ExitCodes.AUTH,
-      });
-    }
-
-    const identity = await identityObserver.wait();
-    const state = await consumer.context.storageState();
-    getSharedScrapeCooldown(scrapeCooldownConfig).recordSuccess();
-    return { state, identity, url: result.url, mode: 'consumer-qr', qrImagePath: imagePath };
+    const auth = await waitForConsumerAuth(target, identityObserver, {
+      timeoutMs,
+      hint: `QR 可能已过期，重新执行；或查看 ${imagePath}`,
+      detail: { imagePath, qr_content_present: Boolean(qrContent) },
+      scrapeCooldownConfig,
+    });
+    return { ...auth, mode: 'consumer-qr', qrImagePath: imagePath };
   } finally {
     identityObserver?.dispose();
-    await closeBrowser(browser);
+    await target?.close();
   }
 }
 
@@ -204,36 +259,31 @@ export async function performConsumerHeadedLogin({
   timeoutMs,
   consumerLoginUrl,
   scrapeCooldownConfig,
+  runtime,
 }) {
   const log = getLogger();
-  let browser = null;
+  let target = null;
   let identityObserver = null;
   try {
-    const launched = await launchBrowser({ headed: true });
-    browser = launched.browser;
-    const { context, page } = launched;
-    identityObserver = createConsumerIdentityObserver(page);
+    target = await openConsumerLoginTarget({
+      headed: true,
+      deriveConsumer: false,
+      browserPort: runtime?.ports?.browser,
+    });
+    identityObserver = createConsumerIdentityObserver(target.page);
 
-    await page.goto(consumerLoginUrl, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.NAV });
+    await target.page.goto(consumerLoginUrl, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.NAV });
     log.info(`消费端：等待手动登录（最长 ${Math.round(timeoutMs / 60000)} 分钟）`);
 
-    const result = await waitForConsumerLogin(page, { timeoutMs });
-    if (!result.success) {
-      throw new PddCliError({
-        code: 'E_AUTH_TIMEOUT',
-        message: `消费端登录超时：${Math.round(timeoutMs / 1000)}s 内未检测到登录成功`,
-        hint: '重新执行 pdd login --consumer',
-        exitCode: ExitCodes.AUTH,
-      });
-    }
-
-    const identity = await identityObserver.wait();
-    const state = await context.storageState();
-    getSharedScrapeCooldown(scrapeCooldownConfig).recordSuccess();
-    return { state, identity, url: result.url, mode: 'consumer-headed' };
+    const auth = await waitForConsumerAuth(target, identityObserver, {
+      timeoutMs,
+      hint: '重新执行 pdd login --consumer',
+      scrapeCooldownConfig,
+    });
+    return { ...auth, mode: 'consumer-headed' };
   } finally {
     identityObserver?.dispose();
-    await closeBrowser(browser);
+    await target?.close();
   }
 }
 

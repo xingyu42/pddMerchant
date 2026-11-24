@@ -3,31 +3,11 @@ import { buildMallContext, normalizeMallRecord } from '../../src/adapter/mall-co
 import { requireMallId } from '../../src/adapter/mall-id.js';
 import { createCandidateSeal, deepFreeze } from '../../src/infra/candidate-seal.js';
 import { boundMerchantMallId } from '../../src/infra/auth-task.js';
-
-const OWNER_TAG_PATTERN = /^[a-z0-9-]{1,32}$/;
-
-function browserRuntimeError(reason, message = '浏览器运行时配置无效') {
-  return new PddCliError({
-    code: 'E_BROWSER_RUNTIME',
-    message,
-    hint: '确认浏览器版本与当前操作系统受支持，并重新安装 Patchright Chromium',
-    detail: { reason },
-    exitCode: ExitCodes.GENERAL,
-  });
-}
-
-function assertValidOwnerTag(ownerTag) {
-  if (ownerTag !== undefined && (typeof ownerTag !== 'string' || !OWNER_TAG_PATTERN.test(ownerTag))) {
-    throw browserRuntimeError('invalid_owner_tag');
-  }
-}
-
-function assertValidStorageState(storageState, { required = false } = {}) {
-  if (!storageState && !required) return;
-  if (!Array.isArray(storageState?.cookies) || !Array.isArray(storageState?.origins)) {
-    throw browserRuntimeError('snapshot_shape_invalid');
-  }
-}
+import {
+  browserRuntimeError,
+  assertValidOwnerTag,
+  assertValidStorageState,
+} from '../../src/adapter/browser-validation.js';
 
 function makeMemoryPage(context) {
   return {

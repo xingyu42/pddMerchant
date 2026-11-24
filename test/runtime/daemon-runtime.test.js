@@ -39,6 +39,7 @@ describe('composeDaemonRuntime', () => {
 
     try {
       assert.equal(runtime.mode, 'live');
+      assert.equal(Object.hasOwn(runtime, 'rawEnv'), false);
       assert.deepEqual(Object.keys(runtime.ports).sort(), ['auth', 'browser', 'daemonProcess', 'mall']);
       assert.deepEqual(runtime.timings, {
         ttlMs: DAEMON_LEASE.ttlMs,

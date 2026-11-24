@@ -148,14 +148,20 @@ function finalizeBatch(spec, opts, accountResults, batch) {
     batch.warnings.push('batch_interrupted_sigint');
   }
 
-  const batchEnvelope = buildBatchEnvelope(spec.name, accountResults, {
-    latency_ms: batch.runtime.clock.now() - batch.startedAt,
-    correlation_id: batch.correlationId,
-    exit_code: aborted ? 130 : batchExitCode(accountResults),
-    warnings: [...new Set(batch.warnings)],
-    debugRaw: Boolean(batch.runtime.env?.debugRaw),
-    onRawDebug: batch.runtime.outputSink ? (entry) => batch.runtime.outputSink.writeDebugRaw(entry) : undefined,
-  });
+  const batchEnvelope = buildBatchEnvelope(
+    spec.name,
+    accountResults,
+    {
+      latency_ms: batch.runtime.clock.now() - batch.startedAt,
+      correlation_id: batch.correlationId,
+      exit_code: aborted ? 130 : batchExitCode(accountResults),
+      warnings: [...new Set(batch.warnings)],
+    },
+    {
+      debugRaw: Boolean(batch.runtime.env?.debugRaw),
+      onRawDebug: batch.runtime.outputSink ? (entry) => batch.runtime.outputSink.writeDebugRaw(entry) : undefined,
+    },
+  );
 
   const emitFn = batch.runtime.outputSink?.emit ?? defaultEmit;
   emitFn(batchEnvelope, {

@@ -129,13 +129,19 @@ export async function runDaemon({
     overrides,
     clock,
   });
+  const effectiveRuntimeConfig = runtimeConfig ?? runtime.runtimeConfig;
   const activeComponents = components ?? defaultComponents(runtime);
   try {
     const lease = await runtime.acquire();
     if (!lease) return { status: 'already_running' };
     try { runtime.clearStop(); }
     catch (error) { runtime.release(lease.token); throw error; }
-    return await runOwned(runtime, lease, { signal, components: activeComponents, exit, runtimeConfig });
+    return await runOwned(runtime, lease, {
+      signal,
+      components: activeComponents,
+      exit,
+      runtimeConfig: effectiveRuntimeConfig,
+    });
   } finally {
     runtime.closeLog();
   }

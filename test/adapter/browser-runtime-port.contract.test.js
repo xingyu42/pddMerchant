@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import { describe, it, vi } from 'vitest';
 import { createLiveBrowserRuntime } from '../../src/adapter/browser.js';
 import { createFixtureBrowserRuntime } from '../../src/adapter/fixtures/browser.js';
+import {
+  OWNER_TAG_PATTERN,
+  browserRuntimeError,
+  assertValidOwnerTag,
+  assertValidStorageState,
+} from '../../src/adapter/browser-validation.js';
 import { createInMemoryBrowserRuntime } from '../helpers/in-memory-ports.js';
 import { PddCliError } from '../../src/infra/errors.js';
 
@@ -365,5 +371,15 @@ describe('Live BrowserRuntimePort ADR-0002 & ADR-0003 contracts', () => {
     const fixtureRuntime = createFixtureBrowserRuntime();
     assert.equal(await fixtureRuntime.reclaimOrphans({ listProcesses }), 0);
     assert.equal(listProcesses.mock.calls.length, 0);
+  });
+
+  it('validates owner tags and storage snapshots via shared browser-validation helpers', () => {
+    assert.equal(OWNER_TAG_PATTERN.test('daemon-1'), true);
+    assert.equal(OWNER_TAG_PATTERN.test('INVALID'), false);
+    assert.equal(browserRuntimeError('invalid_owner_tag').code, 'E_BROWSER_RUNTIME');
+    assert.doesNotThrow(() => assertValidOwnerTag('daemon-1'));
+    assert.throws(() => assertValidOwnerTag('BAD'), { code: 'E_BROWSER_RUNTIME' });
+    assert.doesNotThrow(() => assertValidStorageState({ cookies: [], origins: [] }, { required: true }));
+    assert.throws(() => assertValidStorageState(null, { required: true }), { code: 'E_BROWSER_RUNTIME' });
   });
 });

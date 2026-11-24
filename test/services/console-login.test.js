@@ -66,6 +66,7 @@ import { startConsoleSession, getConsoleSession, cancelConsoleSession, refreshCo
   closeAllConsoleSessions, completeFixtureConsoleSession, consoleSessionSms, startConsoleAddSession,
   consoleSessionPointer } from '../../src/services/console-login.js';
 import { composeCommandRuntime } from '../../src/runtime/command-runtime.js';
+import { createCliSandbox } from '../helpers/isolated-cli.js';
 
 let account;
 let original;
@@ -422,6 +423,38 @@ it('fixture success uses the shared marker commit with no browser, and fixture c
   } finally {
     await closeAllConsoleSessions();
     await runtime.closeAll();
+  }
+});
+
+it('fixture console login passes seal and uses runtime.fixture when ports.auth is absent', async () => {
+  const sandbox = createCliSandbox({
+    'shops.current.json': { id: '900099', name: 'Added Fixture Shop' },
+  });
+  const composed = await composeCommandRuntime({
+    mode: 'fixture',
+    runtimeConfigPolicy: 'maintenance',
+    env: { PDD_TEST_FIXTURE_DIR: sandbox.fixtureDir, PDD_TEST_PASSWORD_LOGIN: 'success' },
+  });
+  const runtimeWithoutAuthPort = {
+    ...composed,
+    ports: {},
+  };
+  try {
+    const reloginId = start('password', { runtime: runtimeWithoutAuthPort });
+    assert.equal((await stateIs(reloginId, 'succeeded')).state, 'succeeded');
+
+    const addId = startConsoleAddSession(
+      { login_name: 'private-login', password: 'private-password' },
+      { ownerTag: 'test-daemon', runtime: runtimeWithoutAuthPort },
+    ).session_id;
+    const addedSession = await stateIs(addId, 'succeeded');
+    assert.equal(addedSession.message, '店铺已添加，密码已保存');
+    assert.ok(listAccounts().some((item) => item.identity === '900099'));
+    assertReleased();
+  } finally {
+    await closeAllConsoleSessions();
+    await composed.closeAll();
+    sandbox.dispose();
   }
 });
 

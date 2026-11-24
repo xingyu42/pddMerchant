@@ -26,7 +26,6 @@ export const run = withCommand({ ...options, name: 'daemon.run',
       signal: ctx.signal,
       runtimeConfig: ctx.runtimeConfig,
       mode: ctx.runtime?.mode,
-      env: ctx.runtime?.rawEnv,
       clock: ctx.clock,
     }));
   } });

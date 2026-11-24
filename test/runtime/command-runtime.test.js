@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { PassThrough } from 'node:stream';
 import { describe, it, vi } from 'vitest';
 import { composeCommandRuntime } from '../../src/runtime/command-runtime.js';
+import { PddCliError, ExitCodes } from '../../src/infra/errors.js';
 import { runCloseAllHooks } from '../../src/infra/runtime-cleanup.js';
 import { withCommand } from '../../src/commands/_runner.js';
 import { runEndpoint } from '../../src/adapter/run-endpoint.js';
@@ -95,6 +96,7 @@ describe('composeCommandRuntime', () => {
       });
       assert.equal(maintenance.mode, 'fixture');
       assert.equal(maintenance.runtimeConfig, null);
+      assert.equal(Object.hasOwn(maintenance, 'rawEnv'), false);
       assert.deepEqual(Object.keys(maintenance.ports).sort(), ['auth', 'browser', 'daemonProcess', 'endpoint', 'mall']);
       assert.equal(typeof maintenance.outputSink.emit, 'function');
       assert.equal(typeof maintenance.outputSink.hasEmitted, 'function');
@@ -301,6 +303,72 @@ describe('composeCommandRuntime', () => {
       await runtime.closeAll();
     } finally {
       temp.dispose();
+    }
+  });
+
+  it('writes redacted batch raw_debug entries via OutputSink when PDD_DEBUG_RAW=1 in --all-accounts', async () => {
+    const accountA = insertAccount({ identity: '900001', displayName: 'Shop A' }, { setDefault: true });
+    const accountB = insertAccount({ identity: '900002', displayName: 'Shop B' });
+    saveAuthStateSnapshot(PASS_STATE, accountA.id);
+    saveAuthStateSnapshot(PASS_STATE, accountB.id);
+
+    const { streams, readStdout, readStderr } = makeMemoryStreams();
+    const browser = createInMemoryBrowserRuntime();
+    const mall = createInMemoryMallPort({ currentMall: { id: '900001', name: 'Shop A' } });
+    const auth = createInMemoryAuthPort({
+      merchantIdentity: (_snapshot, opts) => ({
+        mallId: String(opts?.expectedMallId ?? '900001'),
+        displayName: opts?.expectedMallId === '900002' ? 'Shop B' : 'Shop A',
+      }),
+    });
+
+    const runtime = await composeCommandRuntime({
+      mode: 'live',
+      runtimeConfigPolicy: 'maintenance',
+      env: { PDD_DEBUG_RAW: '1' },
+      streams,
+      clock: { now: () => 1_700_000_000_000, sleep: async () => {} },
+      overrides: { browser, mall, auth },
+    });
+
+    try {
+      const cmd = withCommand({
+        name: 'test.batchDebugRaw',
+        needsAuth: true,
+        needsMall: 'none',
+        async run(ctx) {
+          if (ctx.accountSlug === 'shop-b') {
+            throw new PddCliError({
+              code: 'E_BUSINESS',
+              message: 'batch item failed',
+              detail: { raw: { password: 'secret-batch-password', marker: 'batch-error-raw' } },
+              exitCode: ExitCodes.BUSINESS,
+            });
+          }
+          return { headline: ['ok'], raw: { authToken: 'secret-item-token', marker: 'batch-ok-raw' } };
+        },
+      });
+
+      const batch = await cmd({ allAccounts: true, json: true }, { runtime });
+      assert.equal(batch.ok, false);
+      assert.equal(Object.hasOwn(batch.data.accounts['shop-a'].data, 'raw'), false);
+      assert.equal(Object.hasOwn(batch.data.accounts['shop-b'].error.detail, 'raw'), false);
+
+      const stderrLines = readStderr()
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith('{'));
+      const debugEntries = stderrLines.map((line) => JSON.parse(line)).filter((entry) => entry.type === 'raw_debug');
+      const allRawRecords = debugEntries.flatMap((entry) => entry.raw);
+
+      assert.equal(allRawRecords.some((item) => item.value.includes('batch-ok-raw')), true);
+      assert.equal(allRawRecords.some((item) => item.path === 'accounts.shop-b.error.detail.raw' && item.value.includes('batch-error-raw')), true);
+      assert.equal(readStderr().includes('secret-batch-password'), false);
+      assert.equal(readStderr().includes('secret-item-token'), false);
+      assert.equal(readStdout().includes('secret-batch-password'), false);
+      assert.equal(readStdout().includes('secret-item-token'), false);
+    } finally {
+      await runtime.closeAll();
     }
   });
 
