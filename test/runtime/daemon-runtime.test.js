@@ -40,7 +40,9 @@ describe('composeDaemonRuntime', () => {
     try {
       assert.equal(runtime.mode, 'live');
       assert.equal(Object.hasOwn(runtime, 'rawEnv'), false);
-      assert.deepEqual(Object.keys(runtime.ports).sort(), ['auth', 'browser', 'daemonProcess', 'mall']);
+      assert.deepEqual(Object.keys(runtime.ports).sort(), ['auth', 'browser', 'consoleLoginDriver', 'daemonProcess', 'mall']);
+      assert.equal(typeof runtime.ports.consoleLoginDriver.openSession, 'function');
+      assert.deepEqual(runtime.consoleExtraRoutes, []);
       assert.deepEqual(runtime.timings, {
         ttlMs: DAEMON_LEASE.ttlMs,
         heartbeatMs: DAEMON_LEASE.heartbeatMs,
@@ -92,6 +94,8 @@ describe('composeDaemonRuntime', () => {
       assert.equal(valid.mode, 'fixture');
       assert.deepEqual(valid.timings, { ttlMs: 1200, heartbeatMs: 150 });
       assert.equal(patrolIntervalMs(valid.runtimeConfig, valid), 75);
+      assert.equal(typeof valid.ports.consoleLoginDriver.openSession, 'function');
+      assert.equal(valid.consoleExtraRoutes.some((route) => route.template === '/api/sessions/:id/fixture-complete'), true);
       assert.equal(valid.routes.some((route) => route.template === '/api/sessions/:id/fixture-complete'), true);
     } finally {
       await valid.closeAll();

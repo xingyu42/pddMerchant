@@ -5,8 +5,7 @@ import { readConsoleCookie, requireJsonPost, readJson, send, sendHtml } from './
 import { serveStatic } from './static.js';
 import {
   startConsoleSession, startConsoleAddSession, getConsoleSession, consoleSessionFrames, consoleSessionPointer,
-  consoleSessionText, consoleSessionSms, refreshConsoleQr, cancelConsoleSession, completeFixtureConsoleSession,
-  removeConsoleAccount,
+  consoleSessionText, consoleSessionSms, refreshConsoleQr, cancelConsoleSession, removeConsoleAccount,
 } from '../services/console-login.js';
 import { streamFrames } from './sse.js';
 import { getConsolePatrol, setConsolePatrol } from '../services/console-patrol.js';
@@ -90,19 +89,11 @@ const BASE_CONSOLE_ROUTES = Object.freeze([
   },
 ]);
 
-const FIXTURE_CONSOLE_ROUTES = Object.freeze([
-  {
-    method: 'POST',
-    template: '/api/sessions/:id/fixture-complete',
-    pattern: /^\/api\/sessions\/([^/]+)\/fixture-complete$/,
-    run: ({ id, body, runtime }) => completeFixtureConsoleSession(id, body, runtime),
-  },
-]);
-
-export function routesForMode(mode = 'live') {
-  return mode === 'fixture'
-    ? Object.freeze([...BASE_CONSOLE_ROUTES, ...FIXTURE_CONSOLE_ROUTES])
-    : BASE_CONSOLE_ROUTES;
+export function routesForMode(mode = 'live', extraRoutes = []) {
+  if (mode !== 'fixture' || !Array.isArray(extraRoutes) || extraRoutes.length === 0) {
+    return BASE_CONSOLE_ROUTES;
+  }
+  return Object.freeze([...BASE_CONSOLE_ROUTES, ...extraRoutes]);
 }
 
 function redemptionPage({ response }) {
@@ -134,7 +125,7 @@ function authenticated(request, response, path) {
 
 export async function dispatchRoute(request, response, path, runtimeConfig, access, context = {}) {
   const mode = context.runtime?.mode ?? context.mode ?? 'live';
-  const routes = context.routes ?? routesForMode(mode);
+  const routes = context.routes ?? routesForMode(mode, context.runtime?.consoleExtraRoutes);
   const matches = routes.filter((entry) => entry.pattern.test(path));
   const route = matches.find((entry) => entry.method === request.method) ?? matches[0];
   access.route = route?.template ?? (path.startsWith('/api/') ? '/api/*' : '/*');

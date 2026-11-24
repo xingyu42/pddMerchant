@@ -13,7 +13,8 @@ import {
 import { createFixtureDaemonProcessPort } from '../../adapter/fixtures/daemon.js';
 import { createFixtureEndpointTransport } from '../../adapter/fixtures/endpoint.js';
 import { mockCurrentMall, mockListMalls, mockRunEndpoint, mockPasswordLogin } from '../../adapter/mock-dispatcher.js';
-import { FIXTURE_QR_IMAGE, openFixtureTakeover } from '../../adapter/console-login-fixture.js';
+import { FIXTURE_QR_IMAGE, openFixtureTakeover, createFixtureConsoleLoginDriver } from '../../adapter/console-login-fixture.js';
+import { completeFixtureConsoleSession } from '../../services/console-login.js';
 
 function createFixtureHelpers({ fixtureStore, loadFixture, parsedEnv, mall, clock, seal }) {
   return Object.freeze({
@@ -40,7 +41,7 @@ function createFixtureHelpers({ fixtureStore, loadFixture, parsedEnv, mall, cloc
   });
 }
 
-export function createFixtureBundle({ seal, clock, parsedEnv, env, overrides = {} } = {}) {
+export function createFixtureBundle({ seal, clock, parsedEnv, env, overrides = {}, includeConsole = false } = {}) {
   const fixtureStore = overrides.fixtureStore ?? new FixtureStore({
     fixtureDir: parsedEnv?.fixtureDir,
     env: parsedEnv?.testEnv,
@@ -60,6 +61,24 @@ export function createFixtureBundle({ seal, clock, parsedEnv, env, overrides = {
     fixtureStore,
     readEndpoint: mockRunEndpoint,
   });
+  const consoleLoginDriver = includeConsole
+    ? (overrides.consoleLoginDriver ?? createFixtureConsoleLoginDriver({
+        authPort: auth,
+        seal,
+        clock,
+        parsedEnv,
+      }))
+    : null;
+  const consoleExtraRoutes = includeConsole
+    ? (overrides.consoleExtraRoutes ?? Object.freeze([
+        Object.freeze({
+          method: 'POST',
+          template: '/api/sessions/:id/fixture-complete',
+          pattern: /^\/api\/sessions\/([^/]+)\/fixture-complete$/,
+          run: ({ id, body, runtime }) => completeFixtureConsoleSession(id, body, runtime),
+        }),
+      ]))
+    : Object.freeze([]);
   const loadFixture = (relPath) => fixtureStore.load(relPath);
 
   return Object.freeze({
@@ -69,6 +88,8 @@ export function createFixtureBundle({ seal, clock, parsedEnv, env, overrides = {
     auth,
     daemonProcess,
     endpointTransport,
+    consoleLoginDriver,
+    consoleExtraRoutes,
     loadFixture,
     fixture: createFixtureHelpers({ fixtureStore, loadFixture, parsedEnv, mall, clock, seal }),
   });
