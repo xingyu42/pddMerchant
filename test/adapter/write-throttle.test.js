@@ -4,17 +4,22 @@ import { createWriteThrottle } from '../../src/adapter/goods-publish/draft-edito
 import { ExitCodes, PddCliError } from '../../src/infra/errors.js';
 
 describe('createWriteThrottle (private abortable write throttle)', () => {
-  it('waits with zero delay when disabled or in fixture/test mode by default', async () => {
+  it('waits with zero delay when disabled or in fixture mode, and defaults to enabled in live mode', async () => {
     const sleep = vi.fn(async () => {});
     const fixtureThrottle = createWriteThrottle({ mode: 'fixture', tokensPerMinute: 12, sleep });
-    const defaultVitestThrottle = createWriteThrottle({ tokensPerMinute: 12, sleep });
     const disabledThrottle = createWriteThrottle({ enabled: false, tokensPerMinute: 12, sleep });
+    const defaultLiveThrottle = createWriteThrottle({ tokensPerMinute: 12, jitterMs: [100, 100], sleep });
+
+    assert.equal(fixtureThrottle.status().active, false);
+    assert.equal(disabledThrottle.status().active, false);
+    assert.equal(defaultLiveThrottle.status().active, true);
 
     await fixtureThrottle.run('publish.submit', async () => 'ok-fixture');
-    await defaultVitestThrottle.run('publish.submit', async () => 'ok-test');
     await disabledThrottle.run('publish.submit', async () => 'ok-disabled');
-
     assert.equal(sleep.mock.calls.length, 0);
+
+    await defaultLiveThrottle.run('publish.submit', async () => 'ok-live');
+    assert.equal(sleep.mock.calls.length, 1);
   });
 
   it('consumes tokens, applies jitter, refills on interval, and stays instance-scoped when enabled', async () => {

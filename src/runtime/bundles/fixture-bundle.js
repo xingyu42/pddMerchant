@@ -149,7 +149,7 @@ export function createFixtureBundle({ seal, clock, parsedEnv, env, overrides = {
         return Object.freeze({
           ...acquisition,
           async fetch(fetchOpts = {}) {
-            if (fetchOpts.browserSession || fetchOpts.legacyBrowser) {
+            if (fetchOpts.browserSession) {
               return acquisition.fetch(fetchOpts);
             }
             return browserPort.withSession(

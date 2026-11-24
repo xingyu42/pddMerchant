@@ -129,23 +129,25 @@ export function createPatrol({ random = Math.random, clock = defaultClock, persi
     await running;
     running = null;
   };
+  const switchEnabled = async (previous, enabled) => {
+    try { await previous; } catch { /* Previous switch failure keeps prior state. */ }
+    await persist(enabled);
+    if (enabled) begin();
+    else await halt();
+  };
   return {
     async start(nextContext) {
       context = nextContext;
       if (nextContext.runtimeConfig?.patrolEnabled === true) begin();
     },
     setEnabled(enabled) {
-      switching = switching.catch(() => {}).then(async () => {
-        await persist(enabled);
-        if (enabled) begin();
-        else await halt();
-      });
+      switching = switchEnabled(switching, enabled);
       return switching;
     },
     isEnabled: () => Boolean(running),
     async stop() {
       stopped = true;
-      await switching.catch(() => {});
+      try { await switching; } catch { /* Ignore pending switch errors on stop. */ }
       await halt();
     },
   };

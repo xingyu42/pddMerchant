@@ -6,14 +6,12 @@ const DEFAULT_JITTER_MS = Object.freeze([2000, 8000]);
 
 function resolveEnabled(enabled, mode) {
   if (typeof enabled === 'boolean') return enabled;
-  if (mode === 'fixture') return false;
-  if (process.env.VITEST) return false;
-  return true;
+  return mode !== 'fixture';
 }
 
 /**
  * Private instance-scoped abortable write throttle for merchant draft mutations.
- * Responds immediately to AbortSignal and performs zero wait in fixture/test mode.
+ * Responds immediately to AbortSignal and performs zero wait when disabled or in fixture mode.
  */
 export function createWriteThrottle({
   tokensPerMinute = DEFAULT_TOKENS_PER_MINUTE,

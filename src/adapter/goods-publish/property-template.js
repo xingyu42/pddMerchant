@@ -16,6 +16,12 @@ export function normalizeTemplatePropertyName(value) {
   return normalizeTemplateText(value).replace(/^重要\s*/, '');
 }
 
+export function normalizeCompactPropertyText(value) {
+  return normalizeTemplateText(value)
+    .replace(/\s+/g, '')
+    .replace(/^重要/, '');
+}
+
 function normalizeTemplateValue(rawValue) {
   const value = asObject(rawValue);
   if (!value) return null;

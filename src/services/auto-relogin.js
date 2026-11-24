@@ -67,7 +67,7 @@ async function acquireContext({ session, browserPort, tx, ownerTag }) {
   const once = (fn) => {
     let closing;
     return () => {
-      closing ??= Promise.resolve().then(fn);
+      closing ??= (async () => await fn())();
       return closing;
     };
   };

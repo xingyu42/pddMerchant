@@ -1,5 +1,6 @@
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { redactRecursive } from '../infra/logger.js';
+import { appendUniqueWarnings } from '../infra/output.js';
 import { parseGoodsUrl } from './goods-publish/source-normalizer.js';
 import {
   planPreDraftPublish,
@@ -10,12 +11,9 @@ import { runEndpoint } from '../adapter/run-endpoint.js';
 import {
   GOODS_PUBLISH_COST_TEMPLATE_LIST,
 } from '../adapter/endpoints/goods-publish.js';
-import { transformImages } from './image-transform.js';
 import { toCostTemplateView } from './views/goods.js';
 import { toPublishView } from './views/goods-publish.js';
 import { mallIdOf } from './views/_shared.js';
-
-void transformImages;
 
 const STRIPPED_DETAIL_KEYS = new Set([
   'proxy',
@@ -87,20 +85,13 @@ async function runPublishStage(stage, getSourceCached, fn) {
   }
 }
 
-function appendUniqueWarnings(target, incoming) {
-  if (!Array.isArray(target) || !Array.isArray(incoming)) return;
-  for (const warning of incoming) {
-    if (warning && !target.includes(warning)) target.push(warning);
-  }
-}
-
 async function listCostTemplates(ctx) {
   const result = await runEndpoint(ctx.page, GOODS_PUBLISH_COST_TEMPLATE_LIST, {}, ctx);
   const templates = result.templates ?? [];
-  return templates.map((t) => ({
-    id: t.id ?? t.cost_template_id ?? t.costTemplateId ?? null,
-    name: t.name ?? t.costTemplateName ?? '',
-    free_province_need: t.free_province_need ?? null,
+  return templates.map((template) => ({
+    id: template.id ?? template.cost_template_id ?? template.costTemplateId ?? null,
+    name: template.name ?? template.costTemplateName ?? '',
+    free_province_need: template.free_province_need ?? null,
   }));
 }
 
@@ -113,7 +104,8 @@ export async function getCostTemplatesView(ctx) {
 }
 
 async function resolvePublishCostTemplate(ctx, requestedId = null) {
-  const templates = (await listCostTemplates(ctx)).filter((t) => t.id != null && String(t.id) !== '');
+  const templates = (await listCostTemplates(ctx))
+    .filter((template) => template.id != null && String(template.id) !== '');
   if (templates.length === 0) {
     throw new PddCliError({
       code: 'E_BUSINESS',
@@ -124,7 +116,7 @@ async function resolvePublishCostTemplate(ctx, requestedId = null) {
   }
 
   if (requestedId == null || String(requestedId).trim() === '') return templates[0];
-  const selected = templates.find((t) => String(t.id ?? '') === String(requestedId));
+  const selected = templates.find((template) => String(template.id ?? '') === String(requestedId));
   if (selected) return selected;
 
   throw new PddCliError({
@@ -156,7 +148,15 @@ function categoryTextOf(category) {
   return Array.isArray(cates) ? cates.filter(Boolean).join(' > ') : '';
 }
 
-async function prepareAndFetchSource({ ctx, goodsUrl, sourceFetcher, warnings, getSourceCached, setSourceCached }) {
+async function prepareAndFetchSource({
+  ctx,
+  goodsUrl,
+  costTemplateId = null,
+  sourceFetcher,
+  warnings,
+  getSourceCached,
+  setSourceCached,
+}) {
   const acquisition = await runPublishStage('prepare_source', getSourceCached, async () => {
     const prepared = await sourceFetcher.prepare(goodsUrl);
     setSourceCached(Boolean(prepared?.cacheHit));
@@ -164,7 +164,7 @@ async function prepareAndFetchSource({ ctx, goodsUrl, sourceFetcher, warnings, g
   });
 
   const selectedTemplate = await runPublishStage('cost_template', getSourceCached, () =>
-    resolvePublishCostTemplate(ctx, ctx._costTemplateId ?? null),
+    resolvePublishCostTemplate(ctx, costTemplateId),
   );
 
   const source = await runPublishStage('scrape_source', getSourceCached, async () => {
@@ -173,7 +173,6 @@ async function prepareAndFetchSource({ ctx, goodsUrl, sourceFetcher, warnings, g
       consumerAccount: ctx.config?.consumerAccount,
       warnings,
       browserSession: ctx.browserSession,
-      legacyBrowser: ctx.context?.browser?.(),
     });
     appendUniqueWarnings(warnings, acquisition.warnings);
     return fetched;
@@ -252,11 +251,11 @@ async function runPublishFlow(ctx, goodsUrl, opts = {}) {
   let sourceCached = false;
   const getSourceCached = () => sourceCached;
   const { sourceFetcher, categoryResolver, draftEditor } = resolveGoodsPublishPort(ctx);
-  const flowCtx = { ...ctx, _costTemplateId: opts.costTemplateId ?? null };
 
   const { acquisition, selectedTemplate, source: fetchedSource } = await prepareAndFetchSource({
-    ctx: flowCtx,
+    ctx,
     goodsUrl,
+    costTemplateId: opts.costTemplateId ?? null,
     sourceFetcher,
     warnings,
     getSourceCached,

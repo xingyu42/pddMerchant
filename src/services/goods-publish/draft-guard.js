@@ -1,6 +1,11 @@
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { parseYuanToFen } from '../../infra/units.js';
-import { fullCountDiscountPayloadValue } from './draft-planner.js';
+import {
+  costTemplateBodyError,
+  fullCountDiscountPayloadValue,
+  normalizeSkuSpecValue,
+} from '../../adapter/goods-publish/draft-contract.js';
+import { normalizeCompactPropertyText } from '../../adapter/goods-publish/property-template.js';
 
 const DRAFT_DETAIL_SUCCESS_CODES = new Set(['0', '1000000']);
 
@@ -12,22 +17,6 @@ function valueType(value) {
   if (value === null) return 'null';
   if (Array.isArray(value)) return 'array';
   return typeof value;
-}
-
-function normalizeSkuSpecValue(value) {
-  const normalized = String(value ?? '').trim().toLowerCase().replace(/\s+/g, '');
-  return /^\d+(?:\.\d+)?(?:cm|厘米)$/.test(normalized)
-    ? normalized.replace(/(?:cm|厘米)$/, '')
-    : normalized;
-}
-
-function normalizePropertyText(value) {
-  return String(value ?? '')
-    .normalize('NFKC')
-    .replace(/[‐‑‒–—―]/g, '-')
-    .replace(/\s+/g, '')
-    .replace(/^重要/, '')
-    .trim();
 }
 
 function readSpecText(spec) {
@@ -75,8 +64,8 @@ function rawPropertyMatches(rawProperty, expectedProperty, expectedValue) {
   if (expectedProperty.controlType === 1) {
     return vids.includes(String(expectedValue.vid));
   }
-  const values = scalarValues(rawProperty?.value).map(normalizePropertyText).filter(Boolean);
-  const valueMatches = values.includes(normalizePropertyText(expectedValue.value));
+  const values = scalarValues(rawProperty?.value).map(normalizeCompactPropertyText).filter(Boolean);
+  const valueMatches = values.includes(normalizeCompactPropertyText(expectedValue.value));
   if (expectedValue.vid != null) {
     return vids.includes(String(expectedValue.vid)) && valueMatches;
   }
@@ -201,15 +190,6 @@ export function validateDraftEditPayload(body, options = {}) {
       sku_thumb_count: skus.filter((sku) => String(sku?.thumb_url ?? '').trim()).length,
     },
   };
-}
-
-function costTemplateBodyError(message) {
-  return new PddCliError({
-    code: 'E_BUSINESS',
-    message,
-    hint: '确认草稿保存请求仍为 JSON 格式，并包含可注入的编辑 payload',
-    exitCode: ExitCodes.BUSINESS,
-  });
 }
 
 function parseOutgoingBody(postData) {

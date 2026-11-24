@@ -3,6 +3,7 @@ import { getLogger } from '../../../infra/logger.js';
 import { evaluateInMainWorld } from '../../browser.js';
 import { SAVE_DRAFT_SUCCESS_RULE } from '../../endpoints/goods-publish.js';
 import { isSuccessfulResponse } from '../../response-interpreter.js';
+import { costTemplateBodyError } from '../draft-contract.js';
 import { SELECTORS, findFirst } from './dom-helpers.js';
 
 const SAVE_DRAFT_PATH = '/glide/mms/goodsCommit/action/edit';
@@ -14,15 +15,6 @@ function isSaveDraftUrl(url) {
   } catch {
     return String(url ?? '').includes(SAVE_DRAFT_PATH);
   }
-}
-
-function costTemplateBodyError(message) {
-  return new PddCliError({
-    code: 'E_BUSINESS',
-    message,
-    hint: '确认草稿保存请求仍为 JSON 格式，并包含可注入的编辑 payload',
-    exitCode: ExitCodes.BUSINESS,
-  });
 }
 
 function injectCostTemplateOnly(postData, costTemplateId) {
@@ -103,56 +95,62 @@ async function routeSaveDraftWithCostTemplate(page, options, run) {
     return { result, payloadValidation: state.payloadValidation };
   } finally {
     await page.unroute(isSaveDraftUrl, handler).catch((err) => {
-      getLogger().debug({ err: err?.message }, 'form-filler: save-draft unroute failed');
+      getLogger().debug({ err: err?.message }, 'draft-editor: save-draft unroute failed');
     });
   }
+}
+
+async function fetchDraftDetail(page, goodsCommitId) {
+  return evaluateInMainWorld(page, async (id) => {
+    const fetchResponse = await fetch('/glide/v2/mms/query/commit/detail', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ goods_commit_id: id }),
+    });
+    return { http_status: fetchResponse.status, http_ok: fetchResponse.ok, payload: await fetchResponse.json() };
+  }, goodsCommitId);
 }
 
 async function verifyDraft(page, goodsCommitId, log, options = {}) {
   if (typeof options.verifyDraftDetail !== 'function') {
     throw costTemplateBodyError('缺少草稿详情校验器 verifyDraftDetail');
   }
+  let response;
   try {
-    const response = await evaluateInMainWorld(page, async (id) => {
-      const r = await fetch('/glide/v2/mms/query/commit/detail', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ goods_commit_id: id }),
-      });
-      return { http_status: r.status, http_ok: r.ok, payload: await r.json() };
-    }, goodsCommitId);
-
-    const verification = options.verifyDraftDetail(response, {
-      goodsCommitId,
-      expectedCostTemplateId: options.expectedCostTemplateId,
-      expectedFullCountDiscountRate: options.expectedFullCountDiscountRate,
-      strictVerify: false,
-    });
-    log.debug({ goodsCommitId, ...verification.observation }, 'goods-publish: draft verification response observed');
-    if (verification.skipped) {
-      log.warn({ goodsCommitId, ...verification.observation }, 'goods-publish: draft verification unavailable');
-      return verification;
-    }
-    if (!verification.ok) {
-      log.warn({ issues: verification.issues, goodsCommitId }, 'goods-publish: draft verification found issues');
-      if (options.strictVerify) {
-        return options.verifyDraftDetail(response, {
-          goodsCommitId,
-          expectedCostTemplateId: options.expectedCostTemplateId,
-          expectedFullCountDiscountRate: options.expectedFullCountDiscountRate,
-          strictVerify: true,
-        });
-      }
-    } else {
-      log.info({ goodsCommitId }, 'goods-publish: draft verified OK');
-    }
-    return verification;
+    response = await fetchDraftDetail(page, goodsCommitId);
   } catch (err) {
     const verification = options.verifyDraftDetail(err);
     log.warn({ goodsCommitId, ...verification.observation }, 'goods-publish: draft verification unavailable');
     return verification;
   }
+
+  let verification;
+  try {
+    verification = options.verifyDraftDetail(response, {
+      goodsCommitId,
+      expectedCostTemplateId: options.expectedCostTemplateId,
+      expectedFullCountDiscountRate: options.expectedFullCountDiscountRate,
+      strictVerify: Boolean(options.strictVerify),
+    });
+  } catch (err) {
+    if (err instanceof PddCliError && Array.isArray(err.detail?.issues)) {
+      log.warn({ issues: err.detail.issues, goodsCommitId }, 'goods-publish: draft verification found issues');
+    }
+    throw err;
+  }
+
+  log.debug({ goodsCommitId, ...verification.observation }, 'goods-publish: draft verification response observed');
+  if (verification.skipped) {
+    log.warn({ goodsCommitId, ...verification.observation }, 'goods-publish: draft verification unavailable');
+    return verification;
+  }
+  if (!verification.ok) {
+    log.warn({ issues: verification.issues, goodsCommitId }, 'goods-publish: draft verification found issues');
+  } else {
+    log.info({ goodsCommitId }, 'goods-publish: draft verified OK');
+  }
+  return verification;
 }
 
 export async function clickSaveDraft(page, goodsCommitId, options = {}) {
@@ -164,7 +162,7 @@ export async function clickSaveDraft(page, goodsCommitId, options = {}) {
 
   const routed = await routeSaveDraftWithCostTemplate(page, options, () =>
     Promise.all([
-      page.waitForResponse((r) => isSaveDraftUrl(r.url()), { timeout: 30000 }),
+      page.waitForResponse((response) => isSaveDraftUrl(response.url()), { timeout: 30000 }),
       saveBtn.click(),
     ]),
   );

@@ -1,6 +1,11 @@
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { parseYuanToFen } from '../../infra/units.js';
 import {
+  checkDiscountRateValue,
+  validateFullCountDiscountRate,
+  fullCountDiscountPayloadValue,
+} from '../../adapter/goods-publish/draft-contract.js';
+import {
   normalizeTemplateText,
   normalizeTemplatePropertyName,
   normalizeGoodsPropertyTemplate,
@@ -60,40 +65,6 @@ function buildSingleSkuPricing(sku, warnings) {
     singlePrice: ((sourceNormalPriceCents ?? 0) / 100).toFixed(2),
     stock,
   };
-}
-
-function checkDiscountRateValue(discountRate) {
-  if (typeof discountRate !== 'number' && typeof discountRate !== 'string') return null;
-  if (typeof discountRate === 'string' && discountRate.trim() === '') return null;
-  const rate = Number(discountRate);
-  const payloadValue = Math.round(rate * 100);
-  if (!Number.isFinite(rate)
-    || rate < 0.5
-    || rate > 0.99
-    || Math.abs((rate * 100) - payloadValue) >= 1e-9) {
-    return null;
-  }
-  return {
-    rate: payloadValue / 100,
-    displayValue: (payloadValue / 10).toFixed(1),
-    payloadValue,
-  };
-}
-
-export function validateFullCountDiscountRate(discountRate) {
-  const parsed = checkDiscountRateValue(discountRate);
-  if (parsed) return parsed;
-  throw new PddCliError({
-    code: 'E_CONFIG_INVALID',
-    message: '满件折扣运行配置无效',
-    hint: '将 fullCountDiscountRate 配置为 0.50-0.99，步长 0.01',
-    detail: { field: 'fullCountDiscountRate', value_type: typeof discountRate },
-    exitCode: ExitCodes.GENERAL,
-  });
-}
-
-export function fullCountDiscountPayloadValue(discountRate) {
-  return validateFullCountDiscountRate(discountRate).payloadValue;
 }
 
 export function buildPricingPlan(source) {
@@ -183,7 +154,9 @@ function maxSinglePriceCentsOf(single, skuPricing) {
 function appendPricingWarnings(plan, group, constraints, warnings) {
   const maxRatio = constraints.maxSkuRatio ?? PRICING_DEFAULTS.maxSkuRatio;
   if (Array.isArray(plan.skuPrices) && plan.skuPrices.length > 1) {
-    const prices = plan.skuPrices.map((p) => Number.parseFloat(p)).filter((p) => Number.isFinite(p) && p > 0);
+    const prices = plan.skuPrices
+      .map((price) => Number.parseFloat(price))
+      .filter((price) => Number.isFinite(price) && price > 0);
     if (prices.length > 1) {
       const ratio = Math.max(...prices) / Math.min(...prices);
       if (ratio > maxRatio) warnings.push(`SKU price ratio ${ratio.toFixed(1)} exceeds limit ${maxRatio}`);
@@ -538,4 +511,9 @@ export async function convergeDynamicProperties({
   });
 }
 
-export { normalizeGoodsPropertyTemplate, mergeDynamicPropertyTemplate };
+export {
+  normalizeGoodsPropertyTemplate,
+  mergeDynamicPropertyTemplate,
+  validateFullCountDiscountRate,
+  fullCountDiscountPayloadValue,
+};

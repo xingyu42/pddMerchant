@@ -1,23 +1,16 @@
 import { PddCliError, ExitCodes } from '../../../infra/errors.js';
 import { getLogger } from '../../../infra/logger.js';
+import { validateFullCountDiscountRate } from '../draft-contract.js';
+import { normalizeCompactPropertyText } from '../property-template.js';
 
 const SIZE_CHART_DISABLE_SELECTOR = 'a[data-tracking-click-viewid="disable_size_chart"]';
 const SIZE_CHART_TABLE_SELECTOR = '[class*="sizeChart_sizeTable"]';
 const FULL_COUNT_DISCOUNT_SELECTOR = 'input[data-tracking-viewid="count_discount"]';
 
-function normalizePropertyText(value) {
-  return String(value ?? '')
-    .normalize('NFKC')
-    .replace(/[‐‑‒–—―]/g, '-')
-    .replace(/\s+/g, '')
-    .replace(/^重要/, '')
-    .trim();
-}
-
 function matchPropertyRowIndex(labels, targetName) {
-  const expected = normalizePropertyText(targetName);
+  const expected = normalizeCompactPropertyText(targetName);
   const matches = (Array.isArray(labels) ? labels : [])
-    .map((label, index) => ({ label: normalizePropertyText(label), index }))
+    .map((label, index) => ({ label: normalizeCompactPropertyText(label), index }))
     .filter((item) => item.label === expected);
   return matches.length === 1 ? matches[0].index : -1;
 }
@@ -52,7 +45,7 @@ async function resolvePropertyRow(page, property) {
   if (rowIndex >= 0) return rows.nth(rowIndex);
 
   const matchCount = labels.filter((label) =>
-    normalizePropertyText(label) === normalizePropertyText(property.name)
+    normalizeCompactPropertyText(label) === normalizeCompactPropertyText(property.name)
   ).length;
   throw propertyFillError('property_row_unmapped', '商品属性行无法唯一匹配', property, {
     row_match_count: matchCount,
@@ -90,7 +83,7 @@ async function waitForUniqueOption(page, options, property, expected) {
   let matchCount = 0;
   for (let attempt = 0; attempt < 15; attempt += 1) {
     const texts = await options.allInnerTexts();
-    matchCount = texts.filter((text) => normalizePropertyText(text) === expected).length;
+    matchCount = texts.filter((text) => normalizeCompactPropertyText(text) === expected).length;
     if (matchCount > 0) break;
     await page.waitForTimeout(100);
   }
@@ -106,13 +99,13 @@ async function selectPropertyValue(page, property, expectedValue) {
   await typePropertySearch(row, property, expectedValue);
 
   const options = page.locator('ul[role="listbox"]:visible li[role="option"]:visible');
-  const expected = normalizePropertyText(expectedValue);
+  const expected = normalizeCompactPropertyText(expectedValue);
   await waitForUniqueOption(page, options, property, expected);
 
   try {
     const texts = await options.allInnerTexts();
     const matches = texts
-      .map((text, index) => ({ text: normalizePropertyText(text), index }))
+      .map((text, index) => ({ text: normalizeCompactPropertyText(text), index }))
       .filter((item) => item.text === expected);
     if (matches.length !== 1) throw new Error('exact option changed during click');
     // Trusted pointer click is required to fire PDD's dependent-property chain.
@@ -135,12 +128,12 @@ async function readPropertyValues(page, property) {
     row.innerText().catch(() => ''),
   ]);
   const exactValues = [...inputValues, ...inputPlaceholders, ...chipTexts]
-    .map(normalizePropertyText)
+    .map(normalizeCompactPropertyText)
     .filter(Boolean);
-  const normalizedRowText = normalizePropertyText(rowText)
-    .replace(normalizePropertyText(property.name), '');
+  const normalizedRowText = normalizeCompactPropertyText(rowText)
+    .replace(normalizeCompactPropertyText(property.name), '');
   return property.values.every((item) => {
-    const expected = normalizePropertyText(item.value);
+    const expected = normalizeCompactPropertyText(item.value);
     return exactValues.includes(expected) || normalizedRowText.includes(expected);
   });
 }
@@ -236,23 +229,8 @@ export async function disableSizeChart(page, options = {}) {
   });
 }
 
-function fullCountDiscountPayloadValue(discountRate) {
-  const rate = Number(discountRate);
-  const payloadValue = Math.round(rate * 100);
-  if (!Number.isFinite(rate) || rate < 0.5 || rate > 0.99 || Math.abs((rate * 100) - payloadValue) >= 1e-9) {
-    throw new PddCliError({
-      code: 'E_CONFIG_INVALID',
-      message: '满件折扣运行配置无效',
-      hint: '将 fullCountDiscountRate 配置为 0.50-0.99，步长 0.01',
-      detail: { field: 'fullCountDiscountRate', value_type: typeof discountRate },
-      exitCode: ExitCodes.GENERAL,
-    });
-  }
-  return payloadValue;
-}
-
 export async function fillFullCountDiscount(page, discountRate, log = getLogger()) {
-  const payloadValue = fullCountDiscountPayloadValue(discountRate);
+  const { rate, displayValue, payloadValue } = validateFullCountDiscountRate(discountRate);
   const input = page.locator(FULL_COUNT_DISCOUNT_SELECTOR);
   const count = await input.count();
   if (count !== 1) {
@@ -264,7 +242,6 @@ export async function fillFullCountDiscount(page, discountRate, log = getLogger(
     });
   }
 
-  const displayValue = (payloadValue / 10).toFixed(1);
   await input.fill(displayValue);
   await input.blur();
   const actualValue = Number(await input.inputValue());
@@ -278,5 +255,5 @@ export async function fillFullCountDiscount(page, discountRate, log = getLogger(
   }
 
   log.info({ full_count_discount_percent: payloadValue }, 'goods-publish: full-count discount filled');
-  return { rate: payloadValue / 100, displayValue, payloadValue };
+  return { rate, displayValue, payloadValue };
 }
