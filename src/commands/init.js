@@ -27,9 +27,12 @@ async function resolveLoginAuthTarget({ account } = {}) {
   return account ? resolveAccountContext({ account, needsAuth: false }) : { accountId: null, account: null };
 }
 
-export async function runInteractiveLogin(options = {}) {
+export async function runInteractiveLogin(options = {}, extra = {}) {
   const { json = false, command = 'init', qr = false, headed = false } = options;
-  const startedAt = Date.now();
+  const runtime = options.runtime ?? extra?.runtime;
+  const clockNow = () => (runtime?.clock?.now ? runtime.clock.now() : Date.now());
+  const emitResult = runtime?.outputSink?.emit ?? emit;
+  const startedAt = clockNow();
   try {
     const target = await resolveLoginAuthTarget(options);
     const timeoutMs = typeof options.timeoutMs === 'number' && Number.isFinite(options.timeoutMs)
@@ -44,17 +47,18 @@ export async function runInteractiveLogin(options = {}) {
         expectedMallId: target.account?.identity,
         signal: options.signal, deadlineAt,
         onQrCaptured: qr ? buildQrCallback({ json, timeoutMs }) : undefined,
+        runtime,
       });
-    }, { accountId: target.accountId, signal: options.signal, deadlineAt });
-    return emit({
+    }, { accountId: target.accountId, signal: options.signal, deadlineAt, seal: runtime?.seal, clock: runtime?.clock });
+    return emitResult({
       ok: true, command, data: toMerchantLoginView(provisioned.result, provisioned),
-      meta: { latency_ms: Date.now() - startedAt, exit_code: ExitCodes.OK, warnings: [] },
-    }, { json });
+      meta: { latency_ms: clockNow() - startedAt, exit_code: ExitCodes.OK, warnings: [] },
+    }, { json, noColor: options.noColor });
   } catch (error) {
-    return emit(errorToEnvelope(command, error, { latency_ms: Date.now() - startedAt }), { json });
+    return emitResult(errorToEnvelope(command, error, { latency_ms: clockNow() - startedAt }), { json, noColor: options.noColor });
   }
 }
 
-export async function run(options = {}) {
-  return runInteractiveLogin({ ...options, command: 'init' });
+export async function run(options = {}, extra = {}) {
+  return runInteractiveLogin({ ...options, command: 'init', runtime: options.runtime ?? extra?.runtime });
 }

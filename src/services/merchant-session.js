@@ -2,19 +2,18 @@ import { assertMerchantVerified } from '../adapter/merchant-auth.js';
 import { verifyStoredMerchant, recordMerchantCheck } from '../adapter/merchant-auth-storage.js';
 import { assertAuthTask } from '../infra/auth-task.js';
 import { probeCheckLogin, selectCheckCookiesFromState } from '../adapter/merchant-auth-probe.js';
-import { mockIsAuthValid, mockIsAuthIndeterminate } from '../adapter/mock-dispatcher.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { reloginInCommand, reloginForFixture, fixtureSessionRecovered } from './password-relogin.js';
 
 // 核验已保存材料并记录非 verified 结果；login 把明确失效交回人工授权，command/patrol 进入重登。
 // 只读核验（doctor、成功后的复核）直接调用 adapter，不经过本模块。
-export async function checkMerchantSession(context, { tx, task = {}, mode = 'command', runtime = task, browser } = {}) {
+export async function checkMerchantSession(context, { tx, task = {}, mode = 'command', runtime = task, browser, session } = {}) {
   const result = await verifyStoredMerchant(context, tx.state, task);
   if (mode === 'patrol') assertAuthTask(task);
   if (result.verdict !== 'verified') recordMerchantCheck(result, tx);
   if (result.verdict === 'rejected') {
     if (mode === 'login') return { result };
-    const replacement = await reloginInCommand(runtime, tx, browser, result);
+    const replacement = await reloginInCommand(runtime, tx, session ?? browser, result);
     return { result, replacement, mallId: tx.state?.merchant_auth?.mall_id };
   }
   assertMerchantVerified(result);
@@ -42,10 +41,17 @@ export async function probeMerchantSession(tx, task) {
 
 // 保留 fixture 原有的免记录检查策略，成功恢复共用已验证候选提交。
 export async function checkFixtureMerchantSession(accountId, runtime, { tx } = {}) {
-  if (mockIsAuthIndeterminate()) {
+  const fixtureHelpers = runtime?.fixture ?? await import('../adapter/fixtures/auth.js');
+  const isIndeterminate = runtime?.fixture
+    ? fixtureHelpers.mockIsAuthIndeterminate()
+    : fixtureHelpers.mockIsAuthIndeterminate(runtime?.env);
+  if (isIndeterminate) {
     throw new PddCliError({ code: 'E_AUTH_CHECK_INDETERMINATE', message: '无法确认登录状态', exitCode: ExitCodes.NETWORK });
   }
-  if (!mockIsAuthValid() && !fixtureSessionRecovered(accountId)) {
+  const isValid = runtime?.fixture
+    ? fixtureHelpers.mockIsAuthValid()
+    : fixtureHelpers.mockIsAuthValid(runtime?.env);
+  if (!isValid && !fixtureSessionRecovered(accountId)) {
     await reloginForFixture(accountId, runtime, { tx });
   }
 }

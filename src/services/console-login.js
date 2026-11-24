@@ -1,8 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { withMerchantAuthUpdate } from '../adapter/merchant-auth-storage.js';
 import { assertAuthTask } from '../infra/auth-task.js';
-import { isMockEnabled, mockPasswordLogin } from '../adapter/mock-dispatcher.js';
-import { FIXTURE_QR_IMAGE, openFixtureTakeover } from '../adapter/console-login-fixture.js';
 import { invalidTakeoverInput, validateSmsCode } from '../adapter/takeover.js';
 import { findAccountByIdentity } from '../infra/account-store.js';
 import { assertPasswordCredential } from '../adapter/password-credential.js';
@@ -13,7 +11,6 @@ import { removeAccountView } from './account-removal.js';
 import { consoleRequestError } from './console-runtime.js';
 import { saveMerchantLogin, provisionMerchantLogin } from './auth-account-storage.js';
 import { decideRelogin, beginReloginAttempt, recordTakeoverTimeout, setAccountPassword } from './password-relogin.js';
-import { createFixtureReloginContext } from '../adapter/fixtures/auth.js';
 import { verifyMerchantContext, assertMerchantVerified } from '../adapter/merchant-auth.js';
 import { openConsoleBrowser, attemptConsolePassword, captureConsoleQr, openConsoleTakeover,
   consoleHasPassId, verifyConsoleLogin, closeConsoleBrowser, submitConsoleSms } from './console-login-browser.js';
@@ -31,8 +28,6 @@ const ADD_FAILURES = Object.freeze({
   form_changed: '自动填写失败，店铺未添加',
   network_error: '网络异常，店铺未添加，请重试',
 });
-
-export const consoleFixtureEnabled = isMockEnabled;
 
 function assertStart(account, mode) {
   if (!['password', 'qr'].includes(mode)) throw invalidTakeoverInput();
@@ -68,37 +63,39 @@ function assertRunning(signal) {
 }
 
 // 同一 key（账号 ID，新增账号统一为 add）的新会话取代旧会话；最多两个 key 同时活跃。
-function registerSession(fields, { ownerTag, signal }, operation) {
+function registerSession(fields, { ownerTag, signal, runtime }, operation) {
   const active = activeSessions();
   const old = active.filter((session) => session.key === fields.key).at(-1);
   if (new Set(active.filter((session) => session.key !== fields.key).map((session) => session.key)).size >= 2) {
     throw consoleRequestError(429, 'E_CONSOLE_BUSY', '已有两个登录正在进行，请稍后再试');
   }
   old?.controller.abort();
+  const nowFn = runtime?.clock?.now ?? Date.now;
   const session = { id: randomBytes(16).toString('base64url'), ...fields, ownerTag,
     controller: new AbortController(), state: 'filling', message: null, qrImage: null,
-    expiresAt: Date.now() + SESSION_MS, fixture: isMockEnabled() };
+    expiresAt: nowFn() + SESSION_MS, fixture: runtime?.mode === 'fixture', runtime };
   sessions.set(session.id, session);
   session.done = runSession(session, old?.done, signal, () => operation(session));
   return { session_id: session.id };
 }
 
-export function startConsoleSession(slug, { mode, ownerTag, signal } = {}) {
+export function startConsoleSession(slug, { mode, ownerTag, signal, runtime } = {}) {
   assertRunning(signal);
   const account = consoleAccount(slug);
   assertStart(account, mode);
-  return registerSession({ key: account.id, accountId: account.id, mode }, { ownerTag, signal },
+  return registerSession({ key: account.id, accountId: account.id, mode }, { ownerTag, signal, runtime },
     (session) => withMerchantAuthUpdate(account.id, (tx) => executeSession(session, tx, account), {
       recoveryMallId: account.identity, deadlineAt: session.deadlineAt, signal: session.controller.signal,
+      seal: runtime?.seal, clock: runtime?.clock,
     }));
 }
 
 // 新增账号：凭据只留在会话内存里直到会话结束，请求体字段用完即删。
-export function startConsoleAddSession(body, { ownerTag, signal } = {}) {
+export function startConsoleAddSession(body, { ownerTag, signal, runtime } = {}) {
   try {
     assertRunning(signal);
     const credential = assertPasswordCredential({ loginName: body?.login_name, password: body?.password });
-    return registerSession({ key: 'add', accountId: null, mode: 'add', credential }, { ownerTag, signal }, executeAddSession);
+    return registerSession({ key: 'add', accountId: null, mode: 'add', credential }, { ownerTag, signal, runtime }, executeAddSession);
   } finally {
     if (body && typeof body === 'object') { delete body.login_name; delete body.password; }
   }
@@ -111,11 +108,19 @@ function setWindow(session, state, duration) {
   session.message = state === 'sms' ? '短信验证码已发送到绑定手机' : null;
 }
 
+async function runFixturePasswordLogin(session, task) {
+  if (session.runtime?.fixture?.mockPasswordLogin) {
+    return session.runtime.fixture.mockPasswordLogin(task);
+  }
+  const { mockPasswordLogin } = await import('../adapter/fixtures/auth.js');
+  return mockPasswordLogin(task, session.runtime?.env);
+}
+
 async function beginPassword(session, tx) {
   const decision = decideRelogin(tx.accountId, { manual: true, decrypt: false });
   if (decision.action === 'fail') throw decision.error;
   session.attempt = consoleReloginAttempt(session, tx, decision);
-  const outcome = session.fixture ? await mockPasswordLogin({ ...tx, deadlineAt: Date.now() + 70_000 })
+  const outcome = session.fixture ? await runFixturePasswordLogin(session, { ...tx, deadlineAt: Date.now() + 70_000 })
     : await attemptConsolePassword(session, tx);
   assertAuthTask(tx);
   if (outcome.outcome === 'success') return true;
@@ -130,15 +135,23 @@ async function beginPassword(session, tx) {
 
 async function awaitHuman(session, challenge) {
   if (challenge === 'sms') return setWindow(session, 'sms', TAKEOVER_MS);
-  if (session.fixture) session.takeover = openFixtureTakeover();
-  else await openConsoleTakeover(session);
+  if (session.fixture) {
+    const { openFixtureTakeover } = session.runtime?.fixture ?? await import('../adapter/console-login-fixture.js');
+    session.takeover = openFixtureTakeover();
+  } else {
+    await openConsoleTakeover(session);
+  }
   setWindow(session, 'takeover', TAKEOVER_MS);
 }
 
 async function beginQr(session) {
   setWindow(session, 'qr', TIMEOUTS.LOGIN_QR);
-  if (session.fixture) session.qrImage = FIXTURE_QR_IMAGE;
-  else await refreshQrImage(session);
+  if (session.fixture) {
+    const { FIXTURE_QR_IMAGE } = session.runtime?.fixture ?? await import('../adapter/console-login-fixture.js');
+    session.qrImage = FIXTURE_QR_IMAGE;
+  } else {
+    await refreshQrImage(session);
+  }
 }
 
 async function waitForLogin(session, tx) {
@@ -164,12 +177,27 @@ function consoleReloginAttempt(session, tx, decision = {}) {
     }) });
 }
 
+async function verifyFixtureConsoleLogin(session, tx) {
+  const { createFixtureReloginContext, verifyFixtureMerchantContext } = session.runtime?.fixture
+    ?? await import('../adapter/fixtures/auth.js');
+  const context = createFixtureReloginContext(tx.recoveryMallId);
+  if (session.runtime?.ports?.auth?.verifyAndSeal) {
+    return session.runtime.ports.auth.verifyAndSeal(context, {
+      ...tx,
+      expectedMallId: tx.recoveryMallId,
+      seal: session.runtime.seal,
+    });
+  }
+  const verify = verifyFixtureMerchantContext ?? (await import('../adapter/fixtures/auth.js')).verifyFixtureMerchantContext;
+  return verify(context, { ...tx, expectedMallId: tx.recoveryMallId });
+}
+
 async function commitLogin(session, tx) {
   session.state = 'verifying';
   session.message = null;
   session.qrImage = null;
   const result = session.fixture
-    ? await verifyMerchantContext(createFixtureReloginContext(tx.recoveryMallId), { ...tx, expectedMallId: tx.recoveryMallId })
+    ? await verifyFixtureConsoleLogin(session, tx)
     : await verifyConsoleLogin(session, tx);
   assertMerchantVerified(result);
   const attempt = session.attempt ?? consoleReloginAttempt(session, tx);
@@ -193,9 +221,14 @@ async function executeSession(session, tx, account) {
 
 // 新增账号不持有账号租约、不写重登状态；登录失败直接结束会话，挑战照常交给人。
 async function executeAddSession(session) {
-  const task = { signal: session.controller.signal, deadlineAt: session.deadlineAt };
+  const task = {
+    signal: session.controller.signal,
+    deadlineAt: session.deadlineAt,
+    ...(session.runtime?.seal ? { seal: session.runtime.seal } : {}),
+    ...(session.runtime?.clock ? { clock: session.runtime.clock } : {}),
+  };
   if (!session.fixture) await openConsoleBrowser(session, task, EMPTY_STATE);
-  const attempt = session.fixture ? await mockPasswordLogin({ ...task, deadlineAt: Date.now() + 70_000 })
+  const attempt = session.fixture ? await runFixturePasswordLogin(session, { ...task, deadlineAt: Date.now() + 70_000 })
     : await attemptConsolePassword(session, task, session.credential);
   assertAuthTask(task);
   if (!['success', 'challenge'].includes(attempt.outcome)) {
@@ -214,7 +247,9 @@ async function executeAddSession(session) {
 async function commitAddedAccount(session, task) {
   session.state = 'verifying';
   session.message = null;
-  const result = await verifyConsoleLogin(session, task);
+  const result = session.fixture
+    ? await verifyFixtureConsoleLogin(session, { ...task, recoveryMallId: null })
+    : await verifyConsoleLogin(session, task);
   const existed = findAccountByIdentity('merchant', result.identity.mallId) !== null;
   const { account } = await provisionMerchantLogin(async () => result, task);
   setAccountPassword(account.id, session.credential);
@@ -344,8 +379,8 @@ export async function cancelConsoleSession(id) {
   return { ok: true };
 }
 
-export async function completeFixtureConsoleSession(id, body) {
-  if (!isMockEnabled()) throw consoleRequestError(404, 'E_NOT_FOUND', '接口不存在');
+export async function completeFixtureConsoleSession(id, body, runtime) {
+  if (runtime?.mode !== 'fixture') throw consoleRequestError(404, 'E_NOT_FOUND', '接口不存在');
   const session = findSession(id);
   if (!session.fixture || !['takeover', 'sms', 'qr'].includes(session.state)) throw consoleRequestError(409, 'E_CONSOLE_SESSION_STATE', '登录状态已变化');
   if (!['success', 'timeout'].includes(body?.outcome)) throw invalidTakeoverInput();

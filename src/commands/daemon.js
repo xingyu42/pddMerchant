@@ -21,4 +21,12 @@ export const stop = withCommand({ ...options, name: 'daemon.stop',
 export const status = withCommand({ ...options, name: 'daemon.status',
   run: (ctx) => getDaemonStatus(ctx.runtimeConfig) });
 export const run = withCommand({ ...options, name: 'daemon.run',
-  async run(ctx) { return toDaemonRunView(await runDaemon(ctx)); } });
+  async run(ctx) {
+    return toDaemonRunView(await runDaemon({
+      signal: ctx.signal,
+      runtimeConfig: ctx.runtimeConfig,
+      mode: ctx.runtime?.mode,
+      env: ctx.runtime?.rawEnv,
+      clock: ctx.clock,
+    }));
+  } });

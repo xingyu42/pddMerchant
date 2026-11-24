@@ -1,5 +1,4 @@
 import { PddCliError, ExitCodes, softRiskControlDetected } from '../../infra/errors.js';
-import { isMockEnabled, loadFixture } from '../mock-dispatcher.js';
 import { simulateHumanBrowsing } from '../behavior-simulator.js';
 import { detectPageRisk } from './risk-detector.js';
 import { getSharedSessionHealth } from '../../infra/session-health.js';
@@ -142,14 +141,14 @@ function riskToError(signal) {
 }
 
 export async function scrapeSourceGoods(page, goodsId, ctx = {}) {
-  if (isMockEnabled()) return loadFixture('goods-publish/source.json');
+  if (ctx.runtime?.mode === 'fixture') return ctx.runtime.loadFixture('goods-publish/source.json');
 
   const health = ctx.sessionHealth ?? getSharedSessionHealth();
   const cooldown = ctx.scrapeCooldown ?? getSharedScrapeCooldown({
     threshold: ctx.runtimeConfig?.scrapeSoftBlockThreshold,
     cooldownMs: ctx.runtimeConfig?.scrapeSoftBlockCooldownMs,
   });
-  const simulate = process.env.PDD_SCRAPE_SIMULATE !== '0';
+  const simulate = ctx.runtime?.env?.scrapeSimulate ?? true;
   const random = ctx.random ?? Math.random;
 
   function scoreSourceData(candidateData) {

@@ -4,12 +4,14 @@ import { FixtureStore, loadFixture } from './core.js';
 import { buildMallContext, normalizeMallRecord } from '../mall-context.js';
 import { requireMallId } from '../mall-id.js';
 
-export function mockListMalls() {
-  return loadFixture('shops.list.json');
+export function mockListMalls(storeOrEnv) {
+  if (storeOrEnv instanceof FixtureStore) return storeOrEnv.load('shops.list.json');
+  return loadFixture('shops.list.json', storeOrEnv);
 }
 
-export function mockCurrentMall() {
-  return loadFixture('shops.current.json');
+export function mockCurrentMall(storeOrEnv) {
+  if (storeOrEnv instanceof FixtureStore) return storeOrEnv.load('shops.current.json');
+  return loadFixture('shops.current.json', storeOrEnv);
 }
 
 export function mockSwitchTo(mallId) {

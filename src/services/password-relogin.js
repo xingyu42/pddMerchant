@@ -5,8 +5,6 @@ import { attemptPasswordLogin } from '../adapter/password-login.js';
 import { loadAuthState } from '../adapter/auth-state.js';
 import { withMerchantAuthUpdate, commitMerchantCandidate } from '../adapter/merchant-auth-storage.js';
 import { assertAuthTask } from '../infra/auth-task.js';
-import { mockPasswordLogin } from '../adapter/mock-dispatcher.js';
-import { hasFixtureRelogin, createFixtureReloginContext } from '../adapter/fixtures/auth.js';
 import { getAccountById, getCredential, getReloginState, putReloginState,
   ensureOpenPendingAction, resolveOpenPendingActions, listPendingActions } from '../infra/account-store.js';
 import { transaction, isInTransaction } from '../infra/db.js';
@@ -218,16 +216,21 @@ export function getAccountActionWarnings(accountId, slug) {
     .map((action) => ({ code: 'account_action_required', account: slug, reason: action.reason }));
 }
 
+function hasReloginMarker(state) {
+  return state?.cookies?.some((cookie) => cookie.name === 'PDD_FIXTURE_RELOGIN' && cookie.value === '1') ?? false;
+}
+
 export function fixtureSessionRecovered(accountId) {
-  return hasFixtureRelogin(loadAuthState(accountId).state);
+  return hasReloginMarker(loadAuthState(accountId).state);
 }
 
 async function withReloginBudget(runtime, tx, operation) {
+  const nowFn = () => (runtime?.clock?.now ? runtime.clock.now() : Date.now());
   runtime.deadline.pause();
   const controller = new AbortController();
   const task = {
     signal: runtime.signal ? AbortSignal.any([runtime.signal, controller.signal]) : controller.signal,
-    deadlineAt: Date.now() + TIMEOUTS.LOGIN_PASSWORD,
+    deadlineAt: nowFn() + TIMEOUTS.LOGIN_PASSWORD,
   };
   const timer = setTimeout(() => controller.abort(new PddCliError({ code: 'E_AUTH_TIMEOUT', exitCode: ExitCodes.NETWORK })), TIMEOUTS.LOGIN_PASSWORD);
   const previousSignal = tx.signal;
@@ -280,7 +283,7 @@ export function deviceState(tx) {
   return structuredClone({ cookies: tx.state.cookies.filter((cookie) => cookie.name !== 'PASS_ID'), origins: tx.state.origins });
 }
 
-export async function reloginInCommand(runtime, tx, browser, authResult) {
+export async function reloginInCommand(runtime, tx, browserOrSession, authResult) {
   const decision = beginRelogin(tx, runtime, authResult);
   return withReloginBudget(runtime, tx, async (task) => {
     let context;
@@ -289,7 +292,13 @@ export async function reloginInCommand(runtime, tx, browser, authResult) {
     task.signal.addEventListener('abort', onAbort, { once: true });
     try {
       await runRelogin(tx, decision, task, async (credential) => {
-        context = await createSnapshotContext(browser, deviceState(tx));
+        const hasSessionSnapshot = typeof browserOrSession?.createSnapshotContext === 'function';
+        const createSnapshotFn = hasSessionSnapshot
+          ? (_browser, state) => browserOrSession.createSnapshotContext(state)
+          : createSnapshotContext;
+        context = await (hasSessionSnapshot
+          ? browserOrSession.createSnapshotContext(deviceState(tx))
+          : createSnapshotContext(browserOrSession, deviceState(tx)));
         assertAuthTask(task);
         const loginPage = await context.newPage();
         const loginTask = { ...task, deadlineAt: task.deadlineAt - TIMEOUTS.LOGIN_PASSWORD_RESERVE };
@@ -297,10 +306,12 @@ export async function reloginInCommand(runtime, tx, browser, authResult) {
         assertAuthTask(task);
         if (result.outcome !== 'success') return result;
         await loginPage.close();
-        const verified = await verifyMerchantContext(context, {
+        const verifyContext = runtime?.ports?.auth?.verifyAndSeal ?? verifyMerchantContext;
+        const verified = await verifyContext(context, {
           ...task,
           expectedMallId: tx.recoveryMallId,
-          createSnapshotContext,
+          createSnapshotContext: createSnapshotFn,
+          seal: runtime?.seal,
         });
         if (verified.verdict !== 'verified') return { outcome: 'verify_failed', verification: verified };
         return { ...result, candidate: verified.candidate };
@@ -318,17 +329,38 @@ export async function reloginInCommand(runtime, tx, browser, authResult) {
 
 export async function reloginForFixture(accountId, runtime, { tx: heldTransaction } = {}) {
   const operation = async (tx) => {
-    if (hasFixtureRelogin(tx.state)) return;
+    if (hasReloginMarker(tx.state)) return;
     const decision = beginRelogin(tx, runtime);
     return withReloginBudget(runtime, tx, (task) => runRelogin(tx, decision, task, async () => {
-      const result = await mockPasswordLogin(task);
+      const fixtureHelpers = runtime?.fixture ?? await import('../adapter/fixtures/auth.js');
+      const result = runtime?.fixture
+        ? await fixtureHelpers.mockPasswordLogin(task)
+        : await fixtureHelpers.mockPasswordLogin(task, runtime?.env);
       if (result.outcome !== 'success') return result;
-      const context = createFixtureReloginContext(tx.recoveryMallId);
-      const verified = await verifyMerchantContext(context, { ...task, expectedMallId: tx.recoveryMallId });
+      const context = fixtureHelpers.createFixtureReloginContext(tx.recoveryMallId);
+      let verified;
+      if (runtime?.ports?.auth?.verifyAndSeal) {
+        verified = await runtime.ports.auth.verifyAndSeal(context, {
+          ...task,
+          expectedMallId: tx.recoveryMallId,
+          seal: runtime?.seal,
+        });
+      } else {
+        const { verifyFixtureMerchantContext } = await import('../adapter/fixtures/auth.js');
+        verified = await verifyFixtureMerchantContext(context, {
+          ...task,
+          expectedMallId: tx.recoveryMallId,
+          seal: runtime?.seal,
+        });
+      }
       if (verified.verdict !== 'verified') return { outcome: 'verify_failed', verification: verified };
       return { ...result, candidate: verified.candidate };
     }));
   };
   if (heldTransaction) return operation(heldTransaction);
-  return withMerchantAuthUpdate(accountId, operation, { signal: runtime.signal, deadlineAt: runtime.deadlineAt });
+  return withMerchantAuthUpdate(accountId, operation, {
+    signal: runtime.signal,
+    deadlineAt: runtime.deadlineAt,
+    seal: runtime?.seal,
+  });
 }

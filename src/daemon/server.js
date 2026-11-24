@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { consoleBaseUrl, isConsoleLoopback, publishConsoleUrl, consoleListenError,
   consoleApiError, consoleRequestError } from '../services/console-runtime.js';
 import { securityHeaders, requestPath, send, rejectHttpClient } from './http.js';
-import { dispatchRoute } from './routes.js';
+import { dispatchRoute, routesForMode } from './routes.js';
 import { closeAllConsoleSessions } from '../services/console-login.js';
 
 function validHost(request, runtimeConfig, port) {
@@ -48,7 +48,7 @@ function listen(server, runtimeConfig) {
   });
 }
 
-export function createConsoleServer({ patrol } = {}) {
+export function createConsoleServer({ patrol, mode = 'live', runtime } = {}) {
   let server;
   let context;
   let starting;
@@ -56,8 +56,19 @@ export function createConsoleServer({ patrol } = {}) {
   return {
     async start(nextContext) {
       controller = new AbortController();
-      context = { ...nextContext, patrol, signal: nextContext.signal
-        ? AbortSignal.any([nextContext.signal, controller.signal]) : controller.signal };
+      const resolvedRuntime = nextContext.runtime ?? runtime;
+      const resolvedMode = resolvedRuntime?.mode ?? mode;
+      const resolvedRoutes = resolvedRuntime?.routes ?? routesForMode(resolvedMode);
+      context = {
+        ...nextContext,
+        patrol,
+        mode: resolvedMode,
+        routes: resolvedRoutes,
+        runtime: resolvedRuntime,
+        signal: nextContext.signal
+          ? AbortSignal.any([nextContext.signal, controller.signal])
+          : controller.signal,
+      };
       server = createServer((request, response) => { void handleRequest(request, response, context, server.address()?.port); });
       server.on('clientError', (_error, socket) => rejectHttpClient(socket));
       starting = listen(server, context.runtimeConfig);

@@ -22,7 +22,6 @@ import {
   disableSizeChart,
   clickSaveDraft,
 } from '../adapter/goods-publish/form-filler.js';
-import { isMockEnabled, loadFixture } from '../adapter/mock-dispatcher.js';
 import { runEndpoint } from '../adapter/run-endpoint.js';
 import {
   GOODS_PUBLISH_COST_TEMPLATE_LIST,
@@ -94,7 +93,7 @@ async function resolvePublishCostTemplate(ctx, requestedId = null) {
 }
 
 async function buildMockPublishResult(ctx, goodsId, draftOnly, costTemplateId) {
-  const fixture = loadFixture('goods-publish/publish-result.json');
+  const fixture = ctx.runtime.loadFixture('goods-publish/publish-result.json');
   const status = draftOnly ? 'draft' : 'submitted';
   const result = {
     goods_id: fixture.goods_id,
@@ -353,7 +352,7 @@ export async function publishGoodsFromLink(ctx, goodsUrl, opts = {}) {
 async function runPublishFlow(ctx, goodsUrl, opts = {}) {
   const goodsId = parseGoodsUrl(goodsUrl);
   const draftOnly = opts.draftOnly ?? true;
-  const mockEnabled = isMockEnabled();
+  const mockEnabled = ctx.runtime?.mode === 'fixture';
   const sourceCache = ctx.sourceGoodsCache ?? defaultSourceGoodsCache;
   const warnings = [];
   let source = null;
@@ -376,7 +375,7 @@ async function runPublishFlow(ctx, goodsUrl, opts = {}) {
       // IP 软封冷却期内：只在确实需要实时抓取时短路退避。缓存命中不消耗出口 IP。
       // 放在 breaker.wrap 之外，避免把"主动退避"误记为 scrape 阶段失败而触发熔断。
       scrapeCooldown.check();
-      sourceProxyConfig = readSourceProxyConfig();
+      sourceProxyConfig = readSourceProxyConfig(ctx.runtime?.env?.sourceProxyEnv ?? {});
     }
   }
 
@@ -411,6 +410,7 @@ async function runPublishFlow(ctx, goodsUrl, opts = {}) {
     log.info({ catId3 }, 'goods-publish: Phase B — resolving category');
     const category = await resolvePddCategory(catId3, source.catID1, source.catID2, {
       apiBase: ctx.runtimeConfig?.categoryApiBase,
+      runtime: ctx.runtime,
     });
     return buildCategorySearchText(category);
   });
@@ -567,7 +567,7 @@ async function runPublishFlow(ctx, goodsUrl, opts = {}) {
       skipped_count: propertyMapping.skippedCount,
     },
     sku_preview_count: uploadedSkuPreviewPlan.length,
-    image_transform: process.env.PDD_IMAGE_TRANSFORM === '1' ? 'enabled' : 'disabled',
+    image_transform: ctx.runtime?.env?.imageTransform ? 'enabled' : 'disabled',
     submit: submit ?? undefined,
     warnings,
   };

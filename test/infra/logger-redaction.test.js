@@ -56,11 +56,10 @@ it('keeps fingerprint behavior for other keys and serializes logger errors safel
 });
 
 it('uses fixed secret markers in PDD_DEBUG_RAW stderr and JSON output', () => {
-  vi.stubEnv('PDD_DEBUG_RAW', '1');
   const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
   const secrets = Object.fromEntries(SECRET_KEYS.map((key) => [key, secret]));
-  emitEnvelope(buildEnvelope({ command: 'synthetic', data: { ...secrets, raw: secrets } }), { json: true });
+  emitEnvelope(buildEnvelope({ command: 'synthetic', data: { ...secrets, raw: secrets } }, { debugRaw: true }), { json: true });
   for (const stream of [stderr, stdout]) {
     const output = stream.mock.calls.map(([chunk]) => chunk).join('');
     assert.ok(output.includes('[REDACTED]'));

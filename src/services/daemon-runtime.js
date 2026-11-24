@@ -4,39 +4,51 @@ import {
 } from '../infra/daemon-state.js';
 import { transaction } from '../infra/db.js';
 import { createLogger, DailyRotatingFileDestination, resolveDefaultLogDirectory } from '../infra/logger.js';
-import { cleanupOrphanBrowsers, closeAllBrowsers } from '../adapter/browser.js';
-import { isMockEnabled } from '../adapter/mock-dispatcher.js';
 
-export function daemonTimings() {
-  const override = (key, fallback) => {
-    const value = isMockEnabled() ? Number(process.env[key]) : NaN;
-    return Number.isSafeInteger(value) && value > 0 ? value : fallback;
-  };
+export function daemonTimings(parsedEnv = null) {
+  if (parsedEnv?.mode !== 'fixture') {
+    return {
+      ttlMs: DAEMON_LEASE.ttlMs,
+      heartbeatMs: DAEMON_LEASE.heartbeatMs,
+    };
+  }
+  const pick = (value, fallback) => (Number.isSafeInteger(value) && value > 0 ? value : fallback);
   return {
-    ttlMs: override('PDD_TEST_DAEMON_LEASE_TTL_MS', DAEMON_LEASE.ttlMs),
-    heartbeatMs: override('PDD_TEST_DAEMON_HEARTBEAT_MS', DAEMON_LEASE.heartbeatMs),
+    ttlMs: pick(parsedEnv.daemonLeaseTtlMs, DAEMON_LEASE.ttlMs),
+    heartbeatMs: pick(parsedEnv.daemonHeartbeatMs, DAEMON_LEASE.heartbeatMs),
   };
 }
 
-function daemonLogger(foreground, runtimeConfig) {
+export function createDaemonLogger({ foreground = true, runtimeConfig } = {}) {
   const file = foreground ? new DailyRotatingFileDestination(resolveDefaultLogDirectory({ channel: 'daemon' })) : null;
   const destination = file ? { write(chunk) { file.write(chunk); process.stderr.write(chunk); } } : undefined;
   const log = createLogger({ channel: 'daemon', destination, level: runtimeConfig?.logLevel });
-  return { log, closeLog: () => { log.flush(); file?.end(); } };
+  return {
+    log,
+    closeLog: () => {
+      log.flush();
+      file?.end();
+    },
+  };
 }
 
-export function createDaemonRuntime({ foreground = true, runtimeConfig } = {}) {
-  const timings = daemonTimings();
+export function createDaemonLifecycleOps({ parsedEnv = null, browser, log, closeLog } = {}) {
+  const timings = daemonTimings(parsedEnv);
   return {
-    ...daemonLogger(foreground, runtimeConfig), timings,
+    log,
+    closeLog,
+    timings,
     acquire: () => acquireDaemonLease(timings),
     ownerTag: daemonBrowserOwnerTag,
     heartbeat: (token) => heartbeatDaemon(token, timings),
     release: (token) => releaseDaemonLease(token, { clearStop: true }),
-    clearStop: () => transaction(() => { clearDaemonStopRequest(); clearDaemonMeta('daemon_console_url'); }),
+    clearStop: () => transaction(() => {
+      clearDaemonStopRequest();
+      clearDaemonMeta('daemon_console_url');
+    }),
     stopRequested: readDaemonStopRequest,
     purge: purgeExpiredConsoleRows,
-    cleanupBrowsers: cleanupOrphanBrowsers,
-    closeBrowsers: closeAllBrowsers,
+    cleanupBrowsers: () => browser.reclaimOrphans(),
+    closeBrowsers: () => browser.closeAll(),
   };
 }

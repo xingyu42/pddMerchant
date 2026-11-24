@@ -1,4 +1,3 @@
-import { isMockEnabled } from './mock-dispatcher.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
@@ -28,8 +27,6 @@ const CONSUMER_QR_TAB_SELECTORS = [
 ];
 
 export async function captureConsumerQr(page, { loginUrl, timeout = TIMEOUTS.QR_CAPTURE } = {}) {
-  if (isMockEnabled()) return Buffer.alloc(64);
-
   const log = getLogger();
 
   try {

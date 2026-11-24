@@ -6,6 +6,8 @@ import * as authProbe from '../../src/adapter/merchant-auth-probe.js';
 import * as mocks from '../../src/adapter/mock-dispatcher.js';
 import * as relogin from '../../src/services/password-relogin.js';
 import { createPatrol, patrolDelayMs, patrolIntervalMs, runPatrolRound } from '../../src/services/patrol.js';
+import { parseRuntimeEnv } from '../../src/runtime/env.js';
+import { composeDaemonRuntime } from '../../src/runtime/daemon-runtime.js';
 import { insertAccount, getReloginState } from '../../src/infra/account-store.js';
 import { saveAuthStateSnapshot, loadAuthState } from '../../src/adapter/auth-state.js';
 import { acquireLease, releaseLease, assertLeaseOwner } from '../../src/infra/leases.js';
@@ -61,15 +63,15 @@ it('keeps jitter within +/-20% with injectable random endpoints and midpoint', (
 });
 
 it.each(['', '0', '-1', '1.5', 'invalid', '9007199254740992'])('ignores invalid fixture interval %j', (value) => {
-  vi.stubEnv('PDD_TEST_PATROL_INTERVAL_MS', value);
-  assert.equal(patrolIntervalMs({ patrolIntervalMs: 300_000 }), 300_000);
+  const env = parseRuntimeEnv({ PDD_TEST_PATROL_INTERVAL_MS: value }, { mode: 'fixture' });
+  assert.equal(patrolIntervalMs({ patrolIntervalMs: 300_000 }, { mode: 'fixture', env }), 300_000);
 });
 
 it('accepts a short fixture interval and ignores it in live mode', () => {
-  vi.stubEnv('PDD_TEST_PATROL_INTERVAL_MS', '50');
-  assert.equal(patrolIntervalMs({ patrolIntervalMs: 300_000 }), 50);
-  vi.stubEnv('PDD_TEST_ADAPTER', '');
-  assert.equal(patrolIntervalMs({ patrolIntervalMs: 300_000 }), 300_000);
+  const fixtureEnv = parseRuntimeEnv({ PDD_TEST_PATROL_INTERVAL_MS: '50' }, { mode: 'fixture' });
+  assert.equal(patrolIntervalMs({ patrolIntervalMs: 300_000 }, { mode: 'fixture', env: fixtureEnv }), 50);
+  const liveEnv = parseRuntimeEnv({ PDD_TEST_PATROL_INTERVAL_MS: '50' }, { mode: 'live' });
+  assert.equal(patrolIntervalMs({ patrolIntervalMs: 300_000 }, { mode: 'live', env: liveEnv }), 300_000);
 });
 
 it.each([undefined, false, 'true', 1])('has no rounds or timers unless enabled is exactly true (%j)', async (patrolEnabled) => {
@@ -102,7 +104,7 @@ it('skips an occupied account immediately, logs only its slug and fixed code, an
   const occupied = account();
   account('900002');
   const lock = await acquireLease('account', occupied.id);
-  const ctx = context();
+  const ctx = context({ runtime: { mode: 'fixture' } });
   const update = vi.spyOn(authStorage, 'withMerchantAuthUpdate');
   try {
     await runPatrolRound(ctx);
@@ -121,7 +123,7 @@ it('checks every merchant but no consumer account, and never opens a fixture bro
   account('900003', 'consumer');
   const update = vi.spyOn(authStorage, 'withMerchantAuthUpdate');
   const launch = vi.spyOn(browser, 'withBrowser');
-  await runPatrolRound(context());
+  await runPatrolRound(context({ runtime: { mode: 'fixture' } }));
   assert.deepEqual(update.mock.calls.map((call) => call[0]), [first.id, second.id]);
   assert.equal(launch.mock.calls.length, 0);
 });
@@ -347,7 +349,12 @@ it('daemon abort interrupts fixture relogin, releases the lease and skips the re
   const second = account('900002');
   relogin.setAccountPassword(first.id, credential);
   relogin.setAccountPassword(second.id, credential);
-  vi.stubEnv('PDD_TEST_AUTH_INVALID', '1');
+  const runtime = await composeDaemonRuntime({
+    mode: 'fixture',
+    foreground: false,
+    runtimeConfig: { logLevel: 'silent', patrolEnabled: true, patrolIntervalMs: 1000, passwordReloginMinIntervalMs: 1_800_000 },
+    env: { PDD_TEST_AUTH_INVALID: '1' },
+  });
   let entered;
   const started = new Promise((resolve) => { entered = resolve; });
   const attempt = vi.spyOn(mocks, 'mockPasswordLogin').mockImplementation(async (task) => {
@@ -356,31 +363,48 @@ it('daemon abort interrupts fixture relogin, releases the lease and skips the re
   });
   const controller = new AbortController();
   const patrol = createPatrol({ clock: { now: Date.now, sleep: async () => {} } });
-  await patrol.start(context({ signal: controller.signal }));
-  await started;
-  controller.abort();
-  await patrol.stop();
-  assert.equal(attempt.mock.calls.length, 1);
-  assert.equal(getReloginState(second.id).last_attempt_at, null);
-  assert.equal(get('SELECT COUNT(*) AS count FROM leases').count, 0);
-  assert.equal(getDaemonMeta('daemon_last_patrol_at'), null);
+  try {
+    await patrol.start(context({ signal: controller.signal, runtime }));
+    await started;
+    controller.abort();
+    await patrol.stop();
+    assert.equal(attempt.mock.calls.length, 1);
+    assert.equal(getReloginState(second.id).last_attempt_at, null);
+    assert.equal(get('SELECT COUNT(*) AS count FROM leases').count, 0);
+    assert.equal(getDaemonMeta('daemon_last_patrol_at'), null);
+  } finally {
+    await runtime.closeAll();
+  }
 });
 
 it('honours fixture throttling and the breaker on later rounds', async () => {
   const row = account();
   relogin.setAccountPassword(row.id, credential);
-  vi.stubEnv('PDD_TEST_AUTH_INVALID', '1');
-  vi.stubEnv('PDD_TEST_PASSWORD_LOGIN', 'network_error');
+  const networkRuntime = await composeDaemonRuntime({
+    mode: 'fixture',
+    foreground: false,
+    runtimeConfig: { logLevel: 'silent', patrolEnabled: true, patrolIntervalMs: 1000, passwordReloginMinIntervalMs: 1_800_000 },
+    env: { PDD_TEST_AUTH_INVALID: '1', PDD_TEST_PASSWORD_LOGIN: 'network_error' },
+  });
+  const wrongRuntime = await composeDaemonRuntime({
+    mode: 'fixture',
+    foreground: false,
+    runtimeConfig: { logLevel: 'silent', patrolEnabled: true, patrolIntervalMs: 1000, passwordReloginMinIntervalMs: 1_800_000 },
+    env: { PDD_TEST_AUTH_INVALID: '1', PDD_TEST_PASSWORD_LOGIN: 'wrong_password' },
+  });
   const attempt = vi.spyOn(mocks, 'mockPasswordLogin');
-  const ctx = context();
-  await runPatrolRound(ctx);
-  await runPatrolRound(ctx);
-  assert.equal(attempt.mock.calls.length, 1);
-  assert.equal(getReloginState(row.id).reason, 'network_error');
-  relogin.setAccountPassword(row.id, credential);
-  vi.stubEnv('PDD_TEST_PASSWORD_LOGIN', 'wrong_password');
-  await runPatrolRound(ctx);
-  await runPatrolRound(ctx);
-  assert.equal(attempt.mock.calls.length, 2);
-  assert.equal(getReloginState(row.id).status, 'blocked');
+  try {
+    await runPatrolRound(context({ runtime: networkRuntime }));
+    await runPatrolRound(context({ runtime: networkRuntime }));
+    assert.equal(attempt.mock.calls.length, 1);
+    assert.equal(getReloginState(row.id).reason, 'network_error');
+    relogin.setAccountPassword(row.id, credential);
+    await runPatrolRound(context({ runtime: wrongRuntime }));
+    await runPatrolRound(context({ runtime: wrongRuntime }));
+    assert.equal(attempt.mock.calls.length, 2);
+    assert.equal(getReloginState(row.id).status, 'blocked');
+  } finally {
+    await networkRuntime.closeAll();
+    await wrongRuntime.closeAll();
+  }
 });

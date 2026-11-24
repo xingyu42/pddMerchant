@@ -1,6 +1,5 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { isMockEnabled, mockLaunchBrowser, mockCloseBrowser } from './mock-dispatcher.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
 import { daemonBrowserDbPrefix } from '../infra/daemon-state.js';
@@ -327,7 +326,6 @@ export async function closeAllBrowsers({ timeoutMs = 5000 } = {}) {
 
 export async function launchBrowser({ headed = false, storageState, ownerTag } = {}) {
   assertValidOwnerTag(ownerTag);
-  if (isMockEnabled()) return mockLaunchBrowser();
   const { browser, context, page } = await openBrowserWithProfile({ headed, storageState, ownerTag }, {
     profileMap: browserProfiles,
     closingSet: closingBrowsers,
@@ -338,7 +336,6 @@ export async function launchBrowser({ headed = false, storageState, ownerTag } =
 }
 
 export async function closeBrowser(browser) {
-  if (isMockEnabled()) return mockCloseBrowser(browser);
   return closeBrowserResources(browser, {
     closingSet: closingBrowsers,
     profileMap: browserProfiles,
@@ -448,7 +445,6 @@ function reclaimMarkedBrowsers({ listProcesses = listBrowserProcesses, kill = pr
 }
 
 export function cleanupOrphanBrowsers({ listProcesses = listBrowserProcesses, kill = process.kill } = {}) {
-  if (isMockEnabled()) return 0;
   return reclaimMarkedBrowsers({ listProcesses, kill });
 }
 

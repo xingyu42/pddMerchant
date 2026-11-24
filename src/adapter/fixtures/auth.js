@@ -1,5 +1,4 @@
 // 登录态校验的模拟实现（设计 D-4）。
-import { ENV_AUTH_INVALID, ENV_AUTH_INDETERMINATE, ENV_CONSUMER_AUTH_INVALID } from './core.js';
 import { mockCurrentMall } from './mall.js';
 import { appendFile } from 'node:fs/promises';
 import { abortableSleep, budgetMs } from '../../infra/abort.js';
@@ -7,12 +6,12 @@ import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { assertAuthTask, boundMerchantMallId } from '../../infra/auth-task.js';
 import { createCandidateSeal, deepFreeze } from '../../infra/candidate-seal.js';
 
-export function mockIsAuthValid() {
-  return process.env[ENV_AUTH_INVALID] !== '1';
+export function mockIsAuthValid(options = {}) {
+  return !options?.authInvalid;
 }
 
-export function mockIsAuthIndeterminate() {
-  return process.env[ENV_AUTH_INDETERMINATE] === '1';
+export function mockIsAuthIndeterminate(options = {}) {
+  return Boolean(options?.authIndeterminate);
 }
 
 export function hasFixtureRelogin(state) {
@@ -25,8 +24,8 @@ export function createFixtureReloginContext(mallId) {
   return { fixtureMallId: mallId, storageState: async () => structuredClone(state) };
 }
 
-export function mockIsConsumerAuthValid() {
-  return process.env[ENV_CONSUMER_AUTH_INVALID] !== '1';
+export function mockIsConsumerAuthValid(options = {}) {
+  return !options?.consumerAuthInvalid;
 }
 
 function assertValidSeal(seal, message) {
@@ -119,9 +118,9 @@ export function createFixtureAuthPort({
   now = Date.now,
 } = {}) {
   const defaultSeal = assertValidSeal(seal, 'createFixtureAuthPort 需要有效的 CandidateSeal 实例');
-  const isInvalid = resolveToggle(authInvalid, () => !mockIsAuthValid());
-  const isIndeterminate = resolveToggle(authIndeterminate, mockIsAuthIndeterminate);
-  const isConsumerInvalid = resolveToggle(consumerAuthInvalid, () => !mockIsConsumerAuthValid());
+  const isInvalid = resolveToggle(authInvalid, () => false);
+  const isIndeterminate = resolveToggle(authIndeterminate, () => false);
+  const isConsumerInvalid = resolveToggle(consumerAuthInvalid, () => false);
   const checkedAt = () => new Date(now()).toISOString();
 
   async function checkMerchant(state, options = {}) {
@@ -169,9 +168,9 @@ export function createFixtureAuthPort({
   });
 }
 
-export async function mockPasswordLogin(task = {}) {
+export async function mockPasswordLogin(task = {}, envConfig = {}) {
   assertAuthTask(task);
-  const value = process.env.PDD_TEST_PASSWORD_LOGIN ?? 'success';
+  const value = envConfig?.passwordLogin ?? task?.passwordLogin ?? 'success';
   const challenge = /^challenge:(sms|slider|click|risk_confirm|unknown)$/.exec(value)?.[1];
   const outcome = ['success', 'wrong_password', 'account_locked', 'form_changed', 'network_error'].includes(value) ? value : null;
   if (!challenge && !outcome) throw new PddCliError({
@@ -181,9 +180,9 @@ export async function mockPasswordLogin(task = {}) {
   });
   const result = challenge ? { outcome: 'challenge', challenge } : { outcome };
   try {
-    const trace = process.env.PDD_TEST_PASSWORD_LOGIN_TRACE;
+    const trace = envConfig?.passwordLoginTrace ?? task?.passwordLoginTrace;
     if (trace) await appendFile(trace, `${challenge ? `challenge:${challenge}` : outcome}\n`, { mode: 0o600 });
-    const delay = Number(process.env.PDD_TEST_PASSWORD_LOGIN_DELAY_MS ?? 0);
+    const delay = Number(envConfig?.passwordLoginDelayMs ?? task?.passwordLoginDelayMs ?? 0);
     if (Number.isFinite(delay) && delay > 0) await abortableSleep(budgetMs(task, delay), task.signal);
     assertAuthTask(task);
     return result;

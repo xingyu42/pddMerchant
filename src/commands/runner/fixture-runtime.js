@@ -1,44 +1,23 @@
-// fixture 运行时（design D-2）：PDD_TEST_ADAPTER=fixture 短路路径。
-// fixture auth 失败、mock mall 解析、ctx 构造与 run 终结。
+// fixture 运行时（design D-2）：由 single-lifecycle 在 runtime.mode === 'fixture' 时按需动态加载。
 import { mockCurrentMall, mockListMalls, mockRunEndpoint } from '../../adapter/mock-dispatcher.js';
 import { buildMallContext } from '../../adapter/mall-reader.js';
 import { createCommandEndpointClient } from '../../adapter/endpoint-client.js';
 import { FixtureStore } from '../../adapter/fixtures/core.js';
 import { createFixtureEndpointTransport } from '../../adapter/fixtures/endpoint.js';
-import { getAccountActionWarnings } from '../../services/password-relogin.js';
 import { checkFixtureMerchantSession } from '../../services/merchant-session.js';
+import { buildCommandCtx, appendActionWarnings } from './command-ctx.js';
 import { finalizeSuccess, finalizeError } from './envelope-finalizer.js';
-import { daemonIsRunning } from '../../services/daemon.js';
 
-// ctx 字段集为 D-2 冻结契约（PROP-CTX-1）：fixture/live 两路径的单一来源，
-// live 路径经 extra 追加 context/pageSession。住在本模块是因 import DAG 中
-// single-lifecycle → fixture-runtime 是唯一合法共享边（envelope-finalizer 专责 envelope）。
-export function buildCommandCtx(runtime, { client, page, mallCtx, ...extra }) {
-  return {
-    client,
-    page,
-    mallCtx,
-    mallId: mallCtx?.activeId ?? null,
-    accountId: runtime.accountCtx?.accountId ?? null,
-    account: runtime.accountCtx?.account ?? null,
-    accountSlug: runtime.accountCtx?.slug ?? null,
-    config: runtime.opts,
-    runtimeConfig: runtime.runtimeConfig ?? null,
-    log: runtime.log,
-    correlation_id: runtime.correlationId,
-    warnings: runtime.warnings,
-    signal: runtime.signal,
-    deadlineAt: runtime.deadlineAt,
-    ...extra,
-  };
-}
+export { appendActionWarnings };
 
-async function resolveMockMall(needsMall) {
+async function resolveMockMall(needsMall, runtime) {
   if (needsMall !== 'current' && needsMall !== 'switch') return null;
   try {
+    if (runtime.ports?.mall) {
+      return await runtime.ports.mall.detectCurrentMall(null);
+    }
     const current = await mockCurrentMall();
     const malls = await mockListMalls();
-    // 与 live 路径同一归一化（normalizeMallRecord）：fixture / live 的店铺记录形状一致
     return buildMallContext({
       activeId: current?.id ?? null,
       activeName: current?.name ?? '',
@@ -46,17 +25,7 @@ async function resolveMockMall(needsMall) {
       source: 'mock',
     });
   } catch {
-    return null; // fixture 模式下 mall 解析可选
-  }
-}
-
-export function appendActionWarnings(spec, runtime) {
-  if (spec.needsAuth && runtime.accountCtx?.accountId != null) {
-    const actions = getAccountActionWarnings(runtime.accountCtx.accountId, runtime.accountCtx.slug);
-    runtime.warnings.push(...actions);
-    if (actions.length && !daemonIsRunning() && !runtime.warnings.some((warning) => warning?.code === 'daemon_not_running')) {
-      runtime.warnings.push({ code: 'daemon_not_running' });
-    }
+    return null;
   }
 }
 
@@ -64,16 +33,22 @@ export async function executeFixture(spec, runtime) {
   try {
     if (spec.needsAuth) await checkFixtureMerchantSession(runtime.accountCtx.accountId, runtime);
 
-    const fixtureStore = new FixtureStore();
-    const client = createCommandEndpointClient({
+    const client = runtime.ports?.endpoint ?? createCommandEndpointClient({
       runtimeConfig: runtime.runtimeConfig,
-      transport: createFixtureEndpointTransport({ fixtureStore, readEndpoint: mockRunEndpoint }),
+      transport: createFixtureEndpointTransport({
+        fixtureStore: runtime.fixture?.fixtureStore ?? new FixtureStore({
+          fixtureDir: runtime.env?.fixtureDir,
+          env: runtime.env?.testEnv,
+        }),
+        readEndpoint: mockRunEndpoint,
+      }),
       endpointState: runtime.endpointState,
+      clock: runtime.clock,
     });
     const ctx = buildCommandCtx(runtime, {
       client,
       page: null,
-      mallCtx: await resolveMockMall(spec.needsMall),
+      mallCtx: await resolveMockMall(spec.needsMall, runtime),
     });
 
     const result = await spec.run(ctx);

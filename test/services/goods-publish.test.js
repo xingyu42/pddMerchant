@@ -6,6 +6,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, wri
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, it, vi } from 'vitest';
+import { parseRuntimeEnv } from '../../src/runtime/env.js';
 
 vi.mock('../../src/adapter/browser.js', async (importOriginal) => {
   const actual = await importOriginal();
@@ -436,6 +437,10 @@ function makePublishCtx({
     log: makeFakeLogger(),
     config: {},
     signal,
+    runtime: {
+      mode: 'live',
+      env: parseRuntimeEnv(process.env, { mode: 'live' }),
+    },
   };
 }
 

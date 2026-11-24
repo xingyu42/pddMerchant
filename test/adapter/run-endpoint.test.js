@@ -7,6 +7,7 @@ import { openDatabase, closeDatabase } from '../../src/infra/db.js';
 import { TRAFFIC_READY_TIME } from '../../src/adapter/endpoints/traffic.js';
 import { createCliSandbox, runtimeConfig } from '../helpers/isolated-cli.js';
 import { seedDb } from '../helpers/seed-db.js';
+import { composeCommandRuntime } from '../../src/runtime/command-runtime.js';
 
 const { runEndpoint } = runEndpointModule;
 
@@ -81,9 +82,7 @@ describe('runner endpoint isolation and batch cooldown inheritance', () => {
       closeDatabase();
       seedDb(firstSandbox.env.PDD_DB_PATH, { accounts });
       openDatabase(firstSandbox.env.PDD_DB_PATH);
-      vi.stubEnv('PDD_TEST_FIXTURE_DIR', firstSandbox.fixtureDir);
       vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-      vi.useFakeTimers();
 
       const cmd = withCommand({
         name: 'test.batch',
@@ -93,9 +92,19 @@ describe('runner endpoint isolation and batch cooldown inheritance', () => {
       });
 
       const batchRuntimeConfig = { ...runtimeConfig, cooldownThreshold: 1, cooldownMs: 60_000 };
-      const pendingBatch = cmd({ allAccounts: true, json: true }, { runtimeConfig: batchRuntimeConfig });
-      await vi.runAllTimersAsync();
-      const batch = await pendingBatch;
+      const firstRuntime = await composeCommandRuntime({
+        mode: 'fixture',
+        runtimeConfigPolicy: 'maintenance',
+        env: { PDD_TEST_FIXTURE_DIR: firstSandbox.fixtureDir },
+        clock: { now: () => 1_700_000_000_000, sleep: async () => {} },
+        overrides: { runtimeConfig: batchRuntimeConfig },
+      });
+      let batch;
+      try {
+        batch = await cmd({ allAccounts: true, json: true }, { runtime: firstRuntime });
+      } finally {
+        await firstRuntime.closeAll();
+      }
 
       assert.equal(batch.ok, false);
       assert.equal(batch.data.accounts['shop-a'].error.code, 'E_RATE_LIMIT');
@@ -103,8 +112,19 @@ describe('runner endpoint isolation and batch cooldown inheritance', () => {
       assert.equal(batch.data.accounts['shop-b'].error.detail.cooldown_triggered, true);
       assert.ok(batch.meta.warnings.includes('cooldown_inherited_from:shop-a'));
 
-      vi.stubEnv('PDD_TEST_FIXTURE_DIR', secondSandbox.fixtureDir);
-      const nextSingle = await cmd({ account: 'shop-b', json: true }, { runtimeConfig: batchRuntimeConfig });
+      const secondRuntime = await composeCommandRuntime({
+        mode: 'fixture',
+        runtimeConfigPolicy: 'maintenance',
+        env: { PDD_TEST_FIXTURE_DIR: secondSandbox.fixtureDir },
+        clock: { now: () => 1_700_000_000_000, sleep: async () => {} },
+        overrides: { runtimeConfig: batchRuntimeConfig },
+      });
+      let nextSingle;
+      try {
+        nextSingle = await cmd({ account: 'shop-b', json: true }, { runtime: secondRuntime });
+      } finally {
+        await secondRuntime.closeAll();
+      }
       assert.equal(nextSingle.ok, true);
       assert.equal(nextSingle.data, '2026-10-30');
     } finally {

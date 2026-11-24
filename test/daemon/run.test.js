@@ -5,19 +5,31 @@ import { beforeEach, it, vi } from 'vitest';
 import { cleanupOrphanBrowsers, closeAllBrowsers } from '../../src/adapter/browser.js';
 import { runDaemon } from '../../src/daemon/run.js';
 import { daemonTimings } from '../../src/services/daemon-runtime.js';
+import { parseRuntimeEnv } from '../../src/runtime/env.js';
 import {
   acquireDaemonLease, readDaemonLease, readDaemonStopRequest, requestDaemonStop, readDaemonOwnerToken, DAEMON_LEASE,
 } from '../../src/infra/daemon-state.js';
 import { run, get, getDatabasePath } from '../../src/infra/db.js';
 
-vi.mock('../../src/adapter/browser.js', () => ({ cleanupOrphanBrowsers: vi.fn(() => 0), closeAllBrowsers: vi.fn(async () => {}) }));
+vi.mock('../../src/adapter/browser.js', () => {
+  const cleanupOrphanBrowsers = vi.fn(() => 0);
+  const closeAllBrowsers = vi.fn(async () => {});
+  return {
+    cleanupOrphanBrowsers,
+    closeAllBrowsers,
+    createLiveBrowserRuntime: () => ({
+      reclaimOrphans: cleanupOrphanBrowsers,
+      closeAll: closeAllBrowsers,
+    }),
+  };
+});
 beforeEach(() => { cleanupOrphanBrowsers.mockClear(); closeAllBrowsers.mockReset().mockResolvedValue(undefined); });
 
 function component(overrides = {}) {
   return { start: vi.fn(async () => {}), stop: vi.fn(async () => {}), ...overrides };
 }
 
-function options(components = []) { return { foreground: false, runtimeConfig: { logLevel: 'silent' }, components }; }
+function options(components = []) { return { mode: 'live', foreground: false, runtimeConfig: { logLevel: 'silent' }, components }; }
 
 it('returns already_running without starting components or clearing another owner stop request', async () => {
   await acquireDaemonLease();
@@ -141,20 +153,32 @@ it('foreground logging writes redacted diagnostics to stderr through the daemon 
     ctx.log.info({ consoleToken: 'private-token' }, 'test foreground daemon');
     controller.abort();
   } });
-  await runDaemon({ foreground: true, signal: controller.signal, components: [part] });
+  await runDaemon({ mode: 'live', foreground: true, signal: controller.signal, components: [part] });
   const output = stderr.mock.calls.map(([chunk]) => chunk).join('');
   assert.match(output, /test foreground daemon/);
   assert.equal(output.includes('private-token'), false);
 });
 
 it('accepts positive fixture timing overrides and ignores them outside fixture mode', () => {
-  vi.stubEnv('PDD_TEST_DAEMON_LEASE_TTL_MS', '500');
-  vi.stubEnv('PDD_TEST_DAEMON_HEARTBEAT_MS', '50');
-  assert.deepEqual(daemonTimings(), { ttlMs: 500, heartbeatMs: 50 });
-  vi.stubEnv('PDD_TEST_ADAPTER', '');
-  assert.deepEqual(daemonTimings(), { ttlMs: 90000, heartbeatMs: 30000 });
-  vi.stubEnv('PDD_TEST_ADAPTER', 'fixture');
-  vi.stubEnv('PDD_TEST_DAEMON_LEASE_TTL_MS', '-1');
-  vi.stubEnv('PDD_TEST_DAEMON_HEARTBEAT_MS', 'no');
-  assert.deepEqual(daemonTimings(), { ttlMs: 90000, heartbeatMs: 30000 });
+  assert.deepEqual(
+    daemonTimings(parseRuntimeEnv({
+      PDD_TEST_DAEMON_LEASE_TTL_MS: '500',
+      PDD_TEST_DAEMON_HEARTBEAT_MS: '50',
+    }, { mode: 'fixture' })),
+    { ttlMs: 500, heartbeatMs: 50 },
+  );
+  assert.deepEqual(
+    daemonTimings(parseRuntimeEnv({
+      PDD_TEST_DAEMON_LEASE_TTL_MS: '500',
+      PDD_TEST_DAEMON_HEARTBEAT_MS: '50',
+    }, { mode: 'live' })),
+    { ttlMs: 90000, heartbeatMs: 30000 },
+  );
+  assert.deepEqual(
+    daemonTimings(parseRuntimeEnv({
+      PDD_TEST_DAEMON_LEASE_TTL_MS: '-1',
+      PDD_TEST_DAEMON_HEARTBEAT_MS: 'no',
+    }, { mode: 'fixture' })),
+    { ttlMs: 90000, heartbeatMs: 30000 },
+  );
 });

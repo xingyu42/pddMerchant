@@ -1,5 +1,4 @@
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
-import { isMockEnabled, loadFixture } from '../mock-dispatcher.js';
 import { getLogger } from '../../infra/logger.js';
 
 const TIMEOUT_MS = 10_000;
@@ -61,8 +60,8 @@ async function fetchCategoryWithRetry(catId3, log, apiBase) {
   }
 }
 
-export async function resolvePddCategory(catId3, catId1, catId2, { apiBase } = {}) {
-  if (isMockEnabled()) return loadFixture('goods-publish/category.json');
+export async function resolvePddCategory(catId3, catId1, catId2, { apiBase, runtime } = {}) {
+  if (runtime?.mode === 'fixture') return runtime.loadFixture('goods-publish/category.json');
 
   const log = getLogger();
   checkCategoryCircuit();

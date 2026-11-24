@@ -11,21 +11,32 @@ import { acquireDaemonLease } from '../../src/infra/daemon-state.js';
 import { insertPendingAction } from '../../src/infra/account-store.js';
 import { spawnDaemonProcess } from '../../src/adapter/daemon-process.js';
 
-vi.mock('../../src/adapter/daemon-process.js', () => ({ spawnDaemonProcess: vi.fn(), killDaemonProcess: vi.fn() }));
+vi.mock('../../src/adapter/daemon-process.js', () => {
+  const spawnMock = vi.fn();
+  return {
+    spawnDaemonProcess: spawnMock,
+    killDaemonProcess: vi.fn(),
+    createLiveDaemonProcessPort: () => ({
+      spawnDetached: spawnMock,
+      stopByPid: vi.fn(),
+      isRunning: () => false,
+    }),
+  };
+});
 
 const control = vi.hoisted(() => ({ state: null, mallId: 900001, selectedMallId: 900001, login: true, malformed: false,
   page: null, browserCalls: 0, outcome: null, snapshots: [], originalContext: null, failPage: false, candidateState: null }));
-vi.mock('../../src/adapter/mall-reader.js', () => ({ resolveMallContext: async () => ({ activeId: String(control.selectedMallId), malls: [] }) }));
-vi.mock('../../src/adapter/browser.js', () => ({
-  withBrowser: async (_options, fn) => {
-    control.browserCalls++;
-    control.page = { goto: vi.fn(async () => {}), close: vi.fn(async () => {}) };
-    const browser = {};
-    const context = { storageState: async () => structuredClone(control.state), browser: () => browser, close: vi.fn(async () => {}) };
-    control.originalContext = context;
-    return fn({ browser, context, page: control.page });
-  },
-  createSnapshotContext: async (browser, state) => {
+vi.mock('../../src/adapter/mall-port.js', async (importOriginal) => ({
+  ...await importOriginal(),
+  createLiveMallPort: () => ({
+    detectCurrentMall: async () => ({ activeId: String(control.selectedMallId), malls: [] }),
+    listMalls: async () => [],
+    switchMall: async () => {},
+  }),
+}));
+vi.mock('../../src/adapter/browser.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  const createSnapshotContext = async (browser, state) => {
     const session = structuredClone(state);
     const context = {
       session, cookies: async () => structuredClone(session.cookies), close: vi.fn(async () => {}),
@@ -37,8 +48,35 @@ vi.mock('../../src/adapter/browser.js', () => ({
     };
     control.snapshots.push({ input: structuredClone(state), context });
     return context;
-  },
-}));
+  };
+  const openSession = async () => {
+    control.browserCalls++;
+    control.page = { goto: vi.fn(async () => {}), close: vi.fn(async () => {}) };
+    const browser = {};
+    const context = { storageState: async () => structuredClone(control.state), browser: () => browser, close: vi.fn(async () => {}) };
+    control.originalContext = context;
+    return {
+      page: control.page,
+      context,
+      close: async () => {},
+      createSnapshotContext: (state) => createSnapshotContext(browser, state),
+    };
+  };
+  const withBrowser = async (_options, fn) => {
+    const session = await openSession();
+    return fn({ browser: {}, context: session.context, page: session.page });
+  };
+  return {
+    ...actual,
+    withBrowser,
+    createSnapshotContext,
+    createLiveBrowserRuntime: () => ({
+      openSession,
+      withSession: async (_options, fn) => fn(await openSession()),
+      closeAll: async () => {},
+    }),
+  };
+});
 vi.mock('../../src/adapter/password-login.js', () => ({
   attemptPasswordLogin: vi.fn(async (page, _credential, task) => {
     assert.ok(task.deadlineAt - Date.now() > 60000);

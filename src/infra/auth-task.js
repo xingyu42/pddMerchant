@@ -1,8 +1,9 @@
 import { PddCliError, ExitCodes } from './errors.js';
 
 /** Reject cancelled or expired authentication tasks before side effects. */
-export function assertAuthTask({ signal, deadlineAt } = {}) {
-  const expired = (deadlineAt != null && Date.now() >= deadlineAt)
+export function assertAuthTask({ signal, deadlineAt, clock } = {}) {
+  const now = clock?.now ? clock.now() : Date.now();
+  const expired = (deadlineAt != null && now >= deadlineAt)
     || (signal?.aborted && signal.reason instanceof PddCliError && signal.reason.code === 'E_AUTH_TIMEOUT');
   if (signal?.aborted || expired) {
     throw new PddCliError({

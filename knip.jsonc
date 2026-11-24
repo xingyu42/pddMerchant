@@ -10,6 +10,8 @@
   ],
   "ignoreDependencies": [],
   "ignore": [
-    "src/console/**"
+    "src/console/**",
+    // Transitional mall-writer shim retained until legacy adapter cleanup & skill doc updates.
+    "src/adapter/mall-writer.js"
   ]
 }

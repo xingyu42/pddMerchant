@@ -5,12 +5,12 @@ import { redactRecursive } from './logger.js';
 // 输出契约版本（单一来源）：单命令、批量、错误、用法错误四类 envelope 均引用此常量。
 export const ENVELOPE_VERSION = 2;
 
-function shouldUseColor({ tty, noColor }) {
+function shouldUseColor({ tty, noColor, stdout }) {
   if (process.env.FORCE_COLOR === '1') return true;
   if (noColor) return false;
   if (process.env.NO_COLOR) return false;
   if (tty === false) return false;
-  return Boolean(tty ?? process.stdout.isTTY);
+  return Boolean(tty ?? (stdout ?? process.stdout).isTTY);
 }
 
 // JSON 序列化等价面：toJSON 返回标量的内建（如 Date）保引用透传；
@@ -68,10 +68,6 @@ function stripRaw(value, seen = new WeakSet()) {
 }
 
 const RAW_DEBUG_VALUE_MAX_BYTES = 65536;
-
-function rawDebugEnabled() {
-  return process.env.PDD_DEBUG_RAW === '1';
-}
 
 function appendRawPath(base, key) {
   if (!base) return key;
@@ -131,15 +127,55 @@ function toRawDebugEntry({ path, value }) {
   return { path, value: truncateUtf8(serialized, RAW_DEBUG_VALUE_MAX_BYTES), truncated: true };
 }
 
-function writeRawDebug(command, correlationId, entries) {
-  if (entries.length === 0) return;
-  const line = JSON.stringify({
+function formatRawDebugPayload(payload) {
+  if (payload == null) return null;
+  if (typeof payload === 'object' && !Array.isArray(payload) && Array.isArray(payload.entries)) {
+    if (payload.entries.length === 0) return null;
+    return JSON.stringify({
+      type: 'raw_debug',
+      command: payload.command ?? '',
+      correlation_id: payload.correlation_id ?? payload.correlationId ?? '',
+      raw: payload.entries.map(toRawDebugEntry),
+    });
+  }
+  if (typeof payload === 'object' && !Array.isArray(payload) && payload.type === 'raw_debug' && Array.isArray(payload.raw)) {
+    return JSON.stringify({
+      type: 'raw_debug',
+      command: payload.command ?? '',
+      correlation_id: payload.correlation_id ?? payload.correlationId ?? '',
+      raw: payload.raw.map((entry) => (
+        entry && typeof entry === 'object' && Object.hasOwn(entry, 'path') && Object.hasOwn(entry, 'value')
+          ? toRawDebugEntry(entry)
+          : toRawDebugEntry({ path: 'raw', value: entry })
+      )),
+    });
+  }
+  const command = typeof payload === 'object' && !Array.isArray(payload) ? (payload.command ?? '') : '';
+  const correlationId = typeof payload === 'object' && !Array.isArray(payload)
+    ? (payload.correlation_id ?? payload.correlationId ?? '')
+    : '';
+  const path = typeof payload === 'object' && !Array.isArray(payload) && typeof payload.path === 'string'
+    ? payload.path
+    : 'raw';
+  const rawValue = typeof payload === 'object' && !Array.isArray(payload) && Object.hasOwn(payload, 'raw')
+    ? payload.raw
+    : payload;
+  return JSON.stringify({
     type: 'raw_debug',
-    command: command ?? '',
-    correlation_id: correlationId ?? '',
-    raw: entries.map(toRawDebugEntry),
+    command,
+    correlation_id: correlationId,
+    raw: [toRawDebugEntry({ path, value: rawValue })],
   });
-  process.stderr.write(line + '\n');
+}
+
+function writeRawDebug(command, correlationId, entries, { stderr = process.stderr, onRawDebug } = {}) {
+  if (entries.length === 0) return;
+  if (typeof onRawDebug === 'function') {
+    onRawDebug({ command: command ?? '', correlation_id: correlationId ?? '', entries });
+    return;
+  }
+  const line = formatRawDebugPayload({ command, correlation_id: correlationId, entries });
+  if (line) (stderr ?? process.stderr).write(line + '\n');
 }
 
 function displayEnvelope(envelope) {
@@ -170,7 +206,7 @@ function collectBatchRawEntries(entries) {
   return rawEntries;
 }
 
-function buildEnvelope(input) {
+function buildEnvelope(input, options = {}) {
   const { ok, command, data, error, meta } = input ?? {};
   const finalCommand = command ?? '';
   const finalMeta = {
@@ -182,11 +218,11 @@ function buildEnvelope(input) {
   };
   // 契约版本不可被调用方 meta 覆盖（保留首位键序）
   finalMeta.v = ENVELOPE_VERSION;
-  if (rawDebugEnabled()) {
+  if (options?.debugRaw === true) {
     const entries = [];
     collectRawEntries(data, '', entries, new WeakSet());
     collectRawEntries(error, 'error', entries, new WeakSet());
-    writeRawDebug(finalCommand, finalMeta.correlation_id, entries);
+    writeRawDebug(finalCommand, finalMeta.correlation_id, entries, options);
   }
   return {
     ok: Boolean(ok),
@@ -281,7 +317,13 @@ function renderError(envelope, { useColor }) {
 }
 
 export function emit(envelopeInput, options = {}) {
-  const envelope = buildEnvelope(envelopeInput);
+  const stdout = options.stdout ?? process.stdout;
+  const stderr = options.stderr ?? process.stderr;
+  const envelope = buildEnvelope(envelopeInput, {
+    debugRaw: options.debugRaw === true,
+    stderr,
+    onRawDebug: options.onRawDebug,
+  });
   const json = options.json === true;
   const noColor = options.noColor === true;
   const tty = options.tty;
@@ -293,28 +335,28 @@ export function emit(envelopeInput, options = {}) {
       ...(envelope.data ? { data: redactRecursive(envelope.data) } : {}),
       ...(envelope.error ? { error: redactRecursive(envelope.error) } : {}),
     };
-    process.stdout.write(JSON.stringify(safeEnvelope) + '\n');
+    stdout.write(JSON.stringify(safeEnvelope) + '\n');
     if (envelope.error) {
       const errLine = renderError(safeEnvelope, { useColor: false });
-      if (errLine) process.stderr.write(errLine + '\n');
+      if (errLine) stderr.write(errLine + '\n');
     }
     return envelope;
   }
 
-  const useColor = shouldUseColor({ tty, noColor });
+  const useColor = shouldUseColor({ tty, noColor, stdout });
   const display = displayEnvelope(envelope);
 
   if (typeof renderer === 'function') {
     const rendered = renderer(display, { useColor });
-    if (rendered != null) process.stdout.write(String(rendered) + '\n');
+    if (rendered != null) stdout.write(String(rendered) + '\n');
   } else {
     const body = renderTable(display, { useColor });
-    process.stdout.write(body + '\n');
+    stdout.write(body + '\n');
   }
 
   if (envelope.error) {
     const errLine = renderError(display, { useColor });
-    if (errLine) process.stderr.write(errLine + '\n');
+    if (errLine) stderr.write(errLine + '\n');
   }
   return envelope;
 }
@@ -325,14 +367,14 @@ function batchHeadline(total, succeeded, failed) {
   return [`${total} 个账号：成功 ${succeeded}，失败 ${failed}`];
 }
 
-function buildBatchEnvelope(name, accountResults, batchMeta = {}) {
+function buildBatchEnvelope(name, accountResults, batchMeta = {}, options = {}) {
   const entries = Object.entries(accountResults);
   const succeeded = entries.filter(([, r]) => r.ok).length;
   const failed = entries.length - succeeded;
   const meta = buildBatchMeta(batchMeta);
 
-  if (rawDebugEnabled()) {
-    writeRawDebug(name, meta.correlation_id, collectBatchRawEntries(entries));
+  if (options?.debugRaw === true) {
+    writeRawDebug(name, meta.correlation_id, collectBatchRawEntries(entries), options);
   }
 
   const accounts = {};
@@ -400,4 +442,4 @@ function batchRenderer(accountEnvelopes, { useColor }) {
   return lines.join('\n');
 }
 
-export { buildEnvelope, buildBatchEnvelope, batchRenderer };
+export { buildEnvelope, buildBatchEnvelope, batchRenderer, formatRawDebugPayload };
