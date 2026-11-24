@@ -1,7 +1,10 @@
 // fixture 运行时（design D-2）：PDD_TEST_ADAPTER=fixture 短路路径。
 // fixture auth 失败、mock mall 解析、ctx 构造与 run 终结。
-import { mockCurrentMall, mockListMalls } from '../../adapter/mock-dispatcher.js';
+import { mockCurrentMall, mockListMalls, mockRunEndpoint } from '../../adapter/mock-dispatcher.js';
 import { buildMallContext } from '../../adapter/mall-reader.js';
+import { createCommandEndpointClient } from '../../adapter/endpoint-client.js';
+import { FixtureStore } from '../../adapter/fixtures/core.js';
+import { createFixtureEndpointTransport } from '../../adapter/fixtures/endpoint.js';
 import { getAccountActionWarnings } from '../../services/password-relogin.js';
 import { checkFixtureMerchantSession } from '../../services/merchant-session.js';
 import { finalizeSuccess, finalizeError } from './envelope-finalizer.js';
@@ -61,7 +64,14 @@ export async function executeFixture(spec, runtime) {
   try {
     if (spec.needsAuth) await checkFixtureMerchantSession(runtime.accountCtx.accountId, runtime);
 
+    const fixtureStore = new FixtureStore();
+    const client = createCommandEndpointClient({
+      runtimeConfig: runtime.runtimeConfig,
+      transport: createFixtureEndpointTransport({ fixtureStore, readEndpoint: mockRunEndpoint }),
+      endpointState: runtime.endpointState,
+    });
     const ctx = buildCommandCtx(runtime, {
+      client,
       page: null,
       mallCtx: await resolveMockMall(spec.needsMall),
     });

@@ -10,8 +10,7 @@
 // 记住封锁状态：连续软封达阈值 → 进入长冷却；冷却期内 check() 直接短路退避，不再发请求，
 // 让风控分随时间自然恢复。纯防御退避，不做任何绕过。
 //
-// 设计参照：category-resolver.js（模块级冷却）、rate-limiter-singleton.js（运行时配置 +
-// 单例）、session-health.js（getShared* 单例与注入）。
+// 设计参照：category-resolver.js（模块级冷却）、session-health.js（getShared* 单例与注入）。
 
 import { readFileSync, writeFileSync, renameSync, rmSync } from 'node:fs';
 import { SCRAPE_COOLDOWN_PATH } from './paths.js';

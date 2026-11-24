@@ -1,18 +1,22 @@
 import assert from 'node:assert/strict';
 import { beforeEach, it, vi } from 'vitest';
-import { runEndpoint } from '../../src/adapter/run-endpoint.js';
 import { collectOrdersInput } from '../../src/services/diagnose/collectors.js';
 import { getShopDiagnosis } from '../../src/services/diagnose/reports.js';
 import { getGoodsSegmentView } from '../../src/services/goods-segmentation.js';
+import { createMemoryEndpointTransport, createTestCtx } from '../helpers/test-ctx.js';
 
-vi.mock('../../src/adapter/run-endpoint.js', () => ({ runEndpoint: vi.fn() }));
+let transport;
 beforeEach(() => {
-  runEndpoint.mockReset().mockImplementation(async (_page, spec) => {
-    if (spec.name === 'orders.stats') return { unship: 0, delay: 0 };
-    if (spec.name === 'orders.list') return { orders: [], total: 0 };
-    if (spec.name === 'goods.list') return { goods: [{ goods_id: '101', quantity: 1 }], total: 1 };
-    if (spec.name === 'promo.entityReport') return { entities: [], totals: {} };
-    throw new Error(`unexpected endpoint ${spec.name}`);
+  transport = createMemoryEndpointTransport({
+    responses: {
+      'orders.stats': { success: true, result: { unship: 0, unship12h: 0, delay: 0, unreceive: 0 } },
+      'orders.list': { success: true, result: { totalItemNum: 0, pageItems: [] } },
+      'goods.list': { success: true, result: { total: 1, goods_list: [{ goods_id: '101', quantity: 1 }] } },
+      'promo.entityReport': {
+        success: true,
+        result: { entityReportList: [], totalSumReport: { impression: 0, click: 0, gmv: 0, spend: 0 } },
+      },
+    },
   });
 });
 
@@ -26,13 +30,13 @@ it.each([
   for (const leasedPage of pages) context.newPage.mockResolvedValueOnce(leasedPage);
   const page = { context: () => context };
 
-  await collect({ page, log: { debug() {} } });
+  await collect(createTestCtx({ transport, page }));
   assert.equal(context.newPage.mock.calls.length, count);
   for (const [name, index] of Object.entries(routes)) {
-    const calls = runEndpoint.mock.calls.filter(([, spec]) => spec.name === name);
+    const calls = transport.calls.filter((call) => call.name === name);
     assert.ok(calls.length > 0, name);
-    assert.ok(calls.every(([usedPage]) => usedPage === pages[index]), name);
+    assert.ok(calls.every((call) => call.page === pages[index]), name);
   }
   const primaryEndpoint = _name === 'goods.segment' ? 'goods.list' : 'orders.list';
-  assert.ok(runEndpoint.mock.calls.some(([usedPage, spec]) => usedPage === page && spec.name === primaryEndpoint));
+  assert.ok(transport.calls.some((call) => call.page === page && call.name === primaryEndpoint));
 });

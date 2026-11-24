@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, it, vi } from 'vitest';
 import assert from 'node:assert/strict';
-import { PlaywrightEndpointClient } from '../../src/adapter/endpoint-client.js';
+import { EndpointClient, PlaywrightEndpointClient } from '../../src/adapter/endpoint-client.js';
 import { executePageApiRequest } from '../../src/adapter/page-api-client.js';
-import { clearFixtureCache } from '../../src/adapter/mock-dispatcher.js';
+import { FixtureStore } from '../../src/adapter/fixtures/core.js';
+import { createFixtureEndpointTransport } from '../../src/adapter/fixtures/endpoint.js';
 import { TRAFFIC_READY_TIME } from '../../src/adapter/endpoints/traffic.js';
 import { PddCliError, ExitCodes } from '../../src/infra/errors.js';
 import { createCliSandbox } from '../helpers/isolated-cli.js';
@@ -11,15 +12,19 @@ vi.mock('../../src/adapter/page-api-client.js', () => ({ executePageApiRequest: 
 
 let sandbox;
 beforeEach(() => {
-  vi.stubEnv('PDD_TEST_ADAPTER', '');
   executePageApiRequest.mockReset();
-  clearFixtureCache();
 });
 afterEach(() => {
-  clearFixtureCache();
   sandbox?.dispose();
   sandbox = null;
 });
+
+function fixtureClientFor(fixtureDir, opts = {}) {
+  return new EndpointClient({
+    transport: createFixtureEndpointTransport({ fixtureStore: new FixtureStore({ fixtureDir }) }),
+    ...opts,
+  });
+}
 
 it('preserves the default 40002 classification and hint through the traffic spec', async () => {
   const raw = { success: false, errorCode: 40002, errorMsg: '请求失败' };
@@ -118,14 +123,13 @@ it('forwards GET or default POST method for page-api specs and rejects unsupport
   sandbox = createCliSandbox({
     'endpoints/test.pageApiMethod.json': { success: true, errorCode: 1000000, result: { ok: 2 } },
   });
-  vi.stubEnv('PDD_TEST_ADAPTER', 'fixture');
-  vi.stubEnv('PDD_TEST_FIXTURE_DIR', sandbox.fixtureDir);
-  const fixtureRes = await client.execute({ ...getSpec, method: 'GET' }, {}, { log: ctx.log });
+  const fixtureClient = fixtureClientFor(sandbox.fixtureDir);
+  const fixtureRes = await fixtureClient.execute({ ...getSpec, method: 'GET' }, {}, { log: ctx.log });
   assert.deepEqual(fixtureRes.data, { ok: 2 });
-  await assert.rejects(client.execute({ ...postSpec, method: 'DELETE' }, {}, { log: ctx.log }),
+  await assert.rejects(fixtureClient.execute({ ...postSpec, method: 'DELETE' }, {}, { log: ctx.log }),
     { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
   for (const invalidGetPayload of [() => ({ page: 2 }), () => new URLSearchParams({ page: '2' })]) {
-    await assert.rejects(client.execute({ ...postSpec, method: 'GET', buildPayload: invalidGetPayload }, {}, { log: ctx.log }),
+    await assert.rejects(fixtureClient.execute({ ...postSpec, method: 'GET', buildPayload: invalidGetPayload }, {}, { log: ctx.log }),
       { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
   }
 });
@@ -155,13 +159,12 @@ it('resolves functional apiUrl for page-api endpoints in both fixture and live m
   sandbox = createCliSandbox({
     'endpoints/test.pageApiMethod.json': { success: true, errorCode: 0, result: { ok: 4 } },
   });
-  vi.stubEnv('PDD_TEST_ADAPTER', 'fixture');
-  vi.stubEnv('PDD_TEST_FIXTURE_DIR', sandbox.fixtureDir);
-  const fixtureRes = await client.execute(dynamicGetSpec, { shippingId: 85, trackingNumber: 'YT123' }, { log: ctx.log });
+  const fixtureClient = fixtureClientFor(sandbox.fixtureDir);
+  const fixtureRes = await fixtureClient.execute(dynamicGetSpec, { shippingId: 85, trackingNumber: 'YT123' }, { log: ctx.log });
   assert.deepEqual(fixtureRes.data, { ok: 4 });
 
   const brokenUrlSpec = { ...dynamicGetSpec, apiUrl: () => '' };
-  await assert.rejects(client.execute(brokenUrlSpec, {}, { log: ctx.log }), { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
+  await assert.rejects(fixtureClient.execute(brokenUrlSpec, {}, { log: ctx.log }), { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
 
   const validatedPostSpec = {
     name: 'test.pageApiMethod',
@@ -176,7 +179,7 @@ it('resolves functional apiUrl for page-api endpoints in both fixture and live m
     },
     normalize: (raw) => raw.result,
   };
-  await assert.rejects(client.execute(validatedPostSpec, {}, { log: ctx.log }), { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
+  await assert.rejects(fixtureClient.execute(validatedPostSpec, {}, { log: ctx.log }), { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
 });
 
 it('redacts page-api transport rejection reasons before emitting E_NETWORK', async () => {
@@ -198,5 +201,37 @@ it('redacts page-api transport rejection reasons before emitting E_NETWORK', asy
       assert.equal(serialized.includes(leaked), false);
     }
     return true;
+  });
+});
+
+it('requires an EndpointTransportPort and exposes call() and execute() over send()', async () => {
+  assert.throws(() => new EndpointClient(), { code: 'E_CONFIG_INVALID' });
+  assert.throws(() => new EndpointClient({ transport: {} }), { code: 'E_CONFIG_INVALID' });
+
+  const sleep = vi.fn(async () => {});
+  const send = vi.fn()
+    .mockResolvedValueOnce({ status: 429, raw: null, response: { status: () => 429 } })
+    .mockResolvedValueOnce({ status: 200, raw: { success: true, errorCode: 0, result: '2026-10-30' }, response: { status: () => 200 } });
+  const cooldownState = { map: new Map(), threshold: 2, ms: 300_000 };
+  const client = new EndpointClient({ transport: { send }, cooldownState, clock: { now: () => 1000, sleep } });
+
+  const opaquePage = { token: 'opaque' };
+  const data = await client.call(TRAFFIC_READY_TIME, { extra: 1 }, { page: opaquePage, log: { debug() {} } });
+  assert.equal(data, '2026-10-30');
+  assert.equal(send.mock.calls.length, 2);
+  assert.equal(sleep.mock.calls.length, 1);
+  assert.equal(sleep.mock.calls[0][0], 1000);
+  assert.equal(send.mock.calls[0][2].page, opaquePage);
+  assert.deepEqual(send.mock.calls[0][2].pageApiRequest, {
+    apiUrl: TRAFFIC_READY_TIME.apiUrl,
+    method: 'POST',
+    payload: {},
+  });
+
+  send.mockResolvedValueOnce({ status: 200, raw: { success: true, errorCode: 0, result: '2026-10-31' }, response: { status: () => 200 } });
+  const executed = await client.execute(TRAFFIC_READY_TIME, {}, { page: null, correlation_id: 'corr-1', log: { debug() {} } });
+  assert.deepEqual(executed, {
+    data: '2026-10-31',
+    meta: { attempt: 1, limiter_wait_ms: 0, endpoint: TRAFFIC_READY_TIME.name, correlation_id: 'corr-1' },
   });
 });

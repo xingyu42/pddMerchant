@@ -19,7 +19,7 @@ node bin/pdd.js <domain> <command> [flags]
          needsBrowser:false && !needsAuth -> executeWithoutBrowser
          isMockEnabled()                  -> executeFixture
          otherwise live: withMerchantAuthUpdate 租约 -> withBrowser -> checkMerchantSession
-           -> 打开 PDD_HOME -> resolveMallContext / switchTo -> createPageSession + getSharedClient
+           -> 打开 PDD_HOME -> resolveMallContext / switchTo -> createPageSession + EndpointClient
            -> run(ctx) -> pageSession.closeAll -> 复核并持久化登录态
   -> service 编排领域流程；adapter 经 endpoint client 传输（fixture 模式替换 send）
   -> runner/envelope-finalizer.js finalizeSuccess / finalizeError -> emitOnce（infra/output.js）

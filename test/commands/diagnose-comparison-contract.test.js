@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, it, vi } from 'vitest';
 import { run } from '../../src/commands/diagnose/shop.js';
-import { clearFixtureCache } from '../../src/adapter/mock-dispatcher.js';
 import { createFactResponses } from '../fixtures/test-data.js';
 import { createCliSandbox, runtimeConfig } from '../helpers/isolated-cli.js';
 import { seedDb, DEFAULT_ACCOUNT } from '../helpers/seed-db.js';
@@ -23,13 +22,11 @@ beforeEach(() => {
   for (const [key, value] of Object.entries(sandbox.env)) {
     if (key.startsWith('PDD_')) vi.stubEnv(key, value);
   }
-  clearFixtureCache();
   dispatch.mockReset();
   emitSpy.mockClear();
   vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
 });
 afterEach(() => {
-  clearFixtureCache();
   closeDatabase();
   sandbox.dispose();
 });

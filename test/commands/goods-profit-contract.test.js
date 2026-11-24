@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
-import { afterEach, beforeEach, it, vi } from 'vitest';
+import { afterEach, it, vi } from 'vitest';
 import { run as goodsProfit } from '../../src/commands/goods/profit.js';
 import { run as goodsCostSet } from '../../src/commands/goods/cost/set.js';
-import { clearFixtureCache } from '../../src/adapter/mock-dispatcher.js';
-import { _resetRateLimitState } from '../../src/adapter/run-endpoint.js';
 import { openDatabase, closeDatabase } from '../../src/infra/db.js';
 import { createCliSandbox, runtimeConfig } from '../helpers/isolated-cli.js';
 import { seedDb, DEFAULT_ACCOUNT } from '../helpers/seed-db.js';
@@ -20,12 +18,7 @@ vi.mock('../../src/infra/output.js', async (importOriginal) => ({
 const COSTS = { goodsId: '101', purchaseYuan: '8.2', packagingYuan: '0.5', courierYuan: '3' };
 const sandboxes = [];
 
-beforeEach(() => {
-  _resetRateLimitState();
-});
 afterEach(() => {
-  clearFixtureCache();
-  _resetRateLimitState();
   closeDatabase();
   for (const sandbox of sandboxes.splice(0)) sandbox.dispose();
 });
@@ -39,7 +32,6 @@ function useShop(fixtures) {
   for (const [key, value] of Object.entries(sandbox.env)) {
     if (key.startsWith('PDD_')) vi.stubEnv(key, value);
   }
-  clearFixtureCache();
 }
 
 async function invoke(run, opts) {
