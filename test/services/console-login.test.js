@@ -73,7 +73,6 @@ let original;
 function passCookie() { return { name: 'PASS_ID', value: 'synthetic-pass', domain: '.pinduoduo.com', path: '/', secure: true }; }
 
 beforeEach(() => {
-  vi.stubEnv('PDD_TEST_ADAPTER', '');
   control.contexts = [];
   control.browser = { close: vi.fn(async () => {}) };
   control.outcome = { outcome: 'success' };

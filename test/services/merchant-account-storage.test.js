@@ -1,20 +1,7 @@
 import assert from 'node:assert/strict';
+import { PassThrough } from 'node:stream';
 import { beforeEach, describe, it, vi } from 'vitest';
 import { mockMerchantProbeTransport } from '../helpers/merchant-probe-transport.js';
-
-const control = vi.hoisted(() => ({ mallId: 900001, onLoginPage: null }));
-vi.mock('../../src/adapter/browser.js', () => ({
-  launchBrowser: vi.fn(async ({ storageState }) => {
-    let current = structuredClone(storageState ?? { cookies: [], origins: [] });
-    const context = { browser: () => ({}), storageState: async () => structuredClone(current),
-      cookies: async () => structuredClone(current.cookies), close: async () => {} };
-    const page = { goto: async () => control.onLoginPage(() => { current = structuredClone(state); }), close: async () => {} };
-    return { browser: {}, context, page };
-  }),
-  closeBrowser: vi.fn(async () => {}),
-  createSnapshotContext: async (_browser, snapshot) => ({ cookies: async () => snapshot.cookies, close: async () => {} }),
-}));
-vi.mock('../../src/infra/output.js', () => ({ emit: vi.fn((envelope) => envelope) }));
 import { verifyMerchantContext, assertMerchantVerified } from '../../src/adapter/merchant-auth.js';
 import { provisionMerchantLogin, provisionConsumerAuth } from '../../src/services/auth-account-storage.js';
 import { createCandidateSeal } from '../../src/infra/candidate-seal.js';
@@ -23,22 +10,74 @@ import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-sta
 import { openDatabase, run, get, isInTransaction } from '../../src/infra/db.js';
 import { seal, aad } from '../../src/infra/secret-box.js';
 import { runInteractiveLogin } from '../../src/commands/init.js';
-import { launchBrowser, createSnapshotContext } from '../../src/adapter/browser.js';
+import { composeCommandRuntime } from '../../src/runtime/command-runtime.js';
 import * as authService from '../../src/services/auth.js';
 import { TIMEOUTS } from '../../src/infra/timeouts.js';
 import { acquireLease, releaseLease } from '../../src/infra/leases.js';
 
+const control = { mallId: 900001, onLoginPage: null };
 const state = { cookies: [{ name: 'PASS_ID', value: 'synthetic' }], origins: [] };
+const fakeCreateSnapshotContext = async (_browser, snapshot) => ({
+  cookies: async () => structuredClone(snapshot.cookies),
+  close: async () => {},
+});
+
+function createMemoryStreams() {
+  const stdoutChunks = [];
+  const stderrChunks = [];
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  stdout.on('data', (chunk) => stdoutChunks.push(chunk.toString('utf8')));
+  stderr.on('data', (chunk) => stderrChunks.push(chunk.toString('utf8')));
+  return {
+    streams: { stdout, stderr },
+    readStdout: () => stdoutChunks.join(''),
+    readStderr: () => stderrChunks.join(''),
+  };
+}
+
+function createBrowserOverride() {
+  const launches = [];
+  const openSession = async (options = {}) => {
+    launches.push(options);
+    let current = structuredClone(options.storageState ?? { cookies: [], origins: [] });
+    const context = {
+      browser: () => ({}),
+      storageState: async () => structuredClone(current),
+      cookies: async () => structuredClone(current.cookies),
+      close: async () => {},
+    };
+    const page = {
+      goto: async () => control.onLoginPage(() => { current = structuredClone(state); }),
+      close: async () => {},
+    };
+    return {
+      page,
+      context,
+      close: async () => {},
+      createSnapshotContext: async (snapshot) => fakeCreateSnapshotContext(null, snapshot),
+    };
+  };
+  return {
+    launches,
+    openSession,
+    withSession: async (options, fn) => fn(await openSession(options)),
+    closeAll: async () => {},
+  };
+}
+
 beforeEach(() => {
-  vi.stubEnv('PDD_TEST_ADAPTER', '');
   control.mallId = 900001;
   control.onLoginPage = (authorize) => authorize();
-  launchBrowser.mockClear();
   mockMerchantProbeTransport(() => ({ mallId: control.mallId, mallName: 'Renamed Shop' }));
 });
 
-async function verifiedResult(options) {
-  const result = await verifyMerchantContext({ storageState: async () => state, browser: () => ({}) }, { createSnapshotContext, ...options });
+async function verifiedResult(options = {}) {
+  const sealOption = options.seal !== undefined ? options.seal : options.runtime?.seal;
+  const result = await verifyMerchantContext(
+    { storageState: async () => state, browser: () => ({}) },
+    { createSnapshotContext: fakeCreateSnapshotContext, ...options, ...(sealOption !== undefined ? { seal: sealOption } : {}) },
+  );
   assertMerchantVerified(result);
   return result;
 }
@@ -52,10 +91,24 @@ describe('atomic merchant login registration', () => {
     { timeout: undefined, expected: TIMEOUTS.QR_CAPTURE },
   ])('uses a finite numeric QR capture timeout for $timeout', async ({ timeout, expected }) => {
     const login = vi.spyOn(authService, 'performQrLogin').mockImplementation(verifiedResult);
-    const result = await runInteractiveLogin({ qr: true, timeout, timeoutMs: 5000, json: true });
-    assert.equal(result.ok, true);
-    assert.equal(login.mock.calls.length, 1);
-    assert.equal(login.mock.calls[0][0].qrCaptureTimeoutMs, expected);
+    const { streams, readStdout } = createMemoryStreams();
+    const runtime = await composeCommandRuntime({
+      mode: 'live',
+      runtimeConfigPolicy: 'maintenance',
+      env: {},
+      streams,
+      overrides: { browser: createBrowserOverride() },
+    });
+    try {
+      const result = await runInteractiveLogin({ qr: true, timeout, timeoutMs: 5000, json: true, runtime });
+      assert.equal(result.ok, true);
+      assert.equal(runtime.outputSink.hasEmitted(), true);
+      assert.equal(JSON.parse(readStdout().trim()).ok, true);
+      assert.equal(login.mock.calls.length, 1);
+      assert.equal(login.mock.calls[0][0].qrCaptureTimeoutMs, expected);
+    } finally {
+      await runtime.closeAll();
+    }
   });
 
   it('registers the first verified account atomically and reuses mall identity with stable slug', async () => {
@@ -195,15 +248,30 @@ describe('atomic merchant login registration', () => {
     saveAuthStateSnapshot(state, existing.id);
     const damaged = seal({ cookies: [] }, aad('auth_states', existing.id));
     run('UPDATE auth_states SET state_sealed = ? WHERE account_id = ?', damaged, existing.id);
+    const browser = createBrowserOverride();
+    const { streams, readStdout } = createMemoryStreams();
+    const runtime = await composeCommandRuntime({
+      mode: 'live',
+      runtimeConfigPolicy: 'maintenance',
+      env: {},
+      streams,
+      overrides: { browser },
+    });
     control.onLoginPage = (authorize) => {
-      assert.equal(launchBrowser.mock.calls[0][0].storageState, undefined);
+      assert.equal(browser.launches[0].storageState, undefined);
       assert.equal(get('SELECT state_sealed FROM auth_states WHERE account_id = ?', existing.id).state_sealed, damaged);
       authorize();
     };
-    const result = await runInteractiveLogin({ account: existing.slug, json: true, timeoutMs: 5000 });
-    assert.equal(result.ok, true, JSON.stringify(result.error));
-    assert.equal(result.data.account_slug, existing.slug);
-    assert.equal(loadAuthState(existing.id).revision, 2);
+    try {
+      const result = await runInteractiveLogin({ account: existing.slug, json: true, timeoutMs: 5000, runtime });
+      assert.equal(result.ok, true, JSON.stringify(result.error));
+      assert.equal(result.data.account_slug, existing.slug);
+      assert.equal(loadAuthState(existing.id).revision, 2);
+      assert.equal(runtime.outputSink.hasEmitted(), true);
+      assert.equal(JSON.parse(readStdout().trim()).data.account_slug, existing.slug);
+    } finally {
+      await runtime.closeAll();
+    }
   });
 });
 

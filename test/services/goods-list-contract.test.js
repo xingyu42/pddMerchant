@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
-import { beforeEach, describe, it, vi } from 'vitest';
+import { describe, it, vi } from 'vitest';
 import { GOODS_LIST } from '../../src/adapter/endpoints/goods.js';
 import { getGoodsListView, getGoodsStockView, isLowStock, listGoods } from '../../src/services/goods.js';
-
-beforeEach(() => vi.stubEnv('PDD_TEST_ADAPTER', ''));
 
 describe('goods list identity mapping', () => {
   it('maps upstream id at both endpoint and service boundaries', async () => {
