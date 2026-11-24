@@ -24,7 +24,6 @@ import { assertAuthTask } from '../infra/auth-task.js';
 import { checkMerchantSession } from './merchant-session.js';
 import { MERCHANT_CHECK_URL, hasPassId } from '../adapter/merchant-auth-probe.js';
 import { abortableSleep, budgetMs } from '../infra/abort.js';
-import { isMockEnabled } from '../adapter/mock-dispatcher.js';
 
 async function waitForMerchantCandidate(context, task) {
   while (true) {
@@ -35,22 +34,26 @@ async function waitForMerchantCandidate(context, task) {
 }
 
 async function performMerchantLogin(options) {
-  const { transaction, expectedMallId, qr } = options;
+  const { transaction, expectedMallId, qr, runtime, seal } = options;
   const timeoutMs = options.timeoutMs ?? (qr ? TIMEOUTS.LOGIN_QR : TIMEOUTS.LOGIN_HEADED);
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new PddCliError({ code: 'E_USAGE', message: '登录超时必须是正数', exitCode: ExitCodes.USAGE });
   }
-  if (isMockEnabled()) {
-    const result = await verifyMerchantContext(null, { expectedMallId });
+  if (runtime?.mode === 'fixture') {
+    const authPort = runtime.ports?.auth;
+    const result = authPort
+      ? await authPort.verifyAndSeal(null, { expectedMallId, seal: seal ?? runtime.seal })
+      : await (await import('../adapter/fixtures/auth.js')).verifyFixtureMerchantContext(null, { expectedMallId });
     assertMerchantVerified(result);
     return { identity: result.identity, mode: qr ? 'qr' : 'headed', url: PDD_HOME, candidate: result.candidate };
   }
-  const deadlineAt = Math.min(options.deadlineAt ?? Infinity, Date.now() + timeoutMs);
+  const nowFn = runtime?.clock?.now ?? Date.now;
+  const deadlineAt = Math.min(options.deadlineAt ?? Infinity, nowFn() + timeoutMs);
   return acquireMerchantLogin({ ...options, deadlineAt }, transaction);
 }
 
 async function acquireMerchantLogin(options, transaction) {
-  const { signal, deadlineAt, headed, qr, expectedMallId } = options;
+  const { signal, deadlineAt, headed, qr, expectedMallId, runtime, seal } = options;
   let browser;
   let qrDirectory;
   let timer;
@@ -62,7 +65,15 @@ async function acquireMerchantLogin(options, transaction) {
     const launched = await launchBrowser({ headed, storageState: reuseState ? transaction.state : undefined });
     browser = launched.browser;
     assertAuthTask(transaction);
-    const task = { signal, deadlineAt, expectedMallId: expectedMallId ?? boundMerchantMallId(transaction.state) };
+    const activeSeal = seal ?? runtime?.seal;
+    const verifyContext = runtime?.ports?.auth?.verifyAndSeal;
+    const task = {
+      signal,
+      deadlineAt,
+      expectedMallId: expectedMallId ?? boundMerchantMallId(transaction.state),
+      ...(activeSeal ? { seal: activeSeal } : {}),
+      ...(typeof verifyContext === 'function' ? { verifyContext } : {}),
+    };
     const session = await prepareMerchantSession(launched, transaction, task, reuseState);
     let result = session.result;
     let qrContentPresent;
@@ -110,7 +121,8 @@ async function authorizeMerchantSession({ context, page }, options, task, qrDire
   }
   await waitForMerchantCandidate(context, task);
   await page.close();
-  return { result: await verifyMerchantContext(context, { ...task, createSnapshotContext }), qrContentPresent };
+  const verifyContext = typeof task.verifyContext === 'function' ? task.verifyContext : verifyMerchantContext;
+  return { result: await verifyContext(context, { ...task, createSnapshotContext }), qrContentPresent };
 }
 
 export function performQrLogin(options) {

@@ -6,6 +6,7 @@ import { describe, it, vi } from 'vitest';
 import { attemptPasswordLogin, classifyAuthResponse, PASSWORD_LOGIN_SELECTORS as selectors, PASSWORD_LOGIN_URL, SMS_SELECTORS, submitSmsCode } from '../../src/adapter/password-login.js';
 import { classifyRateLimit } from '../../src/adapter/classify-rate-limit.js';
 import { mockPasswordLogin } from '../../src/adapter/mock-dispatcher.js';
+import { parseRuntimeEnv } from '../../src/runtime/env.js';
 import { MERCHANT_CHECK_URL } from '../../src/adapter/merchant-auth-probe.js';
 import { PddCliError, ExitCodes } from '../../src/infra/errors.js';
 
@@ -278,7 +279,7 @@ describe('classifyAuthResponse', () => {
 describe('password login fixture', () => {
   it('defaults to success and never touches page or credentials', async () => {
     const forbidden = new Proxy({}, { get() { throw new Error('Unexpected browser/credential access'); } });
-    assert.deepEqual(await attemptPasswordLogin(forbidden, forbidden), { outcome: 'success' });
+    assert.deepEqual(await mockPasswordLogin({ signal: undefined, deadlineAt: undefined, context: forbidden }), { outcome: 'success' });
   });
 
   for (const value of ['success', 'wrong_password', 'account_locked', 'form_changed', 'network_error', 'challenge:sms', 'challenge:slider', 'challenge:click', 'challenge:risk_confirm', 'challenge:unknown']) {
@@ -286,19 +287,21 @@ describe('password login fixture', () => {
       const directory = await mkdtemp(join(tmpdir(), 'pdd-password-trace-'));
       try {
         const trace = join(directory, 'attempts');
-        vi.stubEnv('PDD_TEST_PASSWORD_LOGIN', value);
-        vi.stubEnv('PDD_TEST_PASSWORD_LOGIN_TRACE', trace);
-        const result = await attemptPasswordLogin(null, credential);
+        const envConfig = parseRuntimeEnv({
+          PDD_TEST_PASSWORD_LOGIN: value,
+          PDD_TEST_PASSWORD_LOGIN_TRACE: trace,
+        }, { mode: 'fixture' });
+        const result = await mockPasswordLogin({}, envConfig);
         assert.deepEqual(result, value.startsWith('challenge:') ? { outcome: 'challenge', challenge: value.slice(10) } : { outcome: value });
-        await mockPasswordLogin();
+        await mockPasswordLogin({}, envConfig);
         assert.equal(await readFile(trace, 'utf8'), `${value}\n${value}\n`);
       } finally { await rm(directory, { recursive: true, force: true }); }
     });
   }
 
   it('rejects invalid fixture configuration with sanitized E_USAGE', async () => {
-    vi.stubEnv('PDD_TEST_PASSWORD_LOGIN', credential.password);
-    await assert.rejects(attemptPasswordLogin(null, credential), (error) => {
+    const envConfig = parseRuntimeEnv({ PDD_TEST_PASSWORD_LOGIN: credential.password }, { mode: 'fixture' });
+    await assert.rejects(mockPasswordLogin({}, envConfig), (error) => {
       assert.ok(error instanceof PddCliError);
       assert.equal(error.code, 'E_USAGE');
       assert.equal(error.exitCode, ExitCodes.USAGE);
@@ -308,14 +311,16 @@ describe('password login fixture', () => {
   });
 
   it('does not echo fixture filesystem errors', async () => {
-    vi.stubEnv('PDD_TEST_PASSWORD_LOGIN_TRACE', join('missing-directory', credential.loginName, 'trace'));
-    assert.deepEqual(await mockPasswordLogin(), { outcome: 'network_error' });
+    const envConfig = parseRuntimeEnv({
+      PDD_TEST_PASSWORD_LOGIN_TRACE: join('missing-directory', credential.loginName, 'trace'),
+    }, { mode: 'fixture' });
+    assert.deepEqual(await mockPasswordLogin({}, envConfig), { outcome: 'network_error' });
   });
 
   it('honors artificial delay, cancellation and deadlines', async () => {
     vi.useFakeTimers();
-    vi.stubEnv('PDD_TEST_PASSWORD_LOGIN_DELAY_MS', '1000');
-    const pending = mockPasswordLogin();
+    const envConfig = parseRuntimeEnv({ PDD_TEST_PASSWORD_LOGIN_DELAY_MS: '1000' }, { mode: 'fixture' });
+    const pending = mockPasswordLogin({}, envConfig);
     await vi.advanceTimersByTimeAsync(999);
     let completed = false;
     void (async () => { await pending; completed = true; })();
@@ -324,10 +329,10 @@ describe('password login fixture', () => {
     await vi.advanceTimersByTimeAsync(1);
     assert.deepEqual(await pending, { outcome: 'success' });
     const controller = new AbortController();
-    const cancelled = assert.rejects(mockPasswordLogin({ signal: controller.signal }), { code: 'E_AUTH_CANCELLED' });
+    const cancelled = assert.rejects(mockPasswordLogin({ signal: controller.signal }, envConfig), { code: 'E_AUTH_CANCELLED' });
     controller.abort();
     await cancelled;
-    const expired = assert.rejects(mockPasswordLogin({ deadlineAt: Date.now() + 50 }), { code: 'E_AUTH_TIMEOUT' });
+    const expired = assert.rejects(mockPasswordLogin({ deadlineAt: Date.now() + 50 }, envConfig), { code: 'E_AUTH_TIMEOUT' });
     await vi.advanceTimersByTimeAsync(50);
     await expired;
   });

@@ -1,4 +1,4 @@
-// Fixture mock 核心：ENV seam、fixtureDir 解析与按实例持有的 FixtureStore。
+// Fixture mock 核心：fixtureDir 解析与按实例持有的 FixtureStore。
 import { existsSync, readFileSync } from 'node:fs';
 import { join, isAbsolute } from 'node:path';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
@@ -6,15 +6,12 @@ import { PROJECT_ROOT } from '../../infra/paths.js';
 
 const ENV_ENABLED = 'PDD_TEST_ADAPTER';
 const ENV_FIXTURE_DIR = 'PDD_TEST_FIXTURE_DIR';
-export const ENV_AUTH_INVALID = 'PDD_TEST_AUTH_INVALID';
-export const ENV_AUTH_INDETERMINATE = 'PDD_TEST_AUTH_INDETERMINATE';
-export const ENV_CONSUMER_AUTH_INVALID = 'PDD_TEST_CONSUMER_AUTH_INVALID';
 
-export function isMockEnabled() {
-  return process.env[ENV_ENABLED] === 'fixture';
+export function isMockEnabled(env = {}) {
+  return env?.[ENV_ENABLED] === 'fixture';
 }
 
-function resolveFixtureDir(env = process.env) {
+function resolveFixtureDir(env = {}) {
   const override = env?.[ENV_FIXTURE_DIR];
   if (override && override.length > 0) {
     return isAbsolute(override) ? override : join(PROJECT_ROOT, override);
@@ -37,7 +34,7 @@ function readFixtureFile(dir, relPath) {
 }
 
 export class FixtureStore {
-  constructor({ fixtureDir, env } = {}) {
+  constructor({ fixtureDir, env = {} } = {}) {
     if (typeof fixtureDir === 'string' && fixtureDir.length > 0) {
       this._dir = isAbsolute(fixtureDir) ? fixtureDir : join(PROJECT_ROOT, fixtureDir);
     } else {
@@ -59,6 +56,6 @@ export class FixtureStore {
   }
 }
 
-export function loadFixture(relPath) {
-  return readFixtureFile(resolveFixtureDir(process.env), relPath);
+export function loadFixture(relPath, env = {}) {
+  return readFixtureFile(resolveFixtureDir(env), relPath);
 }

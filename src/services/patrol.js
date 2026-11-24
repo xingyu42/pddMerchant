@@ -1,7 +1,6 @@
 import { withBrowser, closeBrowser, createSnapshotContext } from '../adapter/browser.js';
 import { withMerchantAuthUpdate } from '../adapter/merchant-auth-storage.js';
 import { assertAuthTask } from '../infra/auth-task.js';
-import { isMockEnabled } from '../adapter/mock-dispatcher.js';
 import { listAccounts } from '../infra/account-store.js';
 import { armDeadline, abortableSleep } from '../infra/abort.js';
 import { setDaemonMeta } from '../infra/daemon-state.js';
@@ -15,8 +14,8 @@ export function patrolDelayMs(intervalMs, random = Math.random) {
   return Math.round(intervalMs * (0.8 + random() * 0.4));
 }
 
-export function patrolIntervalMs(runtimeConfig) {
-  const override = isMockEnabled() ? Number(process.env.PDD_TEST_PATROL_INTERVAL_MS) : NaN;
+export function patrolIntervalMs(runtimeConfig, runtime) {
+  const override = runtime?.mode === 'fixture' ? runtime?.env?.patrolIntervalMs : null;
   return Number.isSafeInteger(override) && override > 0 ? override : runtimeConfig.patrolIntervalMs;
 }
 
@@ -31,8 +30,17 @@ async function browserRelogin(runtime, tx, ownerTag) {
     runtime.signal.addEventListener('abort', onAbort, { once: true });
     try {
       assertAuthTask(runtime);
-      await checkMerchantSession(context, { tx, runtime, browser, mode: 'patrol',
-        task: { signal: runtime.signal, deadlineAt: runtime.deadlineAt, expectedMallId: tx.recoveryMallId, createSnapshotContext },
+      await checkMerchantSession(context, {
+        tx,
+        runtime,
+        browser,
+        mode: 'patrol',
+        task: {
+          signal: runtime.signal,
+          deadlineAt: runtime.deadlineAt,
+          expectedMallId: tx.recoveryMallId,
+          createSnapshotContext,
+        },
       });
       assertAuthTask(runtime);
       // No business result: keep the saved snapshot; relogin owns its verified commit.
@@ -44,27 +52,40 @@ async function browserRelogin(runtime, tx, ownerTag) {
 }
 
 async function checkAccount(account, context) {
-  const deadline = armDeadline({ timeoutMs: ACCOUNT_BUDGET_MS }, context.signal, Date.now());
-  const runtime = { deadline, signal: deadline.signal, runtimeConfig: context.runtimeConfig,
-    get deadlineAt() { return deadline.deadlineAt; } };
+  const activeClock = context.clock ?? context.runtime?.clock ?? defaultClock;
+  const deadline = armDeadline({ timeoutMs: ACCOUNT_BUDGET_MS }, context.signal, activeClock.now(), activeClock);
+  const runtime = {
+    deadline,
+    signal: deadline.signal,
+    runtimeConfig: context.runtimeConfig,
+    clock: activeClock,
+    env: context.runtime?.env,
+    fixture: context.runtime?.fixture,
+    ports: context.runtime?.ports,
+    seal: context.runtime?.seal,
+    mode: context.runtime?.mode,
+    get deadlineAt() { return deadline.deadlineAt; },
+  };
   try {
     await withMerchantAuthUpdate(account.id, async (tx) => {
-      if (isMockEnabled()) await checkFixtureMerchantSession(account.id, runtime, { tx });
+      if (context.runtime?.mode === 'fixture') await checkFixtureMerchantSession(account.id, runtime, { tx });
       else await checkLive(runtime, tx, context.ownerTag);
       assertAuthTask(runtime);
-    }, { timeoutMs: 0, signal: runtime.signal, deadlineAt: runtime.deadlineAt });
+    }, { timeoutMs: 0, signal: runtime.signal, deadlineAt: runtime.deadlineAt, clock: activeClock, seal: runtime.seal });
   } catch (error) {
     if (context.signal.aborted) return;
     const code = error instanceof PddCliError ? error.code : 'E_PATROL_ACCOUNT_FAILED';
     if (code === 'E_LOCK_TIMEOUT') context.log.info({ account: account.slug, code: 'patrol_account_busy' }, 'patrol: account occupied');
     else context.log.warn({ account: account.slug, code }, 'patrol: account check failed');
-  } finally { deadline.dispose(); }
+  } finally {
+    deadline.dispose();
+  }
 }
 
-export async function runPatrolRound(context, clock = defaultClock) {
+export async function runPatrolRound(context, clock = context.clock ?? defaultClock) {
   for (const account of listAccounts({ kind: 'merchant' })) {
     if (context.signal.aborted) return;
-    await checkAccount(account, context);
+    await checkAccount(account, { ...context, clock });
   }
   if (!context.signal.aborted) setDaemonMeta('daemon_last_patrol_at', new Date(clock.now()).toISOString());
 }
@@ -72,7 +93,7 @@ export async function runPatrolRound(context, clock = defaultClock) {
 async function patrolLoop(context, clock, random) {
   while (!context.signal.aborted) {
     try {
-      await clock.sleep(patrolDelayMs(patrolIntervalMs(context.runtimeConfig), random), context.signal);
+      await clock.sleep(patrolDelayMs(patrolIntervalMs(context.runtimeConfig, context.runtime), random), context.signal);
       if (!context.signal.aborted) await runPatrolRound(context, clock);
     } catch {
       if (!context.signal.aborted) context.log.warn({ code: 'E_PATROL_ROUND_FAILED' }, 'patrol: round failed');
@@ -89,9 +110,10 @@ export function createPatrol({ random = Math.random, clock = defaultClock, persi
   let switching = Promise.resolve();
   const begin = () => {
     if (running || stopped || !context) return;
+    const activeClock = context.clock ?? clock;
     controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, context.signal].filter(Boolean));
-    running = patrolLoop({ ...context, signal }, clock, random);
+    running = patrolLoop({ ...context, signal }, activeClock, random);
   };
   const halt = async () => {
     controller?.abort();

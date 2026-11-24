@@ -84,7 +84,7 @@ function optionalAreaEnv(env) {
   return normalized;
 }
 
-export function readSourceProxyConfig(env = process.env) {
+export function readSourceProxyConfig(env = {}) {
   const provider = String(env.PDD_SOURCE_PROXY_PROVIDER ?? '').trim().toLowerCase();
   if (!provider) return { enabled: false, provider: null };
   if (provider !== 'qingguo') {

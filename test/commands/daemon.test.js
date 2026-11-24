@@ -10,7 +10,20 @@ import { run as doctor } from '../../src/commands/doctor.js';
 import { saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
 import { createCliSandbox } from '../helpers/isolated-cli.js';
 
-vi.mock('../../src/adapter/daemon-process.js', () => ({ spawnDaemonProcess: vi.fn(), killDaemonProcess: vi.fn() }));
+vi.mock('../../src/adapter/daemon-process.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  const spawnMock = vi.fn();
+  return {
+    ...actual,
+    spawnDaemonProcess: spawnMock,
+    killDaemonProcess: vi.fn(),
+    createLiveDaemonProcessPort: () => ({
+      spawnDetached: spawnMock,
+      stopByPid: vi.fn(),
+      isRunning: () => false,
+    }),
+  };
+});
 vi.mock('../../src/infra/output.js', async (importOriginal) => ({ ...await importOriginal(), emit: vi.fn() }));
 
 it('ordinary fixture commands and doctor leave background launch explicit', async () => {

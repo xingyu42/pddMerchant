@@ -153,7 +153,7 @@ async function readMallListFromDom(page) {
   }
 }
 
-export async function detectLiveMallContext(target, opts = {}) {
+async function detectLiveMallContext(target, opts = {}) {
   const page = resolveTargetPage(target);
   const { activeProbeReload = false } = opts;
   const activeNameFromState = await readFromState(page, CURRENT_NAME_PATHS);
@@ -262,7 +262,7 @@ async function clickMallOption(page, mallId) {
   return null;
 }
 
-export async function switchLiveMall(target, mallId, { strict } = {}) {
+async function switchLiveMall(target, mallId, { strict } = {}) {
   const page = resolveTargetPage(target);
   const validatedId = requireMallId(mallId, { strict });
 

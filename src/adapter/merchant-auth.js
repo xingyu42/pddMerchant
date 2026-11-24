@@ -1,7 +1,5 @@
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { createCandidateSeal } from '../infra/candidate-seal.js';
-import { isMockEnabled, mockCurrentMall } from './mock-dispatcher.js';
-import { verifyFixtureMerchantContext } from './fixtures/auth.js';
 import { verifyLiveMerchantContext } from './auth-port.js';
 
 const defaultCandidateSeal = createCandidateSeal();
@@ -31,13 +29,6 @@ export async function verifyMerchantContext(context, options = {}) {
   const seal = options.seal === undefined ? defaultCandidateSeal : options.seal;
   if (!seal || typeof seal.seal !== 'function') {
     throw new PddCliError({ code: 'E_CONFIG_INVALID', message: 'verifyMerchantContext 需要有效的 CandidateSeal 实例', exitCode: ExitCodes.GENERAL });
-  }
-  if (isMockEnabled()) {
-    return verifyFixtureMerchantContext(context, {
-      expectedMallId: options.expectedMallId,
-      seal,
-      getCurrentMall: mockCurrentMall,
-    });
   }
   return verifyLiveMerchantContext(context, { ...options, seal });
 }

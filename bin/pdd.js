@@ -135,14 +135,14 @@ function wireAction(cmd, commandName, runFn, { runtimeConfigPolicy = 'required' 
     const positionalArgs = actionArgs.slice(0, -2);
     daemonForeground = commandName === 'daemon.run';
     if (positionalArgs.length > 0) opts.args = positionalArgs;
+    let runtime = null;
     try {
-      const runtimeConfig = runtimeConfigPolicy === 'required'
-        ? await prepareCommandRuntime(opts)
-        : null;
+      runtime = await prepareCommandRuntime(opts, { runtimeConfigPolicy });
+      const runtimeConfig = runtime.runtimeConfig;
       if (runtimeConfig) createLogger({ level: runtimeConfig.logLevel, config: runtimeConfig });
       else createLogger({ level: 'silent' });
       opts.signal = shutdownController.signal;
-      const envelope = await runFn(opts, { runtimeConfig });
+      const envelope = await runFn(opts, { runtime, runtimeConfig });
       if (shuttingDown) {
         // onSignal 已写入 130/143 — preserve it
       } else if (envelope && envelope.ok === false) {
@@ -156,9 +156,16 @@ function wireAction(cmd, commandName, runFn, { runtimeConfigPolicy = 'required' 
           : ExitCodes.OK;
       }
     } catch (err) {
-      const envelope = errorToEnvelope(commandName, err);
-      emit(envelope, { json: opts.json, noColor: opts.noColor });
-      if (!shuttingDown) process.exitCode = envelope.meta.exit_code;
+      if (!runtime?.outputSink?.hasEmitted()) {
+        const envelope = errorToEnvelope(commandName, err);
+        const emitFn = runtime?.outputSink?.emit ?? emit;
+        emitFn(envelope, { json: opts.json, noColor: opts.noColor });
+        if (!shuttingDown) process.exitCode = envelope.meta.exit_code;
+      } else if (!shuttingDown) {
+        process.exitCode = mapErrorToExit(err);
+      }
+    } finally {
+      await runtime?.closeAll();
     }
   });
 }

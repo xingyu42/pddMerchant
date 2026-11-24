@@ -6,9 +6,10 @@ import { get, run, transaction, isInTransaction } from '../../src/infra/db.js';
 import { getLogger } from '../../src/infra/logger.js';
 import { savePasswordCredential, deletePasswordCredential } from '../../src/adapter/password-credential.js';
 import { withMerchantAuthUpdate } from '../../src/adapter/merchant-auth-storage.js';
-import { assertMerchantVerified, verifyMerchantContext } from '../../src/adapter/merchant-auth.js';
+import { assertMerchantVerified } from '../../src/adapter/merchant-auth.js';
 import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
-import { createFixtureReloginContext } from '../../src/adapter/fixtures/auth.js';
+import { createFixtureReloginContext, verifyFixtureMerchantContext } from '../../src/adapter/fixtures/auth.js';
+import { composeCommandRuntime } from '../../src/runtime/command-runtime.js';
 import { createCandidateSeal } from '../../src/infra/candidate-seal.js';
 import { aad, seal } from '../../src/infra/secret-box.js';
 import { armDeadline } from '../../src/commands/runner/single-lifecycle.js';
@@ -157,10 +158,11 @@ it('keeps both the held transaction and persisted state unchanged when success f
   savePasswordCredential(account.id, credential);
   seedState({ status: 'awaiting_human', reason: 'sms', consecutiveTakeoverTimeouts: 1 });
   insertPendingAction(account.id, { kind: 'human_takeover', reason: 'sms' });
-  const { candidate } = await verifyMerchantContext(createFixtureReloginContext(account.identity));
+  const seal = createCandidateSeal();
+  const { candidate } = await verifyFixtureMerchantContext(createFixtureReloginContext(account.identity), { seal });
   await withMerchantAuthUpdate(account.id, (tx) => {
     const before = structuredClone(tx.state);
-    const handle = beginReloginAttempt(tx, { manual: true, credentialUpdatedAt: getCredential(account.id).updated_at });
+    const handle = beginReloginAttempt(tx, { manual: true, seal, credentialUpdatedAt: getCredential(account.id).updated_at });
     run(`CREATE TEMP TRIGGER fail_handle_success BEFORE UPDATE ON relogin_states
       WHEN NEW.reason = 'success' BEGIN SELECT RAISE(ABORT, 'synthetic outcome failure'); END`);
     try {
@@ -197,7 +199,7 @@ it('validates and commits candidates through an injected isolated CandidateSeal'
   const sealA = createCandidateSeal();
   const sealB = createCandidateSeal();
   savePasswordCredential(account.id, credential);
-  const { candidate } = await verifyMerchantContext(createFixtureReloginContext(account.identity), { seal: sealA });
+  const { candidate } = await verifyFixtureMerchantContext(createFixtureReloginContext(account.identity), { seal: sealA });
   await withMerchantAuthUpdate(account.id, (tx) => {
     const wrongHandle = beginReloginAttempt(tx, { seal: sealB, credentialUpdatedAt: getCredential(account.id).updated_at });
     assert.throws(() => wrongHandle.succeed(candidate), { code: 'E_AUTH_CANDIDATE_INVALID' });
@@ -223,9 +225,13 @@ it('fixture recovery repairs held metadata and corrupt bookkeeping and restores 
   saveAuthStateSnapshot({ cookies: [], origins: [] }, account.id);
   setAccountPassword(account.id, credential);
   run('UPDATE auth_states SET state_sealed = ? WHERE account_id = ?', seal({ cookies: [] }, aad('auth_states', account.id)), account.id);
-  vi.stubEnv('PDD_TEST_AUTH_INVALID', '1');
+  const composed = await composeCommandRuntime({
+    mode: 'fixture',
+    runtimeConfigPolicy: 'maintenance',
+    env: { PDD_TEST_AUTH_INVALID: '1' },
+  });
   const deadline = armDeadline({ timeoutMs: 5000 }, null, Date.now());
-  const runtime = { deadline, signal: deadline.signal, get deadlineAt() { return deadline.deadlineAt; } };
+  const runtime = { ...composed, deadline, signal: deadline.signal, get deadlineAt() { return deadline.deadlineAt; } };
   try {
     await withMerchantAuthUpdate(account.id, async (tx) => {
       assert.equal(tx.corrupt, true);
@@ -237,10 +243,13 @@ it('fixture recovery repairs held metadata and corrupt bookkeeping and restores 
       assert.deepEqual(tx.metadata, loadAuthState(account.id).metadata);
       assert.equal(tx.deadlineAt, runtime.deadlineAt);
       assert.equal(tx.signal, runtime.signal);
-    }, { recoveryMallId: account.identity, signal: runtime.signal, deadlineAt: runtime.deadlineAt });
+    }, { recoveryMallId: account.identity, signal: runtime.signal, deadlineAt: runtime.deadlineAt, seal: runtime.seal });
     assert.equal(fixtureSessionRecovered(account.id), true);
     assert.equal(getReloginState(account.id).reason, 'success');
-  } finally { deadline.dispose(); }
+  } finally {
+    deadline.dispose();
+    await composed.closeAll();
+  }
 });
 
 const outcomes = [

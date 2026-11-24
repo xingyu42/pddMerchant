@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { it, vi } from 'vitest';
 import { cleanupOrphanBrowsers, launchBrowser, listBrowserProcesses } from '../../src/adapter/browser.js';
+import { createFixtureBrowserRuntime } from '../../src/adapter/fixtures/browser.js';
 import { execFileSync } from 'node:child_process';
 import { daemonBrowserDbPrefix } from '../../src/infra/daemon-state.js';
 
@@ -39,10 +40,9 @@ it.each(['chrome', 'chromium', 'chromium-browser', 'headless_shell', 'headless_s
     assert.deepEqual(kill.mock.calls, [[21]]);
   });
 
-it('fixture cleanup performs no process listing or kills', () => {
-  const listProcesses = vi.fn();
-  assert.equal(cleanupOrphanBrowsers({ listProcesses }), 0);
-  assert.equal(listProcesses.mock.calls.length, 0);
+it('fixture cleanup performs no process listing or kills', async () => {
+  const browser = createFixtureBrowserRuntime();
+  assert.equal(await browser.reclaimOrphans(), 0);
 });
 
 it('swallows enumeration failures', () => {

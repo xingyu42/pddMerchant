@@ -65,6 +65,7 @@ import { captureQrElement } from '../../src/adapter/qr-login.js';
 import { startConsoleSession, getConsoleSession, cancelConsoleSession, refreshConsoleQr,
   closeAllConsoleSessions, completeFixtureConsoleSession, consoleSessionSms, startConsoleAddSession,
   consoleSessionPointer } from '../../src/services/console-login.js';
+import { composeCommandRuntime } from '../../src/runtime/command-runtime.js';
 
 let account;
 let original;
@@ -202,19 +203,27 @@ it('asks for the SMS code without a takeover picture and fills it into the login
 });
 
 it('preserves pointer focus fields and forwards interruption and cancellation in fixture sessions', async () => {
-  vi.stubEnv('PDD_TEST_ADAPTER', 'fixture');
-  vi.stubEnv('PDD_TEST_PASSWORD_LOGIN', 'challenge:slider');
-  const id = start();
-  await stateIs(id, 'takeover');
-  const events = [{ t: 0, type: 'down', x: 0, y: 0 }];
-  await assert.rejects(consoleSessionPointer(id, { events }), { code: 'E_USAGE' });
-  assert.deepEqual(await consoleSessionPointer(id, { gesture_id: 'drag', seq: 0, events }),
-    { ok: true, editable: null, numeric: null });
-  const stopped = { ok: true, editable: null, numeric: null, result: 'interrupted' };
-  assert.deepEqual(await consoleSessionPointer(id, { gesture_id: 'drag', seq: 0, events }), stopped);
-  assert.deepEqual(await consoleSessionPointer(id, { gesture_id: 'drag', seq: 1, events: [], cancel: true }), stopped);
-  assert.deepEqual(await consoleSessionPointer(id, { gesture_id: 'new', seq: 0,
-    events: [...events, { ...events[0], type: 'up' }] }), { ok: true, editable: false, numeric: false });
+  const runtime = await composeCommandRuntime({
+    mode: 'fixture',
+    runtimeConfigPolicy: 'maintenance',
+    env: { PDD_TEST_PASSWORD_LOGIN: 'challenge:slider' },
+  });
+  try {
+    const id = start('password', { runtime });
+    await stateIs(id, 'takeover');
+    const events = [{ t: 0, type: 'down', x: 0, y: 0 }];
+    await assert.rejects(consoleSessionPointer(id, { events }), { code: 'E_USAGE' });
+    assert.deepEqual(await consoleSessionPointer(id, { gesture_id: 'drag', seq: 0, events }),
+      { ok: true, editable: null, numeric: null });
+    const stopped = { ok: true, editable: null, numeric: null, result: 'interrupted' };
+    assert.deepEqual(await consoleSessionPointer(id, { gesture_id: 'drag', seq: 0, events }), stopped);
+    assert.deepEqual(await consoleSessionPointer(id, { gesture_id: 'drag', seq: 1, events: [], cancel: true }), stopped);
+    assert.deepEqual(await consoleSessionPointer(id, { gesture_id: 'new', seq: 0,
+      events: [...events, { ...events[0], type: 'up' }] }), { ok: true, editable: false, numeric: false });
+  } finally {
+    await closeAllConsoleSessions();
+    await runtime.closeAll();
+  }
 });
 
 it.each(['existing', 'add'])('clears the SMS message while verifying an %s shop', async (mode) => {
@@ -398,15 +407,23 @@ it.each([
 });
 
 it('fixture success uses the shared marker commit with no browser, and fixture controls stay offline', async () => {
-  vi.stubEnv('PDD_TEST_ADAPTER', 'fixture');
-  vi.stubEnv('PDD_TEST_PASSWORD_LOGIN', 'success');
-  const id = start();
-  await stateIs(id, 'succeeded');
-  assert.equal(launchBrowser.mock.calls.length, 0);
-  assert.equal(attemptPasswordLogin.mock.calls.length, 0);
-  assert.ok(loadAuthState(account.id).state.cookies.some((cookie) => cookie.name === 'PDD_FIXTURE_RELOGIN'));
-  assert.equal(getReloginState(account.id).status, 'available');
-  assertReleased();
+  const runtime = await composeCommandRuntime({
+    mode: 'fixture',
+    runtimeConfigPolicy: 'maintenance',
+    env: { PDD_TEST_PASSWORD_LOGIN: 'success' },
+  });
+  try {
+    const id = start('password', { runtime });
+    await stateIs(id, 'succeeded');
+    assert.equal(launchBrowser.mock.calls.length, 0);
+    assert.equal(attemptPasswordLogin.mock.calls.length, 0);
+    assert.ok(loadAuthState(account.id).state.cookies.some((cookie) => cookie.name === 'PDD_FIXTURE_RELOGIN'));
+    assert.equal(getReloginState(account.id).status, 'available');
+    assertReleased();
+  } finally {
+    await closeAllConsoleSessions();
+    await runtime.closeAll();
+  }
 });
 
 it('fixture-complete is rejected in live mode without changing session state', async () => {

@@ -1,4 +1,4 @@
-import { createDaemonRuntime } from '../services/daemon-runtime.js';
+import { composeDaemonRuntime } from '../runtime/daemon-runtime.js';
 import { createPatrol } from '../services/patrol.js';
 import { savePatrolEnabled } from '../services/console-patrol.js';
 import { createConsoleServer } from './server.js';
@@ -73,7 +73,14 @@ async function runOwned(runtime, lease, { signal, components, exit, runtimeConfi
   const unwatch = watchStop(signal, stop);
   const timer = setInterval(() => heartbeat(runtime, lease.token, stop), runtime.timings.heartbeatMs);
   const stopPoll = watchStopRequest(runtime, lease.token, stop);
-  const context = { signal: controller.signal, ownerTag: runtime.ownerTag(lease.token), log: runtime.log, runtimeConfig };
+  const context = {
+    signal: controller.signal,
+    ownerTag: runtime.ownerTag(lease.token),
+    log: runtime.log,
+    runtimeConfig,
+    clock: runtime.clock,
+    runtime,
+  };
   try {
     await Promise.race([startComponents(components, started, context, runtime), stopped]);
     runtime.log.info('daemon 已启动');
@@ -94,19 +101,42 @@ async function runOwned(runtime, lease, { signal, components, exit, runtimeConfi
 }
 
 // 控制台持有巡航组件，开关即时生效。
-function defaultComponents() {
-  const patrol = createPatrol({ persist: (enabled) => savePatrolEnabled(enabled) });
-  return [createConsoleServer({ patrol }), patrol];
+function defaultComponents(runtime) {
+  const patrol = createPatrol({
+    clock: runtime.clock,
+    persist: (enabled) => savePatrolEnabled(enabled),
+  });
+  return [createConsoleServer({ patrol, mode: runtime.mode, runtime }), patrol];
 }
 
-export async function runDaemon({ signal, components = defaultComponents(), exit = (code) => process.exit(code),
-  foreground = true, runtimeConfig } = {}) {
-  const runtime = createDaemonRuntime({ foreground, runtimeConfig });
+export async function runDaemon({
+  signal,
+  components,
+  exit = (code) => process.exit(code),
+  foreground = true,
+  runtimeConfig,
+  mode,
+  env = process.env,
+  overrides,
+  clock,
+  runtime: providedRuntime,
+} = {}) {
+  const runtime = providedRuntime ?? await composeDaemonRuntime({
+    mode,
+    foreground,
+    runtimeConfig,
+    env,
+    overrides,
+    clock,
+  });
+  const activeComponents = components ?? defaultComponents(runtime);
   try {
     const lease = await runtime.acquire();
     if (!lease) return { status: 'already_running' };
     try { runtime.clearStop(); }
     catch (error) { runtime.release(lease.token); throw error; }
-    return await runOwned(runtime, lease, { signal, components, exit, runtimeConfig });
-  } finally { runtime.closeLog(); }
+    return await runOwned(runtime, lease, { signal, components: activeComponents, exit, runtimeConfig });
+  } finally {
+    runtime.closeLog();
+  }
 }

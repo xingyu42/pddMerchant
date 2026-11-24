@@ -21,19 +21,21 @@ export async function verifyStoredMerchant(context, state, task = {}) {
   if (boundMallId && task.expectedMallId != null && String(task.expectedMallId) !== boundMallId) {
     return { verdict: 'failed', reason: 'identity_mismatch', checked_at: new Date().toISOString() };
   }
-  return verifyMerchantContext(context, { ...task, expectedMallId: task.expectedMallId ?? boundMallId });
+  const verifyContext = typeof task.verifyContext === 'function' ? task.verifyContext : verifyMerchantContext;
+  return verifyContext(context, { ...task, expectedMallId: task.expectedMallId ?? boundMallId });
 }
 
 async function updateMerchantAuth(accountId, fn, options = {}) {
   assertAuthTask(options);
+  const nowFn = () => (options.clock?.now ? options.clock.now() : Date.now());
   const timeoutMs = options.timeoutMs === 0 ? 0 : budgetMs(options, 15000);
-  const ttlMs = Math.max(0, (options.deadlineAt ?? Date.now() + timeoutMs) - Date.now()) + 30000;
+  const ttlMs = Math.max(0, (options.deadlineAt ?? nowFn() + timeoutMs) - nowFn()) + 30000;
   const extendUntil = () => {
     const startedAt = Date.parse(getReloginState(accountId)?.last_attempt_at);
-    return Date.now() < startedAt + TIMEOUTS.LOGIN_PASSWORD ? startedAt + TIMEOUTS.LOGIN_PASSWORD + 15000 : null;
+    return nowFn() < startedAt + TIMEOUTS.LOGIN_PASSWORD ? startedAt + TIMEOUTS.LOGIN_PASSWORD + 15000 : null;
   };
   const lock = await acquireLease('account', accountId, {
-    timeoutMs, ttlMs, signal: options.signal, deadlineAt: options.deadlineAt, extendUntil,
+    timeoutMs, ttlMs, signal: options.signal, deadlineAt: options.deadlineAt, extendUntil, clock: options.clock,
   });
   try {
     assertAuthTask(options);

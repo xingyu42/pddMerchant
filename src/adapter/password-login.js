@@ -1,4 +1,3 @@
-import { isMockEnabled, mockPasswordLogin } from './mock-dispatcher.js';
 import { assertAuthTask } from '../infra/auth-task.js';
 import { hasPassId, MERCHANT_CHECK_URL } from './merchant-auth-probe.js';
 import { abortableSleep, budgetMs } from '../infra/abort.js';
@@ -143,7 +142,6 @@ async function waitForLogin(page, task, authState) {
 export async function attemptPasswordLogin(page, credential, options = {}) {
   const task = { ...options, deadlineAt: options.deadlineAt ?? Date.now() + TIMEOUTS.LOGIN_PASSWORD };
   assertAuthTask(task);
-  if (isMockEnabled()) return mockPasswordLogin(task);
   let phase = 'navigation';
   const watcher = watchAuthResponse(page);
   try {

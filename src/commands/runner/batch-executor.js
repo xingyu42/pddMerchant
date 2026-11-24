@@ -1,28 +1,19 @@
 // 批量执行器（design D-2）：--all-accounts 账号循环、jitter、SIGINT 中断与
-// batch envelope 终结。withCommand 同时分派 single/batch，依 DAG 只能住本模块
-//（batch-executor → single-lifecycle 是唯一允许同时触达两路径的位置）。
+// batch envelope 终结。withCommand 同时分派 single/batch，依 DAG 只能住本模块。
 import { randomUUID } from 'node:crypto';
 import { getLogger } from '../../infra/logger.js';
-import { emit, buildBatchEnvelope, batchRenderer } from '../../infra/output.js';
+import { emit as defaultEmit, buildBatchEnvelope, batchRenderer } from '../../infra/output.js';
 import { PddCliError, ExitCodes, errorToEnvelope, batchExitCode } from '../../infra/errors.js';
-import { abortableSleep } from '../../infra/abort.js';
 import { listAccounts } from '../../infra/account-store.js';
-import { createEndpointRuntimeState } from '../../adapter/endpoint-client.js';
+import { composeCommandRuntime } from '../../runtime/command-runtime.js';
 import { executeSingle } from './single-lifecycle.js';
 
 const BATCH_JITTER_MIN = 2000;
 const BATCH_JITTER_MAX = 5000;
 
 const COOLDOWN_INHERITED_PREFIX = 'cooldown_inherited_from:';
-// 来源 endpoint 不明（错误形状缺 detail.endpoint）时的退化归因键
 const COOLDOWN_GLOBAL_KEY = '*';
 
-// R3 cooldown 归因状态机（design D-5）：返回更新后的「endpoint → 冷却源 slug」映射，仅批量路径调用。
-// 冷却状态在 endpoint-client 按 endpoint 分键（进程内共享），归因同维度展开（codex 终审建议）：
-// "自身被限流"（E_RATE_LIMIT 且 detail.cooldown_triggered 非真）→ 当前账号成为该 endpoint 的源
-//   （last-wins；detail.endpoint 缺失时退化记入 '*'）；
-// "命中已激活冷却"（cooldown_triggered === true）→ 先查同 endpoint 源、缺失退化查 '*'，
-//   源非自身则追加继承警告（additive-only，不触碰 ok/exit_code/data，batchExitCode 语义不变）。
 function applyCooldownAttribution(result, slug, sourcesByEndpoint) {
   if (result?.ok !== false || result.error?.code !== 'E_RATE_LIMIT') return sourcesByEndpoint;
   const endpoint = result.error.detail?.endpoint ?? COOLDOWN_GLOBAL_KEY;
@@ -93,26 +84,34 @@ function appendBatchWarnings(target, warnings) {
 async function runOneAccount(spec, opts, account, batch, runtimeConfig) {
   const perOpts = buildPerAccountOptions(opts, account, batch);
   const perAccountCorrelation = perOpts._correlationId;
+  const scopedRuntime = batch.runtime.scopeRuntime({
+    signal: batch.signal,
+    correlationId: perAccountCorrelation,
+  });
 
-  const envelope = await executeSingle(spec, perOpts, {
-    emitResult: false,
-    parentSignal: batch.signal,
-    ...(runtimeConfig ? { runtimeConfig } : {}),
-    ...(batch.endpointState ? { endpointState: batch.endpointState } : {}),
-  }).catch((err) => errorToEnvelope(spec.name, err, {
-    latency_ms: Date.now() - batch.startedAt,
-    correlation_id: perAccountCorrelation,
-  }));
+  try {
+    const envelope = await executeSingle(spec, perOpts, {
+      emitResult: false,
+      parentSignal: batch.signal,
+      runtime: scopedRuntime,
+      ...(runtimeConfig !== undefined ? { runtimeConfig } : {}),
+    }).catch((err) => errorToEnvelope(spec.name, err, {
+      latency_ms: batch.runtime.clock.now() - batch.startedAt,
+      correlation_id: perAccountCorrelation,
+    }));
 
-  return {
-    ok: envelope.ok,
-    data: envelope.data,
-    error: envelope.error,
-    exit_code: envelope.meta?.exit_code ?? ExitCodes.GENERAL,
-    latency_ms: envelope.meta?.latency_ms ?? 0,
-    command: envelope.command,
-    meta: envelope.meta,
-  };
+    return {
+      ok: envelope.ok,
+      data: envelope.data,
+      error: envelope.error,
+      exit_code: envelope.meta?.exit_code ?? ExitCodes.GENERAL,
+      latency_ms: envelope.meta?.latency_ms ?? 0,
+      command: envelope.command,
+      meta: envelope.meta,
+    };
+  } finally {
+    await scopedRuntime.closeAll();
+  }
 }
 
 async function runAccountLoop(spec, opts, accounts, batch, runtimeConfig) {
@@ -125,7 +124,6 @@ async function runAccountLoop(spec, opts, accounts, batch, runtimeConfig) {
     batch.log.info({ slug, index: i, total: accounts.length }, 'batch: executing account');
 
     const result = await runOneAccount(spec, opts, accounts[i], batch, runtimeConfig);
-    // 归因须先于 warnings 上抛：继承警告借下方既有复制循环进入 batchWarnings。
     cooldownSources = applyCooldownAttribution(result, slug, cooldownSources);
     accountResults[slug] = result;
 
@@ -135,7 +133,7 @@ async function runAccountLoop(spec, opts, accounts, batch, runtimeConfig) {
 
     if (i < accounts.length - 1 && !batch.signal.aborted) {
       try {
-        await abortableSleep(batchJitterMs(), batch.signal);
+        await batch.runtime.clock.sleep(batchJitterMs(), batch.signal);
       } catch {
         break;
       }
@@ -151,13 +149,16 @@ function finalizeBatch(spec, opts, accountResults, batch) {
   }
 
   const batchEnvelope = buildBatchEnvelope(spec.name, accountResults, {
-    latency_ms: Date.now() - batch.startedAt,
+    latency_ms: batch.runtime.clock.now() - batch.startedAt,
     correlation_id: batch.correlationId,
     exit_code: aborted ? 130 : batchExitCode(accountResults),
     warnings: [...new Set(batch.warnings)],
+    debugRaw: Boolean(batch.runtime.env?.debugRaw),
+    onRawDebug: batch.runtime.outputSink ? (entry) => batch.runtime.outputSink.writeDebugRaw(entry) : undefined,
   });
 
-  emit(batchEnvelope, {
+  const emitFn = batch.runtime.outputSink?.emit ?? defaultEmit;
+  emitFn(batchEnvelope, {
     json: opts.json,
     noColor: opts.noColor,
     renderer: (env, renderOpts) => [
@@ -173,32 +174,48 @@ function finalizeBatch(spec, opts, accountResults, batch) {
   return batchEnvelope;
 }
 
-async function executeBatch(spec, opts, runtimeConfig) {
-  const startedAt = Date.now();
-  const correlationId = randomUUID();
+async function executeBatch(spec, opts, { runtimeConfig, runtime: providedRuntime } = {}) {
+  const selfComposed = !providedRuntime;
+  const runtime = providedRuntime ?? await composeCommandRuntime({
+    env: process.env,
+    runtimeConfigPolicy: 'maintenance',
+    overrides: runtimeConfig !== undefined ? { runtimeConfig } : {},
+  });
 
-  const log = getLogger().withOp
-    ? getLogger().withOp({ command: spec.name, correlation_id: correlationId })
-    : getLogger();
-
-  const warnings = validateBatchOptions(opts);
-
-  const accounts = listMerchantAccounts();
-
-  const abortController = new AbortController();
-  const onSigint = () => abortController.abort();
-  process.prependListener('SIGINT', onSigint);
-
-  const endpointState = runtimeConfig ? createEndpointRuntimeState(runtimeConfig) : null;
-  const batch = { startedAt, correlationId, warnings, log, signal: abortController.signal, endpointState };
-  let accountResults;
   try {
-    accountResults = await runAccountLoop(spec, opts, accounts, batch, runtimeConfig);
-  } finally {
-    process.removeListener('SIGINT', onSigint);
-  }
+    const startedAt = runtime.clock.now();
+    const correlationId = randomUUID();
 
-  return finalizeBatch(spec, opts, accountResults, batch);
+    const log = getLogger().withOp
+      ? getLogger().withOp({ command: spec.name, correlation_id: correlationId })
+      : getLogger();
+
+    const warnings = validateBatchOptions(opts);
+    const accounts = listMerchantAccounts();
+
+    const abortController = new AbortController();
+    const onSigint = () => abortController.abort();
+    process.prependListener('SIGINT', onSigint);
+
+    const batch = {
+      startedAt,
+      correlationId,
+      warnings,
+      log,
+      signal: abortController.signal,
+      runtime,
+    };
+    let accountResults;
+    try {
+      accountResults = await runAccountLoop(spec, opts, accounts, batch, runtimeConfig ?? runtime.runtimeConfig);
+    } finally {
+      process.removeListener('SIGINT', onSigint);
+    }
+
+    return finalizeBatch(spec, opts, accountResults, batch);
+  } finally {
+    if (selfComposed) await runtime.closeAll();
+  }
 }
 
 export function withCommand({
@@ -212,7 +229,7 @@ export function withCommand({
   render,
 }) {
   const spec = { name, needsAuth, needsMall, needsBrowser, needsAccount, run, render };
-  return function executeCommand(opts = {}, { runtimeConfig } = {}) {
+  return function executeCommand(opts = {}, { runtimeConfig, runtime } = {}) {
     if (opts.allAccounts && !allowAllAccounts) {
       throw new PddCliError({
         code: 'E_USAGE',
@@ -222,11 +239,12 @@ export function withCommand({
       });
     }
     if (opts.allAccounts && needsAuth) {
-      return executeBatch(spec, opts, runtimeConfig);
+      return executeBatch(spec, opts, { runtimeConfig, runtime });
     }
     return executeSingle(spec, opts, {
       emitResult: true,
-      ...(runtimeConfig ? { runtimeConfig } : {}),
+      ...(runtimeConfig !== undefined ? { runtimeConfig } : {}),
+      ...(runtime ? { runtime } : {}),
     });
   };
 }
