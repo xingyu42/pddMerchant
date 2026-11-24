@@ -41,6 +41,22 @@ function createFixtureHelpers({ fixtureStore, loadFixture, parsedEnv, mall, cloc
   });
 }
 
+function createFixturePasswordLogin(parsedEnv) {
+  return async function fixturePasswordLogin(page, _credential, task) {
+    const result = await mockPasswordLogin(task, parsedEnv);
+    if (result.outcome === 'success') {
+      const context = typeof page?.context === 'function' ? page.context() : null;
+      if (typeof context?.addCookies === 'function') {
+        await context.addCookies([{ name: 'PDD_FIXTURE_RELOGIN', value: '1', domain: '.pinduoduo.com', path: '/' }]);
+      }
+      if (context && task?.expectedMallId != null) {
+        context.fixtureMallId = task.expectedMallId;
+      }
+    }
+    return result;
+  };
+}
+
 export function createFixtureBundle({ seal, clock, parsedEnv, env, overrides = {}, includeConsole = false } = {}) {
   const fixtureStore = overrides.fixtureStore ?? new FixtureStore({
     fixtureDir: parsedEnv?.fixtureDir,
@@ -61,6 +77,7 @@ export function createFixtureBundle({ seal, clock, parsedEnv, env, overrides = {
     fixtureStore,
     readEndpoint: mockRunEndpoint,
   });
+  const passwordLogin = overrides.passwordLogin ?? createFixturePasswordLogin(parsedEnv);
   const consoleLoginDriver = includeConsole
     ? (overrides.consoleLoginDriver ?? createFixtureConsoleLoginDriver({
         authPort: auth,
@@ -88,6 +105,7 @@ export function createFixtureBundle({ seal, clock, parsedEnv, env, overrides = {
     auth,
     daemonProcess,
     endpointTransport,
+    passwordLogin,
     consoleLoginDriver,
     consoleExtraRoutes,
     loadFixture,

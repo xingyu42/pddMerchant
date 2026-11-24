@@ -1,11 +1,10 @@
-import { withBrowser, closeBrowser, createSnapshotContext } from '../adapter/browser.js';
 import { withMerchantAuthUpdate } from '../adapter/merchant-auth-storage.js';
 import { assertAuthTask } from '../infra/auth-task.js';
 import { listAccounts } from '../infra/account-store.js';
 import { armDeadline, abortableSleep } from '../infra/abort.js';
 import { setDaemonMeta } from '../infra/daemon-state.js';
-import { PddCliError } from '../infra/errors.js';
-import { checkMerchantSession, probeMerchantSession, checkFixtureMerchantSession } from './merchant-session.js';
+import { PddCliError, ExitCodes } from '../infra/errors.js';
+import { checkMerchantSession, probeMerchantSession } from './merchant-session.js';
 
 const ACCOUNT_BUDGET_MS = 120_000;
 const defaultClock = { now: () => Date.now(), sleep: abortableSleep };
@@ -19,27 +18,36 @@ export function patrolIntervalMs(runtimeConfig, runtime) {
   return Number.isSafeInteger(override) && override > 0 ? override : runtimeConfig.patrolIntervalMs;
 }
 
-async function checkLive(runtime, tx, ownerTag) {
-  if (!await probeMerchantSession(tx, runtime)) await browserRelogin(runtime, tx, ownerTag);
-}
-
 async function browserRelogin(runtime, tx, ownerTag) {
-  return withBrowser({ storageState: tx.state, ownerTag }, async ({ browser, context }) => {
+  const browserPort = runtime.ports?.browser;
+  if (!browserPort || typeof browserPort.withSession !== 'function') {
+    throw new PddCliError({
+      code: 'E_CONFIG_INVALID',
+      message: 'patrol 需要有效的 BrowserRuntimePort',
+      exitCode: ExitCodes.GENERAL,
+    });
+  }
+  return browserPort.withSession({ storageState: tx.state, ownerTag }, async (session) => {
     let closing;
-    const onAbort = () => { closing = closeBrowser(browser).catch(() => {}); };
+    const onAbort = () => { closing = session.close().catch(() => {}); };
     runtime.signal.addEventListener('abort', onAbort, { once: true });
     try {
       assertAuthTask(runtime);
-      await checkMerchantSession(context, {
+      await checkMerchantSession(session.context, {
         tx,
         runtime,
-        browser,
+        session,
         mode: 'patrol',
         task: {
           signal: runtime.signal,
           deadlineAt: runtime.deadlineAt,
+          clock: runtime.clock,
           expectedMallId: tx.recoveryMallId,
-          createSnapshotContext,
+          createSnapshotContext: (_browser, state) => session.createSnapshotContext(state),
+          seal: runtime.seal,
+          ...(typeof runtime.ports?.auth?.verifyAndSeal === 'function'
+            ? { verifyContext: runtime.ports.auth.verifyAndSeal }
+            : {}),
         },
       });
       assertAuthTask(runtime);
@@ -59,17 +67,18 @@ async function checkAccount(account, context) {
     signal: deadline.signal,
     runtimeConfig: context.runtimeConfig,
     clock: activeClock,
+    ownerTag: context.ownerTag,
     env: context.runtime?.env,
     fixture: context.runtime?.fixture,
     ports: context.runtime?.ports,
     seal: context.runtime?.seal,
+    passwordLogin: context.runtime?.passwordLogin,
     mode: context.runtime?.mode,
     get deadlineAt() { return deadline.deadlineAt; },
   };
   try {
     await withMerchantAuthUpdate(account.id, async (tx) => {
-      if (context.runtime?.mode === 'fixture') await checkFixtureMerchantSession(account.id, runtime, { tx });
-      else await checkLive(runtime, tx, context.ownerTag);
+      if (!await probeMerchantSession(tx, runtime)) await browserRelogin(runtime, tx, context.ownerTag);
       assertAuthTask(runtime);
     }, { timeoutMs: 0, signal: runtime.signal, deadlineAt: runtime.deadlineAt, clock: activeClock, seal: runtime.seal });
   } catch (error) {

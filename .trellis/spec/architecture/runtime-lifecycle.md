@@ -193,7 +193,7 @@ createPatrol({ random = Math.random, clock = { now, sleep }, persist }) // -> { 
 runPatrolRound({ signal, ownerTag, log, runtimeConfig }, clock)
 armDeadline(opts, parentSignal, startedAt) // infra/abort.js; single-lifecycle.js keeps its re-export
 withMerchantAuthUpdate(accountId, callback, { timeoutMs: 0, signal, deadlineAt })
-reloginForFixture(accountId, runtime, { tx }) // optional existing account transaction; no nested lease
+autoRelogin.recover({ tx, runtime, authResult, session, authPort, browserPort, seal, commit, clock, retainContext: false })
 ```
 
 ### 3. Contracts
@@ -201,11 +201,11 @@ reloginForFixture(accountId, runtime, { tx }) // optional existing account trans
 - Start only when `runtimeConfig.patrolEnabled === true`. `setEnabled(enabled)` (console switch) serialises changes: it awaits `persist(enabled)` first and only then starts or aborts the loop, so a failed write leaves the running state untouched; after `stop()` it never restarts. Aborting mid-round follows the stop rules below. Wait a jittered interval before the first round and after each completed round; no overlapping rounds. Delay is `round(patrolIntervalMs * (0.8 + random() * 0.4))`.
 - Enumerate enabled merchant accounts in ID order and check sequentially. Acquire each account lease once with `timeoutMs:0`; contention logs info `{ account: slug, code:'patrol_account_busy' }` and skips. Re-check disabled status after acquiring the lease. Account failures log only slug and a fixed error code, then continue.
 - Live flow, stage 1 (no browser): unless `tx.state.merchant_auth.last_check.verdict === 'rejected'`, `selectCheckCookiesFromState(tx.state)` -> `probeCheckLogin(cookies, { signal, deadlineAt })`. `verified` ends the account with no browser and no write; `indeterminate` -> `recordMerchantCheck` + `assertMerchantVerified` (fixed-code `E_AUTH_CHECK_INDETERMINATE` warning, no browser, no relogin); `rejected` -> `recordMerchantCheck` then stage 2. `E_AUTH_CANDIDATE_INVALID` from cookie selection/header building (e.g. missing PASS_ID) and a known-rejected state also go to stage 2.
-- Live flow, stage 2 (browser): `withBrowser({ storageState:tx.state, ownerTag })` -> `verifyStoredMerchant` with the bound account identity (a just-recorded rejection short-circuits as `known_rejected`, so rejected materials are not re-sent) -> `recordMerchantCheck` for non-verified results -> `reloginInCommand` for rejected results; other results use `assertMerchantVerified`. No homepage navigation or business endpoints.
+- Stage 2 (browser session): `runtime.ports.browser.withSession({ storageState: tx.state, ownerTag })` -> `checkMerchantSession(..., { mode: 'patrol' })` (`verifyStoredMerchant` via `AuthPort.verifyAndSeal`, `recordMerchantCheck` gated by `authoritative`, and `auto-relogin.recover` with `retainContext: false` on rejection; other results use `assertMerchantVerified`). No homepage navigation or business endpoints.
 - A verified check alone retains the saved snapshot: ordinary commands only perform their final snapshot commit after a successful business result. Password relogin keeps its existing verified candidate commit. Rejected/indeterminate checks retain the existing check-recording rules.
 - Each account has a 120s deadline. Relogin pauses/resumes it and retains its independent 90s budget. Daemon cancellation remains active throughout; abort closes and awaits the current account browser, releases the lease and skips remaining accounts. An interrupted round leaves the previous completion timestamp intact.
 - Complete rounds (including no accounts or all skipped/failed accounts) write ISO `daemon_last_patrol_at`. Status and `/healthz` expose its existing local-time projection.
-- Fixture uses `checkFixtureMerchantSession` (shared with the runner) inside the held lease, with no browser or nested lease; its original no-record checks remain, and successful relogin commits a branded verified candidate through the shared attempt handle. Live browser checks use `checkMerchantSession`; the browser-free first stage uses `probeMerchantSession`. `PDD_TEST_PATROL_INTERVAL_MS` accepts a positive safe integer only in fixture mode; invalid values and live mode use `runtimeConfig.patrolIntervalMs`. It changes timing only; default-disabled patrol stays off.
+- Live and fixture patrol share the unified `probeMerchantSession` -> `browserRelogin` -> `checkMerchantSession` -> `auto-relogin.recover` flow under the held lease without nested leases; `AuthPort.authoritative === false` keeps fixture check records non-persisted while successful fixture relogin commits its branded verified candidate through the shared attempt handle (`createFixtureBrowserRuntime` loads zero Patchright). `PDD_TEST_PATROL_INTERVAL_MS` accepts a positive safe integer only in fixture mode; invalid values and live mode use `runtimeConfig.patrolIntervalMs`. It changes timing only; default-disabled patrol stays off.
 
 ### 4. Validation & Error Matrix
 
@@ -237,8 +237,8 @@ reloginForFixture(accountId, runtime, { tx }) // optional existing account trans
 ### 7. Wrong vs Correct
 
 ```js
-// Wrong: a nested fixture lease waits on the patrol's own account lease.
-await withMerchantAuthUpdate(id, () => reloginForFixture(id, runtime));
-// Correct: pass the held transaction and retain the existing relogin state machine.
-await withMerchantAuthUpdate(id, (tx) => reloginForFixture(id, runtime, { tx }), { timeoutMs: 0 });
+// Wrong: a nested lease waits on the patrol's own account lease.
+await withMerchantAuthUpdate(id, () => withMerchantAuthUpdate(id, () => {}));
+// Correct: run unified probe/recover inside the single held transaction.
+await withMerchantAuthUpdate(id, (tx) => probeMerchantSession(tx, runtime), { timeoutMs: 0 });
 ```

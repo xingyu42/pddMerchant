@@ -262,7 +262,7 @@ if (initial && (account?.id !== initial.accountId || getAuthStateRevision(accoun
 
 ### 1. Scope / Trigger
 
-Applies when changing password credential storage, the password login adapter, `services/password-relogin.js`, the relogin step inside `withCommand()`, lease waiting during relogin, or `relogin_states` / `pending_actions` writes. Origin: task `10-27-password-relogin-core`.
+Applies when changing password credential storage, the password login adapter, `services/relogin-policy.js`, `services/auto-relogin.js`, the relogin step inside `withCommand()`, lease waiting during relogin, or `relogin_states` / `pending_actions` writes. Origin: task `10-27-password-relogin-core`.
 
 Real-account findings (2026-10-27): submitting the password form from a blank context triggered SMS verification, and the SMS was sent by the submit itself. A saved device state without `PASS_ID` stalled unclassified for 90s. Device trust appears to require one human SMS pass on the same device state (task ④ takeover view); until then, live relogin is expected to end in `awaiting_human`.
 
@@ -295,9 +295,8 @@ recordTakeoverTimeout(accountId);
 getReloginSummary(accountId) -> { has_password, status, reason, last_attempt_at };
 getAccountActionWarnings(accountId, slug) -> [{ code: 'account_action_required', account, reason }];
 
-// services/password-relogin.js
-reloginInCommand(runtime, tx, browser, authResult) -> { context, page }; // live; lease already held
-reloginForFixture(accountId, runtime);                     // fixture; takes its own lease
+// services/auto-relogin.js
+recover({ tx, runtime, authResult, session, authPort, browserPort, seal, commit, clock, passwordLogin, retainContext = true }) -> { context, page } | undefined;
 ```
 
 ### 3. Contracts
@@ -328,7 +327,7 @@ reloginForFixture(accountId, runtime);                     // fixture; takes its
 - At most one open pending action per `(account, kind)`; a duplicate insert keeps the existing row.
 - Attempt/outcome writes (inside `beginReloginAttempt`, fixture commit) run in one short synchronous transaction after `assertLeaseOwner('account', accountId, tx.token)`. `markManualLoginSucceeded` runs inside `saveMerchantLogin`'s lease-checked transaction. The reserved ④ helpers (`setAccountPassword`, `clearAccountPassword`, `clearReloginBlock`, `recordTakeoverTimeout`) write in a short transaction without taking the lease; races with an in-flight attempt are resolved by the stale-outcome guard.
 - `beginReloginAttempt` owns attempt recording and finalization (with private attempt/outcome helpers) and takes explicit injected `seal` (`CandidateSeal`) and `commit` callback. `succeed(candidate)` requires a branded verified candidate and atomically saves the snapshot plus the password-success outcome; manual sessions also retain the existing manual reset/action-resolution rules. Console live sessions use `saveMerchantLogin` as the synchronous `commit(candidate, draftTx)` callback, preserving account display name and login timestamp updates. Only after commit does the held transaction advance; a failure leaves its revision/state/metadata/corrupt fields unchanged. QR manual sessions use `password:false` and retain blocked status/actions. Manual password preflight uses `decideRelogin({ manual:true, decrypt:false })`, retaining blocked-before-missing-password and allowing human retry without automatic throttle/awaiting-human guards.
-- Fixture recovery retains its marker and browser-free orchestration, but creates a branded candidate through `verifyMerchantContext` and commits through this same handle and `commitMerchantCandidate`; the former direct snapshot writer is removed. Marker creation/recognition lives in `adapter/fixtures/auth.js`.
+- Fixture recovery runs through the same `auto-relogin.recover` entry with `createFixtureAuthPort` (`authoritative: false`), `createFixtureBrowserRuntime` (zero Patchright), and `fixturePasswordLogin` (`mockPasswordLogin`); `recordMerchantCheck` skips SQLite check writes when `authoritative` is false, while `verifyAndSeal` creates a branded candidate and commits `{ cookies: [PDD_FIXTURE_RELOGIN=1], origins: [], merchant_auth: { verified … } }` through `beginReloginAttempt().succeed` + `commitMerchantCandidate`. Marker recognition lives in `adapter/fixtures/auth.js`.
 - Stale-outcome guard: when `credentials.updated_at` differs from `credentialUpdatedAt` captured at decision time, blocking outcomes (`awaiting_human` / `blocked`) are skipped and only the error is returned, so a password reset during an attempt wins.
 - The live relogin context is device-continuous: `tx.state` cookies/origins with every `PASS_ID` cookie removed. Only a corrupt or shape-invalid state falls back to an empty context.
 - On `success` the login page closes and `verifyMerchantContext(newContext, { expectedMallId: tx.recoveryMallId })` must return `verified`; then the attempt handle atomically commits `commitMerchantCandidate` + outcome `success`, followed by `renewLease`. Non-verified → `verify_failed` / `E_AUTH_RELOGIN_FAILED`; identity mismatch surfaces as `E_ACCOUNT_IDENTITY_MISMATCH`. The runner swaps to the returned `{ context, page }` and closes the old context; failure paths close the new context.
@@ -370,6 +369,7 @@ reloginForFixture(accountId, runtime);                     // fixture; takes its
 
 - `test/adapter/password-credential.test.js`: round trip, AAD bound to the account, tamper, input validation, no values in errors.
 - `test/services/password-relogin.test.js`: decision order, every state-machine row, throttle reconstruction, single open action, foreign lease rejected, stale-outcome guard.
+- `test/services/auto-relogin.test.js`: `recover` budget pause/resume, 90s child budget + 20s verify reserve, `Runtime Browser Profile` / `extractDeviceState`, login-page close before `AuthPort.verifyAndSeal`, `CandidateSeal` isolation, lease renewal, and non-retained context cleanup.
 - `test/adapter/password-login.test.js`: every outcome via a fake page; no click/press after the submit click on challenge branches.
 - `test/adapter/merchant-auth-lifecycle.test.js`: adapter waits until its shortened deadline and returns `unknown`; assert the 20s reserve, exit 3, `awaiting_human` / `unknown`, one open `human_takeover` and the same-run action warning with fake timers.
 - `test/infra/leases.test.js`: `extendUntil` extension and termination. `test/commands/runner-deadline.test.js`: pause/resume.

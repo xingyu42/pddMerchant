@@ -23,6 +23,10 @@ function makeFixtureContext(storageState) {
     __mock: true,
     storageState: async () => structuredClone(snapshot),
     cookies: async () => structuredClone(snapshot.cookies),
+    addCookies: async (cookies) => {
+      if (!Array.isArray(cookies)) return;
+      for (const cookie of cookies) snapshot.cookies.push(structuredClone(cookie));
+    },
     newPage: async () => makeFixturePage(context),
     close: async () => {},
   };

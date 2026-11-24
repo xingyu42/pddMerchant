@@ -154,6 +154,7 @@ function createRuntimeView(shared, viewState) {
     endpointState: shared.endpointState,
     scrapeCooldown: shared.scrapeCooldown,
     daemonIsRunning: shared.daemonIsRunning,
+    passwordLogin: shared.bundle.passwordLogin,
     loadFixture: shared.bundle.loadFixture,
     fixture: shared.bundle.fixture,
     signal,

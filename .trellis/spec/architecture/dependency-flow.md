@@ -18,7 +18,7 @@ src/commands/option-parsers.js  commander 解析期校验（integerArg、goodsId
 src/daemon/              常驻控制台 HTTP 服务；src/console/ 是其静态前端
 src/services/            领域编排：orders、goods(-write/-cost/-profit/-traffic/-receipt/-publish)、promo、diagnose、
                          经营报表（operating-report、traffic、reviews、customer-service、experience）、
-                         auth / merchant-session / relogin-policy / password-relogin、daemon / patrol / console-*
+                         auth / merchant-session / relogin-policy / auto-relogin、daemon / patrol / console-*
 src/services/views/      输出投影：白名单、单位换算、中文标签、headline；报表声明
 src/adapter/             Patchright 浏览器、endpoint 传输（client → interpreter）、auth、mall、goods-publish、takeover
 src/adapter/fixtures/    fixture provider；core.js 拥有单一 fixture cache

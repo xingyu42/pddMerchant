@@ -4,11 +4,48 @@ import { buildMallContext } from '../../adapter/mall-reader.js';
 import { createCommandEndpointClient } from '../../adapter/endpoint-client.js';
 import { FixtureStore } from '../../adapter/fixtures/core.js';
 import { createFixtureEndpointTransport } from '../../adapter/fixtures/endpoint.js';
-import { checkFixtureMerchantSession } from '../../services/merchant-session.js';
+import { loadAuthState } from '../../adapter/auth-state.js';
+import { withMerchantAuthUpdate } from '../../adapter/merchant-auth-storage.js';
+import { assertMerchantVerified } from '../../infra/auth-task.js';
+import { recover } from '../../services/auto-relogin.js';
 import { buildCommandCtx, appendActionWarnings } from './command-ctx.js';
 import { finalizeSuccess, finalizeError } from './envelope-finalizer.js';
 
 export { appendActionWarnings };
+
+async function ensureFixtureMerchantAuth(runtime) {
+  const accountId = runtime.accountCtx.accountId;
+  const { state } = loadAuthState(accountId, { allowCorrupt: true });
+  const preflight = await runtime.ports.auth.checkMerchant(state, {
+    signal: runtime.signal,
+    deadlineAt: runtime.deadlineAt,
+  });
+  if (preflight.verdict !== 'rejected') {
+    assertMerchantVerified(preflight);
+    return;
+  }
+  await withMerchantAuthUpdate(accountId, async (tx) => {
+    const current = await runtime.ports.auth.checkMerchant(tx.state, {
+      signal: runtime.signal,
+      deadlineAt: runtime.deadlineAt,
+    });
+    if (current.verdict !== 'rejected') {
+      assertMerchantVerified(current);
+      return;
+    }
+    await recover({
+      tx,
+      runtime,
+      authResult: current,
+      retainContext: false,
+    });
+  }, {
+    signal: runtime.signal,
+    deadlineAt: runtime.deadlineAt,
+    seal: runtime.seal,
+    clock: runtime.clock,
+  });
+}
 
 async function resolveMockMall(needsMall, runtime) {
   if (needsMall !== 'current' && needsMall !== 'switch') return null;
@@ -31,7 +68,7 @@ async function resolveMockMall(needsMall, runtime) {
 
 export async function executeFixture(spec, runtime) {
   try {
-    if (spec.needsAuth) await checkFixtureMerchantSession(runtime.accountCtx.accountId, runtime);
+    if (spec.needsAuth) await ensureFixtureMerchantAuth(runtime);
 
     const client = runtime.ports?.endpoint ?? createCommandEndpointClient({
       runtimeConfig: runtime.runtimeConfig,
