@@ -101,7 +101,7 @@ console.js   → console link
 | --- | --- |
 | 订单 | `orders.js` |
 | 商品 | `goods.js`（读）、`goods-write.js`（改价/库存/状态/标题/批量）、`goods-segmentation.js`、`goods-sales-matcher.js`、`pricing-validator.js` |
-| 商品发布 | `goods-publish.js`、`goods-publish-source-cache.js`、`image-transform.js` |
+| 商品发布 | `goods-publish.js`、`goods-publish/source-product-fetcher.js`、`goods-publish/source-normalizer.js`、`goods-publish-source-cache.js`、`image-transform.js` |
 | 推广 | `promo.js`、`promo-roi.js` |
 | 诊断 | `diagnose/`（订单、库存、推广、售后、趋势比较） |
 | 经营报表 | `operating-report.js`（报表声明与 days 规则）、`report-windows.js`、`traffic.js`、`goods-traffic*.js`、`customer-service.js`、`reviews.js`、`experience.js` |
@@ -163,12 +163,11 @@ export const ORDER_LIST = {
 
 | 文件 | 职责 |
 | --- | --- |
-| `source-scraper.js` | 从消费端商品页抓取源数据（结构化 SKU 维度、属性、价格、图片） |
+| `source-scraper.js` | 消费端商品页浏览器观测（提取原始 SKU 维度、属性、价格、图片与风控状态） |
 | `qingguo-proxy.js` | 仅用于源商品抓取的青果代理（ADR 0001） |
 | `category-resolver.js` | 外部类目 API 解析类目搜索文本 |
 | `form-filler.js` | 商家发布表单填充 |
 | `property-mapper.js` / `dynamic-property-template.js` | 源属性与平台模板匹配、动态属性收敛 |
-| `source-sku-normalizer.js` | 源 SKU 结构归一化 |
 | `image-handler.js` | 图片下载与上传 |
 | `risk-detector.js` | 风控弹窗检测 |
 

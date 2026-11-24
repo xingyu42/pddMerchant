@@ -101,10 +101,7 @@ async function acquireConsumerLogin(opts, runtimeConfig, runtime) {
     headed: opts.headed ?? false,
     consumerLoginUrl,
     runtime,
-    scrapeCooldownConfig: {
-      threshold: runtimeConfig?.scrapeSoftBlockThreshold,
-      cooldownMs: runtimeConfig?.scrapeSoftBlockCooldownMs,
-    },
+    scrapeCooldown: runtime?.scrapeCooldown,
     onQrCaptured: async ({ qrContent }) => {
       if (qrContent) await renderQrToStream(qrContent);
     },

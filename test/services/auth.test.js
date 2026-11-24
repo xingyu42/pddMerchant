@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { afterEach, describe, it, vi } from 'vitest';
 import { composeCommandRuntime } from '../../src/runtime/command-runtime.js';
 import { createCandidateSeal } from '../../src/infra/candidate-seal.js';
+import { createScrapeCooldown } from '../../src/infra/scrape-cooldown.js';
 import {
   performQrLogin,
   performHeadedLogin,
@@ -175,7 +176,7 @@ function createFakeConsumerPage(context, { loginSuccess = true, includeQr = fals
 }
 
 describe('consumer login BrowserRuntimePort wiring', () => {
-  it('performConsumerHeadedLogin uses runtime.ports.browser when supplied and closes session on success and timeout', async () => {
+  it('performConsumerHeadedLogin uses runtime.ports.browser and resets runtime.scrapeCooldown on success, closing session on success and timeout', async () => {
     const pages = [];
     const browser = createInMemoryBrowserRuntime({
       createPage: (context) => {
@@ -184,11 +185,14 @@ describe('consumer login BrowserRuntimePort wiring', () => {
         return page;
       },
     });
+    const scrapeCooldown = createScrapeCooldown({ threshold: 1, cooldownMs: 60_000, statePath: null });
+    scrapeCooldown.recordSoftBlock({ reason: 'empty_shell' });
+    assert.throws(() => scrapeCooldown.check(), { code: 'E_RATE_LIMIT' });
+
     const res = await performConsumerHeadedLogin({
       timeoutMs: 5000,
       consumerLoginUrl: 'https://mobile.yangkeduo.com/login.html',
-      scrapeCooldownConfig: { threshold: 3, cooldownMs: 60_000, statePath: null },
-      runtime: { ports: { browser } },
+      runtime: { ports: { browser }, scrapeCooldown },
     });
     assert.equal(browser.launches.length, 1);
     assert.equal(browser.launches[0].headed, true);
@@ -196,6 +200,8 @@ describe('consumer login BrowserRuntimePort wiring', () => {
     assert.equal(res.mode, 'consumer-headed');
     assert.equal(res.url, 'https://mobile.yangkeduo.com/home');
     assert.equal(pages[0].isClosed, true);
+    assert.equal(scrapeCooldown.status().consecutiveSoftBlock, 0);
+    scrapeCooldown.check();
 
     const timeoutPages = [];
     const timeoutBrowser = createInMemoryBrowserRuntime({
@@ -205,19 +211,21 @@ describe('consumer login BrowserRuntimePort wiring', () => {
         return page;
       },
     });
+    const timeoutCooldown = createScrapeCooldown({ threshold: 1, cooldownMs: 60_000, statePath: null });
+    timeoutCooldown.recordSoftBlock({ reason: 'empty_shell' });
     await assert.rejects(
       performConsumerHeadedLogin({
         timeoutMs: 1000,
         consumerLoginUrl: 'https://mobile.yangkeduo.com/login.html',
-        scrapeCooldownConfig: { threshold: 3, cooldownMs: 60_000, statePath: null },
-        runtime: { ports: { browser: timeoutBrowser } },
+        runtime: { ports: { browser: timeoutBrowser }, scrapeCooldown: timeoutCooldown },
       }),
       { code: 'E_AUTH_TIMEOUT' },
     );
     assert.equal(timeoutPages[0].isClosed, true);
+    assert.equal(timeoutCooldown.status().consecutiveSoftBlock, 1);
   });
 
-  it('performConsumerQrLogin uses runtime.ports.browser and deriveConsumerContext when supplied', async () => {
+  it('performConsumerQrLogin uses runtime.ports.browser, deriveConsumerContext, and optional explicit scrapeCooldown override', async () => {
     const qrDir = makeTempDir();
     const pages = [];
     const browser = createInMemoryBrowserRuntime({
@@ -227,15 +235,19 @@ describe('consumer login BrowserRuntimePort wiring', () => {
         return page;
       },
     });
+    const runtimeCooldown = createScrapeCooldown({ threshold: 1, cooldownMs: 60_000, statePath: null });
+    runtimeCooldown.recordSoftBlock({ reason: 'empty_shell' });
+    const explicitCooldown = createScrapeCooldown({ threshold: 1, cooldownMs: 60_000, statePath: null });
+    explicitCooldown.recordSoftBlock({ reason: 'empty_shell' });
     const captured = [];
     const res = await performConsumerQrLogin({
       timeoutMs: 5000,
       headed: false,
       consumerLoginUrl: 'https://mobile.yangkeduo.com/login.html',
-      scrapeCooldownConfig: { threshold: 3, cooldownMs: 60_000, statePath: null },
+      scrapeCooldown: explicitCooldown,
       qrDir,
       onQrCaptured: async (payload) => captured.push(payload),
-      runtime: { ports: { browser } },
+      runtime: { ports: { browser }, scrapeCooldown: runtimeCooldown },
     });
 
     assert.equal(browser.launches.length, 1);
@@ -246,6 +258,8 @@ describe('consumer login BrowserRuntimePort wiring', () => {
     assert.deepEqual(res.identity, { uid: '880011', nickname: 'Consumer Buyer' });
     assert.equal(res.mode, 'consumer-qr');
     assert.equal(pages.every((page) => page.isClosed), true);
+    assert.equal(explicitCooldown.status().consecutiveSoftBlock, 0);
+    assert.equal(runtimeCooldown.status().consecutiveSoftBlock, 1);
   });
 
   it('falls back to legacy launchBrowser only when runtime.ports.browser is absent', async () => {
@@ -253,7 +267,6 @@ describe('consumer login BrowserRuntimePort wiring', () => {
       performConsumerHeadedLogin({
         timeoutMs: 1000,
         consumerLoginUrl: 'https://mobile.yangkeduo.com/login.html',
-        scrapeCooldownConfig: { threshold: 3, cooldownMs: 60_000, statePath: null },
       }),
       /Real browsers are disabled in offline tests/,
     );
@@ -261,7 +274,6 @@ describe('consumer login BrowserRuntimePort wiring', () => {
       performConsumerQrLogin({
         timeoutMs: 1000,
         consumerLoginUrl: 'https://mobile.yangkeduo.com/login.html',
-        scrapeCooldownConfig: { threshold: 3, cooldownMs: 60_000, statePath: null },
       }),
       /Real browsers are disabled in offline tests/,
     );

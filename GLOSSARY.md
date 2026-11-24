@@ -38,9 +38,9 @@ _Avoid_: Global proxy, publish proxy
 A Source Product Fetch for which proxy use was explicitly enabled. If proxy acquisition or connection fails, the fetch fails rather than falling back to the machine's direct network.
 _Avoid_: Proxy-preferred fetch, automatic direct fallback
 
-**Retryable Source Degradation**:
-A Source Product Fetch result that is unusable because it returned the consumer-site empty shell or masked pricing. When proxy use is enabled, either condition may trigger at most two fresh-proxy retries before the fetch fails.
-_Avoid_: Unlimited rotation, generic risk retry
+**Retryable Source Proxy Fault**:
+A proxy infrastructure failure during Proxy-Required Fetch (`E_PROXY_UNAVAILABLE` or `E_PROXY_NETWORK`) that triggers at most two fresh-proxy retries with `[500, 1000]ms` abortable backoff before failing closed. Empty-shell responses, Consumer Account Degradation, proxy authentication failures (`E_PROXY_AUTH` / `ERR_TUNNEL_CONNECTION_FAILED`), quota/rate-limit errors, and hard challenges stop immediately without proxy rotation.
+_Avoid_: Retryable Source Degradation, unlimited rotation, empty-shell/degradation proxy retry
 
 **Proxy Attempt Context**:
 A fresh consumer-side browser context created for one Source Fetch Proxy attempt. It reads the shared consumer login snapshot but never writes proxy-session state back to that snapshot.
