@@ -58,7 +58,8 @@ export function createConsoleServer({ patrol, mode = 'live', runtime } = {}) {
       controller = new AbortController();
       const resolvedRuntime = nextContext.runtime ?? runtime;
       const resolvedMode = resolvedRuntime?.mode ?? mode;
-      const resolvedRoutes = resolvedRuntime?.routes ?? routesForMode(resolvedMode);
+      const resolvedRoutes = resolvedRuntime?.routes
+        ?? routesForMode(resolvedMode, resolvedRuntime?.consoleExtraRoutes);
       context = {
         ...nextContext,
         patrol,
