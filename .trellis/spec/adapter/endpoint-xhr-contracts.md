@@ -60,6 +60,9 @@ export async function listGoods(page, params = {}, ctx = {}) {
 - Rate limit behavior: 3 consecutive HTTP 429 triggers global cooldown; retry delays are `[1000, 2000, 4000]` ms。
 - Business code `40002` means high-frequency or risk-control rejection with ambiguous cause, remains `E_BUSINESS`, and MUST NOT trigger rate-limit cooldown by itself。
 - Raw payload debug MAY go to stderr only through `PDD_DEBUG_RAW=1` redacted JSONL; stdout envelope is unaffected。
+- Explicit `page-api` endpoints MAY supply `apiUrl` as `(params, ctx) => string` (resolved & validated in `send()` before the fixture/live split and in `_attemptPageApi`); `resolveEndpointStrategy()` treats functional `apiUrl` on `page-api` specs as non-ambiguous. `send()` runs `spec.buildPayload(params, ctx)` and `validatePageApiPayload()` for both `GET` and `POST` `page-api` specs in both fixture and live modes.
+- `logistics.forwardTrack`（`page-api` POST `/artascope/express/track/query`，参数 `{ orderSn, source: 'mms_order_detail', filterInvalidDefaultTrace: true }`，`fixtureVariantKey: 'orderSn'`）与 `logistics.reverseTrack`（`page-api` GET `/express_base/mms/track/sale_back?shippingId=&trackingNumber=`，`fixtureVariantKey: 'trackingNumber'`）在 adapter 层通过白名单剔除 `shippingPhone`、`postman_name`、`postman_contact` 等 PII 字段。缺少 `result` 键抛 `responseShapeError`，显式 `result: null` 归一化为 `available: false`。
+- 物流失败响应的 `redactRaw` 与 `errorMapper` 仅保留布尔 `success`、结果存在标记和按各自端点轨迹键（正向 `traceList`、逆向 `traces` / `trace_list` / `traceList`）统计的轨迹条数，剔除 `error_code`/`errorCode`、`error_msg`/`errorMsg` 与原始轨迹正文并输出固定中文错误文案。HTTP 4xx/5xx 先处理通用认证及限流状态；其余响应仅在含非成功业务错误码时映射为 `E_BUSINESS`，无业务错误码或仅含成功码时保持 `E_NETWORK`（含 `page-api` 合成的 `{ success: false, errorCode: null, errorMsg }`）。`page-api` 传输层拒绝向 `detail.reason` 写入固定枚举 `'page_api_transport_error'`。
 
 ## 4. Validation & Error Matrix
 

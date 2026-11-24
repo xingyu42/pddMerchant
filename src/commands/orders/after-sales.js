@@ -6,7 +6,17 @@ export const run = withCommand({
   needsAuth: true,
   needsMall: 'switch',
   run(ctx) {
-    const { days, since, until, sn, goodsId, status, type } = ctx.config;
-    return getAfterSalesView(ctx, { days, since, until, sn, goodsId, status, type });
+    const { days, since, until, sn, goodsId, status, type, withDelivery, maxTrackFetches } = ctx.config;
+    return getAfterSalesView(ctx, {
+      days,
+      since,
+      until,
+      sn,
+      goodsId,
+      status,
+      type,
+      withDelivery,
+      maxTrackFetches,
+    });
   },
 });

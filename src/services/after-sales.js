@@ -6,6 +6,11 @@ import { runEndpoint } from '../adapter/run-endpoint.js';
 import { throwIfAborted } from '../infra/abort.js';
 import { toFiniteNumber } from '../infra/units.js';
 import { createReport, reportHints } from './operating-report.js';
+import {
+  AFTER_SALES_DEFAULT_MAX_TRACK_FETCHES,
+  AFTER_SALES_MAX_TRACK_FETCHES_LIMIT,
+  enrichAfterSalesDeliveries,
+} from './logistics.js';
 import { rollingSecondsWindow } from './report-windows.js';
 import { mallIdOf } from './views/_shared.js';
 import { AFTER_SALES_REPORT, toAfterSalesCaseView, toAfterSalesListView } from './views/after-sales.js';
@@ -13,7 +18,7 @@ import { AFTER_SALES_REPORT, toAfterSalesCaseView, toAfterSalesListView } from '
 export {
   AFTER_SALES_CLI_STATUSES, AFTER_SALES_CLI_TYPES, AFTER_SALES_DEFAULT_STATUS, AFTER_SALES_DEFAULT_TYPE,
 } from '../adapter/endpoints/after-sales.js';
-export { AFTER_SALES_REPORT };
+export { AFTER_SALES_DEFAULT_MAX_TRACK_FETCHES, AFTER_SALES_MAX_TRACK_FETCHES_LIMIT, AFTER_SALES_REPORT };
 
 async function collectAfterSalesPages(ctx, params, onAttempt) {
   const items = [];
@@ -41,26 +46,45 @@ function collectAfterSalesParams(ctx, report) {
     () => ({ reasonCategoryMap: {} }));
 }
 
-export async function getOrderAfterSalesCases(ctx, orderSn) {
+async function collectOrderAfterSalesRawCases(ctx, orderSn) {
   const report = createReport(ctx, AFTER_SALES_REPORT);
   const searchText = String(orderSn);
   let requestCount = 0;
   // 分页失败并降级时，仍保留已经尝试的请求次数。
   const result = await report.optional('cases_unavailable', () =>
     collectAfterSalesPages(ctx, { searchText }, (count) => { requestCount = count; }));
-  if (result === null) return { cases: null, hints: reportHints(AFTER_SALES_REPORT, report.hints), requestCount };
+  if (result === null) {
+    return {
+      rawCases: null,
+      reasonCategoryMap: {},
+      hints: reportHints(AFTER_SALES_REPORT, report.hints),
+      requestCount,
+    };
+  }
   if (result.truncated) report.hint('detail_cases_truncated');
 
   const matchedItems = result.items.filter((item) => String(item?.orderSn ?? '') === searchText);
   matchedItems.sort((a, b) => (toFiniteNumber(b.createdAt) ?? 0) - (toFiniteNumber(a.createdAt) ?? 0)
     || (toFiniteNumber(b.id) ?? 0) - (toFiniteNumber(a.id) ?? 0));
-  let reasonCategoryMap;
+  let reasonCategoryMap = {};
   if (matchedItems.length > 0) {
     requestCount++;
     ({ reasonCategoryMap } = await collectAfterSalesParams(ctx, report));
   }
-  const cases = matchedItems.map((item) => toAfterSalesCaseView(item, reasonCategoryMap));
-  return { cases, hints: reportHints(AFTER_SALES_REPORT, report.hints), requestCount };
+  return {
+    rawCases: matchedItems,
+    reasonCategoryMap,
+    hints: reportHints(AFTER_SALES_REPORT, report.hints),
+    requestCount,
+  };
+}
+
+export async function getOrderAfterSalesCases(ctx, orderSn) {
+  const { rawCases, reasonCategoryMap, hints, requestCount } = await collectOrderAfterSalesRawCases(ctx, orderSn);
+  if (rawCases === null) return { cases: null, caseEntries: [], hints, requestCount };
+  const cases = rawCases.map((item) => toAfterSalesCaseView(item, reasonCategoryMap));
+  const caseEntries = rawCases.map((rawCase, index) => ({ rawCase, caseView: cases[index] }));
+  return { cases, caseEntries, hints, requestCount };
 }
 
 function resolveWindow({ days, since, until, sn }) {
@@ -72,13 +96,14 @@ function resolveWindow({ days, since, until, sn }) {
 
 export async function getAfterSalesView(ctx, {
   days, since, until, sn, goodsId, status = AFTER_SALES_DEFAULT_STATUS, type = AFTER_SALES_DEFAULT_TYPE,
+  withDelivery = false, maxTrackFetches,
 } = {}) {
   const window = resolveWindow({ days, since, until, sn });
   const searchText = sn ?? goodsId;
   const afterSalesStatusList = AFTER_SALES_STATUS_FILTERS[status];
   const afterSalesType = AFTER_SALES_TYPE_FILTERS[type];
   const report = createReport(ctx, AFTER_SALES_REPORT);
-  const { items, total, truncated } = await collectAfterSalesPages(ctx, {
+  const { items, total, truncated, requestCount: pagesRequestCount } = await collectAfterSalesPages(ctx, {
     ...(window.startTime != null ? { startCreatedTime: window.startTime } : {}),
     ...(window.endTime != null ? { endCreatedTime: window.endTime } : {}),
     ...(searchText != null ? { searchText } : {}),
@@ -90,8 +115,18 @@ export async function getAfterSalesView(ctx, {
     && (afterSalesType == null || toFiniteNumber(item?.afterSalesType) === afterSalesType));
   const { reasonCategoryMap } = await collectAfterSalesParams(ctx, report);
   if (truncated) report.hint('list_truncated');
-  return toAfterSalesListView({
-    rawItems: filteredItems, total, truncated, window, filters: { sn, goodsId, status, type },
-    reasonCategoryMap, hints: report.hints, mallId: mallIdOf(ctx),
-  });
+  if (!withDelivery) {
+    return toAfterSalesListView({
+      rawItems: filteredItems, total, truncated, window, filters: { sn, goodsId, status, type },
+      reasonCategoryMap, hints: report.hints, mallId: mallIdOf(ctx),
+    });
+  }
+  const delivery = await enrichAfterSalesDeliveries(ctx, filteredItems, { maxTrackFetches, report });
+  return {
+    data: toAfterSalesListView({
+      rawItems: filteredItems, total, truncated, window, filters: { sn, goodsId, status, type },
+      reasonCategoryMap, hints: report.hints, mallId: mallIdOf(ctx), delivery,
+    }),
+    meta: { xhr_count: pagesRequestCount + 1 + delivery.requestCount },
+  };
 }

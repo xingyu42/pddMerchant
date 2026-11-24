@@ -47,12 +47,13 @@ export function resolveEndpointStrategy(spec) {
 
   const hasBuildPayload = typeof spec.buildPayload === 'function';
   const hasApiUrl = typeof spec.apiUrl === 'string' && spec.apiUrl.length > 0;
+  const hasPageApiUrl = hasApiUrl || typeof spec.apiUrl === 'function';
 
   if (spec.strategy === 'page-api') {
     return {
       strategy: 'page-api',
       explicit: true,
-      ambiguous: !(hasBuildPayload && hasApiUrl),
+      ambiguous: !(hasBuildPayload && hasPageApiUrl),
     };
   }
 

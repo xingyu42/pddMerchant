@@ -632,3 +632,142 @@ export function createGoodsReceiptFixtures({ total = 2, goods = defaultReceiptGo
   }
   return fixtures;
 }
+
+const trackSuccess = (result) => ({ success: true, error_code: '成功', result });
+const saleBackSuccess = (result) => ({ success: true, error_code: '0', result });
+
+export function createUpstreamForwardTrack({
+  orderSn = 'SYN-ORDER-TRACK-1',
+  shippingId = 85,
+  shippingName = '中通快递',
+  trackingNumber = 'SYN-FWD-TN-1',
+  wideGotTime = '2026-11-18 15:00:00',
+  traces = [
+    {
+      time: '2026-11-20 18:00:00',
+      status: 'SIGN',
+      info: '已签收，签收人：张三（代收），如有疑问请联系95554或13812345678',
+      postman_contact: 'SYN-SHIPPING-PHONE',
+    },
+    {
+      time: '2026-11-20 15:00:00',
+      status: 'IN_CABINET',
+      info: '快件已存入北京市朝阳区阳光小区3号楼丰巢快递柜，取件码998877，详情见 https://example.com/p',
+    },
+    {
+      time: '2026-11-19 08:00:00',
+      status: 'DEPARTURE',
+      info: '【杭州转运中心】已发往【北京转运中心】',
+    },
+    {
+      time: '2026-11-18 15:00:00',
+      status: 'GOT',
+      info: '【杭州市】已揽收，揽收员：李四 13987654321',
+    },
+  ],
+} = {}) {
+  return trackSuccess({
+    orderSn,
+    wideGotTime,
+    waybillList: [
+      {
+        shippingId,
+        shippingName,
+        trackingNumber,
+        shippingPhone: 'SYN-SHIPPING-PHONE',
+      },
+    ],
+    inbound: null,
+    queryAgain: false,
+    traceList: traces,
+  });
+}
+
+export function createUpstreamReverseTrack({
+  shippingId = 85,
+  shippingName = '中通快递',
+  trackingNumber = 'SYN-REV-TN-1',
+  traces = [
+    {
+      time: '2026-11-23 15:00:00',
+      status: '',
+      info: '快件已签收，签收人：王五，客服电话95554',
+      postman_name: 'SYN-POSTMAN-NAME',
+      postman_contact: 'SYN-POSTMAN-PHONE',
+    },
+    {
+      time: '2026-11-22 10:00:00',
+      status: 'ARRIVAL',
+      info: '【义乌转运中心】已到达',
+    },
+    {
+      time: '2026-11-21 18:00:00',
+      status: '',
+      info: '【北京市】快递员已揽收，联系电话：13700001111',
+    },
+  ],
+} = {}) {
+  return saleBackSuccess({
+    shipping_id: shippingId,
+    shipping_name: shippingName,
+    tracking_number: trackingNumber,
+    traces,
+  });
+}
+
+export function createOrderTrackFixtures({
+  orderSn = 'SYN-ORDER-TRACK-1',
+  trackingNumber = 'SYN-REV-TN-1',
+  shippingId = 85,
+  forwardTrack = createUpstreamForwardTrack({ orderSn }),
+  reverseTrack = createUpstreamReverseTrack({ shippingId, trackingNumber }),
+  createdAt = Math.floor(Date.parse('2026-11-21T15:00:00+08:00') / 1000),
+  closeTime = 0,
+} = {}) {
+  return {
+    'endpoints/orders.detail.json': {
+      success: true,
+      result: createUpstreamOrderDetail({
+        order_sn: orderSn,
+        after_sales_id: '77001',
+        after_sales_status: '待商家收货',
+        after_sales_status_code: 11,
+      }),
+    },
+    'endpoints/logistics.forwardTrack.json': forwardTrack,
+    'endpoints/logistics.reverseTrack.json': reverseTrack,
+    'endpoints/after_sales.list.json': success({
+      total: 1,
+      list: [
+        {
+          id: 77001,
+          orderSn,
+          goodsName: 'Tea',
+          goodsSpec: '默认',
+          goodsNumber: 1,
+          afterSalesType: 2,
+          afterSalesTypeName: '退货退款',
+          afterSalesStatus: 11,
+          afterSalesTitle: '等待商家收货',
+          sellerAfterSalesShippingStatus: 1,
+          sellerAfterSalesShippingStatusDesc: '已发货',
+          afterSalesReasonCode: 1001,
+          afterSalesReasonDesc: '7天无理由退货',
+          refundAmount: 2350,
+          orderAmount: 2350,
+          receiveAmount: 2350,
+          createdAt,
+          closeTime,
+          reverseShippingId: shippingId,
+          reverseShippingName: '中通快递',
+          reverseTrackingNumber: trackingNumber,
+        },
+      ],
+    }),
+    'endpoints/after_sales.params.json': success({
+      reasonCodeParams: {
+        consumer_subjective: [1001],
+      },
+    }),
+  };
+}

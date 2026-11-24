@@ -132,4 +132,6 @@ function fingerprint(value) {
 
 ### Redact keys set (`src/infra/logger.js:4-39`)
 
-Full list in source; key pattern: all casing variants of a sensitive concept share one canonical key name in `REDACT_KEYS`. `SECRET_KEYS` is spread first into `REDACT_KEYS`; `redactKey(v, key)` checks `SECRET_KEY_SET` before fingerprinting.
+Full list in source; key pattern: all casing variants of a sensitive concept share one canonical key name in `REDACT_KEYS`. `SECRET_KEYS` is spread first into `REDACT_KEYS`; `redactKey(v, key)` checks `SECRET_KEY_SET` before fingerprinting. Logistics courier and phone keys (`shippingPhone`, `receivingPhone`, `postmanContact`, `postmanName`, `deliveryManPhone`, all camelCase so they cannot collide with lowercase account slugs) are included in `REDACT_KEYS`.
+
+物流错误诊断通过 `src/adapter/response-interpreter.js` 中的 `spec.redactRaw` 和 `spec.errorMapper`，仅保留布尔 `success`、结果存在标记和轨迹条数，输出固定中文错误文案；上游 `error_code`/`errorCode`、原始 `error_msg`/`errorMsg` 及轨迹、联系和地址文本均从 `error.message`、`hint`、`detail` 和 `PDD_DEBUG_RAW=1` stderr 日志剔除。HTTP 4xx/5xx 先处理通用认证及限流状态；其余响应仅在含非成功业务错误码时归为 `E_BUSINESS`，无业务错误码或仅含成功码时保持 `E_NETWORK`（含 `page-api` 合成的 `{ success: false, errorCode: null, errorMsg }`）。`page-api` 传输异常固定使用 `detail.reason: 'page_api_transport_error'`。

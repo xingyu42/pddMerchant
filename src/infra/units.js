@@ -92,3 +92,14 @@ export function labelOf(map, code) {
   if (code == null || code === '') return null;
   return Object.hasOwn(map, code) ? map[code] : `未知(${code})`;
 }
+
+// 线性插值百分位数（调用方传入升序数组）
+export function percentile(sorted, percent) {
+  if (!Array.isArray(sorted) || sorted.length === 0) return null;
+  if (sorted.length === 1) return sorted[0];
+  const rank = (percent / 100) * (sorted.length - 1);
+  const lo = Math.floor(rank);
+  const hi = Math.ceil(rank);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - lo);
+}

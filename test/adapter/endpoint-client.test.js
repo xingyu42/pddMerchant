@@ -129,3 +129,74 @@ it('forwards GET or default POST method for page-api specs and rejects unsupport
       { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
   }
 });
+
+it('resolves functional apiUrl for page-api endpoints in both fixture and live modes', async () => {
+  executePageApiRequest.mockReset();
+  executePageApiRequest.mockResolvedValue({ status: 200, raw: { success: true, errorCode: 0, result: { ok: 3 } } });
+  const client = new PlaywrightEndpointClient();
+  const ctx = { page: { url: () => 'https://mms.pinduoduo.com/' }, log: { debug() {} } };
+  const dynamicGetSpec = {
+    name: 'test.pageApiMethod',
+    strategy: 'page-api',
+    method: 'GET',
+    apiUrl: ({ shippingId, trackingNumber }) =>
+      `/express_base/mms/track/sale_back?shippingId=${shippingId}&trackingNumber=${trackingNumber}`,
+    buildPayload: () => null,
+    normalize: (raw) => raw.result,
+  };
+
+  const liveRes = await client.execute(dynamicGetSpec, { shippingId: 85, trackingNumber: 'YT123' }, ctx);
+  assert.deepEqual(liveRes.data, { ok: 3 });
+  assert.equal(
+    executePageApiRequest.mock.calls[0][1].apiUrl,
+    '/express_base/mms/track/sale_back?shippingId=85&trackingNumber=YT123',
+  );
+
+  sandbox = createCliSandbox({
+    'endpoints/test.pageApiMethod.json': { success: true, errorCode: 0, result: { ok: 4 } },
+  });
+  vi.stubEnv('PDD_TEST_ADAPTER', 'fixture');
+  vi.stubEnv('PDD_TEST_FIXTURE_DIR', sandbox.fixtureDir);
+  const fixtureRes = await client.execute(dynamicGetSpec, { shippingId: 85, trackingNumber: 'YT123' }, { log: ctx.log });
+  assert.deepEqual(fixtureRes.data, { ok: 4 });
+
+  const brokenUrlSpec = { ...dynamicGetSpec, apiUrl: () => '' };
+  await assert.rejects(client.execute(brokenUrlSpec, {}, { log: ctx.log }), { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
+
+  const validatedPostSpec = {
+    name: 'test.pageApiMethod',
+    strategy: 'page-api',
+    method: 'POST',
+    apiUrl: '/artascope/express/track/query',
+    buildPayload: ({ orderSn }) => {
+      if (!orderSn) {
+        throw new PddCliError({ code: 'E_USAGE', message: 'missing orderSn', exitCode: ExitCodes.USAGE });
+      }
+      return { orderSn };
+    },
+    normalize: (raw) => raw.result,
+  };
+  await assert.rejects(client.execute(validatedPostSpec, {}, { log: ctx.log }), { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
+});
+
+it('redacts page-api transport rejection reasons before emitting E_NETWORK', async () => {
+  executePageApiRequest.mockReset();
+  executePageApiRequest.mockResolvedValue({
+    status: null,
+    raw: null,
+    transportError: true,
+    message: '收件人张三13812345678取件码956025',
+  });
+  const client = new PlaywrightEndpointClient();
+  const ctx = { page: { url: () => 'https://mms.pinduoduo.com/' }, log: { debug() {} } };
+  await assert.rejects(client.execute(TRAFFIC_READY_TIME, {}, ctx), (error) => {
+    assert.equal(error.code, 'E_NETWORK');
+    assert.equal(error.exitCode, ExitCodes.NETWORK);
+    assert.equal(error.detail.reason, 'page_api_transport_error');
+    const serialized = JSON.stringify({ message: error.message, hint: error.hint, detail: error.detail });
+    for (const leaked of ['张三', '13812345678', '956025']) {
+      assert.equal(serialized.includes(leaked), false);
+    }
+    return true;
+  });
+});

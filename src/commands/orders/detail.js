@@ -7,7 +7,7 @@ export const run = withCommand({
   needsAuth: true,
   needsMall: 'switch',
   async run(ctx) {
-    const { sn } = ctx.config;
+    const { sn, withTrack } = ctx.config;
     if (!sn) {
       throw new PddCliError({
         code: 'E_USAGE',
@@ -16,6 +16,6 @@ export const run = withCommand({
         exitCode: ExitCodes.USAGE,
       });
     }
-    return getOrderDetailResult(ctx, sn);
+    return getOrderDetailResult(ctx, sn, { withTrack });
   },
 });

@@ -96,9 +96,9 @@ src/services/<domain>.js           业务逻辑（被 handler 调用）
 ### Orders After-Sales
 
 - `orders after-sales` 为只读命令，使用普通鉴权与切店流程，支持 `--all-accounts`。`--days` 接受 1–365 的整数，未传时保留 `undefined`。`--since` / `--until` 接受有效的 `YYYY-MM-DD`（北京时间自然日首秒 / 末秒）或非负 Unix 秒整数，与 `--days` 互斥。`--until` 须配合 `--since`；仅传 `--since` 时截止到当前秒，起点须不晚于截止时间。
-- `--sn` 去除首尾空白后须非空，与正整数 `--goods-id` 互斥。`--status` 为 `all|open|refunded|closed`，`--type` 为 `all|refund|return_refund|exchange|resend|repair`，均默认 `all`。格式、枚举、互斥与起止组合均在选项解析或 `preAction` 中校验；错误保留 `command: orders.after-sales`，返回 `E_USAGE` / exit 2，`xhr_count` 为 0，早于运行时配置与鉴权。
+- `--sn` 去除首尾空白后须非空，与正整数 `--goods-id` 互斥。`--status` 为 `all|open|refunded|closed`，`--type` 为 `all|refund|return_refund|exchange|resend|repair`，均默认 `all`；可选 `--with-delivery` 与 `--max-track-fetches <n>`（1–500 整数，默认 50，须配合 `--with-delivery`）。格式、枚举、互斥与起止组合均在选项解析或 `preAction` 中校验；错误保留 `command: orders.after-sales`，返回 `E_USAGE` / exit 2，`xhr_count` 为 0，早于运行时配置与鉴权。加 `--with-delivery` 时截断提示并入 `headline[0]`，保持 `headline` 不超过 3 行。
 - JSON 为单行 v2 信封，文本模式显示摘要和售后单表格。窗口、分页、原因汇总与降级见服务契约的 After-Sales Case Reporting 小节。
-- `orders detail --sn <sn>` 自动补充 `after_sales_cases` 与 `hints`，沿用只读、鉴权、切店及批量模式。无售后标识时只请求一次详情（`meta.xhr_count: 1`）；成功时该计数包含本次逻辑端点调用，可选调用失败也计入。命中售后单或关联列表失败降级时，在既有三行 `headline` 后追加一行；未命中时保留三行。
+- `orders detail --sn <sn> [--with-track]` 对 `--sn` 执行解析阶段去空白非空校验（`nonEmptyStringArg` + `preserveParseErrorCommand`），自动补充 `after_sales_cases` 与 `hints`，沿用只读、鉴权、切店及批量模式。无 `--with-track` 且无售后标识时只请求一次详情（`meta.xhr_count: 1`）；成功时该计数包含本次逻辑端点调用，可选调用失败也计入。命中售后单或关联列表失败降级时，在既有三行 `headline` 后追加一行；加 `--with-track` 时正向轨迹结论并入第 3 行、退货耗时并入第 4 行，保持 `headline` 在 3–4 行内。
 
 ### Goods Cost / Profit
 

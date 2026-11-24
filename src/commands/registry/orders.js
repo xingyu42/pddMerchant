@@ -9,7 +9,8 @@ import {
   shanghaiTimeBoundArg, validateParsedOptions,
 } from '../option-parsers.js';
 import {
-  AFTER_SALES_CLI_STATUSES, AFTER_SALES_CLI_TYPES, AFTER_SALES_DEFAULT_STATUS, AFTER_SALES_DEFAULT_TYPE, AFTER_SALES_REPORT,
+  AFTER_SALES_CLI_STATUSES, AFTER_SALES_CLI_TYPES, AFTER_SALES_DEFAULT_MAX_TRACK_FETCHES,
+  AFTER_SALES_DEFAULT_STATUS, AFTER_SALES_DEFAULT_TYPE, AFTER_SALES_MAX_TRACK_FETCHES_LIMIT, AFTER_SALES_REPORT,
 } from '../../services/after-sales.js';
 
 export function register(program, wireAction) {
@@ -26,14 +27,13 @@ export function register(program, wireAction) {
     'orders.list',
     list.run
   );
-  wireAction(
-    orders
-      .command('detail')
-      .description('订单详情（按订单号查询）')
-      .requiredOption('--sn <sn>', '订单号 / shipping_id'),
-    'orders.detail',
-    detail.run
-  );
+  const detailCommand = orders
+    .command('detail')
+    .description('订单详情（按订单号查询，加 --with-track 附带正向与退回物流轨迹及耗时）')
+    .requiredOption('--sn <sn>', '订单号 / shipping_id', nonEmptyStringArg('订单号'))
+    .option('--with-track', '附带正向物流轨迹与关联售后逆向退货轨迹及耗时', false);
+  preserveParseErrorCommand(detailCommand);
+  wireAction(detailCommand, 'orders.detail', detail.run);
   wireAction(
     orders
       .command('stats')
@@ -60,14 +60,22 @@ function registerAfterSales(orders, wireAction) {
     .addOption(new Option('--status <scope>', '售后状态筛选：all|open|refunded|closed')
       .choices(AFTER_SALES_CLI_STATUSES).default(AFTER_SALES_DEFAULT_STATUS))
     .addOption(new Option('--type <kind>', '售后类型筛选：all|refund|return_refund|exchange|resend|repair')
-      .choices(AFTER_SALES_CLI_TYPES).default(AFTER_SALES_DEFAULT_TYPE));
+      .choices(AFTER_SALES_CLI_TYPES).default(AFTER_SALES_DEFAULT_TYPE))
+    .option('--with-delivery', '补查已发货售后单的正向快递送达时间与收货到发起退货天数', false)
+    .addOption(new Option(
+      '--max-track-fetches <n>',
+      `配合 --with-delivery，单次最多实时查询正向轨迹的去重订单数（1–${AFTER_SALES_MAX_TRACK_FETCHES_LIMIT}，默认 ${AFTER_SALES_DEFAULT_MAX_TRACK_FETCHES}）`,
+    ).argParser(integerArg(1, AFTER_SALES_MAX_TRACK_FETCHES_LIMIT)));
   preserveParseErrorCommand(afterSalesCommand);
-  validateParsedOptions(afterSalesCommand, ({ since, until }) => {
+  validateParsedOptions(afterSalesCommand, ({ since, until, withDelivery, maxTrackFetches }) => {
     if (until !== undefined && since === undefined) {
       throw new InvalidArgumentError('--until 必须配合 --since 使用');
     }
     if (since !== undefined && since > (until ?? Math.floor(Date.now() / 1000))) {
       throw new InvalidArgumentError('--since 不能晚于 --until');
+    }
+    if (maxTrackFetches !== undefined && !withDelivery) {
+      throw new InvalidArgumentError('--max-track-fetches 必须配合 --with-delivery 使用');
     }
   });
   wireAction(afterSalesCommand, 'orders.after-sales', afterSales.run);

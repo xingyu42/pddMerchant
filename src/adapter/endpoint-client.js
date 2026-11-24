@@ -161,11 +161,10 @@ export class PlaywrightEndpointClient {
     let pageApiRequest = null;
     if (resolveEndpointStrategy(spec).strategy === 'page-api') {
       const method = this._validatePageApiSpec(spec);
-      if (method === 'GET' || !isMockEnabled()) {
-        const payload = spec.buildPayload(params, ctx);
-        validatePageApiPayload(method, payload, spec.name);
-        pageApiRequest = { method, payload };
-      }
+      const apiUrl = this._resolvePageApiUrl(spec, params, ctx);
+      const payload = spec.buildPayload(params, ctx);
+      validatePageApiPayload(method, payload, spec.name);
+      pageApiRequest = { apiUrl, method, payload };
     }
     if (isMockEnabled()) {
       const raw = await mockRunEndpoint(spec, params);
@@ -260,10 +259,25 @@ export class PlaywrightEndpointClient {
     }
   }
 
+  _resolvePageApiUrl(meta, params, ctx) {
+    const rawUrl = typeof meta.apiUrl === 'function' ? meta.apiUrl(params, ctx) : meta.apiUrl;
+    if (typeof rawUrl !== 'string' || rawUrl.length === 0) {
+      throw new PddCliError({
+        code: 'E_USAGE',
+        message: `${meta.name}: invalid page-api endpoint spec`,
+        hint: '缺少或无效字段: apiUrl',
+        detail: { endpoint: meta.name, fields: ['apiUrl'] },
+        exitCode: ExitCodes.USAGE,
+      });
+    }
+    return rawUrl;
+  }
+
   _validatePageApiSpec(meta) {
     const missingFields = [];
     if (typeof meta.buildPayload !== 'function') missingFields.push('buildPayload');
-    if (typeof meta.apiUrl !== 'string' || meta.apiUrl.length === 0) missingFields.push('apiUrl');
+    const hasApiUrl = (typeof meta.apiUrl === 'string' && meta.apiUrl.length > 0) || typeof meta.apiUrl === 'function';
+    if (!hasApiUrl) missingFields.push('apiUrl');
     if (missingFields.length > 0) {
       throw new PddCliError({
         code: 'E_USAGE',
@@ -276,7 +290,7 @@ export class PlaywrightEndpointClient {
     return validatePageApiMethod(meta.method, meta.name);
   }
 
-  _buildPageApiResponse(page, meta, result) {
+  _buildPageApiResponse(page, meta, result, apiUrl = null) {
     if (result.unavailable) {
       throw new PddCliError({
         code: 'E_NETWORK',
@@ -291,14 +305,15 @@ export class PlaywrightEndpointClient {
         code: 'E_NETWORK',
         message: `${meta.name}: page API transport failed`,
         hint: '页面请求客户端未返回业务错误码；请重试并检查登录态与网络连通性',
-        detail: { endpoint: meta.name, status: result.status, reason: result.message },
+        detail: { endpoint: meta.name, status: result.status, reason: 'page_api_transport_error' },
         exitCode: ExitCodes.NETWORK,
       });
     }
-    let responseUrl = meta.apiUrl;
+    const resolvedApiUrl = apiUrl ?? (typeof meta.apiUrl === 'string' ? meta.apiUrl : '');
+    let responseUrl = resolvedApiUrl;
     try {
       const baseUrl = typeof page.url === 'function' ? page.url() : page.url;
-      responseUrl = new URL(meta.apiUrl, baseUrl).href;
+      responseUrl = new URL(resolvedApiUrl, baseUrl).href;
     } catch {
       // Relative apiUrl is still useful to error mappers when page.url is unavailable.
     }
@@ -314,6 +329,7 @@ export class PlaywrightEndpointClient {
 
   async _attemptPageApi(page, meta, params, ctx, navUrl, prepared = null) {
     const method = prepared?.method ?? this._validatePageApiSpec(meta);
+    const apiUrl = prepared?.apiUrl ?? this._resolvePageApiUrl(meta, params, ctx);
     const payload = prepared ? prepared.payload : meta.buildPayload(params, ctx);
     if (!prepared) validatePageApiPayload(method, payload, meta.name);
     await this._preparePageApi(page, meta, ctx, navUrl);
@@ -325,7 +341,7 @@ export class PlaywrightEndpointClient {
     try {
       result = await executePageApiRequest(
         page,
-        { apiUrl: meta.apiUrl, method, payload },
+        { apiUrl, method, payload },
         { signal: ctx.signal, timeoutMs: requestBudgetMs },
       );
     } catch (err) {
@@ -338,7 +354,7 @@ export class PlaywrightEndpointClient {
         exitCode: ExitCodes.NETWORK,
       });
     }
-    return this._buildPageApiResponse(page, meta, result);
+    return this._buildPageApiResponse(page, meta, result, apiUrl);
   }
 
   async _attemptFetch(page, meta, params, ctx, log, navUrl) {

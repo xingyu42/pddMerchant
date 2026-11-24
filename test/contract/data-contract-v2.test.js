@@ -8,14 +8,19 @@ import {
   createAccounts, createFactFixtures, createPublishFixtures, createUpstreamGoods, createExperienceFixtures,
   createCustomerServiceFixtures, createReviewFixtures, createTrafficFixtures, createGoodsTrafficFixtures,
   createGoodsReceiptFixtures, allCaliberReceiptGoods, createAfterSalesFixtures, createUpstreamOrderDetail,
+  createOrderTrackFixtures,
 } from '../fixtures/test-data.js';
 import { ACCOUNT_VIEW_FIELDS, ACCOUNT_REMOVED_VIEW_FIELDS } from '../../src/services/views/account.js';
 import { CONFIG_FIELD_VIEW_FIELDS } from '../../src/services/views/config.js';
 import { SHOP_VIEW_FIELDS } from '../../src/services/views/shops.js';
 import { ORDER_DETAIL_VIEW_FIELDS, ORDER_VIEW_FIELDS } from '../../src/services/views/order.js';
 import {
-  AFTER_SALES_CASE_FIELDS, REASON_SUMMARY_FIELDS, AFTER_SALES_WINDOW_FIELDS, AFTER_SALES_FILTER_FIELDS,
+  AFTER_SALES_CASE_FIELDS, AFTER_SALES_CASE_WITH_DELIVERY_FIELDS, AFTER_SALES_DELIVERY_SUMMARY_FIELDS,
+  REASON_SUMMARY_FIELDS, AFTER_SALES_WINDOW_FIELDS, AFTER_SALES_FILTER_FIELDS,
 } from '../../src/services/views/after-sales.js';
+import {
+  ORDER_DETAIL_TRACK_FIELDS, FORWARD_TRACK_FIELDS, REVERSE_TRACK_CASE_FIELDS, TRACE_NODE_FIELDS,
+} from '../../src/services/views/logistics.js';
 import {
   COST_TEMPLATE_VIEW_FIELDS, GOODS_PROMOTION_VIEW_FIELDS, GOODS_STOCK_ITEM_FIELDS, GOODS_STOCK_SKU_FIELDS,
   GOODS_VIEW_FIELDS,
@@ -329,6 +334,48 @@ const V2_CASES = [
       '--changes', JSON.stringify([{ goods_id: 101, field: 'price_yuan', value: 29.9 }]),
     ],
     fixtures: { 'endpoints/goods.update.price.json': { success: true, fail_goods_num: 0 } },
+  },
+  {
+    command: 'orders.detail',
+    args: ['orders', 'detail', '--sn', 'SYN-ORDER-TRACK-1', '--with-track'],
+    fixtures: createOrderTrackFixtures(),
+    entityFields: {
+      '': ['headline', 'order', 'after_sales_cases', 'track', 'hints', 'mall_id'],
+      order: ORDER_DETAIL_VIEW_FIELDS,
+      'after_sales_cases[]': AFTER_SALES_CASE_FIELDS,
+      track: ORDER_DETAIL_TRACK_FIELDS,
+      'track.forward': FORWARD_TRACK_FIELDS,
+      'track.forward.traces[]': TRACE_NODE_FIELDS,
+      'track.returns[]': REVERSE_TRACK_CASE_FIELDS,
+      'track.returns[].traces[]': TRACE_NODE_FIELDS,
+    },
+    checkData: (data) => {
+      assert.equal(data.track.forward.delivery_event, '已入柜/驿站待取');
+      assert.equal(data.track.forward.shipping_id, '85');
+      assert.equal(data.track.returns[0].reverse_shipping_id, '85');
+      assert.equal(data.track.returns[0].delivery_to_return_arrived_days, 3);
+      assert.equal(data.headline.length <= 4, true);
+    },
+  },
+  {
+    command: 'orders.after-sales',
+    args: ['orders', 'after-sales', '--with-delivery'],
+    fixtures: createOrderTrackFixtures(),
+    entityFields: {
+      '': ['headline', 'window', 'filters', 'total', 'fetched_count', 'truncated', 'reason_summary', 'delivery', 'items', 'hints', 'mall_id'],
+      delivery: AFTER_SALES_DELIVERY_SUMMARY_FIELDS,
+      'items[]': AFTER_SALES_CASE_WITH_DELIVERY_FIELDS,
+      'reason_summary[]': REASON_SUMMARY_FIELDS,
+      window: AFTER_SALES_WINDOW_FIELDS,
+      filters: AFTER_SALES_FILTER_FIELDS,
+    },
+    checkData: (data) => {
+      assert.equal(data.delivery.measured_cases_count, 1);
+      assert.equal(data.delivery.delivered_orders_count, 1);
+      assert.equal(data.items[0].delivery_to_apply_days, 1);
+      assert.equal(data.items[0].delivery_source, '实时查询');
+      assert.equal(data.headline.length <= 3, true);
+    },
   },
 ];
 

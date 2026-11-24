@@ -73,15 +73,15 @@ pdd config unset <key> --json
 
 ```bash
 pdd orders list [--page 1] [--size 20] [--since <unix>] [--until <unix>] [--status all|pending_ship|shipped|received|after_sales]
-pdd orders detail --sn <订单号>
+pdd orders detail --sn <订单号> [--with-track]
 pdd orders stats [--size 50]   # 本地样本 P50/P95、退款与售后计数
-pdd orders after-sales [--days 30|--since <date|unix> [--until <date|unix>]] [--sn <订单号>|--goods-id <id>] [--status all|open|refunded|closed] [--type all|refund|return_refund|exchange|resend|repair]
+pdd orders after-sales [--days 30|--since <date|unix> [--until <date|unix>]] [--sn <订单号>|--goods-id <id>] [--status all|open|refunded|closed] [--type all|refund|return_refund|exchange|resend|repair] [--with-delivery [--max-track-fetches <n>]]
 pdd promo roi [--by plan|sku|channel] [--since YYYY-MM-DD] [--size 50] [--include-inactive]
 ```
 
 - `orders list` 默认近 7 天全部订单；`pending_ship` / `shipped` / `received` 不含售后中订单；更早待发货以 `orders stats` 为准，`--size` 最大 50。
 - 订单级售后状态见 `order.after_sales_status`（列表在 `items[]` 内）：`退款成功` / `售后处理中` / `null`，未登记码显示 `未知(<code>)`。
-- `orders detail` 有售后标识时附该单售后单列表 `after_sales_cases[]`；`orders after-sales` 按申请时间查售后单并汇总退款原因分布，默认近 30 天。两者口径见 [订单详情](reports.md#orders-detail) 与 [售后单](reports.md#orders-after-sales)。
+- `orders detail` 有售后标识时附该单售后单列表 `after_sales_cases[]`，加 `--with-track` 时附带正向快递与关联售后逆向轨迹及收货/退货耗时；`orders after-sales` 按申请时间查售后单并汇总退款原因分布，加 `--with-delivery` 时补查正向妥投并计算收货到发起退货耗时。口径见 [订单详情](reports.md#orders-detail) 与 [售后单](reports.md#orders-after-sales)。
 
 ### 商品查询与写操作
 

@@ -3,8 +3,9 @@ import {
   ORDER_LIST, ORDER_DETAIL, ORDER_STATS, ORDER_LIST_DEFAULT_DAYS, ORDER_LIST_CLI_SCOPES, ORDER_LIST_DEFAULT_SCOPE,
 } from '../adapter/endpoints/orders.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
-import { toLocalDate } from '../infra/units.js';
+import { percentile, toLocalDate } from '../infra/units.js';
 import { AFTER_SALES_REPORT, getOrderAfterSalesCases } from './after-sales.js';
+import { collectOrderTrack } from './logistics.js';
 import {
   orderStatusLabel, toLocalOrderStatsView, toOrderDetailView, toOrderView, toRemoteOrderStatsView,
 } from './views/order.js';
@@ -35,17 +36,6 @@ async function getOrderDetail(page, sn, ctx = {}) {
 
 // 状态分布以中文标签为键；上游既无标签也无状态码时归入此键
 const UNKNOWN_STATUS = '未知';
-
-function percentile(sorted, p) {
-  if (sorted.length === 0) return null;
-  if (sorted.length === 1) return sorted[0];
-  const rank = (p / 100) * (sorted.length - 1);
-  const lo = Math.floor(rank);
-  const hi = Math.ceil(rank);
-  if (lo === hi) return sorted[lo];
-  const frac = rank - lo;
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * frac;
-}
 
 // 售后口径只依据上游 after_sales_status（research order-list-filters-2026-10-08 §3）：
 // 5 = 退款成功；其他非空码 = 售后处理中；null = 无售后。
@@ -153,34 +143,54 @@ function shippingSentence(order) {
   return `暂无发货记录${deadline}`;
 }
 
-function detailHeadline(order, afterSalesCases) {
+function detailHeadline(order, afterSalesCases, trackClauses = null) {
+  const shippingLine = trackClauses?.forwardClause
+    ? `${shippingSentence(order)}；${trackClauses.forwardClause}`
+    : shippingSentence(order);
   const headline = [
     `订单 ${order.order_sn ?? '(无订单号)'}：${order.status ?? UNKNOWN_STATUS}`,
     `${order.goods_name ?? '商品名未记录'} × ${order.quantity ?? '?'}，实付 ${yuanText(order.paid_amount_yuan)}`,
-    shippingSentence(order),
+    shippingLine,
   ];
   if (Array.isArray(afterSalesCases) && afterSalesCases.length > 0) {
     const { type, status, reason_desc: reason } = afterSalesCases[0];
-    headline.push(`售后单 ${afterSalesCases.length} 条，最新：${type ?? '类型未记录'}（${status ?? '状态未记录'}），原因：${reason ?? '未记录'}`);
+    const baseCaseLine = `售后单 ${afterSalesCases.length} 条，最新：${type ?? '类型未记录'}（${status ?? '状态未记录'}），原因：${reason ?? '未记录'}`;
+    headline.push(trackClauses?.returnTimingClause ? `${baseCaseLine}；${trackClauses.returnTimingClause}` : baseCaseLine);
   } else if (afterSalesCases === null) {
     headline.push(AFTER_SALES_REPORT.hints.cases_unavailable);
   }
   return headline;
 }
 
-export async function getOrderDetailResult(ctx, sn) {
+export async function getOrderDetailResult(ctx, sn, { withTrack = false } = {}) {
   const result = await getOrderDetail(ctx.page, sn, ctx);
   const rawOrder = result?.order;
   const order = toOrderDetailView(rawOrder);
+  const effectiveOrderSn = order.order_sn ?? String(sn).trim();
   const hasAfterSales = rawOrder?.after_sales_id != null || rawOrder?.after_sales_status_code != null;
   const afterSales = hasAfterSales
-    ? await getOrderAfterSalesCases(ctx, order.order_sn ?? sn)
-    : { cases: [], hints: [], requestCount: 0 };
+    ? await getOrderAfterSalesCases(ctx, effectiveOrderSn)
+    : { cases: [], caseEntries: [], hints: [], requestCount: 0 };
+  if (!withTrack) {
+    const data = {
+      headline: detailHeadline(order, afterSales.cases), order, after_sales_cases: afterSales.cases,
+      hints: afterSales.hints, mall_id: mallIdOf(ctx),
+    };
+    return { data, meta: { xhr_count: 1 + afterSales.requestCount } };
+  }
+  const trackResult = await collectOrderTrack(ctx, {
+    orderSn: effectiveOrderSn,
+    caseEntries: afterSales.caseEntries,
+  });
   const data = {
-    headline: detailHeadline(order, afterSales.cases), order, after_sales_cases: afterSales.cases,
-    hints: afterSales.hints, mall_id: mallIdOf(ctx),
+    headline: detailHeadline(order, afterSales.cases, trackResult),
+    order,
+    after_sales_cases: afterSales.cases,
+    track: trackResult.track,
+    hints: [...new Set([...afterSales.hints, ...trackResult.hints])],
+    mall_id: mallIdOf(ctx),
   };
-  return { data, meta: { xhr_count: 1 + afterSales.requestCount } };
+  return { data, meta: { xhr_count: 1 + afterSales.requestCount + trackResult.requestCount } };
 }
 
 function localStatsSentence(local) {

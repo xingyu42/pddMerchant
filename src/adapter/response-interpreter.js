@@ -58,6 +58,10 @@ function mapBusinessError(spec, raw, response) {
   return null;
 }
 
+function redactErrorRaw(spec, raw) {
+  return typeof spec?.redactRaw === 'function' ? spec.redactRaw(raw) : raw;
+}
+
 function mappedExitCode(mapped, fallback) {
   return mapped?.code ? mapped.exitCode ?? mapErrorToExit(mapped) : fallback;
 }
@@ -76,7 +80,7 @@ function httpFailure(spec, { status, raw, response, url, retries }) {
   return new PddCliError({
     code: mapped?.code || 'E_NETWORK',
     message: (mapped?.code && mapped.message) || `${spec.name}: HTTP ${status}`,
-    detail: mapped?.code ? { url, status, raw } : { url, status },
+    detail: mapped?.code ? { url, status, raw: redactErrorRaw(spec, raw) } : { url, status },
     exitCode: mappedExitCode(mapped, ExitCodes.NETWORK),
   });
 }
@@ -85,8 +89,9 @@ function businessFailure(spec, raw, response) {
   const businessError = readBusinessError(raw);
   const ambiguousRiskControl = businessError?.code === '40002';
   const mapped = mapBusinessError(spec, raw, response);
+  const safeRaw = redactErrorRaw(spec, raw);
   const message = businessError?.message ? `${spec.name}: ${businessError.message}` : `${spec.name}: business error`;
-  const hint = raw?.errorMsg || raw?.error_msg || '';
+  const hint = mapped?.hint ?? (safeRaw?.errorMsg || safeRaw?.error_msg || '');
   return new PddCliError({
     code: mapped?.code || 'E_BUSINESS',
     message: mapped?.code ? mapped.message || `${spec.name}: business error` : message,
@@ -94,8 +99,9 @@ function businessFailure(spec, raw, response) {
       ? '平台返回高频或风控拒绝；该错误也可能由请求签名异常引起，不能单凭此码认定真实限流'
       : mapped?.code ? hint : hint || '设 PDD_DEBUG_RAW=1 查看脱敏后的原始响应',
     detail: {
-      errorCode: raw?.errorCode ?? raw?.error_code,
-      ...(ambiguousRiskControl ? { classification: 'high-frequency-or-risk-control' } : {}), raw,
+      errorCode: safeRaw?.errorCode ?? safeRaw?.error_code,
+      ...(ambiguousRiskControl ? { classification: 'high-frequency-or-risk-control' } : {}),
+      raw: safeRaw,
     },
     exitCode: mappedExitCode(mapped, ExitCodes.BUSINESS),
   });
@@ -114,7 +120,8 @@ export function interpretResponse(spec, context) {
   const classification = classifyRateLimit(raw, response);
   if (classification) throw new PddCliError({
     code: 'E_RATE_LIMIT', message: `${spec.name}: rate limit detected (${classification})`,
-    hint: '请求过于频繁，请稍后重试', detail: { endpoint: spec.name, classification, raw },
+    hint: '请求过于频繁，请稍后重试',
+    detail: { endpoint: spec.name, classification, raw: redactErrorRaw(spec, raw) },
     exitCode: ExitCodes.RATE_LIMIT,
   });
   // 40002 只细化已失败响应，保留端点接受 success: true 的既有规则。

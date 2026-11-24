@@ -5,7 +5,7 @@ import { describe, it } from 'vitest';
 import {
   createAccounts, createAfterSalesFixtures, createUpstreamAfterSalesCase, createUpstreamAfterSalesParams,
 } from '../fixtures/test-data.js';
-import { createCliSandbox, runCli, spawnNode } from '../helpers/isolated-cli.js';
+import { createCliSandbox, runCli, runCliAsync, spawnNode } from '../helpers/isolated-cli.js';
 import { DEFAULT_ACCOUNT, seedDb } from '../helpers/seed-db.js';
 
 const command = ['orders', 'after-sales'];
@@ -302,5 +302,104 @@ describe('orders after-sales fixture CLI', () => {
       assert.equal(result.data.fetched_count, 1);
       assert.equal(result.data.items[0].reason_desc, '不想要了');
     }
+  });
+
+  it('enriches delivery timing with --with-delivery, deduplicates in memory, and validates --max-track-fetches', async () => {
+    const deliveredTs = Math.floor(Date.parse('2026-11-20T15:00:00+08:00') / 1000);
+    const applyTs = deliveredTs + 86400;
+    const fixtures = {
+      'endpoints/after_sales.list.json': {
+        success: true,
+        errorCode: 1000000,
+        result: {
+          total: 2,
+          list: [
+            {
+              id: 88001,
+              orderSn: 'SYN-AS-DEDUP-1',
+              goodsName: 'Tea',
+              goodsSpec: '默认',
+              goodsNumber: 1,
+              afterSalesType: 2,
+              afterSalesStatus: 5,
+              sellerAfterSalesShippingStatus: 1,
+              sellerAfterSalesShippingStatusDesc: '已发货',
+              afterSalesReasonCode: 1001,
+              afterSalesReasonDesc: '7天无理由退货',
+              refundAmount: 2000,
+              orderAmount: 2000,
+              receiveAmount: 2000,
+              createdAt: applyTs,
+              closeTime: 0,
+              reverseTrackingNumber: 'SYN-REV-88',
+            },
+            {
+              id: 88002,
+              orderSn: 'SYN-AS-DEDUP-1',
+              goodsName: 'Tea',
+              goodsSpec: '默认',
+              goodsNumber: 1,
+              afterSalesType: 2,
+              afterSalesStatus: 5,
+              sellerAfterSalesShippingStatus: 1,
+              sellerAfterSalesShippingStatusDesc: '已发货',
+              afterSalesReasonCode: 1001,
+              afterSalesReasonDesc: '7天无理由退货',
+              refundAmount: 2000,
+              orderAmount: 2000,
+              receiveAmount: 2000,
+              createdAt: applyTs + 86400,
+              closeTime: 0,
+              reverseTrackingNumber: 'SYN-REV-89',
+            },
+          ],
+        },
+      },
+      'endpoints/after_sales.params.json': {
+        success: true,
+        errorCode: 1000000,
+        result: { reasonCodeParams: { consumer_subjective: [1001] } },
+      },
+      'endpoints/logistics.forwardTrack.json': {
+        success: true,
+        error_code: '成功',
+        result: {
+          orderSn: 'SYN-AS-DEDUP-1',
+          wideGotTime: deliveredTs - 86400,
+          waybillList: [{ shippingId: 85, shippingName: '中通快递', trackingNumber: 'SYN-FWD-88' }],
+          traceList: [
+            { time: '2026-11-20 15:00:00', status: 'IN_CABINET', info: '快件已存入快递柜' },
+            { time: '2026-11-19 15:00:00', status: 'GOT', info: '已揽收' },
+          ],
+        },
+      },
+    };
+
+    const { status: okStatus, envelope: okEnvelope } = await runCliAsync(
+      ['orders', 'after-sales', '--with-delivery'],
+      { fixtures },
+    );
+    assert.equal(okStatus, 0);
+    assert.equal(okEnvelope.ok, true);
+    assert.equal(okEnvelope.meta.xhr_count, 3);
+    assert.equal(Object.hasOwn(okEnvelope.data.delivery, 'cache_hit_orders_count'), false);
+    assert.equal(okEnvelope.data.delivery.unique_orders_count, 1);
+    assert.equal(okEnvelope.data.delivery.fetched_orders_count, 1);
+    assert.equal(okEnvelope.data.delivery.delivered_orders_count, 1);
+    assert.equal(okEnvelope.data.delivery.measured_cases_count, 2);
+    assert.equal(okEnvelope.data.delivery.avg_days, 1.5);
+    assert.equal(okEnvelope.data.items[0].delivery_source, '实时查询');
+    assert.equal(okEnvelope.data.items[1].delivery_source, '实时查询');
+    assert.equal(okEnvelope.data.items[0].delivery_to_apply_days, 1);
+    assert.equal(okEnvelope.data.items[1].delivery_to_apply_days, 2);
+    assert.equal(okEnvelope.data.headline.length, 3);
+
+    const { status, envelope } = runCli(['orders', 'after-sales', '--max-track-fetches', '10'], {
+      fixtures: {},
+    });
+    assert.equal(status, 2);
+    assert.equal(envelope.ok, false);
+    assert.equal(envelope.command, 'orders.after-sales');
+    assert.equal(envelope.error.code, 'E_USAGE');
   });
 });

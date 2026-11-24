@@ -40,6 +40,7 @@
   - `reason_summary[]` 按原因文案合并，退款金额先按分加总，`share_pct` 以 `fetched_count` 为分母。
   - 组内所有售后单须归入同一个已知大类才显示该类。
 - 上限：每次最多采集 2000 条，截断时附提示。
+- 妥投耗时增强（`--with-delivery`）：仅对 `shipping_status` 为「已发货」的售后单按唯一订单号去重，按 `--max-track-fetches`（1–500，默认 50）单次实时拉取正向轨迹（不持久化本地缓存）；`shipping_status` 缺失或未知时 `delivery_source` 为 `null`。送达时刻按「驿站/快递柜入柜优先、否则签收/代收/出柜」口径取 `delivered_at`，计算 `delivery_to_apply_days`（发起早于送达为 `null`），并在 `delivery` 中分别记录实时查询单数（`fetched_orders_count`）、已妥投单数（`delivered_orders_count`）、超出配额跳过单数（`skipped_cap_orders_count`）与流控中止跳过单数（`skipped_throttled_orders_count`）及 `avg_days`、`p50_days`、`p90_days`、`min_days`、`max_days`；触达上限、部分失败或流控时原样附 `hints`（流控中止后的未查订单标为「流控中止未查」）。
 
 ## orders detail
 
@@ -51,6 +52,10 @@
   - `null`：关联列表拉取失败降级；订单详情照常返回并附 `hints`。
   - 关联检索达到 2000 条上限且结果被截断时，`hints` 提醒结果可能不完整。
   - 原因字典失败时保留售后单和原因文案，仅置 `reason_category` 为 `null` 并附提示。
+- 物流轨迹增强（`--with-track`）：在订单详情与关联售后单之外附加 `track` 区块，拉取正向快递轨迹（`track.forward`）及关联售后单逆向退货轨迹（`track.returns[]`）。
+  - 送达时刻统一采用「快递送达即算」口径（`delivery_caliber: "快递送达即算（入柜/驿站优先，否则签收/代收/出柜）"`）：存在 `IN_CABINET`（入柜/到达驿站）取最早 `IN_CABINET`，否则取最早 `SIGN` / `SIGN_ON_BEHALF` / `OUT_CABINET`；中转仓入库/合包/出库及二段揽收会重置第一段交接节点，同时暴露参考时间 `in_cabinet_at` 与 `signed_at`。
+  - 计算各阶段天数差：`transit_days`（正向揽收到送达）、`delivery_to_apply_days`（收货到发起售后）、`apply_to_return_arrived_days`（发起售后到退货到达/签收）、`delivery_to_return_arrived_days`（正向送达到退货到达/签收）、`reverse_transit_days`（逆向揽收到退货到达/签收）。
+  - 轨迹节点 `traces[]` 使用 `{ occurred_at, status, summary }`，严格使用闭合中文状态/摘要白名单（未知状态统一归为「其他节点」/「物流节点更新」），不透出原始站点、人员、地址、取件码或热线文本。正向/逆向缺失轨迹（含仅有公司/运单但无承运商节点的逆向轨迹）、仅有发货通知无承运商轨迹、缺逆向物流公司 ID 或轨迹失败时通过 `hints` 如实提示，第 4 行耗时摘要严格对齐最新一条售后单（`returns[0]`）并按逆向到达类型区分「退回到达」与「退回签收」。
 
 ## diagnose experience
 

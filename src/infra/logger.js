@@ -57,6 +57,11 @@ const REDACT_KEYS = [
   'nickname',
   'avatar',
   'orderSn',
+  'shippingPhone',
+  'receivingPhone',
+  'postmanContact',
+  'postmanName',
+  'deliveryManPhone',
 ];
 
 const REDACT_KEY_SET = new Set(REDACT_KEYS);

@@ -135,3 +135,30 @@ it('rotates redacted daemon log files across local midnight while retaining hist
     destination.end();
   }
 });
+
+it.each([
+  'shippingPhone',
+  'receivingPhone',
+  'postmanContact',
+  'postmanName',
+  'deliveryManPhone',
+])('fingerprints logistics courier and phone key %s in logs and envelopes', (key) => {
+  assert.ok(REDACT_KEYS.includes(key));
+  const raw = `SYN-${key}-13812345678`;
+  const redacted = redactRecursive({ trace: [{ [key]: raw }] });
+  assert.match(redacted.trace[0][key], /^fp:[0-9a-f]{8}$/);
+  assert.equal(JSON.stringify(redacted).includes(raw), false);
+});
+
+it('does not treat snake_case account slugs like postman_name or postman_contact as redaction keys', () => {
+  assert.equal(REDACT_KEYS.includes('postman_name'), false);
+  assert.equal(REDACT_KEYS.includes('postman_contact'), false);
+  const batchData = {
+    accounts: {
+      postman_name: { ok: true, data: { total: 1 } },
+      postman_contact: { ok: true, data: { total: 2 } },
+    },
+  };
+  const redacted = redactRecursive(batchData);
+  assert.deepEqual(redacted, batchData);
+});
