@@ -42,6 +42,7 @@ describe('composeDaemonRuntime', () => {
       assert.equal(Object.hasOwn(runtime, 'rawEnv'), false);
       assert.deepEqual(Object.keys(runtime.ports).sort(), ['auth', 'browser', 'consoleLoginDriver', 'daemonProcess', 'mall']);
       assert.equal(typeof runtime.ports.consoleLoginDriver.openSession, 'function');
+      assert.deepEqual(Object.keys(runtime.consoleApp).sort(), ['accounts', 'auth', 'health', 'patrol', 'sessions']);
       assert.deepEqual(runtime.consoleExtraRoutes, []);
       assert.deepEqual(runtime.timings, {
         ttlMs: DAEMON_LEASE.ttlMs,

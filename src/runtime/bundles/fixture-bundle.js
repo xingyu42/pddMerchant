@@ -14,7 +14,8 @@ import { createFixtureDaemonProcessPort } from '../../adapter/fixtures/daemon.js
 import { createFixtureEndpointTransport } from '../../adapter/fixtures/endpoint.js';
 import { mockCurrentMall, mockListMalls, mockRunEndpoint, mockPasswordLogin } from '../../adapter/mock-dispatcher.js';
 import { FIXTURE_QR_IMAGE, openFixtureTakeover, createFixtureConsoleLoginDriver } from '../../adapter/console-login-fixture.js';
-import { completeFixtureConsoleSession } from '../../services/console-login.js';
+import { invalidTakeoverInput } from '../../adapter/takeover.js';
+import { consoleRequestError } from '../../services/console-runtime.js';
 
 function createFixtureHelpers({ fixtureStore, loadFixture, parsedEnv, mall, clock, seal }) {
   return Object.freeze({
@@ -57,6 +58,29 @@ function createFixturePasswordLogin(parsedEnv) {
   };
 }
 
+function createFixtureCompleteRoute(consoleLoginDriver) {
+  return Object.freeze({
+    method: 'POST',
+    template: '/api/sessions/:id/fixture-complete',
+    pattern: /^\/api\/sessions\/([^/]+)\/fixture-complete$/,
+    run: async ({ id, body, consoleApp, runtime }) => {
+      const app = consoleApp ?? runtime?.consoleApp;
+      const session = app?.sessions?.get(id);
+      if (!session || !['takeover', 'sms', 'qr'].includes(session.state)) {
+        throw consoleRequestError(409, 'E_CONSOLE_SESSION_STATE', '登录状态已变化');
+      }
+      if (!['success', 'timeout'].includes(body?.outcome)) throw invalidTakeoverInput();
+      const driver = runtime?.ports?.consoleLoginDriver ?? consoleLoginDriver;
+      if (typeof driver?.completeSession !== 'function') {
+        throw consoleRequestError(409, 'E_CONSOLE_SESSION_STATE', '登录状态已变化');
+      }
+      driver.completeSession(id, body.outcome);
+      await app.sessions.awaitDone(id);
+      return { ok: true };
+    },
+  });
+}
+
 export function createFixtureBundle({ seal, clock, parsedEnv, env, overrides = {}, includeConsole = false } = {}) {
   const fixtureStore = overrides.fixtureStore ?? new FixtureStore({
     fixtureDir: parsedEnv?.fixtureDir,
@@ -87,14 +111,7 @@ export function createFixtureBundle({ seal, clock, parsedEnv, env, overrides = {
       }))
     : null;
   const consoleExtraRoutes = includeConsole
-    ? (overrides.consoleExtraRoutes ?? Object.freeze([
-        Object.freeze({
-          method: 'POST',
-          template: '/api/sessions/:id/fixture-complete',
-          pattern: /^\/api\/sessions\/([^/]+)\/fixture-complete$/,
-          run: ({ id, body, runtime }) => completeFixtureConsoleSession(id, body, runtime),
-        }),
-      ]))
+    ? (overrides.consoleExtraRoutes ?? Object.freeze([createFixtureCompleteRoute(consoleLoginDriver)]))
     : Object.freeze([]);
   const loadFixture = (relPath) => fixtureStore.load(relPath);
 

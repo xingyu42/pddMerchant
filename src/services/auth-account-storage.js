@@ -73,7 +73,7 @@ export async function provisionMerchantLogin(login, { accountId, ...task } = {})
     if (!account) return saveMerchantLogin(result, null, task);
     return await withMerchantAuthUpdate(account.id, (initial) => saveMerchantLogin(result, initial, task), {
       ...task, recoveryMallId: account.identity,
-      deadlineAt: Math.min(task.deadlineAt ?? Infinity, Date.now() + 1500),
+      deadlineAt: Math.min(task.deadlineAt ?? Infinity, (task.clock?.now ? task.clock.now() : Date.now()) + 1500),
     });
   } catch (error) {
     if (error instanceof PddCliError) throw error;
