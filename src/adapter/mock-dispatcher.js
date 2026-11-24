@@ -10,4 +10,3 @@ export { mockLaunchBrowser, mockCloseBrowser } from './fixtures/browser.js';
 export { mockIsAuthValid, mockIsAuthIndeterminate, mockIsConsumerAuthValid, mockPasswordLogin } from './fixtures/auth.js';
 export { mockListMalls, mockCurrentMall, mockSwitchTo } from './fixtures/mall.js';
 export { mockRunEndpoint } from './fixtures/endpoint.js';
-export { mockPublishGoods, mockScrapeSourceGoods, mockResolvePddCategory } from './fixtures/goods-publish.js';

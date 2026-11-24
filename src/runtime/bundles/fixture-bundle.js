@@ -13,9 +13,23 @@ import {
 import { createFixtureDaemonProcessPort } from '../../adapter/fixtures/daemon.js';
 import { createFixtureEndpointTransport } from '../../adapter/fixtures/endpoint.js';
 import { mockCurrentMall, mockListMalls, mockRunEndpoint, mockPasswordLogin } from '../../adapter/mock-dispatcher.js';
+import {
+  createFixtureCategoryResolver,
+  createFixtureDraftSession,
+  createFixtureObserveSourcePage,
+  createFixtureOpenCategoryDraft,
+  createNullSourceGoodsCache,
+} from '../../adapter/fixtures/goods-publish.js';
+import { createLiveMerchantDraftEditor } from '../../adapter/goods-publish/merchant-draft-editor.js';
 import { FIXTURE_QR_IMAGE, openFixtureTakeover, createFixtureConsoleLoginDriver } from '../../adapter/console-login-fixture.js';
 import { invalidTakeoverInput } from '../../adapter/takeover.js';
 import { consoleRequestError } from '../../services/console-runtime.js';
+import { createSourceProductFetcher } from '../../services/goods-publish/source-product-fetcher.js';
+import {
+  convergeDynamicProperties,
+  fullCountDiscountPayloadValue,
+} from '../../services/goods-publish/draft-planner.js';
+import { prepareEditPayload, verifyDraftDetail } from '../../services/goods-publish/draft-guard.js';
 
 function createFixtureHelpers({ fixtureStore, loadFixture, parsedEnv, mall, clock, seal }) {
   return Object.freeze({
@@ -115,6 +129,64 @@ export function createFixtureBundle({ seal, clock, parsedEnv, env, overrides = {
     : Object.freeze([]);
   const loadFixture = (relPath) => fixtureStore.load(relPath);
 
+  function createFixtureSourceFetcher({ parsedEnv: envConfig, browserPort, scrapeCooldown }) {
+    const baseFetcher = createSourceProductFetcher({
+      sourceCache: createNullSourceGoodsCache(),
+      scrapeCooldown,
+      sourceProxyEnv: envConfig.sourceProxyEnv,
+      scrapeSimulate: false,
+      browserPort,
+      observePage: createFixtureObserveSourcePage({ fixtureStore }),
+      resolveConsumerAccount: async () => ({ accountId: 'fixture-consumer' }),
+      loadConsumerAuthState: () => ({ state: { cookies: [], origins: [] } }),
+      deleteConsumerAuthState: async () => ({ removed: false, existed: false }),
+      sleep: clock.sleep,
+      now: clock.now,
+    });
+    return Object.freeze({
+      async prepare(goodsUrl) {
+        const acquisition = await baseFetcher.prepare(goodsUrl);
+        return Object.freeze({
+          ...acquisition,
+          async fetch(fetchOpts = {}) {
+            if (fetchOpts.browserSession || fetchOpts.legacyBrowser) {
+              return acquisition.fetch(fetchOpts);
+            }
+            return browserPort.withSession(
+              { ownerTag: 'fixture-source-fetch' },
+              (session) => acquisition.fetch({ ...fetchOpts, browserSession: session }),
+            );
+          },
+        });
+      },
+    });
+  }
+
+  function createGoodsPublishPort({ parsedEnv: envConfig, browserPort, endpointPort, scrapeCooldown }) {
+    const sourceFetcher = createFixtureSourceFetcher({
+      parsedEnv: envConfig,
+      browserPort,
+      scrapeCooldown,
+    });
+    const categoryResolver = createFixtureCategoryResolver({ fixtureStore });
+    const draftEditor = createLiveMerchantDraftEditor({
+      endpoint: endpointPort,
+      mode: 'fixture',
+      clock,
+      openCategoryDraft: createFixtureOpenCategoryDraft({ fixtureStore }),
+      checkRisk: async () => {},
+      convergeDynamic: convergeDynamicProperties,
+      preparePayload: prepareEditPayload,
+      verifyDetail: verifyDraftDetail,
+      createDraftSession: ({ draft }) => createFixtureDraftSession({
+        draft,
+        fixtureStore,
+        fullCountDiscountPayload: fullCountDiscountPayloadValue,
+      }),
+    });
+    return Object.freeze({ sourceFetcher, categoryResolver, draftEditor });
+  }
+
   return Object.freeze({
     mode: 'fixture',
     browser,
@@ -124,7 +196,7 @@ export function createFixtureBundle({ seal, clock, parsedEnv, env, overrides = {
     endpointTransport,
     passwordLogin,
     consoleLoginDriver,
-    createGoodsPublishPort: () => null,
+    createGoodsPublishPort,
     consoleExtraRoutes,
     loadFixture,
     fixture: createFixtureHelpers({ fixtureStore, loadFixture, parsedEnv, mall, clock, seal }),

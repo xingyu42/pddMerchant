@@ -1,126 +1,71 @@
-// T0 characterization safety net around publishGoodsFromLink (goods-publish-deepening#01).
-// Temporary direct-adapter vi.mock seams below will be replaced wholesale by an in-memory
-// GoodsPublishPort + raw EndpointPort once goods-publish-deepening#04/#05 land.
+// Integration suite for publishGoodsFromLink via in-memory GoodsPublishPort + real EndpointPort (ctx.client),
+// replacing all T0 direct-adapter vi.mocks with zero module mocking.
 import assert from 'node:assert/strict';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { beforeEach, describe, it, vi } from 'vitest';
-import { parseRuntimeEnv } from '../../src/runtime/env.js';
-
-vi.mock('../../src/adapter/browser.js', async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    createConsumerContext: vi.fn(),
-  };
-});
-
-vi.mock('../../src/adapter/goods-publish/category-resolver.js', async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    resolvePddCategory: vi.fn(),
-  };
-});
-
-vi.mock('../../src/adapter/goods-publish/dynamic-property-template.js', () => ({
-  readDynamicPropertyTemplate: vi.fn(),
-}));
-
-vi.mock('../../src/adapter/goods-publish/form-filler.js', () => ({
-  selectCategory: vi.fn(),
-  fillGoodsForm: vi.fn(),
-  fillGoodsProperties: vi.fn(),
-  fillFullCountDiscount: vi.fn(),
-  disableSizeChart: vi.fn(),
-  clickSaveDraft: vi.fn(),
-}));
-
-vi.mock('../../src/adapter/goods-publish/qingguo-proxy.js', async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    acquireQingguoProxyLease: vi.fn(),
-  };
-});
-
-import { createConsumerContext } from '../../src/adapter/browser.js';
-import { resolvePddCategory } from '../../src/adapter/goods-publish/category-resolver.js';
-import { readDynamicPropertyTemplate } from '../../src/adapter/goods-publish/dynamic-property-template.js';
-import {
-  selectCategory,
-  fillGoodsForm,
-  fillGoodsProperties,
-  fillFullCountDiscount,
-  disableSizeChart,
-  clickSaveDraft,
-} from '../../src/adapter/goods-publish/form-filler.js';
-import { acquireQingguoProxyLease } from '../../src/adapter/goods-publish/qingguo-proxy.js';
+import { afterEach, describe, it, vi } from 'vitest';
+import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
 import {
   GOODS_PUBLISH_COST_TEMPLATE_LIST,
-  GOODS_PUBLISH_TEMPLATE,
   GOODS_PUBLISH_SUBMIT,
+  GOODS_PUBLISH_TEMPLATE,
 } from '../../src/adapter/endpoints/goods-publish.js';
-import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
+import { createLiveMerchantDraftEditor } from '../../src/adapter/goods-publish/merchant-draft-editor.js';
+import { mergeDynamicPropertyTemplate } from '../../src/adapter/goods-publish/property-template.js';
+import { abortableSleep } from '../../src/infra/abort.js';
 import { insertAccount } from '../../src/infra/account-store.js';
-import { ExitCodes, PddCliError, scrapeCooldownActive } from '../../src/infra/errors.js';
+import { ExitCodes, PddCliError } from '../../src/infra/errors.js';
 import {
   DATA_DIR,
   GOODS_PUBLISH_SOURCE_CACHE_DIR,
   SCRAPE_COOLDOWN_PATH,
 } from '../../src/infra/paths.js';
-import { PUBLISH_VIEW_FIELDS } from '../../src/services/views/goods-publish.js';
+import { createScrapeCooldown } from '../../src/infra/scrape-cooldown.js';
+import { parseRuntimeEnv } from '../../src/runtime/env.js';
 import { publishGoodsFromLink } from '../../src/services/goods-publish.js';
+import { prepareEditPayload, verifyDraftDetail } from '../../src/services/goods-publish/draft-guard.js';
+import {
+  convergeDynamicProperties,
+  fullCountDiscountPayloadValue,
+} from '../../src/services/goods-publish/draft-planner.js';
+import { createSourceProductFetcher } from '../../src/services/goods-publish/source-product-fetcher.js';
+import { PUBLISH_VIEW_FIELDS } from '../../src/services/views/goods-publish.js';
+import { createInMemoryBrowserRuntime } from '../helpers/in-memory-ports.js';
+import { createMemoryEndpointTransport, createTestCtx } from '../helpers/test-ctx.js';
 
-function createMemoryScrapeCooldown({
-  threshold = 2,
-  cooldownMs = 60_000,
-  now = Date.now,
-} = {}) {
-  let consecutiveSoftBlock = 0;
-  let cooldownUntil = 0;
+const activeSessions = [];
+
+afterEach(async () => {
+  while (activeSessions.length > 0) {
+    const session = activeSessions.pop();
+    await session.close().catch(() => {});
+  }
+});
+
+function createMemoryScrapeCooldown({ threshold = 2, cooldownMs = 60_000, now = Date.now } = {}) {
+  const inner = createScrapeCooldown({ threshold, cooldownMs, now, statePath: null });
   const calls = { check: 0, recordSoftBlock: 0, recordSuccess: 0 };
 
   return {
     calls,
     check() {
       calls.check += 1;
-      const remaining = cooldownUntil - now();
-      if (remaining > 0) {
-        throw scrapeCooldownActive(remaining, { consecutive_soft_block: consecutiveSoftBlock });
-      }
+      return inner.check();
     },
-    recordSoftBlock() {
+    recordSoftBlock(signal) {
       calls.recordSoftBlock += 1;
-      consecutiveSoftBlock += 1;
-      let cooldownTriggered = false;
-      if (consecutiveSoftBlock >= threshold) {
-        cooldownUntil = now() + cooldownMs;
-        cooldownTriggered = true;
-      }
-      return {
-        cooldownTriggered,
-        cooldownUntil,
-        cooldownRemainingMs: Math.max(0, cooldownUntil - now()),
-        consecutiveSoftBlock,
-      };
+      return inner.recordSoftBlock(signal);
     },
     recordSuccess() {
       calls.recordSuccess += 1;
-      consecutiveSoftBlock = 0;
-      cooldownUntil = 0;
+      return inner.recordSuccess();
     },
     status() {
-      return {
-        consecutiveSoftBlock,
-        cooldownUntil,
-        cooldownRemainingMs: Math.max(0, cooldownUntil - now()),
-      };
+      return inner.status();
     },
-    tripNow(remainingMs = cooldownMs) {
-      consecutiveSoftBlock = threshold;
-      cooldownUntil = now() + remainingMs;
+    tripNow() {
+      for (let i = 0; i < threshold; i += 1) inner.recordSoftBlock({ reason: 'empty_shell' });
     },
   };
 }
@@ -355,35 +300,156 @@ function assertRepoIsolationUnchanged(before) {
   );
 }
 
-function makeFakePage({
-  url = 'https://mms.pinduoduo.com/goods/goods_add/index',
-  extracted = makeExtractedSource(),
-  onGoto,
-} = {}) {
-  return {
-    url: vi.fn(() => url),
-    goto: vi.fn(async (targetUrl) => {
-      if (onGoto) await onGoto(targetUrl);
-    }),
-    waitForResponse: vi.fn(async () => null),
-    waitForSelector: vi.fn(async () => null),
-    waitForTimeout: vi.fn(async () => {}),
-    locator: vi.fn(() => ({ first: () => ({ isVisible: vi.fn(async () => false) }) })),
-    evaluate: vi.fn(async () => structuredClone(typeof extracted === 'function' ? extracted() : extracted)),
-  };
-}
-
 function makeFakeLogger() {
-  return {
-    trace: vi.fn(),
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  };
+  return { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 }
 
-function makePublishCtx({
+function toOutgoingProperties(propertyPlan = []) {
+  return propertyPlan.flatMap((property) =>
+    (property.values ?? []).map((value) => ({
+      template_module_id: property.templateModuleId,
+      template_pid: property.templatePid,
+      pid: property.pid,
+      vid: value.vid ?? null,
+      value: value.value ?? '',
+    })),
+  );
+}
+
+function buildOutgoingSkus(skuPricing, uploadedSkuPreviewPlan) {
+  const previewByColor = new Map(
+    (uploadedSkuPreviewPlan ?? []).map((item) => [String(item.merchantColor).trim(), item.uploadedImageUrl]),
+  );
+  return (skuPricing ?? []).map((sku) => {
+    const colorEntry = Object.entries(sku.specValues ?? {}).filter(([name]) => /颜色|花色/.test(name));
+    const color = colorEntry.length === 1 ? String(colorEntry[0][1]).trim() : '';
+    const thumbUrl = previewByColor.get(color) ?? '';
+    return {
+      spec: Object.values(sku.specValues ?? {}),
+      multi_price: Math.round(Number(sku.groupPrice) * 100),
+      price: Math.round(Number(sku.singlePrice) * 100),
+      quantity: sku.stock,
+      ...(thumbUrl ? { thumb_url: thumbUrl } : {}),
+    };
+  });
+}
+
+function createMemoryDraftSessionHarness({
+  order,
+  readDynamicTemplateImpl,
+  disableSizeChartImpl,
+  saveDraftOverride,
+  editPayloadOverride,
+  draftDetailResponse,
+} = {}) {
+  const spies = {
+    fillBaseAndMedia: vi.fn(),
+    readDynamicTemplate: vi.fn(),
+    fillDependentProperties: vi.fn(),
+    disableSizeChart: vi.fn(),
+    fillFullCountDiscount: vi.fn(),
+    saveDraft: vi.fn(),
+  };
+
+  function createDraftSession({ draft }) {
+    const state = { goods_name: '', gallery: [], skus: [], goods_properties: [], two_pieces_discount: undefined };
+    return {
+      async fillBaseAndMedia({ source, pricingPlan, propertyPlan, skuPreviewPlan }) {
+        order?.push('fillBaseAndMedia');
+        const uploadedSkuPreviewPlan = (skuPreviewPlan ?? []).map((item, idx) => ({
+          merchantColor: item.merchantColor,
+          uploadedImageUrl: `https://img.pddpic.com/uploaded-${idx + 1}.jpg`,
+        }));
+        state.goods_name = source.goodsName;
+        state.gallery = [...(source.carousel ?? [])];
+        state.skus = buildOutgoingSkus(pricingPlan?.skuPricing, uploadedSkuPreviewPlan);
+        state.goods_properties = toOutgoingProperties(propertyPlan);
+        spies.fillBaseAndMedia({ source, pricingPlan, propertyPlan, skuPreviewPlan, uploadedSkuPreviewPlan });
+        return { uploadedSkuPreviewPlan };
+      },
+      async readDynamicTemplate(currentTemplate) {
+        order?.push('readDynamicTemplate');
+        const res = readDynamicTemplateImpl
+          ? await readDynamicTemplateImpl(currentTemplate)
+          : currentTemplate;
+        spies.readDynamicTemplate(currentTemplate, res);
+        return res;
+      },
+      async fillDependentProperties(dependentPlan) {
+        order?.push('fillDependentProperties');
+        spies.fillDependentProperties(dependentPlan);
+        state.goods_properties.push(...toOutgoingProperties(dependentPlan));
+      },
+      async disableSizeChart() {
+        order?.push('disableSizeChart');
+        const res = disableSizeChartImpl ? await disableSizeChartImpl() : { changed: false, disabled: true };
+        spies.disableSizeChart(res);
+        return res;
+      },
+      async fillFullCountDiscount(rate) {
+        order?.push('fillFullCountDiscount');
+        const payloadValue = fullCountDiscountPayloadValue(rate);
+        state.two_pieces_discount = payloadValue;
+        const res = { rate, displayValue: (payloadValue / 10).toFixed(1), payloadValue };
+        spies.fillFullCountDiscount(rate, res);
+        return res;
+      },
+      async saveDraft(saveOptions) {
+        order?.push('saveDraft');
+        spies.saveDraft(saveOptions);
+        if (saveDraftOverride) return saveDraftOverride(saveOptions);
+
+        let body = {
+          goods_name: state.goods_name,
+          gallery: state.gallery,
+          skus: state.skus,
+          goods_properties: state.goods_properties,
+          ...(state.two_pieces_discount != null ? { two_pieces_discount: state.two_pieces_discount } : {}),
+        };
+        if (editPayloadOverride) {
+          body = typeof editPayloadOverride === 'function'
+            ? editPayloadOverride(body)
+            : { ...body, ...editPayloadOverride };
+        }
+        const prepared = saveOptions.prepareEditPayload(JSON.stringify(body), {
+          costTemplateId: saveOptions.costTemplateId,
+          expectedCostTemplateId: saveOptions.costTemplateId,
+          expectedSkuPricing: saveOptions.expectedSkuPricing,
+          expectedPropertyPlan: saveOptions.expectedPropertyPlan,
+          expectedSkuPreviewPlan: saveOptions.expectedSkuPreviewPlan,
+          expectedFullCountDiscountRate: saveOptions.expectedFullCountDiscountRate,
+          strictPayload: Boolean(saveOptions.strictPayload),
+        });
+        const detail = typeof draftDetailResponse === 'function'
+          ? await draftDetailResponse(prepared.body)
+          : (draftDetailResponse ?? {
+            success: true,
+            error_code: 1000000,
+            result: {
+              goods_name: prepared.body.goods_name,
+              cost_template_id: prepared.body.cost_template_id,
+              gallery: prepared.body.gallery,
+              ...(prepared.body.two_pieces_discount != null
+                ? { two_pieces_discount: prepared.body.two_pieces_discount }
+                : {}),
+            },
+          });
+        const verification = saveOptions.verifyDraftDetail(detail, {
+          goodsCommitId: draft.goodsCommitId,
+          expectedCostTemplateId: saveOptions.costTemplateId,
+          expectedFullCountDiscountRate: saveOptions.expectedFullCountDiscountRate,
+          strictVerify: Boolean(saveOptions.strictVerify),
+        });
+        return { success: true, payload_validation: prepared.validation?.summary ?? null, verification };
+      },
+      async checkRiskControl() {},
+    };
+  }
+
+  return { spies, createDraftSession };
+}
+
+async function makePublishCtx({
   costTemplates = [{ id: 3001, name: 'Synthetic 包邮', free_province_need: null }],
   initialTemplate = makeRawTemplate(),
   submitResponse = { success: true, error_code: 1000000 },
@@ -391,105 +457,33 @@ function makePublishCtx({
   sourceGoodsCache = createMemorySourceCache(),
   signal,
   fullCountDiscountRate = 0.95,
-  onExecute,
+  onEndpoint,
   env = {},
-  runtime,
-} = {}) {
-  const merchantPage = makeFakePage();
-  const fakeBrowser = { kind: 'synthetic-browser' };
-  const execute = vi.fn(async (spec, params) => {
-    if (onExecute) {
-      const override = await onExecute(spec, params);
-      if (override !== undefined) return override;
-    }
-    if (spec === GOODS_PUBLISH_COST_TEMPLATE_LIST) {
-      return { data: spec.normalize({ cost_template_list: costTemplates }) };
-    }
-    if (spec === GOODS_PUBLISH_TEMPLATE) {
-      return { data: spec.normalize(initialTemplate) };
-    }
-    if (spec === GOODS_PUBLISH_SUBMIT) {
-      return { data: spec.normalize(submitResponse) };
-    }
-    throw new Error(`Unexpected endpoint spec: ${spec?.name}`);
-  });
-
-  return {
-    page: merchantPage,
-    context: { browser: () => fakeBrowser },
-    mallCtx: { activeId: '900001', activeName: 'Synthetic Shop', malls: [] },
-    client: { execute },
-    scrapeCooldown,
-    sourceGoodsCache,
-    runtimeConfig: {
-      fullCountDiscountRate,
-      writeRateTokensPerMinute: 12,
-      categoryApiBase: 'https://category.invalid',
-      scrapeSoftBlockThreshold: 2,
-      scrapeSoftBlockCooldownMs: 60_000,
-    },
-    log: makeFakeLogger(),
-    config: {},
-    signal,
-    runtime: runtime ?? {
-      mode: 'live',
-      env: parseRuntimeEnv({ PDD_SCRAPE_SIMULATE: '0', ...env }, { mode: 'live' }),
-    },
-  };
-}
-
-let consumerContexts;
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  consumerContexts = [];
-
-  createConsumerContext.mockImplementation(async (_browser, options = {}) => {
-    const page = makeFakePage({ url: 'https://mobile.yangkeduo.com/goods.html?goods_id=123456' });
-    const entry = {
-      options,
-      page,
-      context: { kind: 'synthetic-consumer-context' },
-      close: vi.fn(async () => {}),
-    };
-    consumerContexts.push(entry);
-    return entry;
-  });
-
-  resolvePddCategory.mockResolvedValue({
+  observePage,
+  acquireProxyLease,
+  sessionHarnessOptions = {},
+  categoryResult = {
     root: '服饰',
     cates: ['服饰', '女装', 'T恤'],
     cat_id: 1003,
     cat_ids: [1001, 1002, 1003, null],
     cats: ['服饰', '女装', 'T恤', null],
+    searchText: '服饰 > 女装 > T恤',
+  },
+} = {}) {
+  const parsedEnv = parseRuntimeEnv({ PDD_SCRAPE_SIMULATE: '0', ...env }, { mode: 'live' });
+  const browserPort = createInMemoryBrowserRuntime({
+    createPage: () => ({
+      __memory: true,
+      url: () => 'https://mobile.yangkeduo.com/goods.html?goods_id=123456',
+      close: async () => {},
+    }),
   });
+  const browserSession = await browserPort.openSession({ ownerTag: 'test-goods-publish' });
+  activeSessions.push(browserSession);
 
-  selectCategory.mockResolvedValue({ goodsCommitId: '7001', goodsId: '5001' });
-
-  fillGoodsForm.mockImplementation(async (_page, _source, _warnings, options) => ({
-    uploadedSkuPreviewPlan: (options?.skuPreviewPlan ?? []).map((item, index) => ({
-      merchantColor: item.merchantColor,
-      uploadedImageUrl: `https://img.pddpic.com/uploaded-${index + 1}.jpg`,
-    })),
-  }));
-
-  readDynamicPropertyTemplate.mockImplementation(async (_page, baseTemplate) => ({
-    ok: true,
-    issues: [],
-    propertysTid: baseTemplate.propertysTid,
-    properties: [...baseTemplate.properties],
-  }));
-
-  fillGoodsProperties.mockResolvedValue(undefined);
-  disableSizeChart.mockResolvedValue({ changed: false, disabled: true });
-  fillFullCountDiscount.mockResolvedValue({ rate: 0.95, displayValue: '9.5', payloadValue: 95 });
-  clickSaveDraft.mockResolvedValue({
-    success: true,
-    payload_validation: { gallery_count: 1, goods_property_count: 1, sku_count: 2, sku_thumb_count: 2 },
-    verification: { ok: true, issues: [], skipped: false, warnings: [] },
-  });
-  acquireQingguoProxyLease.mockImplementation(async () => {
-    const attempt = acquireQingguoProxyLease.mock.calls.length;
+  const defaultAcquireLease = vi.fn(async () => {
+    const attempt = defaultAcquireLease.mock.calls.length;
     return {
       provider: 'qingguo',
       server: `http://198.51.100.${attempt}:42001`,
@@ -499,17 +493,109 @@ beforeEach(() => {
       requestIdHash: `fp:req0000${attempt}`,
     };
   });
-});
+  const effectiveAcquireLease = acquireProxyLease ?? defaultAcquireLease;
+
+  const defaultObserve = vi.fn(async (page) => ({
+    earlyObservation: null,
+    observation: makeExtractedSource(),
+    pageUrl: page.url(),
+  }));
+  const effectiveObserve = observePage ?? defaultObserve;
+
+  const transport = createMemoryEndpointTransport({
+    onEndpoint: async (spec, params, ctx) => {
+      if (onEndpoint) {
+        const override = await onEndpoint(spec, params, ctx);
+        if (override !== undefined) return override;
+      }
+      if (spec === GOODS_PUBLISH_COST_TEMPLATE_LIST) return { cost_template_list: costTemplates };
+      if (spec === GOODS_PUBLISH_TEMPLATE) return initialTemplate;
+      if (spec === GOODS_PUBLISH_SUBMIT) return submitResponse;
+      throw new Error(`Unexpected endpoint spec: ${spec?.name}`);
+    },
+  });
+
+  const opaquePage = Object.freeze({ opaqueToken: 'merchant-page-token' });
+  const log = makeFakeLogger();
+  const baseCtx = createTestCtx({
+    transport,
+    page: opaquePage,
+    mallId: '900001',
+    log,
+    signal,
+    browserSession,
+    scrapeCooldown,
+    sourceGoodsCache,
+    runtimeConfig: {
+      fullCountDiscountRate,
+      writeRateTokensPerMinute: 12,
+      categoryApiBase: 'https://category.invalid',
+      scrapeSoftBlockThreshold: 2,
+      scrapeSoftBlockCooldownMs: 60_000,
+    },
+  });
+
+  const sessionHarness = createMemoryDraftSessionHarness(sessionHarnessOptions);
+  const openCategoryDraft = vi.fn(async () => ({ goodsCommitId: '7001', goodsId: '5001' }));
+  const categoryResolver = { resolve: vi.fn(async () => categoryResult) };
+
+  const sourceFetcher = createSourceProductFetcher({
+    sourceCache: sourceGoodsCache,
+    scrapeCooldown,
+    sourceProxyEnv: parsedEnv.sourceProxyEnv,
+    scrapeSimulate: parsedEnv.scrapeSimulate,
+    browserPort,
+    browserSession,
+    observePage: effectiveObserve,
+    acquireProxyLease: effectiveAcquireLease,
+    sleep: (ms, abortSignal) => abortableSleep(ms, abortSignal),
+    now: Date.now,
+    log,
+  });
+
+  const draftEditor = createLiveMerchantDraftEditor({
+    endpoint: baseCtx.client,
+    mode: 'fixture',
+    openCategoryDraft,
+    checkRisk: vi.fn(async () => {}),
+    convergeDynamic: convergeDynamicProperties,
+    preparePayload: prepareEditPayload,
+    verifyDetail: verifyDraftDetail,
+    createDraftSession: sessionHarness.createDraftSession,
+    log,
+  });
+
+  const port = Object.freeze({ sourceFetcher, categoryResolver, draftEditor });
+  baseCtx.runtime = {
+    mode: 'live',
+    env: parsedEnv,
+    ports: { goodsPublish: port, browser: browserPort },
+  };
+
+  return {
+    ctx: baseCtx,
+    transport,
+    browserPort,
+    port,
+    spies: {
+      acquireProxyLease: effectiveAcquireLease,
+      observePage: effectiveObserve,
+      categoryResolve: categoryResolver.resolve,
+      openCategoryDraft,
+      session: sessionHarness.spies,
+    },
+  };
+}
 
 const qingguoProxyEnv = {
   PDD_SOURCE_PROXY_PROVIDER: 'qingguo',
   PDD_QINGGUO_AUTH_KEY: 'secret-qingguo-key',
 };
 
-describe('publishGoodsFromLink T0 characterization safety net', () => {
+describe('publishGoodsFromLink via in-memory GoodsPublishPort + raw EndpointPort', () => {
   it('completes a direct draft publish in isolation without touching repo data or tmp dirs', async () => {
     seedConsumerAccount();
-    const ctx = makePublishCtx();
+    const { ctx } = await makePublishCtx();
     const beforeRepoState = captureRepoIsolationState('123456');
 
     const result = await publishGoodsFromLink(ctx, 'https://mobile.yangkeduo.com/goods.html?goods_id=123456');
@@ -529,6 +615,16 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
     assert.deepEqual(ctx.sourceGoodsCache.calls.remove, ['123456']);
     assert.equal(ctx.sourceGoodsCache.peek('123456'), null);
     assertRepoIsolationUnchanged(beforeRepoState);
+  });
+
+  it('rejects calls missing GoodsPublishPort with E_CONFIG_INVALID', async () => {
+    const bareCtx = createTestCtx({ mallId: '900001' });
+    await assert.rejects(
+      publishGoodsFromLink(bareCtx, '123456'),
+      (err) => err instanceof PddCliError
+        && err.code === 'E_CONFIG_INVALID'
+        && err.detail?.reason === 'goods_publish_port_missing',
+    );
   });
 
   it('snapshots non-empty directories with pre-existing files and detects created or modified entries', () => {
@@ -567,14 +663,14 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
     }
   });
 
-  describe('Source Fetch Proxy retry and fail-closed contracts (L247-264)', () => {
+  describe('Source Fetch Proxy retry and fail-closed contracts', () => {
     it('retries proxy infra failures with [500, 1000]ms backoff using fresh contexts and emits source_proxy_retry_recovered', async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-11-24T10:00:00Z'));
       seedConsumerAccount();
 
       const attemptTimes = [];
-      acquireQingguoProxyLease
+      const acquireProxyLease = vi.fn()
         .mockImplementationOnce(async () => {
           attemptTimes.push(Date.now());
           throw new PddCliError({
@@ -606,25 +702,21 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
           };
         });
 
-      createConsumerContext
-        .mockImplementationOnce(async (_browser, options) => {
-          const page = makeFakePage({
-            onGoto: async () => { throw new Error('page.goto: net::ERR_PROXY_CONNECTION_FAILED'); },
-          });
-          const entry = { options, page, close: vi.fn(async () => {}) };
-          consumerContexts.push(entry);
-          return entry;
+      const observePage = vi.fn()
+        .mockImplementationOnce(async () => {
+          throw new Error('page.goto: net::ERR_PROXY_CONNECTION_FAILED');
         })
-        .mockImplementationOnce(async (_browser, options) => {
-          const page = makeFakePage({
-            url: 'https://mobile.yangkeduo.com/goods.html?goods_id=123456',
-          });
-          const entry = { options, page, close: vi.fn(async () => {}) };
-          consumerContexts.push(entry);
-          return entry;
-        });
+        .mockImplementationOnce(async (page) => ({
+          earlyObservation: null,
+          observation: makeExtractedSource(),
+          pageUrl: page.url(),
+        }));
 
-      const ctx = makePublishCtx({ env: qingguoProxyEnv });
+      const { ctx, browserPort } = await makePublishCtx({
+        env: qingguoProxyEnv,
+        acquireProxyLease,
+        observePage,
+      });
       const pending = publishGoodsFromLink(ctx, '123456');
 
       await vi.advanceTimersByTimeAsync(499);
@@ -640,31 +732,24 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       const result = await pending;
       assert.equal(result.data.status, '草稿');
       assert.deepEqual(result.warnings, ['source_proxy_retry_recovered']);
-      assert.deepEqual(
-        attemptTimes.map((t) => t - attemptTimes[0]),
-        [0, 500, 1500],
-      );
-      assert.equal(consumerContexts.length, 2);
-      assert.equal(consumerContexts[0].options.proxy.server, 'http://198.51.100.2:42001');
-      assert.equal(consumerContexts[1].options.proxy.server, 'http://198.51.100.3:42001');
-      assert.equal(consumerContexts[0].close.mock.calls.length, 1);
-      assert.equal(consumerContexts[1].close.mock.calls.length, 1);
+      assert.deepEqual(attemptTimes.map((t) => t - attemptTimes[0]), [0, 500, 1500]);
+      assert.equal(browserPort.derivedContexts.length, 2);
+      assert.equal(browserPort.derivedContexts[0].proxy.server, 'http://198.51.100.2:42001');
+      assert.equal(browserPort.derivedContexts[1].proxy.server, 'http://198.51.100.3:42001');
     });
 
     it('exhausts 3 attempts on repeated proxy failures and fails closed without direct fallback', async () => {
       vi.useFakeTimers();
       seedConsumerAccount();
 
-      createConsumerContext.mockImplementation(async (_browser, options) => {
-        const page = makeFakePage({
-          onGoto: async () => { throw new Error('TimeoutError: page.goto: Timeout 15000ms exceeded'); },
-        });
-        const entry = { options, page, close: vi.fn(async () => {}) };
-        consumerContexts.push(entry);
-        return entry;
+      const observePage = vi.fn(async () => {
+        throw new Error('TimeoutError: page.goto: Timeout 15000ms exceeded');
+      });
+      const { ctx, browserPort, spies } = await makePublishCtx({
+        env: qingguoProxyEnv,
+        observePage,
       });
 
-      const ctx = makePublishCtx({ env: qingguoProxyEnv });
       const pending = publishGoodsFromLink(ctx, '123456');
       const captured = pending.catch((err) => err);
 
@@ -675,10 +760,9 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       assert.ok(err instanceof PddCliError);
       assert.equal(err.code, 'E_PROXY_NETWORK');
       assert.equal(err.exitCode, ExitCodes.NETWORK);
-      assert.equal(acquireQingguoProxyLease.mock.calls.length, 3);
-      assert.equal(consumerContexts.length, 3);
-      assert.ok(consumerContexts.every((c) => Boolean(c.options.proxy?.server)));
-      assert.ok(consumerContexts.every((c) => c.close.mock.calls.length === 1));
+      assert.equal(spies.acquireProxyLease.mock.calls.length, 3);
+      assert.equal(browserPort.derivedContexts.length, 3);
+      assert.ok(browserPort.derivedContexts.every((c) => Boolean(c.proxy?.server)));
       assert.equal(JSON.stringify(err.detail).includes('198.51.100'), false);
       assert.equal(JSON.stringify(err.detail).includes('secret-qingguo-key'), false);
     });
@@ -686,72 +770,68 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
     it.each([
       {
         label: 'ERR_TUNNEL_CONNECTION_FAILED (HTTP 407) maps to E_PROXY_AUTH',
-        setup: () => {
-          createConsumerContext.mockImplementation(async (_browser, options) => {
-            const page = makeFakePage({
-              onGoto: async () => { throw new Error('page.goto: net::ERR_TUNNEL_CONNECTION_FAILED'); },
-            });
-            const entry = { options, page, close: vi.fn(async () => {}) };
-            consumerContexts.push(entry);
-            return entry;
-          });
-        },
+        override: () => ({
+          observePage: vi.fn(async () => {
+            throw new Error('page.goto: net::ERR_TUNNEL_CONNECTION_FAILED');
+          }),
+        }),
         expectedCode: 'E_PROXY_AUTH',
         expectedExit: ExitCodes.AUTH,
         expectedContexts: 1,
       },
       {
         label: 'E_PROXY_QUOTA stops immediately on attempt 1',
-        setup: () => {
-          acquireQingguoProxyLease.mockRejectedValueOnce(new PddCliError({
-            code: 'E_PROXY_QUOTA',
-            message: '青果代理余额不足或提取额度已耗尽',
-            exitCode: ExitCodes.BUSINESS,
-          }));
-        },
+        override: () => ({
+          acquireProxyLease: vi.fn(async () => {
+            throw new PddCliError({
+              code: 'E_PROXY_QUOTA',
+              message: '青果代理余额不足或提取额度已耗尽',
+              exitCode: ExitCodes.BUSINESS,
+            });
+          }),
+        }),
         expectedCode: 'E_PROXY_QUOTA',
         expectedExit: ExitCodes.BUSINESS,
         expectedContexts: 0,
       },
       {
         label: 'E_PROXY_RATE_LIMIT stops immediately on attempt 1',
-        setup: () => {
-          acquireQingguoProxyLease.mockRejectedValueOnce(new PddCliError({
-            code: 'E_PROXY_RATE_LIMIT',
-            message: '青果代理提取接口请求过于频繁',
-            exitCode: ExitCodes.RATE_LIMIT,
-          }));
-        },
+        override: () => ({
+          acquireProxyLease: vi.fn(async () => {
+            throw new PddCliError({
+              code: 'E_PROXY_RATE_LIMIT',
+              message: '青果代理提取接口请求过于频繁',
+              exitCode: ExitCodes.RATE_LIMIT,
+            });
+          }),
+        }),
         expectedCode: 'E_PROXY_RATE_LIMIT',
         expectedExit: ExitCodes.RATE_LIMIT,
         expectedContexts: 0,
       },
       {
         label: 'unclassified browser error maps to E_GENERAL and stops on attempt 1',
-        setup: () => {
-          createConsumerContext.mockImplementation(async (_browser, options) => {
-            const page = makeFakePage({
-              onGoto: async () => { throw new Error('unexpected internal frame crash'); },
-            });
-            const entry = { options, page, close: vi.fn(async () => {}) };
-            consumerContexts.push(entry);
-            return entry;
-          });
-        },
+        override: () => ({
+          observePage: vi.fn(async () => {
+            throw new Error('unexpected internal frame crash');
+          }),
+        }),
         expectedCode: 'E_GENERAL',
         expectedExit: ExitCodes.GENERAL,
         expectedContexts: 1,
       },
     ])('stops immediately without retry when $label', async ({
-      setup,
+      override,
       expectedCode,
       expectedExit,
       expectedContexts,
     }) => {
       seedConsumerAccount();
-      setup();
+      const { ctx, browserPort, spies } = await makePublishCtx({
+        env: qingguoProxyEnv,
+        ...override(),
+      });
 
-      const ctx = makePublishCtx({ env: qingguoProxyEnv });
       await assert.rejects(
         publishGoodsFromLink(ctx, '123456'),
         (err) => err instanceof PddCliError
@@ -759,23 +839,28 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
           && err.exitCode === expectedExit,
       );
 
-      assert.equal(acquireQingguoProxyLease.mock.calls.length, 1);
-      assert.equal(consumerContexts.length, expectedContexts);
-      if (expectedContexts === 1) assert.equal(consumerContexts[0].close.mock.calls.length, 1);
+      assert.equal(spies.acquireProxyLease.mock.calls.length, 1);
+      assert.equal(browserPort.derivedContexts.length, expectedContexts);
     });
 
     it('aborts proxy retry backoff immediately when ctx.signal aborts', async () => {
       vi.useFakeTimers();
       seedConsumerAccount();
 
-      acquireQingguoProxyLease.mockRejectedValueOnce(new PddCliError({
-        code: 'E_PROXY_UNAVAILABLE',
-        message: 'unavailable',
-        exitCode: ExitCodes.NETWORK,
-      }));
-
+      const acquireProxyLease = vi.fn(async () => {
+        throw new PddCliError({
+          code: 'E_PROXY_UNAVAILABLE',
+          message: 'unavailable',
+          exitCode: ExitCodes.NETWORK,
+        });
+      });
       const controller = new AbortController();
-      const ctx = makePublishCtx({ signal: controller.signal, env: qingguoProxyEnv });
+      const { ctx } = await makePublishCtx({
+        signal: controller.signal,
+        env: qingguoProxyEnv,
+        acquireProxyLease,
+      });
+
       const pending = publishGoodsFromLink(ctx, '123456');
       const captured = pending.catch((err) => err);
 
@@ -785,87 +870,92 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       const err = await captured;
       assert.ok(err instanceof PddCliError);
       assert.equal(err.code, 'E_TIMEOUT');
-      assert.equal(acquireQingguoProxyLease.mock.calls.length, 1);
+      assert.equal(acquireProxyLease.mock.calls.length, 1);
     });
 
     it('rejects invalid proxy config before cost template call on cache miss, and skips cooldown/proxy on cache hit', async () => {
       const invalidProxyEnv = { PDD_SOURCE_PROXY_PROVIDER: 'qingguo', PDD_QINGGUO_AUTH_KEY: '' };
-      const missCtx = makePublishCtx({ env: invalidProxyEnv });
+      const miss = await makePublishCtx({ env: invalidProxyEnv });
       await assert.rejects(
-        publishGoodsFromLink(missCtx, '123456'),
+        publishGoodsFromLink(miss.ctx, '123456'),
         (err) => err instanceof PddCliError && err.code === 'E_USAGE' && err.exitCode === ExitCodes.USAGE,
       );
-      assert.equal(missCtx.client.execute.mock.calls.length, 0);
-      assert.equal(acquireQingguoProxyLease.mock.calls.length, 0);
+      assert.equal(miss.transport.calls.length, 0);
+      assert.equal(miss.spies.acquireProxyLease.mock.calls.length, 0);
 
       const hitCooldown = createMemoryScrapeCooldown();
-      hitCooldown.tripNow(30_000);
+      hitCooldown.tripNow();
       const hitCache = createMemorySourceCache({ 123456: makeNormalizedCachedSource() });
-      const hitCtx = makePublishCtx({ scrapeCooldown: hitCooldown, sourceGoodsCache: hitCache, env: invalidProxyEnv });
+      const hit = await makePublishCtx({
+        scrapeCooldown: hitCooldown,
+        sourceGoodsCache: hitCache,
+        env: invalidProxyEnv,
+      });
 
-      const result = await publishGoodsFromLink(hitCtx, '123456');
+      const result = await publishGoodsFromLink(hit.ctx, '123456');
       assert.equal(result.data.status, '草稿');
       assert.equal(hitCooldown.calls.check, 0);
-      assert.equal(acquireQingguoProxyLease.mock.calls.length, 0);
-      assert.equal(consumerContexts.length, 0);
+      assert.equal(hit.spies.acquireProxyLease.mock.calls.length, 0);
+      assert.equal(hit.browserPort.derivedContexts.length, 0);
     });
 
     it('forwards normalized PDD_QINGGUO_AREA to proxy lease acquisition and rejects malformed area before cost templates', async () => {
       seedConsumerAccount();
 
-      const ctx = makePublishCtx({ env: { ...qingguoProxyEnv, PDD_QINGGUO_AREA: '330100, 440300' } });
-      await publishGoodsFromLink(ctx, '123456');
-      assert.equal(acquireQingguoProxyLease.mock.calls[0][0].area, '330100,440300');
+      const ok = await makePublishCtx({ env: { ...qingguoProxyEnv, PDD_QINGGUO_AREA: '330100, 440300' } });
+      await publishGoodsFromLink(ok.ctx, '123456');
+      assert.equal(ok.spies.acquireProxyLease.mock.calls[0][0].area, '330100,440300');
 
-      const invalidAreaCtx = makePublishCtx({ env: { ...qingguoProxyEnv, PDD_QINGGUO_AREA: 'bad-area' } });
+      const invalid = await makePublishCtx({ env: { ...qingguoProxyEnv, PDD_QINGGUO_AREA: 'bad-area' } });
       await assert.rejects(
-        publishGoodsFromLink(invalidAreaCtx, '123456'),
+        publishGoodsFromLink(invalid.ctx, '123456'),
         (err) => err instanceof PddCliError && err.code === 'E_USAGE',
       );
-      assert.equal(invalidAreaCtx.client.execute.mock.calls.length, 0);
+      assert.equal(invalid.transport.calls.length, 0);
     });
   });
 
-  describe('empty-shell classification and immediate stop (source-scraper + goods-publish)', () => {
+  describe('empty-shell classification and immediate stop', () => {
     it('classifies _fiberFound=false & _appWall=true as E_RATE_LIMIT, records cooldown, preserves consumer auth, and stops proxy rotation', async () => {
       const consumer = seedConsumerAccount();
       const cooldown = createMemoryScrapeCooldown({ threshold: 2, cooldownMs: 60_000 });
       const sourceCache = createMemorySourceCache();
 
-      createConsumerContext.mockImplementation(async (_browser, options) => {
-        const page = makeFakePage({
-          url: 'https://mobile.yangkeduo.com/goods.html?goods_id=123456&uin=SECRET_UIN',
-          extracted: {
-            goodsID: '123456',
-            goodsName: '拼多多',
-            catID: null,
-            catID1: null,
-            catID2: null,
-            catID3: null,
-            price: null,
-            carousel: [],
-            skuText: '',
-            properties: '',
-            detailImgs: [],
-            _fiberFound: false,
-            _maskHint: true,
-            _url: 'https://mobile.yangkeduo.com/goods.html?goods_id=123456',
-            _title: '拼多多',
-            _bodyLen: 2336,
-            _roots: 'none',
-            _appWall: true,
-            _decodedSkuSource: null,
-          },
-        });
-        const entry = { options, page, close: vi.fn(async () => {}) };
-        consumerContexts.push(entry);
-        return entry;
-      });
+      const observeEmptyShell = vi.fn(async () => ({
+        earlyObservation: null,
+        pageUrl: 'https://mobile.yangkeduo.com/goods.html?goods_id=123456&uin=SECRET_UIN',
+        observation: {
+          goodsID: '123456',
+          goodsName: '拼多多',
+          catID: null,
+          catID1: null,
+          catID2: null,
+          catID3: null,
+          price: null,
+          carousel: [],
+          skuText: '',
+          properties: '',
+          detailImgs: [],
+          _fiberFound: false,
+          _maskHint: true,
+          _url: 'https://mobile.yangkeduo.com/goods.html?goods_id=123456',
+          _title: '拼多多',
+          _bodyLen: 2336,
+          _roots: 'none',
+          _appWall: true,
+          _decodedSkuSource: null,
+        },
+      }));
 
-      const firstCtx = makePublishCtx({ scrapeCooldown: cooldown, sourceGoodsCache: sourceCache, env: qingguoProxyEnv });
+      const first = await makePublishCtx({
+        scrapeCooldown: cooldown,
+        sourceGoodsCache: sourceCache,
+        env: qingguoProxyEnv,
+        observePage: observeEmptyShell,
+      });
       const beforeRepoState = captureRepoIsolationState('123456');
       await assert.rejects(
-        publishGoodsFromLink(firstCtx, '123456'),
+        publishGoodsFromLink(first.ctx, '123456'),
         (err) => err instanceof PddCliError
           && err.code === 'E_RATE_LIMIT'
           && err.exitCode === ExitCodes.RATE_LIMIT
@@ -873,44 +963,51 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
           && err.detail?.cooldown_triggered === false,
       );
 
-      assert.equal(acquireQingguoProxyLease.mock.calls.length, 1);
-      assert.equal(consumerContexts.length, 1);
-      assert.equal(consumerContexts[0].close.mock.calls.length, 1);
+      assert.equal(first.spies.acquireProxyLease.mock.calls.length, 1);
+      assert.equal(first.browserPort.derivedContexts.length, 1);
       assert.equal(cooldown.calls.recordSoftBlock, 1);
       assert.equal(cooldown.status().consecutiveSoftBlock, 1);
       assert.equal(loadAuthState(consumer.id).exists, true);
       assert.equal(sourceCache.peek('123456'), null);
 
-      // Simulate a second process sharing the persistent scrapeCooldown state.
-      const secondCtx = makePublishCtx({ scrapeCooldown: cooldown, sourceGoodsCache: sourceCache, env: qingguoProxyEnv });
+      const second = await makePublishCtx({
+        scrapeCooldown: cooldown,
+        sourceGoodsCache: sourceCache,
+        env: qingguoProxyEnv,
+        observePage: observeEmptyShell,
+      });
       await assert.rejects(
-        publishGoodsFromLink(secondCtx, '123456'),
+        publishGoodsFromLink(second.ctx, '123456'),
         (err) => err instanceof PddCliError
           && err.code === 'E_RATE_LIMIT'
           && err.detail?.reason === 'empty_shell'
           && err.detail?.cooldown_triggered === true,
       );
-      assert.equal(acquireQingguoProxyLease.mock.calls.length, 2);
+      assert.equal(second.spies.acquireProxyLease.mock.calls.length, 1);
       assert.equal(cooldown.status().consecutiveSoftBlock, 2);
       assert.ok(cooldown.status().cooldownRemainingMs > 0);
       assert.equal(loadAuthState(consumer.id).exists, true);
 
-      // Third process hits active scrapeCooldown before cost-template or proxy lease.
-      const thirdCtx = makePublishCtx({ scrapeCooldown: cooldown, sourceGoodsCache: sourceCache, env: qingguoProxyEnv });
+      const third = await makePublishCtx({
+        scrapeCooldown: cooldown,
+        sourceGoodsCache: sourceCache,
+        env: qingguoProxyEnv,
+        observePage: observeEmptyShell,
+      });
       await assert.rejects(
-        publishGoodsFromLink(thirdCtx, '123456'),
+        publishGoodsFromLink(third.ctx, '123456'),
         (err) => err instanceof PddCliError
           && err.code === 'E_RATE_LIMIT'
           && err.detail?.reason === 'ip_soft_block'
           && err.detail?.cooldown_triggered === true,
       );
-      assert.equal(thirdCtx.client.execute.mock.calls.length, 0);
-      assert.equal(acquireQingguoProxyLease.mock.calls.length, 2);
+      assert.equal(third.transport.calls.length, 0);
+      assert.equal(third.spies.acquireProxyLease.mock.calls.length, 0);
       assertRepoIsolationUnchanged(beforeRepoState);
     });
   });
 
-  describe('consumer account degradation auth cleanup (L188-200)', () => {
+  describe('consumer account degradation auth cleanup', () => {
     it.each([
       {
         label: 'app_redirect_placeholder (_maskHint=true)',
@@ -982,19 +1079,18 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       const consumer = seedConsumerAccount();
       assert.equal(loadAuthState(consumer.id).exists, true);
 
-      createConsumerContext.mockImplementation(async (_browser, options) => {
-        const page = makeFakePage({
-          url: 'https://mobile.yangkeduo.com/goods.html?goods_id=123456&uin=SECRET_UIN_TOKEN',
-          extracted,
-        });
-        const entry = { options, page, close: vi.fn(async () => {}) };
-        consumerContexts.push(entry);
-        return entry;
-      });
-
       const cooldown = createMemoryScrapeCooldown({ threshold: 2, cooldownMs: 60_000 });
       const sourceCache = createMemorySourceCache();
-      const ctx = makePublishCtx({ scrapeCooldown: cooldown, sourceGoodsCache: sourceCache, env: qingguoProxyEnv });
+      const { ctx, browserPort, spies } = await makePublishCtx({
+        scrapeCooldown: cooldown,
+        sourceGoodsCache: sourceCache,
+        env: qingguoProxyEnv,
+        observePage: vi.fn(async () => ({
+          earlyObservation: null,
+          observation: extracted,
+          pageUrl: 'https://mobile.yangkeduo.com/goods.html?goods_id=123456&uin=SECRET_UIN_TOKEN',
+        })),
+      });
 
       let caught;
       try {
@@ -1017,23 +1113,22 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       assert.equal(cooldown.calls.recordSoftBlock, 0);
       assert.equal(cooldown.status().consecutiveSoftBlock, 0);
       assert.equal(cooldown.status().cooldownUntil, 0);
-      assert.equal(acquireQingguoProxyLease.mock.calls.length, 1);
-      assert.equal(consumerContexts.length, 1);
-      assert.equal(consumerContexts[0].close.mock.calls.length, 1);
+      assert.equal(spies.acquireProxyLease.mock.calls.length, 1);
+      assert.equal(browserPort.derivedContexts.length, 1);
       assert.equal(sourceCache.peek('123456'), null);
     });
   });
 
-  describe('5-round same-page dynamic property convergence (L468-505)', () => {
+  describe('5-round same-page dynamic property convergence', () => {
     it('always inspects dynamic property template once even with zero skipped initial properties', async () => {
       seedConsumerAccount();
-      const ctx = makePublishCtx();
+      const { ctx, spies } = await makePublishCtx();
 
       const result = await publishGoodsFromLink(ctx, '123456');
 
       assert.equal(result.data.status, '草稿');
-      assert.equal(readDynamicPropertyTemplate.mock.calls.length, 1);
-      assert.equal(fillGoodsProperties.mock.calls.length, 0);
+      assert.equal(spies.session.readDynamicTemplate.mock.calls.length, 1);
+      assert.equal(spies.session.fillDependentProperties.mock.calls.length, 0);
     });
 
     it('converges across 4 dependent property rounds plus stabilization check and sends full converged plan to save', async () => {
@@ -1047,7 +1142,6 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
         ],
       });
       const sourceCache = createMemorySourceCache({ 123456: cached });
-
       const dynamicByRound = [
         makeRawProperty(1002, 2002, '102', '材质', ['棉']),
         makeRawProperty(1003, 2003, '103', '成分含量', ['100%棉']),
@@ -1056,39 +1150,26 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       ];
 
       let round = 0;
-      readDynamicPropertyTemplate.mockImplementation(async (_page, baseTemplate) => {
-        const added = dynamicByRound[round];
-        round += 1;
-        if (!added) {
-          return {
-            ok: true,
-            issues: [],
-            propertysTid: baseTemplate.propertysTid,
-            properties: [...baseTemplate.properties],
-          };
-        }
-        return {
-          ok: true,
-          issues: [],
-          propertysTid: baseTemplate.propertysTid,
-          properties: [
-            ...baseTemplate.properties,
-            toNormalizedTemplateProperty(added),
-          ],
-        };
+      const { ctx, spies } = await makePublishCtx({
+        sourceGoodsCache: sourceCache,
+        sessionHarnessOptions: {
+          readDynamicTemplateImpl: async (currentTemplate) => {
+            const added = dynamicByRound[round++];
+            if (!added) return currentTemplate;
+            return mergeDynamicPropertyTemplate(currentTemplate, [{ templateModuleId: 8001, ...added }]);
+          },
+        },
       });
 
-      const ctx = makePublishCtx({ sourceGoodsCache: sourceCache });
       const result = await publishGoodsFromLink(ctx, '123456');
 
-      assert.equal(readDynamicPropertyTemplate.mock.calls.length, 5);
-      assert.equal(fillGoodsProperties.mock.calls.length, 4);
+      assert.equal(spies.session.readDynamicTemplate.mock.calls.length, 5);
+      assert.equal(spies.session.fillDependentProperties.mock.calls.length, 4);
       assert.deepEqual(
-        fillGoodsProperties.mock.calls.map(([, plan]) => plan.map((item) => item.name)),
+        spies.session.fillDependentProperties.mock.calls.map(([plan]) => plan.map((item) => item.name)),
         [['材质'], ['成分含量'], ['风格'], ['领型']],
       );
-
-      const savedOptions = clickSaveDraft.mock.calls[0][2];
+      const savedOptions = spies.session.saveDraft.mock.calls[0][0];
       assert.deepEqual(
         savedOptions.expectedPropertyPlan.map((item) => item.name),
         ['面料俗称', '材质', '成分含量', '风格', '领型'],
@@ -1109,7 +1190,6 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
         ],
       });
       const sourceCache = createMemorySourceCache({ 123456: cached });
-
       const dynamicByRound = [
         makeRawProperty(1002, 2002, '102', '材质', ['棉']),
         makeRawProperty(1003, 2003, '103', '成分含量', ['100%棉']),
@@ -1119,20 +1199,16 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       ];
 
       let round = 0;
-      readDynamicPropertyTemplate.mockImplementation(async (_page, baseTemplate) => {
-        const added = dynamicByRound[round++];
-        return {
-          ok: true,
-          issues: [],
-          propertysTid: baseTemplate.propertysTid,
-          properties: [
-            ...baseTemplate.properties,
-            toNormalizedTemplateProperty(added),
-          ],
-        };
+      const { ctx, spies } = await makePublishCtx({
+        sourceGoodsCache: sourceCache,
+        sessionHarnessOptions: {
+          readDynamicTemplateImpl: async (currentTemplate) => {
+            const added = dynamicByRound[round++];
+            return mergeDynamicPropertyTemplate(currentTemplate, [{ templateModuleId: 8001, ...added }]);
+          },
+        },
       });
 
-      const ctx = makePublishCtx({ sourceGoodsCache: sourceCache });
       await assert.rejects(
         publishGoodsFromLink(ctx, '123456'),
         (err) => err instanceof PddCliError
@@ -1141,78 +1217,64 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
           && err.detail?.issues?.includes('dynamic_property_template_unstable'),
       );
 
-      assert.equal(readDynamicPropertyTemplate.mock.calls.length, 5);
-      assert.equal(fillGoodsProperties.mock.calls.length, 5);
-      assert.equal(disableSizeChart.mock.calls.length, 0);
-      assert.equal(fillFullCountDiscount.mock.calls.length, 0);
-      assert.equal(clickSaveDraft.mock.calls.length, 0);
+      assert.equal(spies.session.readDynamicTemplate.mock.calls.length, 5);
+      assert.equal(spies.session.fillDependentProperties.mock.calls.length, 5);
+      assert.equal(spies.session.disableSizeChart.mock.calls.length, 0);
+      assert.equal(spies.session.fillFullCountDiscount.mock.calls.length, 0);
+      assert.equal(spies.session.saveDraft.mock.calls.length, 0);
       assert.notEqual(sourceCache.peek('123456'), null);
     });
 
     it('fails closed on dynamic_property_template_invalid before size-chart or save', async () => {
       const invalidCache = createMemorySourceCache({ 123456: makeNormalizedCachedSource() });
-      readDynamicPropertyTemplate.mockResolvedValueOnce({
-        ok: false,
-        issues: ['dynamic_property_template_invalid'],
-        propertysTid: 9001,
-        properties: [],
+      const { ctx, spies } = await makePublishCtx({
+        sourceGoodsCache: invalidCache,
+        sessionHarnessOptions: {
+          readDynamicTemplateImpl: async () => ({
+            ok: false,
+            issues: ['dynamic_property_template_invalid'],
+            propertysTid: 9001,
+            properties: [],
+          }),
+        },
       });
 
       await assert.rejects(
-        publishGoodsFromLink(makePublishCtx({ sourceGoodsCache: invalidCache }), '123456'),
+        publishGoodsFromLink(ctx, '123456'),
         (err) => err instanceof PddCliError
           && err.code === 'E_BUSINESS'
           && err.detail?.issues?.includes('dynamic_property_template_invalid'),
       );
-      assert.equal(disableSizeChart.mock.calls.length, 0);
-      assert.equal(clickSaveDraft.mock.calls.length, 0);
+      assert.equal(spies.session.disableSizeChart.mock.calls.length, 0);
+      assert.equal(spies.session.saveDraft.mock.calls.length, 0);
       assert.notEqual(invalidCache.peek('123456'), null);
     });
 
     it('fails closed on an unmapped newly revealed required property before size-chart or save', async () => {
       const missingReqCache = createMemorySourceCache({ 123456: makeNormalizedCachedSource() });
-      readDynamicPropertyTemplate.mockResolvedValueOnce({
-        ok: true,
-        issues: [],
-        propertysTid: 9001,
-        properties: [
-          {
-            templateModuleId: 8001,
-            templatePid: 1001,
-            pid: 2001,
-            refPid: '101',
-            name: '面料俗称',
-            required: true,
-            important: false,
-            controlType: 1,
-            valueType: 0,
-            chooseMaxNum: 1,
-            values: [{ vid: 10011, value: '棉' }],
-          },
-          {
-            templateModuleId: 8001,
-            templatePid: 1099,
-            pid: 2099,
-            refPid: '199',
-            name: '必填新属性',
-            required: true,
-            important: false,
-            controlType: 1,
-            valueType: 0,
-            chooseMaxNum: 1,
-            values: [{ vid: 10991, value: 'A' }],
-          },
-        ],
+      const { ctx, spies } = await makePublishCtx({
+        sourceGoodsCache: missingReqCache,
+        sessionHarnessOptions: {
+          readDynamicTemplateImpl: async (currentTemplate) => ({
+            ok: true,
+            issues: [],
+            propertysTid: currentTemplate.propertysTid,
+            properties: [
+              ...currentTemplate.properties,
+              toNormalizedTemplateProperty(makeRawProperty(1099, 2099, '199', '必填新属性', ['A'])),
+            ],
+          }),
+        },
       });
 
       await assert.rejects(
-        publishGoodsFromLink(makePublishCtx({ sourceGoodsCache: missingReqCache }), '123456'),
+        publishGoodsFromLink(ctx, '123456'),
         (err) => err instanceof PddCliError
           && err.code === 'E_BUSINESS'
           && err.detail?.issues?.includes('required_property_unmapped'),
       );
-      assert.equal(disableSizeChart.mock.calls.length, 0);
-      assert.equal(clickSaveDraft.mock.calls.length, 0);
+      assert.equal(spies.session.disableSizeChart.mock.calls.length, 0);
+      assert.equal(spies.session.saveDraft.mock.calls.length, 0);
       assert.notEqual(missingReqCache.peek('123456'), null);
     });
 
@@ -1225,17 +1287,16 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
           ],
         }),
       });
-      const partialResult = await publishGoodsFromLink(
-        makePublishCtx({ sourceGoodsCache: partialCache }),
-        '123456',
-      );
+      const { ctx } = await makePublishCtx({ sourceGoodsCache: partialCache });
+      const partialResult = await publishGoodsFromLink(ctx, '123456');
+
       assert.deepEqual(partialResult.data.property_mapping, { mapped_count: 1, skipped_count: 1 });
       assert.deepEqual(partialResult.warnings, ['property_mapping_partial']);
     });
 
-    it('stops before fillGoodsForm when initial template has an unmapped important property', async () => {
+    it('stops before fillBaseAndMedia when initial template has an unmapped important property', async () => {
       const cache = createMemorySourceCache({ 123456: makeNormalizedCachedSource() });
-      const ctx = makePublishCtx({
+      const { ctx, spies } = await makePublishCtx({
         sourceGoodsCache: cache,
         initialTemplate: makeRawTemplate([
           makeRawProperty(1001, 2001, '101', '面料俗称', ['棉']),
@@ -1249,66 +1310,40 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
           && err.code === 'E_BUSINESS'
           && err.detail?.issues?.includes('important_property_unmapped'),
       );
-      assert.equal(fillGoodsForm.mock.calls.length, 0);
-      assert.equal(clickSaveDraft.mock.calls.length, 0);
+      assert.equal(spies.session.fillBaseAndMedia.mock.calls.length, 0);
+      assert.equal(spies.session.saveDraft.mock.calls.length, 0);
     });
   });
 
-  describe('strict outbound payload check (L522-538) and deferred v4 cache cleanup (L556)', () => {
+  describe('strict outbound payload check, draft verification, and deferred v4 cache cleanup', () => {
     it('enforces save-phase ordering and strict payload expectations, keeping draftOnly safe from submit', async () => {
       const order = [];
-      fillGoodsForm.mockImplementation(async (_page, _source, _warnings, options) => {
-        order.push('fillGoodsForm');
-        return {
-          uploadedSkuPreviewPlan: options.skuPreviewPlan.map((item, idx) => ({
-            merchantColor: item.merchantColor,
-            uploadedImageUrl: `https://img.pddpic.com/uploaded-${idx + 1}.jpg`,
-          })),
-        };
-      });
-      readDynamicPropertyTemplate.mockImplementation(async (_page, baseTemplate) => {
-        order.push('readDynamicPropertyTemplate');
-        return { ok: true, issues: [], propertysTid: baseTemplate.propertysTid, properties: [...baseTemplate.properties] };
-      });
-      disableSizeChart.mockImplementation(async () => {
-        order.push('disableSizeChart');
-        return { changed: true, disabled: true };
-      });
-      fillFullCountDiscount.mockImplementation(async (_page, rate) => {
-        order.push('fillFullCountDiscount');
-        return { rate, displayValue: '8.8', payloadValue: 88 };
-      });
-      clickSaveDraft.mockImplementation(async () => {
-        order.push('clickSaveDraft');
-        return {
-          success: true,
-          verification: { ok: true, issues: [], skipped: true, warnings: ['draft_verification_unavailable'] },
-        };
-      });
-
       const sourceCache = createMemorySourceCache({ 123456: makeNormalizedCachedSource() });
-      const ctx = makePublishCtx({
+      const { ctx, transport, spies } = await makePublishCtx({
         costTemplates: [
           { id: 3001, name: 'Template A' },
           { id: 3002, name: 'Template B' },
         ],
         sourceGoodsCache: sourceCache,
         fullCountDiscountRate: 0.88,
+        sessionHarnessOptions: {
+          order,
+          disableSizeChartImpl: async () => ({ changed: true, disabled: true }),
+          draftDetailResponse: { success: false, error_code: 5000 },
+        },
       });
 
       const result = await publishGoodsFromLink(ctx, '123456', { draftOnly: true, costTemplateId: '3002' });
 
       assert.deepEqual(order, [
-        'fillGoodsForm',
-        'readDynamicPropertyTemplate',
+        'fillBaseAndMedia',
+        'readDynamicTemplate',
         'disableSizeChart',
         'fillFullCountDiscount',
-        'clickSaveDraft',
+        'saveDraft',
       ]);
-      assert.deepEqual(fillFullCountDiscount.mock.calls[0].slice(0, 2), [ctx.page, 0.88]);
-      const [savePage, saveCommitId, saveOpts] = clickSaveDraft.mock.calls[0];
-      assert.equal(savePage, ctx.page);
-      assert.equal(saveCommitId, '7001');
+      assert.equal(spies.session.fillFullCountDiscount.mock.calls[0][0], 0.88);
+      const [saveOpts] = spies.session.saveDraft.mock.calls[0];
       assert.equal(saveOpts.costTemplateId, 3002);
       assert.equal(saveOpts.strictPayload, true);
       assert.equal(saveOpts.strictVerify, true);
@@ -1339,85 +1374,94 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       assert.equal(result.data.status, '草稿');
       assert.equal(result.data.cost_template_id, '3002');
       assert.deepEqual(result.warnings, ['draft_verification_unavailable']);
-      assert.equal(
-        ctx.client.execute.mock.calls.some(([spec]) => spec === GOODS_PUBLISH_SUBMIT),
-        false,
-      );
+      assert.equal(transport.calls.some((call) => call.spec === GOODS_PUBLISH_SUBMIT), false);
       assert.equal(sourceCache.peek('123456'), null);
+    });
+
+    it('fails strict draft detail verification when available response confirms missing fields and retains v4 cache', async () => {
+      const sourceCache = createMemorySourceCache({ 123456: makeNormalizedCachedSource() });
+      const { ctx, transport } = await makePublishCtx({
+        sourceGoodsCache: sourceCache,
+        sessionHarnessOptions: {
+          draftDetailResponse: {
+            success: true,
+            error_code: 1000000,
+            result: { goods_name: '', cost_template_id: 3001, gallery: ['https://img.pddpic.com/carousel-1.jpg'] },
+          },
+        },
+      });
+
+      await assert.rejects(
+        publishGoodsFromLink(ctx, '123456', { draftOnly: false }),
+        (err) => err instanceof PddCliError
+          && err.code === 'E_BUSINESS'
+          && err.detail?.issues?.includes('title_empty')
+          && err.detail?.stage === 'populate_and_save_draft'
+          && err.detail?.source_cached === true,
+      );
+      assert.equal(transport.calls.some((call) => call.spec === GOODS_PUBLISH_SUBMIT), false);
+      assert.notEqual(sourceCache.peek('123456'), null);
     });
 
     it('retains v4 cache when strict save payload fails, reuses cache on retry without scraping, and clears cache after draft success', async () => {
       seedConsumerAccount();
       const sourceCache = createMemorySourceCache();
-
-      clickSaveDraft.mockRejectedValueOnce(new PddCliError({
-        code: 'E_BUSINESS',
-        message: '保存草稿请求校验失败: goods_property_mismatch',
-        detail: { issues: ['goods_property_mismatch'] },
-        exitCode: ExitCodes.BUSINESS,
-      }));
-
-      const failCtx = makePublishCtx({ sourceGoodsCache: sourceCache });
       const beforeRepoState = captureRepoIsolationState('123456');
+
+      const fail = await makePublishCtx({
+        sourceGoodsCache: sourceCache,
+        sessionHarnessOptions: {
+          editPayloadOverride: { goods_properties: [] },
+        },
+      });
       await assert.rejects(
-        publishGoodsFromLink(failCtx, '123456', { draftOnly: false }),
+        publishGoodsFromLink(fail.ctx, '123456', { draftOnly: false }),
         (err) => err instanceof PddCliError
           && err.code === 'E_BUSINESS'
-          && err.detail?.issues?.includes('goods_property_mismatch'),
+          && err.detail?.issues?.includes('goods_properties_missing'),
       );
 
-      assert.equal(
-        failCtx.client.execute.mock.calls.some(([spec]) => spec === GOODS_PUBLISH_SUBMIT),
-        false,
-      );
+      assert.equal(fail.transport.calls.some((call) => call.spec === GOODS_PUBLISH_SUBMIT), false);
       assert.notEqual(sourceCache.peek('123456'), null);
       assert.deepEqual(sourceCache.calls.remove, []);
 
-      createConsumerContext.mockClear();
-      clickSaveDraft.mockResolvedValueOnce({
-        success: true,
-        verification: { ok: true, issues: [], skipped: false, warnings: [] },
-      });
-
-      const retryCtx = makePublishCtx({ sourceGoodsCache: sourceCache });
-      const retryResult = await publishGoodsFromLink(retryCtx, '123456', { draftOnly: true });
+      const retry = await makePublishCtx({ sourceGoodsCache: sourceCache });
+      const retryResult = await publishGoodsFromLink(retry.ctx, '123456', { draftOnly: true });
 
       assert.equal(retryResult.data.status, '草稿');
-      assert.equal(createConsumerContext.mock.calls.length, 0);
+      assert.equal(retry.browserPort.derivedContexts.length, 0);
+      assert.equal(retry.spies.observePage.mock.calls.length, 0);
       assert.deepEqual(sourceCache.calls.remove, ['123456']);
       assert.equal(sourceCache.peek('123456'), null);
       assertRepoIsolationUnchanged(beforeRepoState);
     });
 
-    it('retains v4 cache if --confirm submit is rejected and clears cache only after submit succeeds', async () => {
+    it('retains v4 cache if --confirm submit is rejected via EndpointPort errorMapper and clears cache only after submit succeeds', async () => {
       const sourceCache = createMemorySourceCache({ 123456: makeNormalizedCachedSource() });
 
-      const rejectedCtx = makePublishCtx({
+      const rejected = await makePublishCtx({
         sourceGoodsCache: sourceCache,
-        onExecute: async (spec) => {
-          if (spec === GOODS_PUBLISH_SUBMIT) {
-            return { data: { success: false, raw: { error_code: 9876 } } };
-          }
-          return undefined;
-        },
+        submitResponse: { success: false, error_code: 9876 },
       });
 
       await assert.rejects(
-        publishGoodsFromLink(rejectedCtx, '123456', { draftOnly: false }),
+        publishGoodsFromLink(rejected.ctx, '123456', { draftOnly: false }),
         (err) => err instanceof PddCliError
           && err.code === 'E_BUSINESS'
           && err.hint === '保存草稿已完成，但提交发布被平台拒绝'
-          && err.detail?.errorCode === 9876,
+          && err.detail?.errorCode === 9876
+          && err.detail?.stage === 'submit_draft'
+          && err.detail?.source_cached === true,
       );
       assert.notEqual(sourceCache.peek('123456'), null);
       assert.deepEqual(sourceCache.calls.remove, []);
 
-      const successCtx = makePublishCtx({ sourceGoodsCache: sourceCache });
-      const submitted = await publishGoodsFromLink(successCtx, '123456', { draftOnly: false });
+      const success = await makePublishCtx({ sourceGoodsCache: sourceCache });
+      const submitted = await publishGoodsFromLink(success.ctx, '123456', { draftOnly: false });
 
       assert.equal(submitted.data.status, '已提交');
       assert.equal(
-        successCtx.client.execute.mock.calls.filter(([spec]) => spec === GOODS_PUBLISH_SUBMIT).length,
+        success.transport.calls.filter((call) => call.spec === GOODS_PUBLISH_SUBMIT).length,
         1,
       );
       assert.deepEqual(sourceCache.calls.remove, ['123456']);
@@ -1431,7 +1475,7 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
       sourceCache.faults.write = new Error('ENOSPC');
       sourceCache.faults.remove = new Error('EACCES');
 
-      const ctx = makePublishCtx({ sourceGoodsCache: sourceCache });
+      const { ctx } = await makePublishCtx({ sourceGoodsCache: sourceCache });
       const result = await publishGoodsFromLink(ctx, '123456');
 
       assert.equal(result.data.status, '草稿');
@@ -1442,31 +1486,32 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
     });
 
     it('stops pre-draft evidence or cost-template errors before category resolution and draft creation', async () => {
-      const noTemplateCtx = makePublishCtx({ costTemplates: [] });
+      const noTemplate = await makePublishCtx({ costTemplates: [] });
       await assert.rejects(
-        publishGoodsFromLink(noTemplateCtx, '123456'),
+        publishGoodsFromLink(noTemplate.ctx, '123456'),
         (err) => err instanceof PddCliError && err.code === 'E_BUSINESS',
       );
-      assert.equal(createConsumerContext.mock.calls.length, 0);
+      assert.equal(noTemplate.browserPort.derivedContexts.length, 0);
 
-      const badTemplateCtx = makePublishCtx({ costTemplates: [{ id: 3001, name: 'A' }] });
+      const badTemplate = await makePublishCtx({ costTemplates: [{ id: 3001, name: 'A' }] });
       await assert.rejects(
-        publishGoodsFromLink(badTemplateCtx, '123456', { costTemplateId: '9999' }),
+        publishGoodsFromLink(badTemplate.ctx, '123456', { costTemplateId: '9999' }),
         (err) => err instanceof PddCliError && err.code === 'E_USAGE',
       );
-      assert.equal(createConsumerContext.mock.calls.length, 0);
+      assert.equal(badTemplate.browserPort.derivedContexts.length, 0);
 
       const missingPropsCache = createMemorySourceCache({
         123456: makeNormalizedCachedSource({ goodsProperties: [] }),
       });
+      const missingProps = await makePublishCtx({ sourceGoodsCache: missingPropsCache });
       await assert.rejects(
-        publishGoodsFromLink(makePublishCtx({ sourceGoodsCache: missingPropsCache }), '123456'),
+        publishGoodsFromLink(missingProps.ctx, '123456'),
         (err) => err instanceof PddCliError
           && err.code === 'E_BUSINESS'
           && err.detail?.issues?.includes('source_properties_missing'),
       );
-      assert.equal(resolvePddCategory.mock.calls.length, 0);
-      assert.equal(selectCategory.mock.calls.length, 0);
+      assert.equal(missingProps.spies.categoryResolve.mock.calls.length, 0);
+      assert.equal(missingProps.spies.openCategoryDraft.mock.calls.length, 0);
 
       const missingColorCache = createMemorySourceCache({
         123456: makeNormalizedCachedSource({
@@ -1483,41 +1528,41 @@ describe('publishGoodsFromLink T0 characterization safety net', () => {
           ],
         }),
       });
+      const missingColor = await makePublishCtx({ sourceGoodsCache: missingColorCache });
       await assert.rejects(
-        publishGoodsFromLink(makePublishCtx({ sourceGoodsCache: missingColorCache }), '123456'),
+        publishGoodsFromLink(missingColor.ctx, '123456'),
         (err) => err instanceof PddCliError
           && err.code === 'E_BUSINESS'
           && err.detail?.issues?.includes('sku_preview_color_dimension_missing'),
       );
-      assert.equal(resolvePddCategory.mock.calls.length, 0);
-      assert.equal(selectCategory.mock.calls.length, 0);
+      assert.equal(missingColor.spies.categoryResolve.mock.calls.length, 0);
+      assert.equal(missingColor.spies.openCategoryDraft.mock.calls.length, 0);
     });
 
     it('stops invalid pricing plan and invalid fullCountDiscountRate before category resolution and draft creation', async () => {
       const badRefCache = createMemorySourceCache({
         123456: makeNormalizedCachedSource({ sourceReferencePriceCents: 2800 }),
       });
+      const badRef = await makePublishCtx({ sourceGoodsCache: badRefCache });
       await assert.rejects(
-        publishGoodsFromLink(makePublishCtx({ sourceGoodsCache: badRefCache }), '123456'),
+        publishGoodsFromLink(badRef.ctx, '123456'),
         (err) => err instanceof PddCliError
           && err.code === 'E_BUSINESS'
           && err.detail?.issues?.includes('pricing_plan_invalid'),
       );
-      assert.equal(resolvePddCategory.mock.calls.length, 0);
-      assert.equal(selectCategory.mock.calls.length, 0);
+      assert.equal(badRef.spies.categoryResolve.mock.calls.length, 0);
+      assert.equal(badRef.spies.openCategoryDraft.mock.calls.length, 0);
 
       const validCache = createMemorySourceCache({
         123456: makeNormalizedCachedSource(),
       });
+      const badDiscount = await makePublishCtx({ sourceGoodsCache: validCache, fullCountDiscountRate: 0.49 });
       await assert.rejects(
-        publishGoodsFromLink(
-          makePublishCtx({ sourceGoodsCache: validCache, fullCountDiscountRate: 0.49 }),
-          '123456',
-        ),
+        publishGoodsFromLink(badDiscount.ctx, '123456'),
         (err) => err instanceof PddCliError && err.code === 'E_CONFIG_INVALID',
       );
-      assert.equal(resolvePddCategory.mock.calls.length, 0);
-      assert.equal(selectCategory.mock.calls.length, 0);
+      assert.equal(badDiscount.spies.categoryResolve.mock.calls.length, 0);
+      assert.equal(badDiscount.spies.openCategoryDraft.mock.calls.length, 0);
     });
   });
 });

@@ -508,13 +508,113 @@ export function createUpstreamOrderInsurance(overrides = {}) {
   };
 }
 
-// goods publish fixture 流程（PDD_TEST_ADAPTER=fixture）：发布结果 + 提交回执，值均为合成数据
-export function createPublishFixtures() {
+// goods publish fixture 流程（PDD_TEST_ADAPTER=fixture）：结构化合成源商品、类目、属性模板与提交回执
+export function createSyntheticPublishSource(overrides = {}) {
   return {
-    'goods-publish/publish-result.json': {
-      goods_id: 5001, goods_commit_id: 7001, source_goods_id: '123456', source_title: 'Synthetic Source', warnings: [],
+    goodsID: '123456',
+    goodsName: 'Synthetic Cotton Tee',
+    catID: 1003,
+    catID1: 1001,
+    catID2: 1002,
+    catID3: 1003,
+    price: '14.70',
+    linePrice: '59',
+    carousel: ['https://img.pddpic.com/carousel-1.jpg'],
+    skuText: '颜色\n白色\n黑色',
+    skuDimensions: [
+      {
+        name: '颜色',
+        values: [
+          { id: '1', text: '白色' },
+          { id: '2', text: '黑色' },
+        ],
+      },
+    ],
+    skus: [
+      {
+        skuID: 'sku-w',
+        groupPrice: '14.70',
+        normalPrice: '25.80',
+        quantity: 10,
+        thumbUrl: 'https://img.pddpic.com/white.jpg',
+        specValues: { 颜色: '白色' },
+      },
+      {
+        skuID: 'sku-b',
+        groupPrice: '16.00',
+        normalPrice: '28.00',
+        quantity: 0,
+        thumbUrl: 'https://img.pddpic.com/black.jpg',
+        specValues: { 颜色: '黑色' },
+      },
+    ],
+    goodsProperties: [
+      { name: '面料俗称', values: ['棉'], refPid: '101', referenceId: '1' },
+      { name: '材质', values: ['棉'], refPid: '102', referenceId: '2' },
+    ],
+    properties: '',
+    detailImgs: ['https://img.pddpic.com/detail-1.jpg'],
+    ...overrides,
+  };
+}
+
+export function createSyntheticPublishProperty(id, pid, refPid, name, valueTexts, {
+  templateModuleId = 8001,
+  required = true,
+  important = false,
+  controlType = 1,
+  valueType = 0,
+  chooseMaxNum = 1,
+} = {}) {
+  return {
+    templateModuleId,
+    id,
+    pid,
+    ref_pid: refPid,
+    name_alias: name,
+    required,
+    is_important: important,
+    control_type: controlType,
+    value_type: valueType,
+    choose_max_num: chooseMaxNum,
+    values: Array.isArray(valueTexts)
+      ? valueTexts.map((text, index) => ({ vid: (id * 10) + index + 1, value: text }))
+      : undefined,
+  };
+}
+
+export function createSyntheticPublishTemplate(properties = [
+  createSyntheticPublishProperty(1001, 2001, '101', '面料俗称', ['棉']),
+]) {
+  return {
+    id: 9001,
+    modules: [
+      {
+        id: 8001,
+        propertys: properties,
+      },
+    ],
+  };
+}
+
+export function createPublishFixtures(overrides = {}) {
+  return {
+    'goods-publish/source.json': createSyntheticPublishSource(),
+    'goods-publish/category.json': {
+      root: '服饰',
+      cates: ['服饰', '女装', 'T恤'],
+      cat_id: 1003,
+      cat_ids: [1001, 1002, 1003, null],
+      cats: ['服饰', '女装', 'T恤', null],
     },
-    'endpoints/goods.publish.submit.json': { success: true },
+    'endpoints/goods.publish.template.json': createSyntheticPublishTemplate(),
+    'goods-publish/dynamic-template.json': {
+      steps: [
+        [createSyntheticPublishProperty(1002, 2002, '102', '材质', ['棉'])],
+      ],
+    },
+    'endpoints/goods.publish.submit.json': { success: true, error_code: 1000000 },
+    ...overrides,
   };
 }
 

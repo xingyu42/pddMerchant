@@ -167,7 +167,7 @@ export const ORDER_LIST = {
 | `qingguo-proxy.js` | 仅用于源商品抓取的青果代理（ADR 0001） |
 | `category-resolver.js` | 实例级 `CategoryResolverPort`，外部类目 API 解析类目搜索文本 |
 | `merchant-draft-editor.js` | `MerchantDraftEditorPort`（`openDraft` / `populateAndSaveDraft` / `submitDraft`）与声明式 `DraftSession` |
-| `form-filler.js` / `draft-editor/` | 商家发布表单填充门面与私有子模块（类目建草稿、SKU/媒体、属性与终态、保存路由、私有可中止写节流） |
+| `draft-editor/` | 商家发布表单填充私有子模块（类目建草稿、SKU/媒体、属性与终态、保存路由、私有可中止写节流） |
 | `property-template.js` / `dynamic-property-template.js` | 平台属性模板归一化、动态属性投影与合并 |
 | `image-handler.js` | 图片下载与上传 |
 | `risk-detector.js` | 风控弹窗检测 |
@@ -213,7 +213,7 @@ export const ORDER_LIST = {
 4. 构建初始属性计划（`buildInitialPropertyPlan`），由 `MerchantDraftEditorPort.populateAndSaveDraft` 驱动 `DraftSession` 填充表单、完成最多 5 轮动态属性收敛、停用尺码表、写入满件折扣（`fullCountDiscountRate`，默认 0.95）并严格校验保存请求与草稿详情。
 5. 仅在 `--confirm` 时委托 `MerchantDraftEditorPort.submitDraft` 提交发布；保存/提交成功后清理源缓存。
 
-fixture 模式下发布流程在服务层短路。
+fixture 模式下通过无磁盘空源缓存、内存冷却、合成源/类目/模板数据与内存 `DraftSession` 完整穿过上述规划与写安全校验。
 
 ---
 

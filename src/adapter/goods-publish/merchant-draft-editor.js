@@ -5,15 +5,16 @@ import { GOODS_PUBLISH_SUBMIT, GOODS_PUBLISH_TEMPLATE } from '../endpoints/goods
 import { interpretResponse } from '../response-interpreter.js';
 import { runEndpoint } from '../run-endpoint.js';
 import { createWriteThrottle } from './draft-editor/write-throttle.js';
+import { selectCategory } from './draft-editor/category-draft.js';
+import { fillGoodsForm } from './draft-editor/sku-media-fill.js';
 import {
-  clickSaveDraft,
   disableSizeChart,
   fillFullCountDiscount,
-  fillGoodsForm,
   fillGoodsProperties,
-  selectCategory,
-} from './form-filler.js';
+} from './draft-editor/property-final-state.js';
+import { clickSaveDraft } from './draft-editor/save-route.js';
 import { mergeDynamicPropertyTemplate } from './property-template.js';
+import { readDynamicPropertyTemplate as defaultReadDynamicTemplate } from './dynamic-property-template.js';
 import { assertNoRiskControl } from './risk-detector.js';
 
 function appendUniqueWarnings(target, source) {
@@ -29,21 +30,13 @@ export function createLiveDraftSession({
   log = getLogger(),
   checkRisk = assertNoRiskControl,
   fillForm = fillGoodsForm,
-  readDynamicTemplate,
+  readDynamicTemplate = defaultReadDynamicTemplate,
   fillProperties = fillGoodsProperties,
   disableChart = disableSizeChart,
   fillDiscount = fillFullCountDiscount,
   saveDraftRequest = clickSaveDraft,
   mergeTemplate = mergeDynamicPropertyTemplate,
 } = {}) {
-  let dynamicReader = readDynamicTemplate;
-  async function loadDynamicReader() {
-    if (!dynamicReader) {
-      ({ readDynamicPropertyTemplate: dynamicReader } = await import('./dynamic-property-template.js'));
-    }
-    return dynamicReader;
-  }
-
   return Object.freeze({
     fillBaseAndMedia({ source, pricingPlan, pricingValidation, propertyPlan, skuPreviewPlan, warnings }) {
       return fillForm(page, source, warnings, {
@@ -53,9 +46,8 @@ export function createLiveDraftSession({
         skuPreviewPlan,
       });
     },
-    async readDynamicTemplate(currentTemplate) {
-      const reader = await loadDynamicReader();
-      return reader(page, currentTemplate, { mergeTemplate });
+    readDynamicTemplate(currentTemplate) {
+      return readDynamicTemplate(page, currentTemplate, { mergeTemplate });
     },
     fillDependentProperties(dependentPropertyPlan) {
       return fillProperties(page, dependentPropertyPlan);

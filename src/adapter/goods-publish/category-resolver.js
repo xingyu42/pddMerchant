@@ -152,11 +152,3 @@ export function createCategoryResolver({
     },
   });
 }
-
-export async function resolvePddCategory(catId3, catId1, catId2, { apiBase, runtime, signal } = {}) {
-  if (runtime?.mode === 'fixture') return runtime.loadFixture('goods-publish/category.json');
-  const resolver = createCategoryResolver({ apiBase });
-  const resolved = await resolver.resolve({ catId1, catId2, catId3 }, { signal });
-  const { searchText: _searchText, ...legacyShape } = resolved;
-  return legacyShape;
-}

@@ -14,7 +14,7 @@ import { GOODS_PUBLISH_CREATE_DRAFT, GOODS_PUBLISH_EDIT_DRAFT, GOODS_PUBLISH_SAV
   SAVE_DRAFT_SUCCESS_RULE, mapPublishBusinessError } from '../../src/adapter/endpoints/goods-publish.js';
 import { PROMO_ENTITY_REPORT, PROMO_HOURLY_REPORT } from '../../src/adapter/endpoints/promo.js';
 import { GOODS_PROMOTION_LIST } from '../../src/adapter/endpoints/promo-goods.js';
-import { clickSaveDraft } from '../../src/adapter/goods-publish/form-filler.js';
+import { clickSaveDraft } from '../../src/adapter/goods-publish/draft-editor/save-route.js';
 
 const GROUPS = {
   reports: [TRAFFIC_READY_TIME, TRAFFIC_OVERVIEW, GOODS_TRAFFIC_LIST, CS_OVERVIEW, CS_MONTH_TREND,

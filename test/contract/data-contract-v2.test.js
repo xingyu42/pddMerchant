@@ -272,12 +272,26 @@ const V2_CASES = [
     args: ['goods', 'publish', '--url', '123456'],
     fixtures: { ...createFactFixtures(), ...createPublishFixtures() },
     entityFields: { '': PUBLISH_VIEW_FIELDS },
+    checkData: (data) => {
+      assert.equal(data.status, '草稿');
+      assert.equal(data.category_path, '服饰 > 女装 > T恤');
+      assert.deepEqual(data.property_mapping, { mapped_count: 2, skipped_count: 0 });
+      assert.equal(data.sku_preview_count, 2);
+      assert.equal(data.image_transform_enabled, false);
+    },
   },
   {
     command: 'goods.publish',
     args: ['goods', 'publish', '--url', '123456', '--confirm'],
     fixtures: { ...createFactFixtures(), ...createPublishFixtures() },
     entityFields: { '': PUBLISH_VIEW_FIELDS },
+    checkData: (data) => {
+      assert.equal(data.status, '已提交');
+      assert.equal(data.category_path, '服饰 > 女装 > T恤');
+      assert.deepEqual(data.property_mapping, { mapped_count: 2, skipped_count: 0 });
+      assert.equal(data.sku_preview_count, 2);
+      assert.equal(data.image_transform_enabled, false);
+    },
   },
   { command: 'goods.update.status', args: ['goods', 'update', 'status', '--goods-id', '101', '--status', 'offline'] },
   { command: 'goods.update.price', args: ['goods', 'update', 'price', '--goods-id', '101', '--price-yuan', '29.9'] },
