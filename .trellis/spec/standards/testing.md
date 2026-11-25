@@ -14,19 +14,25 @@ npx vitest run test/<file>.test.js
 npx vitest
 ```
 
-测试环境：
+测试环境与组合根接缝：
 
 ```text
-PDD_TEST_ADAPTER=fixture        bypass real browser/backend
-PDD_TEST_FIXTURE_DIR=<path>     override fixture data
+PDD_TEST_ADAPTER=fixture        subprocess / CLI fixture mode (set per child process, not by test/setup.js)
+PDD_TEST_FIXTURE_DIR=<path>     override fixture data directory
+composeCommandRuntime(...)      in-process command composition root (src/runtime/command-runtime.js)
+composeDaemonRuntime(...)       in-process daemon composition root (src/runtime/daemon-runtime.js)
+createTestCtx(...)              in-process raw EndpointTransportPort + EndpointClient seam (test/helpers/test-ctx.js)
+createInMemory*(...)            in-memory Browser/Mall/DaemonProcess/AuthPort doubles (test/helpers/in-memory-ports.js)
 ```
 
 ## 3. Contracts
 
 - Framework is Vitest with `assert/strict`; tests auto-discover `test/**/*.test.js`。
-- Fixture adapter is the default seam for command/e2e tests; do not require real PDD account for automated tests。
+- `test/setup.js` opens a fresh isolated temporary SQLite `PDD_DB_PATH` per test (closing it and restoring mocks/globals/envs/timers in `afterEach`), sets `NO_COLOR=1`, and hard-blocks `patchright` and `globalThis.fetch`; it does NOT inject `PDD_TEST_ADAPTER=fixture` or `PDD_TEST_FIXTURE_DIR` globally.
+- In-process tests use explicit composition-root injection (`composeCommandRuntime` / `composeDaemonRuntime` with `mode`, `env`, `overrides`, `streams`, `clock`) or `createTestCtx` / `createInMemory*` doubles, keeping state per-instance without global singletons, reset backdoors, `vi.stubEnv('PDD_TEST_*')`, or cross-layer `vi.mock`s.
+- Fixture adapter is the default seam for CLI/daemon subprocess E2E tests (`test/helpers/isolated-cli.js` sets `PDD_TEST_ADAPTER=fixture` and `PDD_TEST_FIXTURE_DIR` explicitly in the child `env`); automated tests never require a real PDD account.
 - E2E tests SHOULD spawn child processes when verifying CLI stdout/exit code/envelope purity。
-- Every test (in-process and subprocess) MUST use its own temporary `PDD_DB_PATH`; the master key lives beside it, so one variable isolates both. `test/setup.js` opens a fresh temp DB per test and closes it in `afterEach`. `PDD_PROFILE_DIR` does not isolate account resolution. Use fixture mode so tests never navigate with a real local account; fixture `login` still writes fake merchant/consumer accounts into the DB.
+- Every test (in-process and subprocess) MUST use its own temporary `PDD_DB_PATH`; the master key lives beside it, so one variable isolates both. `PDD_PROFILE_DIR` does not isolate account resolution. Use fixture mode (`mode: 'fixture'` or child `PDD_TEST_ADAPTER=fixture`) when exercising fixture login/flows; fixture `login` still writes fake merchant/consumer accounts into the isolated temp DB.
 - There is currently no property-based testing: the former `test/pbt/` harness was removed in `cc0cb1c` and the unused `fast-check` devDependency was dropped afterwards. Reintroducing PBT is a dependency decision (see `dependencies.md`)。
 - `npm run check` is the project gate: `npm run lint` (knip `--include files,dependencies,unlisted,binaries,exports,types,duplicates`) then `npm test`; `.github/workflows/check.yml` runs it on pushes to `main` and on PRs. An export with no importer in `src/`, `bin/` or `test/**/*.test.js` fails lint; registries reach command handlers through static named references so knip can see them, and an intentional seam is allowlisted per entry with a `//` comment giving its reason; the first allowlist entry renames `knip.json` to `knip.jsonc` (knip reads both) so the comments are valid。
 - knip resolves binaries and plugins from a local `node_modules`: in a nested git worktree without one, `npm run lint` fails on `main` too (unlisted `vitest`/`knip` binaries, unused `@vitest/coverage-v8`) while `npm test` passes. Worktree handling lives in `.agents/skills/pdd-local-development/SKILL.md`。

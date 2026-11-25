@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, it, vi } from 'vitest';
 import assert from 'node:assert/strict';
-import { PlaywrightEndpointClient } from '../../src/adapter/endpoint-client.js';
+import { EndpointClient, PlaywrightEndpointClient, createLiveEndpointTransport } from '../../src/adapter/endpoint-client.js';
 import { executePageApiRequest } from '../../src/adapter/page-api-client.js';
-import { clearFixtureCache } from '../../src/adapter/mock-dispatcher.js';
+import { FixtureStore } from '../../src/adapter/fixtures/core.js';
+import { createFixtureEndpointTransport } from '../../src/adapter/fixtures/endpoint.js';
 import { TRAFFIC_READY_TIME } from '../../src/adapter/endpoints/traffic.js';
 import { PddCliError, ExitCodes } from '../../src/infra/errors.js';
 import { createCliSandbox } from '../helpers/isolated-cli.js';
@@ -11,15 +12,19 @@ vi.mock('../../src/adapter/page-api-client.js', () => ({ executePageApiRequest: 
 
 let sandbox;
 beforeEach(() => {
-  vi.stubEnv('PDD_TEST_ADAPTER', '');
   executePageApiRequest.mockReset();
-  clearFixtureCache();
 });
 afterEach(() => {
-  clearFixtureCache();
   sandbox?.dispose();
   sandbox = null;
 });
+
+function fixtureClientFor(fixtureDir, opts = {}) {
+  return new EndpointClient({
+    transport: createFixtureEndpointTransport({ fixtureStore: new FixtureStore({ fixtureDir }) }),
+    ...opts,
+  });
+}
 
 it('preserves the default 40002 classification and hint through the traffic spec', async () => {
   const raw = { success: false, errorCode: 40002, errorMsg: '请求失败' };
@@ -118,14 +123,13 @@ it('forwards GET or default POST method for page-api specs and rejects unsupport
   sandbox = createCliSandbox({
     'endpoints/test.pageApiMethod.json': { success: true, errorCode: 1000000, result: { ok: 2 } },
   });
-  vi.stubEnv('PDD_TEST_ADAPTER', 'fixture');
-  vi.stubEnv('PDD_TEST_FIXTURE_DIR', sandbox.fixtureDir);
-  const fixtureRes = await client.execute({ ...getSpec, method: 'GET' }, {}, { log: ctx.log });
+  const fixtureClient = fixtureClientFor(sandbox.fixtureDir);
+  const fixtureRes = await fixtureClient.execute({ ...getSpec, method: 'GET' }, {}, { log: ctx.log });
   assert.deepEqual(fixtureRes.data, { ok: 2 });
-  await assert.rejects(client.execute({ ...postSpec, method: 'DELETE' }, {}, { log: ctx.log }),
+  await assert.rejects(fixtureClient.execute({ ...postSpec, method: 'DELETE' }, {}, { log: ctx.log }),
     { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
   for (const invalidGetPayload of [() => ({ page: 2 }), () => new URLSearchParams({ page: '2' })]) {
-    await assert.rejects(client.execute({ ...postSpec, method: 'GET', buildPayload: invalidGetPayload }, {}, { log: ctx.log }),
+    await assert.rejects(fixtureClient.execute({ ...postSpec, method: 'GET', buildPayload: invalidGetPayload }, {}, { log: ctx.log }),
       { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
   }
 });
@@ -155,13 +159,12 @@ it('resolves functional apiUrl for page-api endpoints in both fixture and live m
   sandbox = createCliSandbox({
     'endpoints/test.pageApiMethod.json': { success: true, errorCode: 0, result: { ok: 4 } },
   });
-  vi.stubEnv('PDD_TEST_ADAPTER', 'fixture');
-  vi.stubEnv('PDD_TEST_FIXTURE_DIR', sandbox.fixtureDir);
-  const fixtureRes = await client.execute(dynamicGetSpec, { shippingId: 85, trackingNumber: 'YT123' }, { log: ctx.log });
+  const fixtureClient = fixtureClientFor(sandbox.fixtureDir);
+  const fixtureRes = await fixtureClient.execute(dynamicGetSpec, { shippingId: 85, trackingNumber: 'YT123' }, { log: ctx.log });
   assert.deepEqual(fixtureRes.data, { ok: 4 });
 
   const brokenUrlSpec = { ...dynamicGetSpec, apiUrl: () => '' };
-  await assert.rejects(client.execute(brokenUrlSpec, {}, { log: ctx.log }), { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
+  await assert.rejects(fixtureClient.execute(brokenUrlSpec, {}, { log: ctx.log }), { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
 
   const validatedPostSpec = {
     name: 'test.pageApiMethod',
@@ -176,7 +179,7 @@ it('resolves functional apiUrl for page-api endpoints in both fixture and live m
     },
     normalize: (raw) => raw.result,
   };
-  await assert.rejects(client.execute(validatedPostSpec, {}, { log: ctx.log }), { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
+  await assert.rejects(fixtureClient.execute(validatedPostSpec, {}, { log: ctx.log }), { code: 'E_USAGE', exitCode: ExitCodes.USAGE });
 });
 
 it('redacts page-api transport rejection reasons before emitting E_NETWORK', async () => {
@@ -199,4 +202,179 @@ it('redacts page-api transport rejection reasons before emitting E_NETWORK', asy
     }
     return true;
   });
+});
+
+it('requires an EndpointTransportPort and exposes call() and execute() over send()', async () => {
+  assert.throws(() => new EndpointClient(), { code: 'E_CONFIG_INVALID' });
+  assert.throws(() => new EndpointClient({ transport: {} }), { code: 'E_CONFIG_INVALID' });
+
+  const sleep = vi.fn(async () => {});
+  const send = vi.fn()
+    .mockResolvedValueOnce({ status: 429, raw: null, response: { status: () => 429 } })
+    .mockResolvedValueOnce({ status: 200, raw: { success: true, errorCode: 0, result: '2026-10-30' }, response: { status: () => 200 } });
+  const cooldownState = { map: new Map(), threshold: 2, ms: 300_000 };
+  const client = new EndpointClient({ transport: { send }, cooldownState, clock: { now: () => 1000, sleep } });
+
+  const opaquePage = { token: 'opaque' };
+  const data = await client.call(TRAFFIC_READY_TIME, { extra: 1 }, { page: opaquePage, log: { debug() {} } });
+  assert.equal(data, '2026-10-30');
+  assert.equal(send.mock.calls.length, 2);
+  assert.equal(sleep.mock.calls.length, 1);
+  assert.equal(sleep.mock.calls[0][0], 1000);
+  assert.equal(send.mock.calls[0][2].page, opaquePage);
+  assert.deepEqual(send.mock.calls[0][2].pageApiRequest, {
+    apiUrl: TRAFFIC_READY_TIME.apiUrl,
+    method: 'POST',
+    payload: {},
+  });
+
+  send.mockResolvedValueOnce({ status: 200, raw: { success: true, errorCode: 0, result: '2026-10-31' }, response: { status: () => 200 } });
+  const executed = await client.execute(TRAFFIC_READY_TIME, {}, { page: null, correlation_id: 'corr-1', log: { debug() {} } });
+  assert.deepEqual(executed, {
+    data: '2026-10-31',
+    meta: { attempt: 1, limiter_wait_ms: 0, endpoint: TRAFFIC_READY_TIME.name, correlation_id: 'corr-1' },
+  });
+});
+
+it('prepares page-api navigation with budget clamping, same-origin skip, no-nav bypass and E_NETWORK wrapping', async () => {
+  executePageApiRequest.mockResolvedValue({ status: 200, raw: { success: true, errorCode: 0, result: '2026-10-30' } });
+  const client = new PlaywrightEndpointClient();
+
+  let nowMs = 10_000;
+  const clock = { now: () => nowMs, sleep: async () => {} };
+  const gotoCalls = [];
+  let currentUrl = 'about:blank';
+  const page = {
+    url: () => currentUrl,
+    async goto(navUrl, options) {
+      gotoCalls.push({ navUrl, options });
+      nowMs += 400;
+      currentUrl = navUrl;
+    },
+  };
+
+  await client.execute(
+    { ...TRAFFIC_READY_TIME, navTimeout: 5_000 },
+    {},
+    { page, deadlineAt: nowMs + 1_000, clock, log: { debug() {} } },
+  );
+  assert.equal(gotoCalls.length, 1);
+  assert.equal(gotoCalls[0].options.timeout, 1_000);
+  assert.equal(executePageApiRequest.mock.calls[0][2].timeoutMs, 600);
+
+  await client.execute(TRAFFIC_READY_TIME, {}, { page, deadlineAt: nowMs + 5_000, clock, log: { debug() {} } });
+  assert.equal(gotoCalls.length, 1);
+
+  const noNavSpec = { ...TRAFFIC_READY_TIME, nav: undefined };
+  currentUrl = 'https://other.example.com/';
+  await client.execute(noNavSpec, {}, { page, log: { debug() {} } });
+  assert.equal(gotoCalls.length, 1);
+
+  const failingPage = {
+    url: () => 'about:blank',
+    async goto() { throw new Error('net::ERR_FAILED'); },
+  };
+  await assert.rejects(
+    client.execute(TRAFFIC_READY_TIME, {}, { page: failingPage, log: { debug() {} } }),
+    { code: 'E_NETWORK', exitCode: ExitCodes.NETWORK },
+  );
+  assert.equal(executePageApiRequest.mock.calls.length, 3);
+
+  const exhaustedController = new AbortController();
+  exhaustedController.abort();
+  await assert.rejects(
+    client.execute(TRAFFIC_READY_TIME, {}, { page: failingPage, signal: exhaustedController.signal, log: { debug() {} } }),
+    { code: 'E_TIMEOUT', exitCode: ExitCodes.NETWORK },
+  );
+  assert.equal(executePageApiRequest.mock.calls.length, 3);
+});
+
+it('executes fetch and legacy live strategies through narrowed executeAttempt hooks', async () => {
+  function createAttemptPage() {
+    const listeners = new Map();
+    const routes = [];
+    const unroutes = [];
+    const gotoCalls = [];
+    return {
+      routes,
+      unroutes,
+      gotoCalls,
+      url: () => 'about:blank',
+      on(event, handler) {
+        if (!listeners.has(event)) listeners.set(event, new Set());
+        listeners.get(event).add(handler);
+      },
+      off(event, handler) {
+        listeners.get(event)?.delete(handler);
+      },
+      async route(pattern, handler) {
+        routes.push({ pattern, handler });
+      },
+      async unroute(pattern, handler) {
+        unroutes.push({ pattern, handler });
+      },
+      async goto(navUrl, options) {
+        gotoCalls.push({ navUrl, options });
+        const req = {
+          url: 'https://mms.pinduoduo.com/api/items',
+          postData: () => JSON.stringify({ page: 1, queryRange: { sign: 'sig', pageSize: 10 } }),
+        };
+        for (const { handler } of routes) {
+          let continued = null;
+          await handler({
+            request: () => req,
+            continue: async (data) => { continued = data; },
+          });
+          req.mergedPostData = continued?.postData;
+        }
+        const res = {
+          request: () => req,
+          url: () => req.url,
+          status: () => 200,
+          json: async () => ({ success: true, errorCode: 0, result: { posted: req.mergedPostData ?? null } }),
+        };
+        for (const handler of [...(listeners.get('request') ?? [])]) handler(req);
+        for (const handler of [...(listeners.get('response') ?? [])]) handler(res);
+      },
+    };
+  }
+
+  const client = new EndpointClient({ transport: createLiveEndpointTransport() });
+  const fetchPage = createAttemptPage();
+  const fetchSpec = {
+    name: 'test.fetch',
+    urlPattern: /\/api\/items/,
+    apiUrl: '/api/items',
+    nav: { url: 'https://mms.pinduoduo.com/items' },
+    navTimeout: 10_000,
+    buildPayload: ({ page }) => ({ page, queryRange: { pageSize: 50 } }),
+    normalize: (raw) => raw.result,
+  };
+  const fetchRes = await client.call(fetchSpec, { page: 2 }, {
+    page: fetchPage,
+    deadlineAt: 10_000,
+    clock: { now: () => 6_000 },
+    log: { debug() {} },
+  });
+  assert.deepEqual(JSON.parse(fetchRes.posted), { page: 2, queryRange: { sign: 'sig', pageSize: 50 } });
+  assert.equal(fetchPage.gotoCalls[0].options.timeout, 4_000);
+  assert.equal(fetchPage.unroutes.length, 1);
+
+  const legacyPage = createAttemptPage();
+  let navUrlEvalCount = 0;
+  const legacySpec = {
+    name: 'test.legacy',
+    urlPattern: /\/api\/items/,
+    nav: {
+      url: ({ tab }) => {
+        navUrlEvalCount += 1;
+        return `https://mms.pinduoduo.com/items?tab=${tab}`;
+      },
+    },
+    normalize: (raw) => raw.result,
+  };
+  const legacyRes = await client.call(legacySpec, { tab: 'all' }, { page: legacyPage, log: { debug() {} } });
+  assert.deepEqual(legacyRes, { posted: null });
+  assert.equal(navUrlEvalCount, 1);
+  assert.equal(legacyPage.gotoCalls[0].navUrl, 'https://mms.pinduoduo.com/items?tab=all');
 });

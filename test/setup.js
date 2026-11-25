@@ -9,8 +9,6 @@ for (const key of Object.keys(process.env)) {
   if (key.startsWith('PDD_')) delete process.env[key];
 }
 Object.assign(process.env, {
-  PDD_TEST_ADAPTER: 'fixture',
-  PDD_TEST_FIXTURE_DIR: join(root, 'fixtures'),
   PDD_DB_PATH: join(root, 'pdd.db'),
   NO_COLOR: '1',
 });

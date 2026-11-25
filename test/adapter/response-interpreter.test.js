@@ -14,7 +14,7 @@ import { GOODS_PUBLISH_CREATE_DRAFT, GOODS_PUBLISH_EDIT_DRAFT, GOODS_PUBLISH_SAV
   SAVE_DRAFT_SUCCESS_RULE, mapPublishBusinessError } from '../../src/adapter/endpoints/goods-publish.js';
 import { PROMO_ENTITY_REPORT, PROMO_HOURLY_REPORT } from '../../src/adapter/endpoints/promo.js';
 import { GOODS_PROMOTION_LIST } from '../../src/adapter/endpoints/promo-goods.js';
-import { clickSaveDraft } from '../../src/adapter/goods-publish/form-filler.js';
+import { clickSaveDraft } from '../../src/adapter/goods-publish/draft-editor/save-route.js';
 
 const GROUPS = {
   reports: [TRAFFIC_READY_TIME, TRAFFIC_OVERVIEW, GOODS_TRAFFIC_LIST, CS_OVERVIEW, CS_MONTH_TREND,
@@ -112,6 +112,9 @@ const SPECIAL_CASES = [
   { label: 'default business message keeps the endpoint prefix', specs: [ORDER_LIST],
     raw: { error_code: 9876, error_msg: '请求失败' }, code: 'E_BUSINESS',
     message: 'orders.list: 请求失败', hint: '请求失败' },
+  { label: 'publish submit error mapper carries draft-saved-submit-rejected hint', specs: [GOODS_PUBLISH_SUBMIT],
+    raw: { success: false, error_code: 9876 }, code: 'E_BUSINESS',
+    message: '发布业务错误 (9876)', hint: '保存草稿已完成，但提交发布被平台拒绝' },
 ];
 
 const EXIT_CODES = { E_NETWORK: 5, E_AUTH_EXPIRED: 3, E_RATE_LIMIT: 4, E_BUSINESS: 6, E_USAGE: 2 };

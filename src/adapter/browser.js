@@ -1,9 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
-import { isMockEnabled, mockLaunchBrowser, mockCloseBrowser } from './mock-dispatcher.js';
-import { PddCliError, ExitCodes } from '../infra/errors.js';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { getLogger } from '../infra/logger.js';
 import { daemonBrowserDbPrefix } from '../infra/daemon-state.js';
+import { registerCloseAllHook } from '../infra/runtime-cleanup.js';
+import {
+  browserRuntimeError,
+  assertValidOwnerTag,
+  assertValidStorageState,
+} from './browser-validation.js';
 
 const DEFAULT_VIEWPORT = Object.freeze({ width: 1902, height: 984 });
 const DEFAULT_SCREEN = Object.freeze({ width: 1920, height: 1080 });
@@ -17,20 +21,20 @@ const HEADLESS_CONTEXT_BASE = Object.freeze({
   timezoneId: 'Asia/Shanghai',
 });
 
-// --- Browser Lifecycle Registry ---
+// --- Legacy Module-Level Registry (retained until P0-1#04 & P1-3/P1-4 retire legacy callers) ---
 const activeBrowsers = new Set();
 const closingBrowsers = new WeakSet();
 const browserProfiles = new WeakMap();
 let closeAllPromise = null;
+let unregisterLegacyCloseHook = null;
 
-function browserRuntimeError(reason, message = '浏览器运行时配置无效') {
-  return new PddCliError({
-    code: 'E_BROWSER_RUNTIME',
-    message,
-    hint: '确认浏览器版本与当前操作系统受支持，并重新安装 Patchright Chromium',
-    detail: { reason },
-    exitCode: ExitCodes.GENERAL,
-  });
+function syncLegacyCloseHook() {
+  if (activeBrowsers.size > 0 && !unregisterLegacyCloseHook) {
+    unregisterLegacyCloseHook = registerCloseAllHook((opts) => closeAllBrowsers(opts));
+  } else if (activeBrowsers.size === 0 && unregisterLegacyCloseHook) {
+    unregisterLegacyCloseHook();
+    unregisterLegacyCloseHook = null;
+  }
 }
 
 export function parseChromeMajorVersion(version) {
@@ -89,12 +93,16 @@ export function installHeadlessConsistencyProfile() {
 }
 
 export function registerBrowser(browser) {
-  if (browser) activeBrowsers.add(browser);
+  if (browser) {
+    activeBrowsers.add(browser);
+    syncLegacyCloseHook();
+  }
   return browser;
 }
 
 export function unregisterBrowser(browser) {
   activeBrowsers.delete(browser);
+  syncLegacyCloseHook();
 }
 
 // patchright 冷加载约 240ms：只在真正启动浏览器或查询可执行文件路径时加载，其余命令的启动不付这笔成本。
@@ -112,7 +120,7 @@ export function evaluateInMainWorld(page, pageFunction, arg) {
   return page.evaluate(pageFunction, arg, false);
 }
 
-async function launchPreferredBrowser(headless, ownerTag) {
+async function launchPreferredBrowser(headless, ownerTag, { resolveChromium = loadChromium, resolveLogger = getLogger } = {}) {
   const args = [...(headless ? HEADLESS_LAUNCH_ARGS : []), ...(ownerTag ? [`--pdd-cli-daemon=${ownerTag}`] : [])];
   const launchOptions = (channel) => ({
     headless,
@@ -120,13 +128,13 @@ async function launchPreferredBrowser(headless, ownerTag) {
     ...(args.length ? { args } : {}),
   });
 
-  const chromium = await loadChromium();
+  const chromium = await resolveChromium();
   try {
     const browser = await chromium.launch(launchOptions('chrome'));
     return { browser, channel: 'chrome' };
   } catch (err) {
     if (!isChromeChannelMissingError(err)) throw err;
-    getLogger().warn({
+    resolveLogger().warn({
       preferred_channel: 'chrome',
       fallback_channel: 'chromium',
     }, '系统 Chrome 未安装，回退到 Patchright Chromium');
@@ -136,7 +144,7 @@ async function launchPreferredBrowser(headless, ownerTag) {
   return { browser, channel: 'chromium' };
 }
 
-async function createRuntimeProfile(browser, { headed, channel }) {
+async function createRuntimeProfile(browser, { headed, channel, platform = process.platform }) {
   let version;
   try {
     version = await browser.version();
@@ -161,7 +169,7 @@ async function createRuntimeProfile(browser, { headed, channel }) {
     version,
     contextOptions: Object.freeze({
       ...HEADLESS_CONTEXT_BASE,
-      userAgent: buildChromeUserAgent(version),
+      userAgent: buildChromeUserAgent(version, platform),
     }),
     installConsistencyScript: true,
   });
@@ -196,48 +204,9 @@ async function closePartialContext(page, context) {
   try { await context?.close(); } catch { /* ignore */ }
 }
 
-export async function closeAllBrowsers({ timeoutMs = 5000 } = {}) {
-  void timeoutMs;
-  if (closeAllPromise) return closeAllPromise;
-  closeAllPromise = (async () => {
-    const snapshot = [...activeBrowsers];
-    await Promise.allSettled(snapshot.map((browser) => closeBrowser(browser)));
-  })();
-  try { return await closeAllPromise; }
-  finally { closeAllPromise = null; }
-}
-
-export async function launchBrowser({ headed = false, storageState, ownerTag } = {}) {
-  if (ownerTag !== undefined && (typeof ownerTag !== 'string' || !/^[a-z0-9-]{1,32}$/.test(ownerTag))) {
-    throw browserRuntimeError('invalid_owner_tag');
-  }
-  if (isMockEnabled()) return mockLaunchBrowser();
-  if (storageState && (!Array.isArray(storageState.cookies) || !Array.isArray(storageState.origins))) {
-    throw browserRuntimeError('snapshot_shape_invalid');
-  }
-
-  let browser = null;
-  let context = null;
-  let page = null;
-  try {
-    const launched = await launchPreferredBrowser(!headed, ownerTag);
-    browser = registerBrowser(launched.browser);
-    const profile = await createRuntimeProfile(browser, { headed, channel: launched.channel });
-    browserProfiles.set(browser, profile);
-    context = await createConfiguredContext(browser, profile, { storageState });
-    page = await context.newPage();
-    return { browser, context, page };
-  } catch (err) {
-    await closePartialContext(page, context);
-    await closeBrowser(browser);
-    throw err;
-  }
-}
-
-export async function closeBrowser(browser) {
-  if (isMockEnabled()) return mockCloseBrowser(browser);
-  if (!browser || closingBrowsers.has(browser)) return;
-  closingBrowsers.add(browser);
+async function closeBrowserResources(browser, { closingSet, profileMap, onAfterClose }) {
+  if (!browser || closingSet.has(browser)) return;
+  closingSet.add(browser);
   try {
     const contexts = browser.contexts();
     for (const context of contexts) {
@@ -246,9 +215,112 @@ export async function closeBrowser(browser) {
   } catch { /* ignore */ }
   try { await browser.close(); } catch { /* ignore */ }
   finally {
-    browserProfiles.delete(browser);
-    unregisterBrowser(browser);
+    profileMap.delete(browser);
+    onAfterClose?.(browser);
   }
+}
+
+async function settleWithTimeout(tasks, timeoutMs) {
+  const pending = Promise.allSettled(tasks);
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    await pending;
+    return;
+  }
+  let timer = null;
+  try {
+    await Promise.race([
+      pending,
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function openBrowserWithProfile({ headed = false, storageState, ownerTag } = {}, deps = {}) {
+  assertValidOwnerTag(ownerTag);
+  assertValidStorageState(storageState);
+
+  let browser = null;
+  let context = null;
+  let page = null;
+  try {
+    const launched = await launchPreferredBrowser(!headed, ownerTag, deps);
+    browser = launched.browser;
+    deps.onRegister?.(browser);
+    const profile = await createRuntimeProfile(browser, {
+      headed,
+      channel: launched.channel,
+      platform: deps.platform,
+    });
+    deps.profileMap.set(browser, profile);
+    context = await createConfiguredContext(browser, profile, { storageState });
+    page = await context.newPage();
+    return { browser, context, page, profile };
+  } catch (err) {
+    await closePartialContext(page, context);
+    await closeBrowserResources(browser, {
+      closingSet: deps.closingSet,
+      profileMap: deps.profileMap,
+      onAfterClose: deps.onAfterClose,
+    });
+    throw err;
+  }
+}
+
+async function deriveConsumerFromProfile(browser, profile, { storageState, proxy } = {}) {
+  if (!profile) throw browserRuntimeError('browser_profile_missing');
+  assertValidStorageState(storageState);
+
+  let context = null;
+  let page = null;
+  try {
+    context = await createConfiguredContext(browser, profile, { storageState, proxy });
+    page = await context.newPage();
+  } catch (err) {
+    await closePartialContext(page, context);
+    throw err;
+  }
+
+  return {
+    context,
+    page,
+    async close() {
+      await closePartialContext(page, context);
+    },
+  };
+}
+
+async function closeAllBrowsers({ timeoutMs = 5000 } = {}) {
+  if (closeAllPromise) return closeAllPromise;
+  closeAllPromise = (async () => {
+    const snapshot = [...activeBrowsers];
+    await settleWithTimeout(snapshot.map((browser) => closeBrowser(browser)), timeoutMs);
+  })();
+  try { return await closeAllPromise; }
+  finally { closeAllPromise = null; }
+}
+
+export async function launchBrowser({ headed = false, storageState, ownerTag } = {}) {
+  assertValidOwnerTag(ownerTag);
+  const { browser, context, page } = await openBrowserWithProfile({ headed, storageState, ownerTag }, {
+    profileMap: browserProfiles,
+    closingSet: closingBrowsers,
+    onRegister: registerBrowser,
+    onAfterClose: unregisterBrowser,
+  });
+  return { browser, context, page };
+}
+
+export async function closeBrowser(browser) {
+  return closeBrowserResources(browser, {
+    closingSet: closingBrowsers,
+    profileMap: browserProfiles,
+    onAfterClose: unregisterBrowser,
+  });
 }
 
 export async function withBrowser(options, fn) {
@@ -280,34 +352,13 @@ export async function withBrowser(options, fn) {
 }
 
 export async function createConsumerContext(browser, { storageState, proxy } = {}) {
-  const profile = browserProfiles.get(browser);
-  if (!profile) throw browserRuntimeError('browser_profile_missing');
-
-  let context = null;
-  let page = null;
-  try {
-    context = await createConfiguredContext(browser, profile, { storageState, proxy });
-    page = await context.newPage();
-  } catch (err) {
-    await closePartialContext(page, context);
-    throw err;
-  }
-
-  return {
-    context,
-    page,
-    async close() {
-      await closePartialContext(page, context);
-    },
-  };
+  return deriveConsumerFromProfile(browser, browserProfiles.get(browser), { storageState, proxy });
 }
 
 export async function createSnapshotContext(browser, storageState) {
   const profile = browserProfiles.get(browser);
   if (!profile) throw browserRuntimeError('browser_profile_missing');
-  if (!Array.isArray(storageState?.cookies) || !Array.isArray(storageState?.origins)) {
-    throw browserRuntimeError('snapshot_shape_invalid');
-  }
+  assertValidStorageState(storageState, { required: true });
   return createConfiguredContext(browser, profile, { storageState });
 }
 
@@ -355,13 +406,14 @@ function isBrowserProcess({ imageName, commandLine }) {
   return /^(?:chrome(?:\.exe)?|chromium|chromium-browser|headless_shell(?:\.exe)?|Google Chrome|Chromium)$/.test(name);
 }
 
-export function cleanupOrphanBrowsers({ listProcesses = listBrowserProcesses, kill = process.kill } = {}) {
-  if (isMockEnabled()) return 0;
+function reclaimMarkedBrowsers({ listProcesses = listBrowserProcesses, kill = process.kill, dbPrefix = daemonBrowserDbPrefix } = {}) {
   let processes;
   try { processes = listProcesses(); }
   catch { return 0; }
   let count = 0;
-  const marker = new RegExp(`(?:^|[\\s"'])--pdd-cli-daemon=${daemonBrowserDbPrefix()}-[a-z0-9-]{1,23}(?=$|[\\s"'])`);
+  const resolvedPrefix = typeof dbPrefix === 'function' ? dbPrefix() : dbPrefix;
+  const escapedPrefix = String(resolvedPrefix ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const marker = new RegExp(`(?:^|[\\s"'])--pdd-cli-daemon=${escapedPrefix}-[a-z0-9-]{1,23}(?=$|[\\s"'])`);
   for (const item of processes) {
     const { pid, commandLine } = item;
     if (!Number.isSafeInteger(pid) || pid <= 0 || pid === process.pid) continue;
@@ -370,4 +422,135 @@ export function cleanupOrphanBrowsers({ listProcesses = listBrowserProcesses, ki
     catch { /* Best effort; a process may already have exited. */ }
   }
   return count;
+}
+
+export function cleanupOrphanBrowsers({ listProcesses = listBrowserProcesses, kill = process.kill } = {}) {
+  return reclaimMarkedBrowsers({ listProcesses, kill });
+}
+
+function resolveLiveSessionRecord(sessionRecords, session) {
+  const record = session && typeof session === 'object' ? sessionRecords.get(session) : null;
+  if (!record || record.closed) throw browserRuntimeError('browser_profile_missing');
+  return record;
+}
+
+async function closeLiveSessionRecord(record, state) {
+  if (!record || record.closed) return;
+  record.closed = true;
+  state.activeSessions.delete(record.session);
+  await closeBrowserResources(record.browser, {
+    closingSet: state.closingBrowsers,
+    profileMap: state.profileMap,
+  });
+}
+
+async function checkChromiumAvailability(resolveExecPath, exists) {
+  try {
+    const execPath = await resolveExecPath();
+    return { ok: Boolean(execPath) && exists(execPath), detail: { path: execPath || null } };
+  } catch (err) {
+    return { ok: false, detail: { error: err?.message || 'chromium 不可用' } };
+  }
+}
+
+async function openLiveBrowserSession(options, state, deps) {
+  const launched = await openBrowserWithProfile(options, {
+    resolveChromium: deps.resolveChromium,
+    resolveLogger: deps.resolveLogger,
+    platform: deps.platform,
+    profileMap: state.profileMap,
+    closingSet: state.closingBrowsers,
+  });
+
+  const record = { browser: launched.browser, profile: launched.profile, closed: false, session: null };
+  const session = Object.freeze({
+    page: launched.page,
+    context: launched.context,
+    close: () => closeLiveSessionRecord(record, state),
+    async createSnapshotContext(storageState) {
+      const current = resolveLiveSessionRecord(state.sessionRecords, session);
+      assertValidStorageState(storageState, { required: true });
+      return createConfiguredContext(current.browser, current.profile, { storageState });
+    },
+  });
+
+  record.session = session;
+  state.sessionRecords.set(session, record);
+  state.activeSessions.add(session);
+  return session;
+}
+
+async function runLiveWithSession(openSession, optionsOrFn, maybeFn, onCleanupError) {
+  const hasOptions = typeof optionsOrFn !== 'function';
+  const options = hasOptions ? (optionsOrFn ?? {}) : {};
+  const fn = hasOptions ? maybeFn : optionsOrFn;
+  const session = await openSession(options);
+  try {
+    return await fn(session);
+  } finally {
+    try { await session.close(); }
+    catch (err) { onCleanupError(err); }
+  }
+}
+
+async function closeAllLiveSessions(state, timeoutMs) {
+  if (state.closeAllInFlight) return state.closeAllInFlight;
+  state.closeAllInFlight = (async () => {
+    const snapshot = [...state.activeSessions];
+    await settleWithTimeout(snapshot.map((session) => session.close()), timeoutMs);
+  })();
+  try {
+    return await state.closeAllInFlight;
+  } finally {
+    state.closeAllInFlight = null;
+  }
+}
+
+/** Create an instance-scoped Live BrowserRuntimePort enforcing ADR-0002 & ADR-0003. */
+export function createLiveBrowserRuntime({
+  loadChromium: resolveChromium = loadChromium,
+  getExecutablePath,
+  exists = existsSync,
+  platform = process.platform,
+  listProcesses = listBrowserProcesses,
+  kill = process.kill,
+  dbPrefix = daemonBrowserDbPrefix,
+  log,
+} = {}) {
+  const state = {
+    activeSessions: new Set(),
+    sessionRecords: new WeakMap(),
+    closingBrowsers: new WeakSet(),
+    profileMap: new WeakMap(),
+    closeAllInFlight: null,
+  };
+  const resolveLogger = () => log ?? getLogger();
+  const resolveExecPath = getExecutablePath ?? (async () => (await resolveChromium()).executablePath());
+
+  const openSession = (options = {}) => openLiveBrowserSession(options, state, {
+    resolveChromium,
+    resolveLogger,
+    platform,
+  });
+
+  return Object.freeze({
+    checkAvailability: () => checkChromiumAvailability(resolveExecPath, exists),
+    withSession: (optionsOrFn, maybeFn) => runLiveWithSession(
+      openSession,
+      optionsOrFn,
+      maybeFn,
+      (err) => resolveLogger().warn({ err: err?.message }, 'withSession: cleanup failed'),
+    ),
+    openSession,
+    deriveConsumerContext: async (session, { storageState, proxy } = {}) => {
+      const current = resolveLiveSessionRecord(state.sessionRecords, session);
+      return deriveConsumerFromProfile(current.browser, current.profile, { storageState, proxy });
+    },
+    reclaimOrphans: async (overrides = {}) => reclaimMarkedBrowsers({
+      listProcesses: overrides.listProcesses ?? listProcesses,
+      kill: overrides.kill ?? kill,
+      dbPrefix: overrides.dbPrefix ?? dbPrefix,
+    }),
+    closeAll: ({ timeoutMs = 5000 } = {}) => closeAllLiveSessions(state, timeoutMs),
+  });
 }

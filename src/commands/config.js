@@ -1,47 +1,37 @@
-import { buildEnvelope, emit } from '../infra/output.js';
+import { withCommand } from './_runner.js';
 import {
-  assertInspectionValid,
-  inspectManagedConfig,
-  publicConfigKeys,
-  setLocalConfigValue,
-  unsetLocalConfigValue,
-} from '../infra/config-management.js';
-import { configInspectionError } from '../infra/config.js';
-import { ExitCodes } from '../infra/errors.js';
-import {
-  toConfigEditView, toConfigShowView, toConfigValidateView,
-} from '../services/views/config.js';
+  setConfigValue,
+  showConfig,
+  unsetConfigValue,
+  validateConfig,
+} from '../services/config.js';
 
-function emitSuccess(command, data, opts, warnings = []) {
-  const envelope = buildEnvelope({
-    ok: true,
-    command,
-    data,
-    meta: { warnings, exit_code: ExitCodes.OK },
-  });
-  emit(envelope, { json: opts.json, noColor: opts.noColor });
-  return envelope;
-}
+export const show = withCommand({
+  name: 'config.show',
+  lifecycle: 'maintenance',
+  run: (ctx) => showConfig(ctx.configOptions),
+});
 
-export async function show(opts = {}, { configOptions } = {}) {
-  const inspection = assertInspectionValid(await inspectManagedConfig(configOptions));
-  return emitSuccess('config.show', toConfigShowView(inspection, publicConfigKeys()), opts);
-}
+export const validate = withCommand({
+  name: 'config.validate',
+  lifecycle: 'maintenance',
+  run: (ctx) => validateConfig(ctx.configOptions),
+});
 
-export async function validate(opts = {}, { configOptions } = {}) {
-  const inspection = await inspectManagedConfig(configOptions);
-  if (!inspection.valid) throw configInspectionError(inspection);
-  return emitSuccess('config.validate', toConfigValidateView(inspection), opts);
-}
+export const set = withCommand({
+  name: 'config.set',
+  lifecycle: 'maintenance',
+  run(ctx) {
+    const [key, value] = ctx.config.args ?? [];
+    return setConfigValue(key, value, ctx.configOptions);
+  },
+});
 
-export async function set(opts = {}, { configOptions } = {}) {
-  const [key, value] = opts.args ?? [];
-  const { warnings, ...result } = await setLocalConfigValue(key, value, configOptions);
-  return emitSuccess('config.set', toConfigEditView(result), opts, warnings);
-}
-
-export async function unset(opts = {}, { configOptions } = {}) {
-  const [key] = opts.args ?? [];
-  const { warnings, ...result } = await unsetLocalConfigValue(key, configOptions);
-  return emitSuccess('config.unset', toConfigEditView(result, { removing: true }), opts, warnings);
-}
+export const unset = withCommand({
+  name: 'config.unset',
+  lifecycle: 'maintenance',
+  run(ctx) {
+    const [key] = ctx.config.args ?? [];
+    return unsetConfigValue(key, ctx.configOptions);
+  },
+});

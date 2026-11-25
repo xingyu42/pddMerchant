@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { it, vi } from 'vitest';
 import { cleanupOrphanBrowsers, launchBrowser, listBrowserProcesses } from '../../src/adapter/browser.js';
+import { createFixtureBrowserRuntime } from '../../src/adapter/fixtures/browser.js';
 import { execFileSync } from 'node:child_process';
 import { daemonBrowserDbPrefix } from '../../src/infra/daemon-state.js';
 
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }));
 
 it('only kills this database browser processes, skips its own pid and swallows individual failures', () => {
-  vi.stubEnv('PDD_TEST_ADAPTER', '');
   const kill = vi.fn((pid) => { if (pid === 23) throw new Error('gone'); });
   const marker = `--pdd-cli-daemon=${daemonBrowserDbPrefix()}-abc`;
   const otherDb = daemonBrowserDbPrefix() === '00000000' ? '11111111' : '00000000';
@@ -32,21 +32,18 @@ it('only kills this database browser processes, skips its own pid and swallows i
 it.each(['chrome', 'chromium', 'chromium-browser', 'headless_shell', 'headless_shell.exe',
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium'])(
   'recognizes browser image %s with a database-scoped marker', (imageName) => {
-    vi.stubEnv('PDD_TEST_ADAPTER', '');
     const kill = vi.fn();
     const commandLine = `"${imageName}" --pdd-cli-daemon=${daemonBrowserDbPrefix()}-old-owner`;
     assert.equal(cleanupOrphanBrowsers({ kill, listProcesses: () => [{ pid: 21, imageName, commandLine }] }), 1);
     assert.deepEqual(kill.mock.calls, [[21]]);
   });
 
-it('fixture cleanup performs no process listing or kills', () => {
-  const listProcesses = vi.fn();
-  assert.equal(cleanupOrphanBrowsers({ listProcesses }), 0);
-  assert.equal(listProcesses.mock.calls.length, 0);
+it('fixture cleanup performs no process listing or kills', async () => {
+  const browser = createFixtureBrowserRuntime();
+  assert.equal(await browser.reclaimOrphans(), 0);
 });
 
 it('swallows enumeration failures', () => {
-  vi.stubEnv('PDD_TEST_ADAPTER', '');
   assert.equal(cleanupOrphanBrowsers({ listProcesses: () => { throw new Error('denied'); } }), 0);
 });
 

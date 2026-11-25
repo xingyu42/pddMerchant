@@ -32,10 +32,9 @@ function captureError(spec, raw, expected, status = 200) {
 }
 
 function captureDebugRaw(error) {
-  vi.stubEnv('PDD_DEBUG_RAW', '1');
   const write = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
   try {
-    buildEnvelope({ ok: false, command: 'orders.detail', data: null, error, meta: {} });
+    buildEnvelope({ ok: false, command: 'orders.detail', data: null, error, meta: {} }, { debugRaw: true });
     const output = write.mock.calls.map(([chunk]) => String(chunk)).join('');
     assert.equal(JSON.parse(output).type, 'raw_debug');
     return output;

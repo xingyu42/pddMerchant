@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, it, vi } from 'vitest';
-import { PlaywrightEndpointClient } from '../../src/adapter/endpoint-client.js';
-import { runEndpoint, _resetRateLimitState } from '../../src/adapter/run-endpoint.js';
-import { clearFixtureCache } from '../../src/adapter/mock-dispatcher.js';
+import { EndpointClient, PlaywrightEndpointClient } from '../../src/adapter/endpoint-client.js';
+import { runEndpoint } from '../../src/adapter/run-endpoint.js';
+import { FixtureStore } from '../../src/adapter/fixtures/core.js';
+import { createFixtureEndpointTransport } from '../../src/adapter/fixtures/endpoint.js';
 import { executePageApiRequest } from '../../src/adapter/page-api-client.js';
 import { TRAFFIC_READY_TIME } from '../../src/adapter/endpoints/traffic.js';
 import { ORDER_LIST } from '../../src/adapter/endpoints/orders.js';
@@ -15,25 +16,31 @@ import { createFactFixtures } from '../fixtures/test-data.js';
 vi.mock('../../src/adapter/page-api-client.js', () => ({ executePageApiRequest: vi.fn() }));
 
 let sandbox;
+let ctx;
 beforeEach(() => {
   executePageApiRequest.mockReset();
-  clearFixtureCache();
-  _resetRateLimitState();
+  ctx = { runtimeConfig, log: { debug() {} } };
 });
 afterEach(() => {
-  clearFixtureCache();
-  _resetRateLimitState();
   sandbox?.dispose();
   sandbox = null;
 });
 
-function useFixtures(fixtures) {
+function useFixtures(fixtures, clientOpts = {}) {
   sandbox = createCliSandbox(fixtures);
-  vi.stubEnv('PDD_TEST_ADAPTER', 'fixture');
-  vi.stubEnv('PDD_TEST_FIXTURE_DIR', sandbox.fixtureDir);
+  const fixtureStore = new FixtureStore({ fixtureDir: sandbox.fixtureDir });
+  const client = new EndpointClient({
+    transport: createFixtureEndpointTransport({ fixtureStore }),
+    cooldownState: {
+      map: new Map(),
+      threshold: runtimeConfig.cooldownThreshold,
+      ms: runtimeConfig.cooldownMs,
+    },
+    ...clientOpts,
+  });
+  ctx = { runtimeConfig, log: { debug() {} }, client };
+  return { fixtureStore, client };
 }
-
-const ctx = { runtimeConfig, log: { debug() {} } };
 
 it.each([40002, 54001])('preserves live error mapping and classification for raw business code %s', async (errorCode) => {
   const raw = { success: false, errorCode, errorMsg: 'Synthetic rejection' };
@@ -45,7 +52,6 @@ it.each([40002, 54001])('preserves live error mapping and classification for raw
     return true;
   });
   assert.equal(executePageApiRequest.mock.calls.length, 0);
-  vi.stubEnv('PDD_TEST_ADAPTER', '');
   executePageApiRequest.mockResolvedValue({ status: 200, raw });
   const client = new PlaywrightEndpointClient({ cooldownState: {
     map: new Map(), threshold: runtimeConfig.cooldownThreshold, ms: runtimeConfig.cooldownMs,
@@ -77,7 +83,6 @@ it('shares the raw wrapper with live when a spec has no normalizer', async () =>
   const spec = { ...TRAFFIC_READY_TIME, normalize: undefined };
   useFixtures({ 'endpoints/traffic.readyTime.json': raw });
   const fixture = await runEndpoint(null, spec, {}, ctx);
-  vi.stubEnv('PDD_TEST_ADAPTER', '');
   executePageApiRequest.mockResolvedValue({ status: 200, raw });
   const live = await new PlaywrightEndpointClient().execute(spec, {}, {
     page: { url: () => spec.nav.url }, log: ctx.log,
@@ -132,12 +137,11 @@ it('retains __throws for transport failures and reports missing fixtures determi
 });
 
 it('skips token waiting while accounting business rate limits and clearing them on success', async () => {
-  useFixtures({ 'endpoints/traffic.readyTime.json': { success: false, errorCode: 54001 },
-    'endpoints/traffic.readyTime.page2.json': { success: true, errorCode: 0, result: '2026-10-30' },
-    ...createFactFixtures() });
   const limiter = { acquire: vi.fn() };
   const cooldownState = { map: new Map(), threshold: 2, ms: 300_000 };
-  const client = new PlaywrightEndpointClient({ limiter, cooldownState });
+  const { client } = useFixtures({ 'endpoints/traffic.readyTime.json': { success: false, errorCode: 54001 },
+    'endpoints/traffic.readyTime.page2.json': { success: true, errorCode: 0, result: '2026-10-30' },
+    ...createFactFixtures() }, { limiter, cooldownState });
   await assert.rejects(client.execute(TRAFFIC_READY_TIME), { code: 'E_RATE_LIMIT' });
   assert.equal(cooldownState.map.get(TRAFFIC_READY_TIME.name).consecutiveFailures, 1);
   const { data, meta } = await client.execute(ORDER_LIST, {}, { correlation_id: 'synthetic' });
@@ -170,4 +174,32 @@ it('applies __throws injected in a variant fixture', async () => {
   await assert.rejects(runEndpoint(null, spec, { goods_id: 1001 }, ctx), {
     code: 'E_NETWORK', message: 'Synthetic variant failure', exitCode: 5,
   });
+});
+
+it('isolates fixture cache per FixtureStore instance and serves raw transport payloads', async () => {
+  const firstSandbox = createCliSandbox({
+    'endpoints/traffic.readyTime.json': { success: true, errorCode: 0, result: '2026-10-30' },
+  });
+  const secondSandbox = createCliSandbox({
+    'endpoints/traffic.readyTime.json': { success: true, errorCode: 0, result: '2026-11-01' },
+  });
+  try {
+    const firstStore = new FixtureStore({ fixtureDir: firstSandbox.fixtureDir });
+    const secondStore = new FixtureStore({ env: { PDD_TEST_FIXTURE_DIR: secondSandbox.fixtureDir } });
+    const firstTransport = createFixtureEndpointTransport({ fixtureStore: firstStore });
+    const secondTransport = createFixtureEndpointTransport({ fixtureStore: secondStore });
+
+    const firstResult = await firstTransport.send(TRAFFIC_READY_TIME, {}, {});
+    const secondResult = await secondTransport.send(TRAFFIC_READY_TIME, {}, {});
+    assert.equal(firstResult.status, 200);
+    assert.equal(firstResult.response.status(), 200);
+    assert.equal(firstResult.raw.result, '2026-10-30');
+    assert.equal(secondResult.raw.result, '2026-11-01');
+
+    firstResult.raw.result = 'mutated';
+    assert.equal((await firstTransport.send(TRAFFIC_READY_TIME, {}, {})).raw.result, '2026-10-30');
+  } finally {
+    firstSandbox.dispose();
+    secondSandbox.dispose();
+  }
 });

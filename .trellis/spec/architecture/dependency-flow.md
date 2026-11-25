@@ -10,32 +10,36 @@
 
 ```text
 bin/pdd.js               CLI entry：signal/fatal handlers、global options、wireAction、commander 用法错误 envelope
-src/commands/            命令 handler：多为 withCommand() 薄封装；init/login/account/config 直接 emit
+src/runtime/             双顶层组合根（composeCommandRuntime / composeDaemonRuntime）、白名单 env 解析、Live/Fixture Bundle
+src/commands/            命令 handler：全部通过 withCommand() 薄封装（merchant / local / maintenance 预设）
 src/commands/registry/   domain registrar：register(program, wireAction)
 src/commands/runner/     withCommand internals；_runner.js 是 facade
 src/commands/option-parsers.js  commander 解析期校验（integerArg、goodsIdListArg、withReportDays）
 src/daemon/              常驻控制台 HTTP 服务；src/console/ 是其静态前端
 src/services/            领域编排：orders、goods(-write/-cost/-profit/-traffic/-receipt/-publish)、promo、diagnose、
                          经营报表（operating-report、traffic、reviews、customer-service、experience）、
-                         auth / merchant-session / password-relogin、daemon / patrol / console-*
+                         auth / account / config / doctor / merchant-session / relogin-policy / auto-relogin、
+                         daemon / patrol / console-*
 src/services/views/      输出投影：白名单、单位换算、中文标签、headline；报表声明
 src/adapter/             Patchright 浏览器、endpoint 传输（client → interpreter）、auth、mall、goods-publish、takeover
 src/adapter/fixtures/    fixture provider；core.js 拥有单一 fixture cache
-src/infra/               envelope、errors、logger、config、paths、timeouts、abort、units/metrics、SQLite 存储与租约
+src/infra/               envelope、errors、logger、config、paths、timeouts、abort、clock、output-sink、SQLite 存储与租约
 ```
 
 允许的依赖方向：
 
 ```text
+runtime -> commands / daemon / services -> adapter -> infra
 commands -> services -> adapter -> infra
 ```
 
 ## 3. Contracts
 
-- `bin/pdd.js` MAY import command registrars、`commands/runtime-options.js`、infra helpers，以及 `adapter/browser.js` 的 `closeAllBrowsers`（信号关闭）。
-- `src/commands/**` MAY import `src/services/**`、runner facade、infra types/helpers。
-- `src/commands/runner/**`、`commands/doctor.js`、`commands/login.js` MAY import `src/adapter/**`：它们拥有浏览器、鉴权、店铺与 fixture 生命周期；其他 handler 经 services 访问 adapter。
-- `src/commands/daemon.js` MAY import `src/daemon/run.js`；`src/daemon/**` MAY import `src/services/**` 与 infra，不直接 import adapter。
+- `bin/pdd.js` MAY import command registrars、`commands/runtime-options.js`、`commands/_runner.js` 与 infra helpers（含经 `infra/runtime-cleanup.js` 挂载的运行时 `closeAll` 信号/异常清理钩子）；不再直接 import `adapter/browser.js`。
+- `src/runtime/**` MAY import `adapter/**`（含按 mode 动态加载的 Live / Fixture bundle）、`daemon/routes.js`、`services/**` 与 `infra/**`，作为唯一解析白名单环境变量的组合根入口；禁止回传白名单 env 直读权力给下层模块。
+- `src/commands/**` MAY import `src/runtime/**`、`src/services/**`、runner facade、infra types/helpers；非 runner 命令 handler MUST NOT 直接 import `src/adapter/**`。
+- `src/commands/runner/**` MAY import `src/runtime/**` 与 `src/adapter/**`：只有 runner 拥有浏览器、鉴权、店铺与 fixture 生命周期；全部非 runner 命令 handler（含 `commands/doctor.js`、`commands/login.js`、`commands/init.js`、`commands/account.js`、`commands/config.js`）经 services 访问 adapter 或由 runtime 注入端口，不存在命令层直连 adapter 的例外。
+- `src/commands/daemon.js` MAY import `src/daemon/run.js`；`src/daemon/**` MAY import `src/runtime/**`、`src/services/**` 与 infra，不直接 import adapter。
 - `src/services/views/**` MAY import infra（units、metrics）与 `services/operating-report.js`，不 import adapter。
 - `src/services/**` MAY import `src/adapter/**` 与 `src/infra/**`。
 - `src/adapter/**` MAY import `src/infra/**`。

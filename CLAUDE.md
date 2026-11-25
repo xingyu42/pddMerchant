@@ -19,7 +19,7 @@ npx patchright install chromium       # Required: install the fallback Chromium 
 
 ```
 bin/pdd.js               CLI entry (signal/fatal handlers, global options, wireAction, commander usage-error envelope; registration delegated to registry/)
-src/commands/            Command handlers — mostly thin wrappers around withCommand(); init/login/account/config emit directly
+src/commands/            Command handlers — thin wrappers around withCommand() (`merchant` / `local` / `maintenance` presets)
 src/commands/registry/   Domain registrars `register(program, wireAction)` — a new command also needs a v2 case and a `skills/pdd-cli/SKILL.md` line (both guarded under test/contract/)
 src/commands/runner/     withCommand internals (envelope-finalizer / fixture-runtime / single-lifecycle / batch-executor); _runner.js is a facade
 src/commands/option-parsers.js  Parse-time option validation (integerArg(min, max), goodsIdListArg, withReportDays) — rejects before any browser starts
@@ -27,11 +27,11 @@ src/daemon/              Explicit console daemon HTTP server (routes, SSE, stati
 src/services/            Domain logic (orders, goods / goods-write / goods-publish, promo, diagnose, operating reports, goods cost/profit/receipt, merchant session, daemon/patrol/console); factual reporting without operating advice or scores
 src/services/views/      Domain views (anti-corruption layer): whitelist projection, unit/label conversion, headline; view-local tables own report vocabulary, labels.js owns shared vocabulary
 src/adapter/             Patchright browser (ADR 0002), endpoint transport (endpoint-client → response-interpreter → spec.normalize(raw, params)), auth, mall context, goods-publish, takeover
-src/adapter/fixtures/    Mock-mode providers (core.js owns the single fixture cache); mock-dispatcher.js is a facade
+src/adapter/fixtures/    Fixture-mode providers (core.js owns per-instance FixtureStore); wired via src/runtime/bundles/fixture-bundle.js
 src/infra/               Cross-cutting: envelope, errors, logger, config, paths, timeouts, abort, units/metrics, SQLite storage and leases
 ```
 
-Layering (`commands → services → adapter → infra`) is enforced by review only — no guard test. Known downward shortcuts: runner, doctor and login import adapter directly; `src/daemon/` depends only on services. Full map: `docs/architecture-overview.md`.
+Layering (`commands → services → adapter → infra`) is enforced by review only — no guard test. Known downward shortcuts: runner (`src/commands/runner/`) imports adapter directly; `src/daemon/` depends only on services. Full map: `docs/architecture-overview.md`.
 
 ## Conventions
 
@@ -47,7 +47,7 @@ Layering (`commands → services → adapter → infra`) is enforced by review o
 ## Testing
 
 - `vitest` + `assert/strict`; test data in `test/fixtures/`
-- `PDD_TEST_ADAPTER=fixture` selects raw endpoint fixture transport inside the shared endpoint client; verdict/normalize still run with `page: null`. Other adapter guards use `mock-dispatcher.js`; `PDD_TEST_FIXTURE_DIR=<path>` points to alternate fixtures
+- `PDD_TEST_ADAPTER=fixture` (or `mode: 'fixture'` in composition roots `src/runtime/`) selects `src/runtime/bundles/fixture-bundle.js` and `src/adapter/fixtures/` providers; `EndpointClient` verdict/normalize still run with `page: null`, and `PDD_TEST_FIXTURE_DIR=<path>` points to alternate fixtures
 - E2E tests spawn child processes with the fixture adapter
 - `PDD_DEBUG_RAW=1` emits pre-strip raw payloads to stderr as redacted JSONL; stdout envelope unaffected
 - Other runtime env vars (SQLite path, scrape/publish tuning): see the `pdd-local-development` skill, or grep `process.env.PDD_` under `src/`

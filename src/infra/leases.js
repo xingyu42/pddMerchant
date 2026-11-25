@@ -23,10 +23,10 @@ export function isLeaseStale(lease, { now = Date.now(), staleBy } = {}) {
   return Date.parse(lease.expires_at) <= now;
 }
 
-function tryAcquire(scope, key, token, ttlMs, signal, staleBy) {
+function tryAcquire(scope, key, token, ttlMs, signal, staleBy, clock) {
   return transaction(() => {
     throwIfAborted(signal);
-    const now = Date.now();
+    const now = clock?.now ? clock.now() : Date.now();
     const existing = get('SELECT * FROM leases WHERE scope = ? AND key = ?', scope, key);
     if (existing && !isLeaseStale(existing, { now, staleBy })) return false;
     const acquiredAt = new Date(now).toISOString();
@@ -42,25 +42,27 @@ function tryAcquire(scope, key, token, ttlMs, signal, staleBy) {
 
 // timeoutMs: 0 tries exactly once and rejects with E_LOCK_TIMEOUT when occupied.
 export async function acquireLease(scope, key, {
-  timeoutMs = DEFAULT_TIMEOUT_MS, retryMs = 200, ttlMs = timeoutMs + 30_000, signal, extendUntil, deadlineAt, staleBy,
+  timeoutMs = DEFAULT_TIMEOUT_MS, retryMs = 200, ttlMs = timeoutMs + 30_000, signal, extendUntil, deadlineAt, staleBy, clock,
 } = {}) {
+  const now = () => (clock?.now ? clock.now() : Date.now());
+  const sleep = (ms, sig) => (clock?.sleep ? clock.sleep(ms, sig) : abortableSleep(ms, sig));
   const token = randomUUID();
-  let deadline = Math.min(Date.now() + timeoutMs, deadlineAt ?? Infinity);
+  let deadline = Math.min(now() + timeoutMs, deadlineAt ?? Infinity);
   throwIfAborted(signal);
   while (true) {
     throwIfAborted(signal);
     if (timeoutMs === 0) {
-      if (tryAcquire(scope, String(key), token, ttlMs, signal, staleBy)) return { token };
+      if (tryAcquire(scope, String(key), token, ttlMs, signal, staleBy, clock)) return { token };
       break;
     }
-    if (Date.now() >= deadline) {
+    if (now() >= deadline) {
       const extended = Math.min(extendUntil?.() ?? deadline, deadlineAt ?? Infinity);
-      if (!Number.isFinite(extended) || extended <= Date.now() || extended <= deadline) break;
+      if (!Number.isFinite(extended) || extended <= now() || extended <= deadline) break;
       deadline = extended;
     }
-    if (tryAcquire(scope, String(key), token, ttlMs, signal, staleBy)) return { token };
+    if (tryAcquire(scope, String(key), token, ttlMs, signal, staleBy, clock)) return { token };
     const jitter = Math.floor(Math.random() * 100);
-    await abortableSleep(Math.min(retryMs + jitter, Math.max(1, deadline - Date.now())), signal);
+    await sleep(Math.min(retryMs + jitter, Math.max(1, deadline - now())), signal);
   }
   throwIfAborted(signal);
   throw new PddCliError({
@@ -71,10 +73,10 @@ export async function acquireLease(scope, key, {
   });
 }
 
-export function renewLease(scope, key, token, { ttlMs = DEFAULT_TIMEOUT_MS + 30_000 } = {}) {
+export function renewLease(scope, key, token, { ttlMs = DEFAULT_TIMEOUT_MS + 30_000, clock } = {}) {
   return transaction(() => {
     assertLeaseOwner(scope, key, token);
-    const now = Date.now();
+    const now = clock?.now ? clock.now() : Date.now();
     return run('UPDATE leases SET expires_at = ?, heartbeat_at = ? WHERE scope = ? AND key = ? AND owner_token = ?',
       new Date(now + ttlMs).toISOString(), new Date(now).toISOString(), scope, String(key), token);
   });

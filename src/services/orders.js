@@ -7,6 +7,9 @@ import { percentile, toLocalDate } from '../infra/units.js';
 import { AFTER_SALES_REPORT, getOrderAfterSalesCases } from './after-sales.js';
 import { collectOrderTrack } from './logistics.js';
 import {
+  collectBoundedPages, DEFAULT_MAX_PAGES, DEFAULT_PAGE_DELAY_MS, DEFAULT_PAGE_SIZE,
+} from './pagination.js';
+import {
   orderStatusLabel, toLocalOrderStatsView, toOrderDetailView, toOrderView, toRemoteOrderStatsView,
 } from './views/order.js';
 import { mallIdOf, yuanText } from './views/_shared.js';
@@ -218,4 +221,37 @@ export async function getOrderStatsView(page, { size = 50 } = {}, ctx = {}) {
   const listResult = await listOrders(page, { page: 1, size, scope: 'all' }, ctx);
   const local = toLocalOrderStatsView(computeOrderStats(listResult.orders));
   return { headline: statsHeadline(remote, local), remote, local, mall_id: mallIdOf(ctx) };
+}
+
+const ORDER_WINDOW_DEFAULT_DAYS = 30;
+export const ORDER_WINDOW_PAGE_SIZE = DEFAULT_PAGE_SIZE;
+const DAY_SECONDS = 86400;
+
+// 按时间窗有界分页采集订单：options.scope 默认 'valid'（全部发货状态、仅无售后 = 销量口径）；需要退款数据的调用方传 'all'
+export async function collectOrdersWindow(page, ctx = {}, options = {}) {
+  const scope = options.scope ?? 'valid';
+  const pageSize = options.pageSize ?? ORDER_WINDOW_PAGE_SIZE;
+  const maxPages = options.maxPages ?? DEFAULT_MAX_PAGES;
+  const delayMs = options.delayMs ?? DEFAULT_PAGE_DELAY_MS;
+  const now = options.now ?? Math.floor(Date.now() / 1000);
+  const listOrdersFn = options.listOrders ?? listOrders;
+  const scanDays = options.scanDays ?? ORDER_WINDOW_DEFAULT_DAYS;
+  const since = options.since ?? (now - scanDays * DAY_SECONDS);
+
+  const { items: orders, truncated, ratelimited } = await collectBoundedPages({
+    fetchPage: (pageNum, size) => listOrdersFn(page, {
+      page: pageNum,
+      size,
+      since,
+      until: now,
+      scope,
+    }, ctx),
+    readItems: (result) => result?.orders,
+    pageSize,
+    maxPages,
+    delayMs,
+    signal: options.signal ?? ctx?.signal,
+  });
+
+  return { orders, truncated, ratelimited };
 }

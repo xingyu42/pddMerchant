@@ -14,6 +14,7 @@ Runtime baselines (Node.js >= 24, no-build ESM, SQLite `data/pdd.db` + `master.k
 - `.env.example` for the broadest env-var inventory.
 - `src/infra/paths.js` for default data paths and `PDD_DB_PATH`.
 - `src/infra/config.js` for config/env merge rules and runtime defaults.
+- `src/runtime/env.js`, `src/runtime/command-runtime.js`, and `src/runtime/daemon-runtime.js` for composition-root runtime env whitelisting and live/fixture wiring.
 - `src/infra/logger.js` for log destination and redaction behavior.
 
 ## Commands
@@ -32,8 +33,8 @@ npm run check
 
 - The CLI binary is `pdd -> ./bin/pdd.js`.
 - Logs: CLI logs are fixed under `log/cli/YYYY-MM-DD.log`; the explicit `pdd daemon` writes `log/daemon/YYYY-MM-DD.log` (foreground `daemon run` also tees to stderr). Foreground/bootstrap diagnostics go to stderr. The file channel is fixed: `PDD_LOG_DESTINATION` is unsupported, so inspect the fixed files.
-- `pdd daemon` / console settings: `PDD_CONSOLE_HOST` (default `127.0.0.1`), `PDD_CONSOLE_PORT` (`47821`), `PDD_CONSOLE_PUBLIC_URL`, `PDD_PATROL_ENABLED` (`false`), `PDD_PATROL_INTERVAL_MS` (`1800000`, min `300000`). Fixture-only timing seams: `PDD_TEST_DAEMON_LEASE_TTL_MS`, `PDD_TEST_DAEMON_HEARTBEAT_MS`, `PDD_TEST_PATROL_INTERVAL_MS`. Fixture daemons still need a temporary `PDD_DB_PATH` and a free `PDD_CONSOLE_PORT`.
-- `PDD_TEST_ADAPTER=fixture` avoids real browser/backend calls; always pair it with a temporary `PDD_DB_PATH` to isolate the database and key.
+- `pdd daemon` / console settings: `PDD_CONSOLE_HOST` (default `127.0.0.1`), `PDD_CONSOLE_PORT` (`47821`), `PDD_CONSOLE_PUBLIC_URL`, `PDD_PATROL_ENABLED` (`false`), `PDD_PATROL_INTERVAL_MS` (`1800000`, min `300000`). Fixture-only timing seams: `PDD_TEST_DAEMON_LEASE_TTL_MS`, `PDD_TEST_DAEMON_HEARTBEAT_MS`, `PDD_TEST_PATROL_INTERVAL_MS` (honored only when `mode === 'fixture'` / `PDD_TEST_ADAPTER=fixture`). Fixture daemons still need a temporary `PDD_DB_PATH` and a free `PDD_CONSOLE_PORT`.
+- `PDD_TEST_ADAPTER=fixture` avoids real browser/backend calls for CLI/daemon runs; always pair it with a temporary `PDD_DB_PATH` to isolate the database and key. In Vitest, `test/setup.js` isolates `PDD_DB_PATH` and blocks real `patchright`/`fetch` without defaulting `PDD_TEST_ADAPTER`; in-process tests inject `mode`/`env`/`overrides` via `composeCommandRuntime` / `composeDaemonRuntime` or `createTestCtx` (`test/helpers/test-ctx.js`), while `test/helpers/isolated-cli.js` sets `PDD_TEST_ADAPTER=fixture` per spawned child process.
 - `PDD_RATE_LIMIT_QPS`, `PDD_RATE_LIMIT_BURST`, `PDD_COOLDOWN_THRESHOLD`, and `PDD_COOLDOWN_MS` affect shared endpoint rate limiting.
 
 ## Git Worktrees

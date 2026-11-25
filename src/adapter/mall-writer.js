@@ -1,9 +1,9 @@
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getLogger } from '../infra/logger.js';
-import { isMockEnabled, mockSwitchTo } from './mock-dispatcher.js';
-import { currentMall, SWITCHER_TRIGGER_SELECTORS } from './mall-reader.js';
+import { resolveTargetPage } from './mall-context.js';
 import { requireMallId } from './mall-id.js';
 import { cssEscape } from './css-escape.js';
+import { currentLiveMall, tryOpenSwitcher } from './mall-reader.js';
 
 function optionSelectorsFor(mallId) {
   const id = cssEscape(String(mallId));
@@ -17,33 +17,18 @@ function optionSelectorsFor(mallId) {
   ];
 }
 
-async function tryOpenSwitcher(page) {
-  for (const sel of SWITCHER_TRIGGER_SELECTORS) {
-    try {
-      if (typeof page.locator !== 'function') break;
-      const locator = page.locator(sel).first();
-      await locator.click({ timeout: 1500 });
-      return sel;
-    } catch { /* try next */ }
-  }
-  return null;
-}
-
 async function clickMallOption(page, mallId) {
-  const selectors = optionSelectorsFor(mallId);
-  for (const sel of selectors) {
+  for (const sel of optionSelectorsFor(mallId)) {
     try {
       if (typeof page.locator !== 'function') break;
-      const locator = page.locator(sel).first();
-      await locator.click({ timeout: 2000 });
+      await page.locator(sel).first().click({ timeout: 2000 });
       return sel;
     } catch { /* try next */ }
   }
 
   if (typeof page.getByTestId === 'function') {
     try {
-      const locator = page.getByTestId(`mall-option-${mallId}`);
-      await locator.click({ timeout: 2000 });
+      await page.getByTestId(`mall-option-${mallId}`).click({ timeout: 2000 });
       return 'getByTestId';
     } catch { /* fall through */ }
   }
@@ -51,16 +36,14 @@ async function clickMallOption(page, mallId) {
   return null;
 }
 
-export async function switchTo(page, mallId, { strict } = {}) {
-  if (isMockEnabled()) return mockSwitchTo(mallId);
-
+export async function switchTo(target, mallId, { strict } = {}) {
+  const page = resolveTargetPage(target);
   const validatedId = requireMallId(mallId, { strict });
 
-  const before = await currentMall(page).catch(() => null);
+  const before = await currentLiveMall(page).catch(() => null);
   if (before && before.id === validatedId) return before;
 
-  const opened = await tryOpenSwitcher(page);
-  if (!opened) {
+  if (!await tryOpenSwitcher(page)) {
     throw new PddCliError({
       code: 'E_MALL_SWITCH_NO_UI',
       message: '未找到店铺切换入口（单店铺账号或 UI 改版）',
@@ -69,8 +52,7 @@ export async function switchTo(page, mallId, { strict } = {}) {
     });
   }
 
-  const clicked = await clickMallOption(page, validatedId);
-  if (!clicked) {
+  if (!await clickMallOption(page, validatedId)) {
     try { await page.keyboard?.press?.('Escape'); } catch { /* ignore */ }
     throw new PddCliError({
       code: 'E_MALL_NOT_FOUND',
@@ -81,12 +63,10 @@ export async function switchTo(page, mallId, { strict } = {}) {
   }
 
   try {
-    if (typeof page.waitForLoadState === 'function') {
-      await page.waitForLoadState('networkidle', { timeout: 15000 });
-    }
+    await page.waitForLoadState?.('networkidle', { timeout: 15000 });
   } catch { /* best effort */ }
 
-  const after = await currentMall(page);
+  const after = await currentLiveMall(page);
   if (after.id !== validatedId) {
     getLogger().warn({ expected: validatedId, actual: after.id }, 'mall switch verification mismatch');
     throw new PddCliError({

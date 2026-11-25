@@ -2,13 +2,11 @@ import assert from 'node:assert/strict';
 import { beforeEach, describe, it, vi } from 'vitest';
 import { mockMerchantProbeTransport } from '../helpers/merchant-probe-transport.js';
 
-vi.mock('../../src/adapter/browser.js', () => ({
-  createSnapshotContext: vi.fn(async (_browser, state) => ({
-    cookies: async () => structuredClone(state.cookies), close: vi.fn(async () => {}),
-  })),
-}));
-import { verifyMerchantContext, assertMerchantVerified } from '../../src/adapter/merchant-auth.js';
-import { withMerchantAuthUpdate, commitMerchantCandidate, recordMerchantCheck, boundMerchantMallId, assertAuthTask } from '../../src/adapter/merchant-auth-storage.js';
+import { verifyMerchantContext, assertMerchantVerified, assertVerifiedMerchantCandidate } from '../../src/adapter/merchant-auth.js';
+import { withMerchantAuthUpdate, commitMerchantCandidate, recordMerchantCheck, verifyStoredMerchant, boundMerchantMallId, merchantCandidateState } from '../../src/adapter/merchant-auth-storage.js';
+import { assertAuthTask } from '../../src/infra/auth-task.js';
+import { createCandidateSeal } from '../../src/infra/candidate-seal.js';
+import { verifyFixtureMerchantContext } from '../../src/adapter/fixtures/auth.js';
 import { saveAuthStateSnapshot, loadAuthState } from '../../src/adapter/auth-state.js';
 import { insertAccount, putReloginState } from '../../src/infra/account-store.js';
 import { acquireLease } from '../../src/infra/leases.js';
@@ -20,15 +18,19 @@ import { PddCliError, ExitCodes } from '../../src/infra/errors.js';
 const state = { cookies: [{ name: 'PASS_ID', value: 'synthetic', domain: '.pinduoduo.com', path: '/', secure: true }], origins: [] };
 let accountId;
 
+const createSnapshotContext = vi.fn(async (_browser, snapshot) => ({
+  cookies: async () => structuredClone(snapshot.cookies),
+  close: vi.fn(async () => {}),
+}));
+
 async function candidate(options) {
   const context = { storageState: async () => structuredClone(state), browser: () => ({}) };
-  const result = await verifyMerchantContext(context, options);
+  const result = await verifyMerchantContext(context, { createSnapshotContext, ...options });
   assertMerchantVerified(result);
   return result.candidate;
 }
 
 beforeEach(() => {
-  vi.stubEnv('PDD_TEST_ADAPTER', '');
   accountId = insertAccount({ identity: '900001', displayName: 'Shop' }).id;
   mockMerchantProbeTransport();
 });
@@ -58,10 +60,45 @@ describe('leased verified merchant state', () => {
   });
 
   it('rejects a different stable shop before returning a candidate', async () => {
-    const result = await verifyMerchantContext({ storageState: async () => state, browser: () => ({}) }, { expectedMallId: '900002' });
+    const result = await verifyMerchantContext({ storageState: async () => state, browser: () => ({}) }, { expectedMallId: '900002', createSnapshotContext });
     assert.equal(result.reason, 'identity_mismatch');
     assert.ok(!Object.hasOwn(result, 'candidate'));
     assert.throws(() => assertMerchantVerified(result), { code: 'E_ACCOUNT_IDENTITY_MISMATCH' });
+  });
+
+  it('rejects live verification when createSnapshotContext is not injected', async () => {
+    await assert.rejects(
+      verifyMerchantContext({ storageState: async () => state, browser: () => ({}) }),
+      { code: 'E_CONFIG_INVALID' },
+    );
+  });
+
+  it('isolates verified candidates across distinct CandidateSeal instances in live, fixture and storage paths', async () => {
+    const sealA = createCandidateSeal();
+    const sealB = createCandidateSeal();
+    const liveCandidate = await candidate({ seal: sealA });
+    assert.doesNotThrow(() => assertVerifiedMerchantCandidate(liveCandidate, sealA));
+    assert.throws(() => assertVerifiedMerchantCandidate(liveCandidate, sealB), { code: 'E_AUTH_CANDIDATE_INVALID' });
+    assert.throws(() => assertVerifiedMerchantCandidate(liveCandidate), { code: 'E_AUTH_CANDIDATE_INVALID' });
+    assert.throws(() => merchantCandidateState(liveCandidate, { seal: sealB }), { code: 'E_AUTH_CANDIDATE_INVALID' });
+
+    await assert.rejects(
+      withMerchantAuthUpdate(accountId, (tx) => commitMerchantCandidate(liveCandidate, tx, { seal: sealB })),
+      { code: 'E_AUTH_CANDIDATE_INVALID' },
+    );
+    await withMerchantAuthUpdate(accountId, (tx) => commitMerchantCandidate(liveCandidate, tx, { seal: sealA }));
+    assert.equal(loadAuthState(accountId).revision, 1);
+
+    const fixtureRes = await verifyFixtureMerchantContext(null, {
+      seal: sealB,
+      getCurrentMall: async () => ({ id: '900001', name: 'Fixture Shop' }),
+    });
+    assertMerchantVerified(fixtureRes);
+    assert.equal(sealB.has(fixtureRes.candidate), true);
+    assert.equal(sealA.has(fixtureRes.candidate), false);
+    assert.throws(() => merchantCandidateState(fixtureRes.candidate, { seal: sealA }), { code: 'E_AUTH_CANDIDATE_INVALID' });
+    await withMerchantAuthUpdate(accountId, (tx) => commitMerchantCandidate(fixtureRes.candidate, tx, { seal: sealB }));
+    assert.equal(loadAuthState(accountId).revision, 2);
   });
 
   it('commits a detached branded snapshot and supports multiple commits outside long transactions', async () => {
@@ -211,6 +248,28 @@ describe('leased verified merchant state', () => {
       assert.equal(saved.merchant_auth.last_check.verdict, verdict);
       assert.equal(saved.merchant_auth.usable, false);
     }
+  });
+
+  it('marks verifyStoredMerchant known_rejected cache hits non-authoritative and skips redundant SQLite writes', async () => {
+    const initialCheck = { verdict: 'rejected', reason: 'login_false', checked_at: '2026-11-24T08:00:00.000Z' };
+    saveAuthStateSnapshot({
+      ...state,
+      merchant_auth: { version: 1, mall_id: '900001', usable: false, last_check: initialCheck },
+    }, accountId);
+    assert.equal(loadAuthState(accountId).revision, 1);
+
+    await withMerchantAuthUpdate(accountId, async (tx) => {
+      const checkResult = await verifyStoredMerchant(null, tx.state);
+      assert.equal(checkResult.verdict, 'rejected');
+      assert.equal(checkResult.reason, 'known_rejected');
+      assert.equal(checkResult.authoritative, false);
+      recordMerchantCheck(checkResult, tx);
+      recordMerchantCheck({ verdict: 'rejected', reason: 'known_rejected', checked_at: new Date().toISOString() }, tx);
+    });
+
+    const loaded = loadAuthState(accountId);
+    assert.equal(loaded.revision, 1);
+    assert.deepEqual(loaded.state.merchant_auth.last_check, initialCheck);
   });
 
   it('redacts credential aliases and sealed material', () => {

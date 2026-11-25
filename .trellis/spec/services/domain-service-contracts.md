@@ -2,7 +2,7 @@
 
 ## 1. Scope / Trigger
 
-适用于修改 `src/services/**` 中 orders、goods、promo、diagnose、promo-roi、goods-segmentation、auth 等领域逻辑。
+适用于修改 `src/services/**` 中 orders、goods、promo、diagnose、goods-segmentation、auth 等领域逻辑。
 
 ## 2. Signatures
 
@@ -42,8 +42,7 @@ src/services/orders.js         订单列表/详情/统计；get*View 产出命�
 src/services/goods.js          商品列表/库存视图、写入校验（validateWriteValue）
 src/services/goods-write.js    写操作编排：预演/提交、回显与 headline（单项 + batch）
 src/services/goods-publish.js  发布流程（含运费模板、软风控）
-src/services/promo.js          活动报表（Poseidon 适配）
-src/services/promo-roi.js      ROI 计算（analyzePromoRoi，内部）+ getPromoRoiView
+src/services/promo.js          活动报表（Poseidon 适配）、ROI 计算（analyzePromoRoi）与 getPromoRoiView
 src/services/diagnose/index.js 店铺数据汇总（summarize*，内部代码）
 src/services/diagnose/reports.js  diagnose.* 命令级结果（采集 → summarize → 视图）
 src/services/goods-segmentation.js  商品销量与库存统计 + getGoodsSegmentView
@@ -363,7 +362,7 @@ Wrong：total - (direct + indirect)，推广失败时输出 0。Correct：仅减
 ## Scenario: Goods Cost and Net Profit
 
 - services/goods-cost-input.js 单独拥有非负元金额、精确规格及字符串 ID 校验；goods-cost.js 编排本地预演/确认，goods-cost-import.js 原生解析 UTF-8 JSON 后整批校验（1 MiB / 5000 条）。未知列、重复商品/规格键、坏行全部拒绝，无先写好行行为。成本项为货本、包材、快递、技术服务费（COST_NAMES），不含运费险：`insurance_yuan` 输入报 E_USAGE（字段 insurance_yuan，导入时进入 row_errors），set 无 `--insurance-yuan` 选项（commander 未知选项，退出码 2），list/set/remove 输出无 insurance_yuan。
-- goods.profit days 为 1–90，默认 30；按 confirm_time 成交时间（秒，等于支付时间）统计上海最近 N 个完整自然日、不含当天，[start,end)；orders.list 不返回 group_time，不为成团时间逐单调用订单详情。复用 collectOrdersForStaleAnalysis，显式 scope all、size 50、since=start/until=end-1（按下单时间覆盖窗口，成交晚于下单）。保留 truncation/rate-limit，按成交时间过滤、订单号内部去重（事实字段含 confirm_time）；confirm_time 为 0 的未付款取消静默排除，其余缺失、非数字或为 0 的样本及冲突样本标不完整（hint invalid_order_window）。
+- goods.profit days 为 1–90，默认 30；按 confirm_time 成交时间（秒，等于支付时间）统计上海最近 N 个完整自然日、不含当天，[start,end)；orders.list 不返回 group_time，不为成团时间逐单调用订单详情。复用 `collectOrdersWindow`，显式 scope all、size 50、since=start/until=end-1（按下单时间覆盖窗口，成交晚于下单）。保留 truncation/rate-limit，按成交时间过滤、订单号内部去重（事实字段含 confirm_time）；confirm_time 为 0 的未付款取消静默排除，其余缺失、非数字或为 0 的样本及冲突样本标不完整（hint invalid_order_window）。
 - goods-profit-calculation.js 是纯函数：收入=order_amount+platform_discount，不重复加 shipping_amount 或扣 merchant_discount。未付款取消收入及所有成本 0；退款成功（5）收入/货本 0，已发货扣包材/快递/技术服务费，未发货为 0，发货时间缺失/无效时这些费用 null。5 以外的非空整数售后码（10/11 及未登记的 6/31 等）按售后处理中正常计算并单列单数及收入；售后码缺失或非整数时相关财务 null。
 - 运费险（insurance_fen）不属于成本录入（ADR 0004），PROFIT_COST_FIELDS 在 COST_NAMES 之外单独追加，取 goods-profit-insurance.js 采集的体验提升计划收费记录（`experiencePlan.orderInsuranceList`，queryFeeStatusList [1,2]，pageSize 100），按 order_sn 对齐、同单多条求和。采集窗口：createBeginTime = 窗口起点前 1 天，createEndTime = 窗口终点 - 1ms，按 ≤30 天分段；每段翻页取满 total，单段页数上限（默认 50）触顶记 truncated，空页提前结束或 total 漂移记不完整。逐单：未付款取消 0；「收费成功」计入（退款不扣回）；「待收费」退款为 0、正常/10/11 计入、未知售后状态 null；其他收费状态文案 null + warning；无记录 0（仅记录完整时）。金额仅 YUAN（planMoneyReader），其他单位 null + warning。采集失败（PddCliError，report.optional）或不完整：运费险、商家成本、毛利、净利 null，hint `insurance_unavailable` / `insurance_incomplete`，data_quality `insurance_complete` / `insurance_truncated`，退出码不变。运费补偿由平台支付给买家，不是商家成本，不计入。
 - 成本先精确 spec，后商品默认，无匹配则利润/率 null；货本乘 goods_number，按单项只扣一次，缺数量只影响依赖数量的项。cost_updated_at 是实际使用记录的最大时间，default_fallback_order_count 为非空规格未命中后实际回落单数；成本只有当前值，历史查询会重算。
@@ -403,8 +402,8 @@ listOrders(page, { scope = 'all', page, size, since, until }, ctx)
 getOrderListView(page, { scope, page, size, since, until }, ctx) // → { headline, items, total, mall_id }
 computeOrderStats(orders) // → { total, status_distribution, shipping_seconds, refund_count, after_sales_count, refund_rate }
 export { ORDER_LIST_CLI_SCOPES, ORDER_LIST_DEFAULT_SCOPE } // re-exported for commands (no adapter import)
-// src/services/diagnose/orders-collector.js
-collectOrdersForStaleAnalysis(page, ctx, { scope = 'valid', scanDays, maxPages, pageSize })
+// src/services/orders.js
+collectOrdersWindow(page, ctx, { scope = 'valid', scanDays, maxPages, pageSize })
 ```
 CLI: `pdd orders list [--status all|pending_ship|shipped|received|after_sales]` (default `all`).
 
@@ -544,18 +543,29 @@ log.info({ method, route: '/c/:token', status, duration_ms });
 
 ### 1. Scope / Trigger
 
-Applies to `services/console-login*.js`, `daemon/routes.js`, `daemon/sse.js` and interactive auth persistence. Frontend contracts are consumed directly by `console/public/app/app.js`.
+Applies to `services/console-login.js`, `services/console-accounts.js`, `daemon/routes.js`, `daemon/server.js`, `daemon/sse.js` and interactive auth persistence. Frontend contracts are consumed directly by `console/public/app/app.js`.
 
 ### 2. Signatures
 
 ```js
-startConsoleSession(slug, { mode: 'password' | 'qr', ownerTag, signal }) -> { session_id };
-startConsoleAddSession({ login_name, password }, { ownerTag, signal }) -> { session_id }; // mode 'add', no account yet
-getConsoleSession(id) -> { state, message, remaining_seconds, expires_at, qr_image };
-consoleSessionFrames(id) -> { subscribe(callback), [Symbol.asyncIterator]() };
-consoleSessionPointer(id, { gesture_id, seq, events, cancel? }); // { ok: true, editable, numeric, result?: 'interrupted' }
-consoleSessionText(id, { text } | { key });
-refreshConsoleQr(id); cancelConsoleSession(id); closeAllConsoleSessions();
+// services/console-login.js — instance-scoped console application wired by composeDaemonRuntime / createConsoleServer
+createConsoleApp({ driver, seal, clock, commit, patrol, runtimeConfig }) -> {
+  health: { check() },
+  auth: { redeem(token), resolveSession(sessionValue), sessionCookie(sessionValue, config) },
+  patrol: { get(patrol, runtimeConfig), set(patrol, body, runtimeConfig) },
+  accounts: { list(), add(body, opts), savePassword(slug, body), clearPassword(slug), unblock(slug), remove(slug, body) },
+  sessions: {
+    start(slug, { mode: 'password' | 'qr', ownerTag, signal }) -> { session_id },
+    startAdd({ login_name, password }, { ownerTag, signal }) -> { session_id },
+    get(id) -> { state, message, remaining_seconds, expires_at, qr_image },
+    frames(id) -> { subscribe(callback), [Symbol.asyncIterator]() },
+    pointer(id, { gesture_id, seq, events, cancel? }), // { ok: true, editable, numeric, result?: 'interrupted' }
+    sms(id, { code }), text(id, { text } | { key }),
+    refreshQr(id), cancel(id), awaitDone(id), closeAll(),
+  },
+};
+// services/console-accounts.js — pure local account management (zero dependency on session state machine)
+removeConsoleAccount(slug, { confirm_name }, { isAccountLoggingIn }) -> { ok: true, removed: true };
 saveMerchantLogin(result, initial, task); // shared verified-candidate + lease/CAS/manual-success commit
 ```
 
@@ -567,7 +577,7 @@ saveMerchantLogin(result, initial, task); // shared verified-candidate + lease/C
 - Sessions hold `withMerchantAuthUpdate` for the full operation, with the account identity and a twelve-minute deadline. Explicit starts skip automatic throttle/awaiting-human gates, retain the block gate, and use `deviceState(tx)` via `createSnapshotContext`.
 - Password attempts receive seventy seconds; `beginReloginAttempt` owns attempt recording and its `fail(outcome)` records non-success results through `recordReloginOutcome` before throwing. Only challenges wait for a human: `sms` enters state `sms` (no picture; `/sms { code }` fills the login page's SMS dialog via `submitSmsCode` and returns `{ ok, result: submitted|wrong_code|form_changed }`, one submission at a time), other challenges enter `takeover` (captcha dialog relay). `form_changed` / `network_error` end the session as `failed` with a fixed message, without takeover; wrong-password/locked outcomes reuse the breaker and credential-version guard. `takeover` and `sms` expire after ten minutes and increment the timeout counter; QR uses `TIMEOUTS.LOGIN_QR` and recaptures in the same context. Cancellation and QR timeout leave the takeover counter unchanged.
 - PASS_ID is an acquisition signal. Close the login page, independently verify expected identity and shop access, then call the attempt handle's `succeed(candidate)`. Live sessions retain `saveMerchantLogin` as the snapshot/account commit callback. Snapshot/account updates, manual reset, pending-action resolution and password-success outcome commit atomically; failure preserves all prior persisted state except the already-recorded attempt time. QR/manual success resets consecutive timeouts; QR keeps an existing block/action. All browser paths close resources and release leases. Daemon stop aborts sessions and rejects new starts; completed sessions drop the attempt handle along with browser/credential references.
-- Add sessions hold no account lease and write no relogin state before the shop is known. They log in from a blank browser state with the submitted credential, which lives only in session memory and is cleared when the session ends. `wrong_password` / `account_locked` / `form_changed` / `network_error` end as `failed` with a fixed message and register nothing; challenges use the same `sms` / `takeover` windows (timeouts do not touch any counter). After PASS_ID the login page closes, `verifyConsoleLogin` verifies without an expected mall, `provisionMerchantLogin` registers a new account or updates the existing one for that mall (short lease), and `setAccountPassword` saves the credential. Messages: `店铺已添加，密码已保存` / `店铺已存在，登录信息和密码已更新`.
+- Add sessions hold no account lease and write no relogin state before the shop is known. They log in from a blank browser state with the submitted credential, which lives only in session memory and is cleared when the session ends. `wrong_password` / `account_locked` / `form_changed` / `network_error` end as `failed` with a fixed message and register nothing; challenges use the same `sms` / `takeover` windows (timeouts do not touch any counter). After PASS_ID the driver drains in-flight QR refreshes, closes takeover and the login page, verifies without an expected mall via `AuthPort.verifyAndSeal`, `provisionMerchantLogin` registers a new account or updates the existing one for that mall (short lease), and `setAccountPassword` saves the credential. Messages: `店铺已添加，密码已保存` / `店铺已存在，登录信息和密码已更新`.
 - SSE uses `event: frame` and `{ jpeg, width, height }` (`jpeg: null` while no captcha dialog is found), no-store, five fps maximum. Backpressure drops frames until drain, then sends the latest. End/disconnect releases subscribers. Browser images, credentials and input are never logged.
 - Pointer requests require a per-gesture id and zero-based batch sequence. Successful responses retain `{ ok: true, editable, numeric }`; interruption adds `result: 'interrupted'` with null focus fields. Cancellation uses the same body with `cancel: true, events: []`. The adapter owns sequencing, bounded time validation, fixed-anchor replay and idle release (browser-runtime section 10); fixture shares those rules.
 
@@ -594,8 +604,9 @@ saveMerchantLogin(result, initial, task); // shared verified-candidate + lease/C
 
 ### 6. Tests Required
 
-- `test/services/console-login.test.js`: device continuity, seventy-second budget, captcha takeover vs SMS input vs form/network failure, add sessions (blank state, new vs existing shop, SMS, failures without registration, credential validation and body clearing), lease outside transactions, shared verified commit, mismatch/rejected check/CAS preservation, partial resource cleanup, cancellation, real timer boundaries, retention, QR reuse and fixture-only control guards.
-- `test/adapter/takeover.test.js`, `test/daemon/sse.test.js`: CDP acks, latest-frame throttling, pointer timing/coordinates/serialization, validation, keys, backpressure, disconnect and decodable fixture images.
+- `test/services/console-login.test.js`: instance-scoped `createConsoleApp` with `InMemoryConsoleLoginDriver`, isolated temp SQLite, instance `CandidateSeal`, and controllable `clock` (zero module mocks or polling waits) covering device continuity, 70s budget, captcha takeover vs SMS single-flight vs form/network failure, add sessions (blank state, new vs existing shop, SMS, failures without registration, credential validation and body clearing), lease outside transactions, shared `beginReloginAttempt` + `saveMerchantLogin` commit, mismatch/rejected/foreign-seal/CAS preservation, partial resource cleanup, cancellation, 3-min/10-min/12-min/5-min timer boundaries, QR refresh single-flight & in-flight drain on `verifying`, same-key serial replacement & 2-key slot retention during cleanup, active-login removal guard, and `closeAll` 503 stopping gate.
+- `test/services/console-accounts.test.js`: `removeConsoleAccount` confirmation validation, 409 `E_CONSOLE_SESSION_STATE` via injected `isAccountLoggingIn`, and zero-dependency isolation from `console-login` / browser modules.
+- `test/adapter/takeover.test.js`, `test/adapter/console-login-driver-port.contract.test.js`, `test/daemon/sse.test.js`: CDP acks, latest-frame throttling, shared `createDeterministicTakeoverChannel` pointer timing/coordinates/serialization, validation, keys, backpressure, disconnect and decodable fixture images.
 - `test/e2e/console-login.e2e.test.js`: fixture random-port/temp-DB challenge through SSE/input to success, action resolution, ordinary marker reuse with no new attempt, two-timeout breaker/unblock, QR, account replacement/global limit, daemon stop and secret-free responses/streams/stdout/logs. Run full `npm test` after targeted tests.
 
 ### 7. Wrong vs Correct

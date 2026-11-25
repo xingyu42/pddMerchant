@@ -1,42 +1,41 @@
 import assert from 'node:assert/strict';
-import { afterEach, beforeEach, it, vi } from 'vitest';
+import { PassThrough } from 'node:stream';
+import { beforeEach, it, vi } from 'vitest';
 import { run } from '../../src/commands/diagnose/shop.js';
-import { clearFixtureCache } from '../../src/adapter/mock-dispatcher.js';
+import { saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
+import { insertAccount } from '../../src/infra/account-store.js';
+import { composeCommandRuntime } from '../../src/runtime/command-runtime.js';
 import { createFactResponses } from '../fixtures/test-data.js';
-import { createCliSandbox, runtimeConfig } from '../helpers/isolated-cli.js';
-import { seedDb, DEFAULT_ACCOUNT } from '../helpers/seed-db.js';
-import { openDatabase, closeDatabase } from '../../src/infra/db.js';
+import { runtimeConfig } from '../helpers/isolated-cli.js';
+import {
+  createInMemoryAuthPort,
+  createInMemoryBrowserRuntime,
+  createInMemoryMallPort,
+} from '../helpers/in-memory-ports.js';
+import { createMemoryEndpointTransport } from '../helpers/test-ctx.js';
 
-const { dispatch, emitSpy } = vi.hoisted(() => ({ dispatch: vi.fn(), emitSpy: vi.fn() }));
-vi.mock('../../src/adapter/mock-dispatcher.js', async (importOriginal) => ({
-  ...await importOriginal(), mockRunEndpoint: dispatch,
-}));
-vi.mock('../../src/infra/output.js', async (importOriginal) => ({
-  ...await importOriginal(), emit: emitSpy,
-}));
+const FIXED_NOW_MS = 1700000000000;
 
-let sandbox;
+function makeMemoryStreams() {
+  const stdoutChunks = [];
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  stdout.on('data', (chunk) => stdoutChunks.push(chunk.toString('utf8')));
+  return {
+    streams: { stdout, stderr },
+    readStdout: () => stdoutChunks.join(''),
+  };
+}
+
 beforeEach(() => {
-  sandbox = createCliSandbox();
-  seedDb(sandbox.env.PDD_DB_PATH, { accounts: [DEFAULT_ACCOUNT] });
-  openDatabase(sandbox.env.PDD_DB_PATH);
-  for (const [key, value] of Object.entries(sandbox.env)) {
-    if (key.startsWith('PDD_')) vi.stubEnv(key, value);
-  }
-  clearFixtureCache();
-  dispatch.mockReset();
-  emitSpy.mockClear();
-  vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
-});
-afterEach(() => {
-  clearFixtureCache();
-  closeDatabase();
-  sandbox.dispose();
+  const account = insertAccount({ identity: '900001', displayName: 'Synthetic Shop' }, { setDefault: true });
+  saveAuthStateSnapshot({ cookies: [{ name: 'PASS_ID', value: 'synthetic' }], origins: [] }, account.id);
+  vi.spyOn(Date, 'now').mockReturnValue(FIXED_NOW_MS);
 });
 
 it('requests distinct comparison windows and computes their nonzero differences', async () => {
   const requests = [];
-  dispatch.mockImplementation((spec, params) => {
+  const transport = createMemoryEndpointTransport((spec, params) => {
     const raw = createFactResponses()[`endpoints/${spec.name}.json`];
     const payload = spec.buildPayload(params, { mallId: '900001' });
     requests.push({ name: spec.name, payload });
@@ -56,11 +55,39 @@ it('requests distinct comparison windows and computes their nonzero differences'
     return raw;
   });
 
-  const envelope = await run({
-    json: true, compare: true, days: 7, timeoutMs: 5000,
-  }, { runtimeConfig });
+  const { streams, readStdout } = makeMemoryStreams();
+  const runtime = await composeCommandRuntime({
+    mode: 'live',
+    runtimeConfigPolicy: 'maintenance',
+    env: {},
+    streams,
+    clock: { now: () => FIXED_NOW_MS, sleep: async () => {} },
+    overrides: {
+      browser: createInMemoryBrowserRuntime(),
+      mall: createInMemoryMallPort({ currentMall: { id: '900001', name: 'Synthetic Shop' } }),
+      auth: createInMemoryAuthPort({
+        merchantIdentity: { mallId: '900001', displayName: 'Synthetic Shop' },
+        now: () => FIXED_NOW_MS,
+      }),
+      endpointTransport: transport,
+      runtimeConfig: { ...runtimeConfig, rateLimitQps: 0 },
+    },
+  });
+
+  let envelope;
+  try {
+    envelope = await run({
+      json: true, compare: true, days: 7, timeoutMs: 5000,
+    }, { runtime });
+    assert.equal(runtime.outputSink.hasEmitted(), true);
+  } finally {
+    await runtime.closeAll();
+  }
+
   assert.equal(envelope.ok, true);
-  assert.equal(emitSpy.mock.calls.length, 1);
+  const lines = readStdout().trim().split(/\r?\n/);
+  assert.equal(lines.length, 1);
+  assert.deepEqual(JSON.parse(lines[0]), envelope);
   const comparison = envelope.data.compare;
   assert.equal(comparison.status, '数据完整');
   // 1699395200 = 2023-11-08 06:13:20 +08:00；1700000000 = 2023-11-15 06:13:20 +08:00

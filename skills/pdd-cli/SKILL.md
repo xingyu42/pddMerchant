@@ -56,7 +56,7 @@ pdd <command> [options] --json
 ```bash
 pdd init [--qr]              # 首次登录（默认弹浏览器；--qr 终端扫码）
 pdd login [--qr|--consumer]  # 重新登录
-pdd doctor [--probe xhr]     # 环境与登录态自检
+pdd doctor                   # 环境与登录态自检
 ```
 
 ### 运行配置

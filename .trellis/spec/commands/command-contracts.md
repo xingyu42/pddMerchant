@@ -76,10 +76,14 @@ src/services/<domain>.js           业务逻辑（被 handler 调用）
 
 ## 3. Contracts
 
-- `withCommand` 选项 `needsBrowser`（默认 `true`）：本地管理命令设为 `false`，同时 `needsAuth:false`，runner 跳过浏览器，输出仍走统一 finalizer 与 data 契约 v2。`needsAccount` 默认 false；仅显式 true 时在无浏览器分支解析本地 merchant 账号，缺账号为 `E_ACCOUNT_REQUIRED` / exit 2。`needsMall:'stored'` 仅显式启用，声明由 service 消费本地店铺键，无页面探测或切店；所有既有命令默认行为保持原样。
+- `withCommand` 通过三种互斥 `lifecycle` 预设收口全部命令（向后兼容：未声明 `lifecycle` 时 `needsBrowser: false` 自动归入 `local`，其余默认 `merchant`；`needsAccount: true` 等价 `'required'`，加载期校验非法组合立即抛出 `E_CONFIG_INVALID`）：
+  - `merchant`（默认）：`runtimeConfigPolicy: 'required'`、账号解析/租约、浏览器会话、鉴权复核与切店（支持 `--all-accounts`，写命令显式设 `allowAllAccounts: false`）。
+  - `local`：`runtimeConfigPolicy: 'required'`，跳过执行器预启动浏览器与自动鉴权，支持 `needsAccount: 'none' | 'optional' | 'required'` 及 `needsMall: 'none' | 'stored'`（`'stored'` 须配 `'required'`；`doctor` 用 `needsAccount: 'optional'`，`goods.cost.*` 用 `'required'` + `'stored'`，`init` / `login` / `account.*` / `console` / `daemon` 用 `'none'`），一律拒绝 `--all-accounts`（`E_USAGE` / exit 2）；交互命令可声明 `defaultTimeoutMs`。
+  - `maintenance`：挂载 `runtimeConfigPolicy: 'maintenance'`，跳过运行配置加载、账号解析、SQLite 与浏览器启动，即使本地配置损坏也可运行，并拒绝 `--all-accounts`。
 - Global flags include `--json`、`--no-color`、`--timeout <ms>`、`--mall <id>`、`--headed`、`--verbose`。
-- Command handlers MUST call `withCommand()` indirectly via `wireAction` / runner facade。
-- `pdd config show/set/unset/validate` is the maintenance exception: it MUST use `wireAction(..., { runtimeConfigPolicy: 'maintenance' })` so damaged config can still be diagnosed or safely repaired, and MUST NOT enter auth/browser/mall runner lifecycle。
+- Command handlers MUST wrap with `withCommand()` and register via `wireAction`；`bin/pdd.js` 读取 handler 上的 `runtimeConfigPolicy`（缺省 `'required'`）并通过 `composeCommandRuntime` + `OutputSink` 实现两阶段防重复发射（进入 `withCommand` 后由统一 `envelope-kernel` 单次终结，未进入前的 Commander 解析错误由 `bin/pdd.js` 兜底发射）。
+- `pdd config show/set/unset/validate` 使用 `withCommand({ name: 'config.*', lifecycle: 'maintenance', ... })`（自动挂载 `runtimeConfigPolicy: 'maintenance'`），跳过运行配置、账号、SQLite 与浏览器生命周期，即使本地 JSON 损坏也可安全诊断或修复。
+- `pdd doctor` 使用 `lifecycle: 'local'`、`needsAccount: 'optional'`、`needsMall: 'none'`，委托 `src/services/doctor.js`（`diagnoseEnvironment`）先检查 Chromium 可用性再按需开启**单次** `BrowserSession`（Chromium 缺失时 0 浏览器返回 `E_CHROMIUM_MISSING`，双端已配置时仅 1 次浏览器通过 `deriveConsumerContext` 串行核验）；无 `--probe` 选项，不在 `data` 中重复返回 `resolvedAccount`，并零直接导入 `adapter/`。
 - Required options MUST fail before service execution and map to `ExitCodes.USAGE`。
 - Goods write commands (`status`、`price`、`stock`、`title`、`batch`) MUST require `--confirm` for real writes；without it return dry-run data。
 - Price input is yuan: `goods update price --price-yuan <元>` (required, string kept as-is — no `Number` coercion in the registrar), `> 0`, at most 2 decimals, parsed exactly by `parseYuanToFen`; invalid → `E_USAGE` exit 2 with hint `单位为元，例如 29.9`. The removed cents option `--price` is rejected by commander (exit 2). Upstream still receives fen。
@@ -88,7 +92,7 @@ src/services/<domain>.js           业务逻辑（被 handler 调用）
 - Command handlers stay thin: call one service function that returns the full v2 `data` (or `{ data, warnings }`). Option values are parsed and validated in the registrar at commander parse time (`src/commands/option-parsers.js` helpers, `Option.choices`), so usage errors exit 2 before any browser starts; usage checks of CLI options inside services are legacy (`src/services/goods.js`), never a precedent. Projection, unit conversion, labels and headline live in `src/services/` + `src/services/views/`, never in commands。
 - Every success `data` MUST include a factual Chinese `headline: string[]` (1–3 sentences; `diagnose reviews` with `goods_scores` and `orders detail` with a case summary or failed lookup MAY extend to 4 sentences so existing lines stay intact). Headlines state counts, states and data availability only — no advice, scores, rankings or good/bad wording。
 - Config `set/unset` MUST NOT require `--confirm`; they only edit the reversible project-local sparse override after strict Schema validation and atomic-write checks。
-- `withCommand()` domain handlers MUST return plain data for the envelope `data` field; maintenance/raw lifecycle handlers (`account.*`、`config.*`、`init`、`login`) may build and emit exactly one standard envelope through `src/infra/output.js`, and MUST build its `data` with the same v2 views (`src/services/views/account.js|config.js|auth.js`) and set `meta.exit_code`。
+- 全部注册命令（含 `init`、`login`、`login.consumer`、`doctor`、`account.*`、`config.*` 与全部业务域命令）均经 `withCommand()` 与统一 `envelope-kernel` 执行；handler 返回纯 v2 `data`（或 `{ data, warnings?, meta? }`），由 `src/services/views/*` 投影并经 `OutputSink` 精确发射一次，不存在直接调用 `emit()` 或直连 `adapter/` 的非 runner 命令例外。
 - `goods segment`, `promo roi`, and `diagnose` return factual statistics and data-quality hints only. No operating advice, health scores, tiers, or promo quality classifications. `action plan` and `--break-even` are removed and must fail as usage errors.
 
 ## 4. Validation & Error Matrix

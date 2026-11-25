@@ -1,8 +1,7 @@
 import { matchSales, normalizeGoodsName, readGoodsId, scanQuality } from './goods-sales-matcher.js';
 import { collectAllGoods } from './diagnose/goods-collector.js';
-import { collectOrdersForStaleAnalysis } from './diagnose/orders-collector.js';
-import { analyzePromoRoi } from './promo-roi.js';
-import { getPromoReport } from './promo.js';
+import { collectOrdersWindow } from './orders.js';
+import { analyzePromoRoi, getPromoReport } from './promo.js';
 import { getLogger } from '../infra/logger.js';
 import { toGoodsSegmentView } from './views/goods-segmentation.js';
 import { withEndpointPages } from '../adapter/endpoint-pages.js';
@@ -106,7 +105,7 @@ export async function getGoodsSegmentView(ctx, { days = 30, size = 50, maxPages 
   return withEndpointPages(page, 2, async ([ordersPage, promoPage]) => {
     const [goodsResult, ordersResult] = await Promise.all([
       collectAllGoods(page, ctx, { pageSize: size, maxPages }),
-      collectOrdersForStaleAnalysis(ordersPage, ctx, { scanDays: days }),
+      collectOrdersWindow(ordersPage, ctx, { scanDays: days }),
     ]);
     const promo = usePromo ? await collectPromoRoi(promoPage, ctx) : { promoRoi: null, warnings: [] };
     const { promoRoi } = promo;

@@ -1,6 +1,6 @@
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
-import { analyzePromoRoi } from '../../src/services/promo-roi.js';
+import { analyzePromoRoi } from '../../src/services/promo.js';
 import { PROMO_ROI_ITEM_FIELDS, PROMO_TOTALS_FIELDS, toPromoRoiView } from '../../src/services/views/promo.js';
 import { toDimensionView, toShopView } from '../../src/services/views/diagnose.js';
 import { diagnoseShop, summarizeAfterSales, summarizeInventory, summarizePromo } from '../../src/services/diagnose/index.js';

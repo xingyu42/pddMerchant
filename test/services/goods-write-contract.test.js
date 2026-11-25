@@ -1,14 +1,11 @@
 import assert from 'node:assert/strict';
-import { beforeEach, describe, it, vi } from 'vitest';
+import { describe, it, vi } from 'vitest';
 import {
   validateGoodsId, validateWriteValue, updateGoodsPrice, updateGoodsStock,
   updateGoodsStatus, updateGoodsTitle,
 } from '../../src/services/goods.js';
 import { PddCliError } from '../../src/infra/errors.js';
 import { isUsageError } from '../helpers/error-matchers.js';
-
-// These tests mock client.execute directly, bypassing fixture adapter
-beforeEach(() => vi.stubEnv('PDD_TEST_ADAPTER', ''));
 
 describe('public goods validation', () => {
   it.each([null, undefined, '', 0, -1, 1.5, NaN, Infinity, 'not-an-id'])('rejects invalid goods id %#', (value) => {

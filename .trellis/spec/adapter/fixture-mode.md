@@ -2,7 +2,7 @@
 
 ## 1. Scope / Trigger
 
-适用于修改 fixture adapter、mock dispatcher、endpoint fixtures、测试数据目录、`isMockEnabled()` guard，以及任何需要跳过真实浏览器/平台调用的测试 seam。
+适用于修改 fixture adapter、fixture bundle、endpoint fixtures、测试数据目录、composition root `mode: 'fixture'` 路由，以及任何需要跳过真实浏览器/平台调用的测试 seam。
 
 ## 2. Signatures
 
@@ -11,8 +11,9 @@ Fixture 相关路径与 env：
 ```text
 PDD_TEST_ADAPTER=fixture                 enable fixture mode
 PDD_TEST_FIXTURE_DIR=<path>              override fixture root
-src/adapter/fixtures/core.js             owns single fixture cache
-src/adapter/mock-dispatcher.js           facade for mock payload routing
+src/adapter/fixtures/core.js             owns instance-level FixtureStore
+src/adapter/fixtures/endpoint.js         createFixtureEndpointTransport (EndpointTransportPort)
+src/runtime/bundles/fixture-bundle.js    composition-root fixture bundle (composeCommandRuntime / composeDaemonRuntime)
 test/fixtures/test-data.js               synthetic fixture builders (no checked-in endpoint JSON)
 test/helpers/isolated-cli.js             createCliSandbox / runCli：写入临时 fixture 目录
 PDD_TEST_PASSWORD_LOGIN=<outcome>        mockPasswordLogin 结果，默认 success；可取 challenge:<sms|slider|click|risk_confirm|unknown>、
@@ -31,8 +32,8 @@ Endpoint 执行链路：
 
 ```text
 runEndpoint(page, spec, params, ctx)
-  -> PlaywrightEndpointClient.execute(spec, params, ctx)
-  -> send(spec, params, ctx) -> { status, raw, response }
+  -> EndpointClient.call/execute(spec, params, ctx)
+  -> send(spec, params, ctx) -> EndpointTransportPort.send -> { status, raw, response }
   -> interpretResponse(spec, { status, raw, response, url, retries })
   -> spec.normalize(raw, params) 或 { raw }
 ```
@@ -41,13 +42,13 @@ runEndpoint(page, spec, params, ctx)
 
 - Endpoint fixture transport MUST work with `page: null` and skip browser/network/backend calls; existing merchant auth fixture branches retain their own lifecycle。
 - Fixture responses MUST preserve the same normalized output and envelope semantics as real mode。
-- `mock-dispatcher.js` is a facade; shared cache ownership stays in `fixtures/core.js`。
+- `src/runtime/bundles/fixture-bundle.js` wires fixture providers when `mode === 'fixture'`; `FixtureStore` in `src/adapter/fixtures/core.js` holds per-instance fixture caches.
 - New endpoint fixtures MUST be named/aligned with `spec.name`。
 - Tests MUST NOT rely on fixture cache mutation leaking across test cases。
 - Fixture runtime resolves the mock shop context through the adapter's `buildMallContext` (`normalizeMallRecord`), so fixture and live shop records share one shape (`{ id, name, is_current }`)。
-- Fixture auth validity for needsAuth commands: invalid when `PDD_TEST_AUTH_INVALID=1` AND the account state lacks the `PDD_FIXTURE_RELOGIN=1` cookie. The read-only check needs no lease; `reloginForFixture` re-checks inside the lease and reuses a marker written by another process (one attempt for concurrent processes).
-- Fixture relogin runs the same decision, attempt record, outcome record and warnings as live; the browser part remains `mockPasswordLogin()`. Success creates a branded candidate through `verifyMerchantContext` and writes `{ cookies: [PDD_FIXTURE_RELOGIN=1], origins: [], merchant_auth: { verified … } }` through `beginReloginAttempt().succeed` + `commitMerchantCandidate` under lease + CAS. Snapshot, metadata, corrupt bookkeeping and outcome follow the shared commit path, so fixture relogin needs a temporary `PDD_DB_PATH` with a seeded credential. Runner/patrol preflight still uses the shared browser-free `checkFixtureMerchantSession`, retaining its original no-record policy and cross-process recovery marker.
-- Console sessions use `mockPasswordLogin()` without opening a browser, sharing the account lease, registry limits and state machine. Takeover emits a fixed decodable 1x1 JPEG; QR emits a fixed PNG data URL. Only fixture dispatch registers `POST /api/sessions/:id/fixture-complete { outcome: 'success' | 'timeout' }`; live dispatch returns 404. Success verifies a branded candidate and uses the shared attempt handle for the snapshot/manual reset/password outcome in one short transaction. Cancel and QR timeout do not increment takeover counters. See `services/domain-service-contracts.md` P4 for the full route/state contract.
+- Fixture auth validity for needsAuth commands: invalid when `PDD_TEST_AUTH_INVALID=1` AND the account state lacks the `PDD_FIXTURE_RELOGIN=1` cookie. Runner preflight reads `AuthPort.checkMerchant` without a lease; on `rejected`, `withMerchantAuthUpdate` re-checks inside the lease and reuses a marker written by another process (one attempt for concurrent processes).
+- Fixture relogin runs through the unified `auto-relogin.recover` entry using `createFixtureAuthPort` (`authoritative: false`), `createFixtureBrowserRuntime` (zero Patchright), and `fixturePasswordLogin` (`mockPasswordLogin()`). `recordMerchantCheck` skips SQLite check-record writes when `authoritative` is false; on success, `verifyAndSeal` creates a branded candidate and writes `{ cookies: [PDD_FIXTURE_RELOGIN=1], origins: [], merchant_auth: { verified … } }` through `beginReloginAttempt().succeed` + `commitMerchantCandidate` under lease + CAS. Snapshot, metadata, corrupt bookkeeping and outcome follow the shared commit path, so fixture relogin needs a temporary `PDD_DB_PATH` with a seeded credential.
+- Console sessions run through `FixtureConsoleLoginDriver` (`ConsoleLoginDriverPort`) using `mockPasswordLogin()` without opening a browser, sharing the account lease, registry limits and state machine. Takeover emits a fixed decodable 1x1 JPEG; QR emits a fixed PNG data URL. Only fixture composition (`composeDaemonRuntime` `consoleExtraRoutes`) registers `POST /api/sessions/:id/fixture-complete { outcome: 'success' | 'timeout' }` backed by the driver's per-session completion latch; live composition omits it and returns 404. Success drains in-flight QR refreshes, verifies a branded candidate via `AuthPort.verifyAndSeal`, and uses the shared attempt handle for the snapshot/manual reset/password outcome in one short transaction. Cancel and QR timeout do not increment takeover counters. See `services/domain-service-contracts.md` P4 for the full route/state contract.
 - Fixture payloads for orders / goods SHOULD use the real upstream field structure with synthetic values (money in fen, unix-second times) so service views are exercised exactly as in live mode。
 
 ## 4. Validation & Error Matrix
@@ -58,7 +59,7 @@ runEndpoint(page, spec, params, ctx)
 | fixture file missing for endpoint        | deterministic fixture error; no browser fallback in fixture tests |
 | alternate `PDD_TEST_FIXTURE_DIR` set     | load fixtures from override directory                             |
 | fixture payload simulates business error | same `PddCliError` mapping as real adapter                        |
-| fixture cache stale across tests         | clear/reset via core owner, not ad-hoc module globals             |
+| fixture cache stale across tests         | instantiate a fresh `FixtureStore` per runtime/test; no global cache |
 | `PDD_TEST_PASSWORD_LOGIN` unknown value  | `E_USAGE`（"PDD_TEST_PASSWORD_LOGIN 配置无效"）                     |
 | `PDD_TEST_AUTH_INVALID=1`, no credential | original `E_AUTH_EXPIRED`; no trace line                          |
 
@@ -95,49 +96,26 @@ return data;
 
 ## 8. Real Code Examples
 
-### Fixture core (`src/adapter/fixtures/core.js:13-46`)
+### FixtureStore (`src/adapter/fixtures/core.js`)
 
 ```js
-export function isMockEnabled() {
-  return process.env[ENV_ENABLED] === 'fixture';
-}
-
-const cache = new Map();
-
-export function loadFixture(relPath) {
-  const full = join(fixtureDir(), relPath);
-  if (cache.has(full)) return cache.get(full);
-  if (!existsSync(full)) {
-    throw new PddCliError({
-      code: 'E_FIXTURE_MISSING',
-      message: `mock adapter: fixture not found at ${full}`,
-      hint: `确认 ${ENV_FIXTURE_DIR} 与 fixture 文件名`,
-      exitCode: ExitCodes.GENERAL,
-    });
-  }
-  const raw = readFileSync(full, 'utf8');
-  const parsed = JSON.parse(raw);
-  cache.set(full, parsed);
-  return parsed;
-}
-
-export function clearFixtureCache() {
-  cache.clear();
+export class FixtureStore {
+  constructor({ fixtureDir, env } = {}) { /* resolves dir and creates per-instance Map cache */ }
+  load(relPath) { /* reads JSON once per store instance or throws E_FIXTURE_MISSING */ }
 }
 ```
 
-### Env seam constants (`src/adapter/fixtures/core.js:8-11`)
+### Composition-root env whitelist (`src/runtime/env.js`)
 
 ```js
-export const ENV_ENABLED = 'PDD_TEST_ADAPTER';
-export const ENV_FIXTURE_DIR = 'PDD_TEST_FIXTURE_DIR';
-export const ENV_AUTH_INVALID = 'PDD_TEST_AUTH_INVALID';
-export const ENV_CONSUMER_AUTH_INVALID = 'PDD_TEST_CONSUMER_AUTH_INVALID';
+// parseRuntimeEnv(env, { mode }) resolves mode ('live' | 'fixture') from explicit mode or
+// env.PDD_TEST_ADAPTER === 'fixture' and freezes whitelisted PDD_TEST_* seams (live mode ignores them).
+// FixtureStore in src/adapter/fixtures/core.js reads PDD_TEST_FIXTURE_DIR via injected fixtureDir/env.
 ```
 
 ## 9. Endpoint Transport Parity
 
-- `PlaywrightEndpointClient.send(spec, params, ctx)` selects fixture transport by `isMockEnabled()`; live transport keeps page-api/fetch/legacy attempts and body parsing。
+- `EndpointClient.send(spec, params, ctx)` delegates to the injected `EndpointTransportPort` (`createFixtureEndpointTransport` in fixture mode; `createLiveEndpointTransport` keeps page-api/fetch/legacy attempts and body parsing)。
 - Fixture transport returns HTTP status 200, a cloned upstream body and a minimal response object with `status()`; business failures should use raw error bodies to exercise `successRule`, `errorMap`/`errorMapper` and rate-limit classification。
 - Both transports share HTTP 429 retry handling, `interpretResponse()`, normalization and cooldown accounting. Fixture requests skip token waiting。
 - Specs without `normalize` return `{ raw }` through both transports。
@@ -145,5 +123,5 @@ export const ENV_CONSUMER_AUTH_INVALID = 'PDD_TEST_CONSUMER_AUTH_INVALID';
 - Fixtures are named `endpoints/<spec.name>.json`; `<spec.name>.page<N>.json` takes precedence. Missing page 1 falls back to the base fixture。
 - A spec MAY declare `fixtureVariantKey: '<param>'`（例如 `'goods_id'`）; the key MUST name a scalar request param (string / number), never an array or object. When the request param is present, `<spec.name>.<param value>.json` is loaded first; a missing variant file falls back to the normal page/base lookup. `__throws` in a variant fixture applies as usual. Specs without the key ignore variant files。
 - Missing later pages clone the base body and empty the array at the dotted upstream `spec.fixtureListKey` (for example `result.pageItems`), preserving envelope, totals and aggregates. Invalid list paths fail with `E_FIXTURE_SHAPE`。
-- `fixtures/core.js` owns the cache; endpoint fixture reads return isolated clones. Missing fixtures fail with `E_FIXTURE_MISSING` without browser fallback。
+- `fixtures/core.js` provides `FixtureStore` for per-instance caching; endpoint fixture reads return isolated clones. Missing fixtures fail with `E_FIXTURE_MISSING` without browser fallback。
 - Regression coverage: `test/adapter/fixture-transport.test.js` compares raw 40002/54001 failures with live transport, proves normalization with a null page, raw-wrapper parity, pagination/cache isolation and cooldown accounting。

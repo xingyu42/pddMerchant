@@ -20,13 +20,14 @@ function anySignal(signals) {
   return { signal: controller.signal, dispose };
 }
 
-export function armDeadline(opts, parentSignal, startedAt) {
+export function armDeadline(opts, parentSignal, startedAt, clock) {
+  const now = clock?.now ?? (() => Date.now());
   const timeoutMs = Number.isFinite(opts.timeoutMs) && opts.timeoutMs > 0 ? opts.timeoutMs : null;
   const abortController = timeoutMs ? new AbortController() : null;
   let deadlineTimer = null;
   let deadlineAt = timeoutMs ? startedAt + timeoutMs : null;
   let remaining = null;
-  const arm = () => { deadlineTimer = setTimeout(() => abortController.abort(), Math.max(0, deadlineAt - Date.now())); };
+  const arm = () => { deadlineTimer = setTimeout(() => abortController.abort(), Math.max(0, deadlineAt - now())); };
   if (timeoutMs) arm();
   const { signal, dispose } = anySignal([parentSignal, abortController?.signal]);
   return {
@@ -35,14 +36,14 @@ export function armDeadline(opts, parentSignal, startedAt) {
     pause() {
       if (!timeoutMs || remaining !== null) return;
       throwIfAborted(signal);
-      remaining = Math.max(0, deadlineAt - Date.now());
+      remaining = Math.max(0, deadlineAt - now());
       if (remaining === 0) throw timeoutError();
       clearTimeout(deadlineTimer);
       deadlineAt = null;
     },
     resume() {
       if (!timeoutMs || remaining === null) return;
-      deadlineAt = Date.now() + remaining;
+      deadlineAt = now() + remaining;
       remaining = null;
       arm();
     },
@@ -64,7 +65,8 @@ export function throwIfAborted(signal) {
 
 export function remainingMs(ctx) {
   if (!ctx?.deadlineAt) return Infinity;
-  return Math.max(0, ctx.deadlineAt - Date.now());
+  const now = ctx?.clock?.now ?? (() => Date.now());
+  return Math.max(0, ctx.deadlineAt - now());
 }
 
 // 单步超时预算：不超过 capMs，也不越过 ctx.deadlineAt；至少 1ms 以便下游计时器正常触发。

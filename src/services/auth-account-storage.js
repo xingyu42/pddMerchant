@@ -3,10 +3,11 @@ import { listAccounts, getAccountById, findAccountByIdentity, insertAccount, upd
 import { assertLeaseOwner } from '../infra/leases.js';
 import { getMasterKey } from '../infra/master-key.js';
 import { loadAuthState, getAuthStateRevision, saveAuthStateSnapshot, authStateConflict } from '../adapter/auth-state.js';
-import { withMerchantAuthUpdate, merchantCandidateState, assertAuthTask } from '../adapter/merchant-auth-storage.js';
+import { withMerchantAuthUpdate, merchantCandidateState } from '../adapter/merchant-auth-storage.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
+import { assertAuthTask } from '../infra/auth-task.js';
 import { assertVerifiedMerchantCandidate } from '../adapter/merchant-auth.js';
-import { markManualLoginSucceeded } from './password-relogin.js';
+import { markManualLoginSucceeded } from './relogin-policy.js';
 
 function provisioningError(kind, reason) {
   return new PddCliError({
@@ -18,7 +19,8 @@ function provisioningError(kind, reason) {
 
 export function saveMerchantLogin(result, initial, task) {
   assertAuthTask(task);
-  assertVerifiedMerchantCandidate(result?.candidate);
+  const seal = task?.seal === undefined ? initial?.seal : task.seal;
+  assertVerifiedMerchantCandidate(result?.candidate, seal);
   // 主密钥指纹先独立确认，账号提交回滚时仍保留加密库的密钥标识。
   getMasterKey();
   const write = isInTransaction() ? (callback) => callback() : transaction;
@@ -29,7 +31,7 @@ export function saveMerchantLogin(result, initial, task) {
       if (!getAccountById(initial.accountId)) throw authStateConflict();
     }
     const candidate = result.candidate;
-    const state = merchantCandidateState(candidate, initial ?? {});
+    const state = merchantCandidateState(candidate, seal === undefined ? (initial ?? {}) : { ...(initial ?? {}), seal });
     const identity = candidate.identity;
     if (String(result.identity?.mallId ?? '') !== identity.mallId) {
       throw new PddCliError({ code: 'E_ACCOUNT_IDENTITY_MISMATCH', message: '账号登记身份与已验证材料不一致', exitCode: ExitCodes.AUTH });
@@ -45,7 +47,7 @@ export function saveMerchantLogin(result, initial, task) {
         { setDefault: listAccounts().length === 0 });
     }
     const loaded = initial ?? loadAuthState(account.id, { allowCorrupt: true });
-    merchantCandidateState(candidate, { state: loaded.state, recoveryMallId: account.identity });
+    merchantCandidateState(candidate, { state: loaded.state, recoveryMallId: account.identity, ...(seal === undefined ? {} : { seal }) });
     saveAuthStateSnapshot(state, account.id, { expectedRevision: initial?.revision ?? loaded.revision });
     if (initial) markManualLoginSucceeded(account.id);
     account = updateAccount(account.id, { displayName: identity.displayName, lastLoginAt: new Date().toISOString() });
@@ -66,12 +68,12 @@ export async function provisionMerchantLogin(login, { accountId, ...task } = {})
       }, { ...task, recoveryMallId: account.identity });
     }
     const result = await login({ ...task, state: null, revision: 0 });
-    assertVerifiedMerchantCandidate(result?.candidate);
+    assertVerifiedMerchantCandidate(result?.candidate, task.seal);
     const account = findAccountByIdentity('merchant', result.candidate.identity.mallId);
     if (!account) return saveMerchantLogin(result, null, task);
     return await withMerchantAuthUpdate(account.id, (initial) => saveMerchantLogin(result, initial, task), {
       ...task, recoveryMallId: account.identity,
-      deadlineAt: Math.min(task.deadlineAt ?? Infinity, Date.now() + 1500),
+      deadlineAt: Math.min(task.deadlineAt ?? Infinity, (task.clock?.now ? task.clock.now() : Date.now()) + 1500),
     });
   } catch (error) {
     if (error instanceof PddCliError) throw error;

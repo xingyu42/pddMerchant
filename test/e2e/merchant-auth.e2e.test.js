@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
 import { describe, it } from 'vitest';
-import { runCli } from '../helpers/isolated-cli.js';
+import { createCliSandbox, runCli, spawnNode } from '../helpers/isolated-cli.js';
 
 describe('merchant authentication CLI contract', () => {
   for (const args of [['login', '--qr'], ['init', '--qr'], ['account', 'add']]) {
@@ -62,5 +63,85 @@ describe('merchant authentication CLI contract', () => {
     assert.equal(result.status, 0);
     assert.ok(!Object.hasOwn(result.envelope.data.fields, 'refreshIntervalMs'));
     assert.ok(!Object.hasOwn(result.envelope.data.fields, 'refreshJitterMs'));
+  });
+
+  it('emits v2 envelopes with correlation_id and latency_ms for init, login, and login.consumer', () => {
+    for (const [args, expectedCommand, expectedMode] of [
+      [['init', '--qr'], 'init', '扫码登录'],
+      [['login', '--qr'], 'login', '扫码登录'],
+      [['login', '--consumer', '--qr'], 'login.consumer', '扫码登录'],
+      [['login', '--consumer', '--headed'], 'login.consumer', '有头浏览器登录'],
+    ]) {
+      const result = runCli(args, { accounts: [] });
+      assert.equal(result.status, 0);
+      assert.equal(result.envelope.ok, true);
+      assert.equal(result.envelope.command, expectedCommand);
+      assert.equal(result.envelope.meta.v, 2);
+      assert.equal(typeof result.envelope.meta.correlation_id, 'string');
+      assert.ok(result.envelope.meta.correlation_id.length > 0);
+      assert.equal(typeof result.envelope.meta.latency_ms, 'number');
+      assert.equal(result.envelope.data.mode, expectedMode);
+      assert.equal(result.stdout.trim().split(/\r?\n/).length, 1);
+    }
+
+    const unknownPassword = runCli(['login', '--consumer', '--password', 'secret']);
+    assert.equal(unknownPassword.status, 2);
+    assert.equal(unknownPassword.envelope.error.code, 'E_USAGE');
+
+    for (const args of [
+      ['init', '--all-accounts'],
+      ['login', '--all-accounts'],
+      ['login', '--consumer', '--all-accounts'],
+      ['account', 'add', '--all-accounts'],
+      ['account', 'list', '--all-accounts'],
+    ]) {
+      const batchReject = runCli(args);
+      assert.equal(batchReject.status, 2);
+      assert.equal(batchReject.envelope.error.code, 'E_USAGE');
+      assert.ok(batchReject.envelope.meta.correlation_id);
+    }
+  });
+
+  it('emits v2 envelopes with correlation_id, latency_ms, and warnings across account.* commands', () => {
+    const added = runCli(['account', 'add'], { accounts: [] });
+    assert.equal(added.status, 0);
+    assert.equal(added.envelope.command, 'account.add');
+    assert.equal(added.envelope.meta.v, 2);
+    assert.ok(added.envelope.meta.correlation_id);
+    assert.equal(typeof added.envelope.meta.latency_ms, 'number');
+    assert.equal(added.envelope.meta.warnings.includes('credentials_not_saved_headed_login'), true);
+
+    const accounts = [
+      { slug: 'shop-a', display_name: 'Shop A', identity: '900001', is_default: 1 },
+      { slug: 'shop-b', display_name: 'Shop B', identity: '900002', is_default: 0 },
+    ];
+    for (const [args, expectedCommand] of [
+      [['account', 'list'], 'account.list'],
+      [['account', 'default', '--slug', 'shop-b'], 'account.default'],
+      [['account', 'remove', '--slug', 'shop-b'], 'account.remove'],
+    ]) {
+      const res = runCli(args, { accounts });
+      assert.equal(res.status, 0);
+      assert.equal(res.envelope.ok, true);
+      assert.equal(res.envelope.command, expectedCommand);
+      assert.equal(res.envelope.meta.v, 2);
+      assert.ok(res.envelope.meta.correlation_id);
+      assert.equal(typeof res.envelope.meta.latency_ms, 'number');
+      assert.equal(res.stdout.trim().split(/\r?\n/).length, 1);
+    }
+  });
+
+  it('honors --no-color on non-JSON init output', async () => {
+    const sandbox = createCliSandbox({ accounts: [] });
+    try {
+      const cliPath = fileURLToPath(new URL('../../bin/pdd.js', import.meta.url));
+      const { NO_COLOR: _ignored, ...envWithoutNoColor } = sandbox.env;
+      const result = await spawnNode([cliPath, 'init', '--qr', '--no-color'], { env: envWithoutNoColor });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(/\u001b\[/.test(result.stdout), false);
+      assert.match(result.stdout, /init/);
+    } finally {
+      sandbox.dispose();
+    }
   });
 });

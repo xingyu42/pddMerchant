@@ -1,27 +1,18 @@
 // 批量执行器（design D-2）：--all-accounts 账号循环、jitter、SIGINT 中断与
-// batch envelope 终结。withCommand 同时分派 single/batch，依 DAG 只能住本模块
-//（batch-executor → single-lifecycle 是唯一允许同时触达两路径的位置）。
-import { randomUUID } from 'node:crypto';
-import { getLogger } from '../../infra/logger.js';
-import { emit, buildBatchEnvelope, batchRenderer } from '../../infra/output.js';
+// batch envelope 终结。withCommand 同时分派 single/batch，依 DAG 只能住本模块。
+import { emit as defaultEmit, buildBatchEnvelope, batchRenderer } from '../../infra/output.js';
 import { PddCliError, ExitCodes, errorToEnvelope, batchExitCode } from '../../infra/errors.js';
-import { abortableSleep } from '../../infra/abort.js';
+import { throwIfAborted } from '../../infra/abort.js';
 import { listAccounts } from '../../infra/account-store.js';
 import { executeSingle } from './single-lifecycle.js';
+import { normalizeCommandSpec, resolveNoColor, runWithEnvelopeKernel } from './envelope-kernel.js';
 
 const BATCH_JITTER_MIN = 2000;
 const BATCH_JITTER_MAX = 5000;
 
 const COOLDOWN_INHERITED_PREFIX = 'cooldown_inherited_from:';
-// 来源 endpoint 不明（错误形状缺 detail.endpoint）时的退化归因键
 const COOLDOWN_GLOBAL_KEY = '*';
 
-// R3 cooldown 归因状态机（design D-5）：返回更新后的「endpoint → 冷却源 slug」映射，仅批量路径调用。
-// 冷却状态在 endpoint-client 按 endpoint 分键（进程内共享），归因同维度展开（codex 终审建议）：
-// "自身被限流"（E_RATE_LIMIT 且 detail.cooldown_triggered 非真）→ 当前账号成为该 endpoint 的源
-//   （last-wins；detail.endpoint 缺失时退化记入 '*'）；
-// "命中已激活冷却"（cooldown_triggered === true）→ 先查同 endpoint 源、缺失退化查 '*'，
-//   源非自身则追加继承警告（additive-only，不触碰 ok/exit_code/data，batchExitCode 语义不变）。
 function applyCooldownAttribution(result, slug, sourcesByEndpoint) {
   if (result?.ok !== false || result.error?.code !== 'E_RATE_LIMIT') return sourcesByEndpoint;
   const endpoint = result.error.detail?.endpoint ?? COOLDOWN_GLOBAL_KEY;
@@ -92,25 +83,35 @@ function appendBatchWarnings(target, warnings) {
 async function runOneAccount(spec, opts, account, batch, runtimeConfig) {
   const perOpts = buildPerAccountOptions(opts, account, batch);
   const perAccountCorrelation = perOpts._correlationId;
+  const scopedRuntime = batch.runtime.scopeRuntime({
+    signal: batch.signal,
+    correlationId: perAccountCorrelation,
+  });
 
-  const envelope = await executeSingle(spec, perOpts, {
-    emitResult: false,
-    parentSignal: batch.signal,
-    ...(runtimeConfig ? { runtimeConfig } : {}),
-  }).catch((err) => errorToEnvelope(spec.name, err, {
-    latency_ms: Date.now() - batch.startedAt,
-    correlation_id: perAccountCorrelation,
-  }));
+  try {
+    const envelope = await executeSingle(spec, perOpts, {
+      emitResult: false,
+      parentSignal: batch.signal,
+      parentDeadline: batch.runtime.deadline,
+      runtime: scopedRuntime,
+      ...(runtimeConfig !== undefined ? { runtimeConfig } : {}),
+    }).catch((err) => errorToEnvelope(spec.name, err, {
+      latency_ms: batch.runtime.clock.now() - batch.startedAt,
+      correlation_id: perAccountCorrelation,
+    }));
 
-  return {
-    ok: envelope.ok,
-    data: envelope.data,
-    error: envelope.error,
-    exit_code: envelope.meta?.exit_code ?? ExitCodes.GENERAL,
-    latency_ms: envelope.meta?.latency_ms ?? 0,
-    command: envelope.command,
-    meta: envelope.meta,
-  };
+    return {
+      ok: envelope.ok,
+      data: envelope.data,
+      error: envelope.error,
+      exit_code: envelope.meta?.exit_code ?? ExitCodes.GENERAL,
+      latency_ms: envelope.meta?.latency_ms ?? 0,
+      command: envelope.command,
+      meta: envelope.meta,
+    };
+  } finally {
+    await scopedRuntime.closeAll();
+  }
 }
 
 async function runAccountLoop(spec, opts, accounts, batch, runtimeConfig) {
@@ -123,7 +124,6 @@ async function runAccountLoop(spec, opts, accounts, batch, runtimeConfig) {
     batch.log.info({ slug, index: i, total: accounts.length }, 'batch: executing account');
 
     const result = await runOneAccount(spec, opts, accounts[i], batch, runtimeConfig);
-    // 归因须先于 warnings 上抛：继承警告借下方既有复制循环进入 batchWarnings。
     cooldownSources = applyCooldownAttribution(result, slug, cooldownSources);
     accountResults[slug] = result;
 
@@ -133,7 +133,7 @@ async function runAccountLoop(spec, opts, accounts, batch, runtimeConfig) {
 
     if (i < accounts.length - 1 && !batch.signal.aborted) {
       try {
-        await abortableSleep(batchJitterMs(), batch.signal);
+        await batch.runtime.clock.sleep(batchJitterMs(), batch.signal);
       } catch {
         break;
       }
@@ -142,88 +142,102 @@ async function runAccountLoop(spec, opts, accounts, batch, runtimeConfig) {
   return accountResults;
 }
 
-function finalizeBatch(spec, opts, accountResults, batch) {
-  const aborted = batch.signal.aborted;
-  if (aborted) {
+function finalizeBatch(spec, opts, accountResults, batch, interruptedBySigint = false) {
+  if (interruptedBySigint) {
     batch.warnings.push('batch_interrupted_sigint');
   }
 
-  const batchEnvelope = buildBatchEnvelope(spec.name, accountResults, {
-    latency_ms: Date.now() - batch.startedAt,
-    correlation_id: batch.correlationId,
-    exit_code: aborted ? 130 : batchExitCode(accountResults),
-    warnings: [...new Set(batch.warnings)],
-  });
+  const batchEnvelope = buildBatchEnvelope(
+    spec.name,
+    accountResults,
+    {
+      latency_ms: batch.runtime.clock.now() - batch.startedAt,
+      correlation_id: batch.correlationId,
+      exit_code: interruptedBySigint ? 130 : batchExitCode(accountResults),
+      warnings: [...new Set(batch.warnings)],
+    },
+    {
+      debugRaw: Boolean(batch.runtime.env?.debugRaw),
+      onRawDebug: typeof batch.runtime.outputSink?.writeDebugRaw === 'function'
+        ? (entry) => batch.runtime.outputSink.writeDebugRaw(entry)
+        : undefined,
+    },
+  );
 
-  emit(batchEnvelope, {
-    json: opts.json,
-    noColor: opts.noColor,
+  const emitFn = batch.runtime.outputSink?.emit ?? defaultEmit;
+  emitFn(batchEnvelope, {
+    json: Boolean(opts.json),
+    noColor: resolveNoColor(opts),
     renderer: (env, renderOpts) => [
       ...(env.data?.headline ?? []),
       batchRenderer(accountResults, renderOpts),
     ].join('\n'),
   });
 
-  if (aborted) {
+  if (interruptedBySigint) {
     process.exitCode = 130;
   }
 
   return batchEnvelope;
 }
 
-async function executeBatch(spec, opts, runtimeConfig) {
-  const startedAt = Date.now();
-  const correlationId = randomUUID();
-
-  const log = getLogger().withOp
-    ? getLogger().withOp({ command: spec.name, correlation_id: correlationId })
-    : getLogger();
-
+async function executeBatch(spec, opts, runtime) {
   const warnings = validateBatchOptions(opts);
-
+  runtime.warnings.push(...warnings);
+  throwIfAborted(runtime.signal);
   const accounts = listMerchantAccounts();
 
   const abortController = new AbortController();
-  const onSigint = () => abortController.abort();
+  let interruptedBySigint = false;
+  const parentSignal = runtime.signal;
+  const onParentAbort = () => abortController.abort(parentSignal.reason);
+  const onSigint = () => {
+    interruptedBySigint = true;
+    abortController.abort();
+  };
+  if (parentSignal?.aborted) {
+    abortController.abort(parentSignal.reason);
+  } else {
+    parentSignal?.addEventListener('abort', onParentAbort, { once: true });
+  }
   process.prependListener('SIGINT', onSigint);
 
-  const batch = { startedAt, correlationId, warnings, log, signal: abortController.signal };
+  const batch = {
+    startedAt: runtime.startedAt,
+    correlationId: runtime.correlationId,
+    warnings: runtime.warnings,
+    log: runtime.log,
+    signal: abortController.signal,
+    runtime,
+  };
   let accountResults;
   try {
-    accountResults = await runAccountLoop(spec, opts, accounts, batch, runtimeConfig);
+    accountResults = await runAccountLoop(spec, opts, accounts, batch, runtime.runtimeConfig);
   } finally {
     process.removeListener('SIGINT', onSigint);
+    parentSignal?.removeEventListener('abort', onParentAbort);
   }
 
-  return finalizeBatch(spec, opts, accountResults, batch);
+  if (!interruptedBySigint) throwIfAborted(parentSignal);
+  return finalizeBatch(spec, opts, accountResults, batch, interruptedBySigint);
 }
 
-export function withCommand({
-  name,
-  needsAuth = true,
-  needsMall = 'current',
-  needsBrowser = true,
-  needsAccount = false,
-  allowAllAccounts = true,
-  run,
-  render,
-}) {
-  const spec = { name, needsAuth, needsMall, needsBrowser, needsAccount, run, render };
-  return function executeCommand(opts = {}, { runtimeConfig } = {}) {
-    if (opts.allAccounts && !allowAllAccounts) {
-      throw new PddCliError({
-        code: 'E_USAGE',
-        message: `${name} does not support --all-accounts`,
-        hint: '写操作不支持批量账号执行，请指定单一账号',
-        exitCode: ExitCodes.USAGE,
+export function withCommand(rawSpec) {
+  const spec = normalizeCommandSpec(rawSpec);
+  async function executeCommand(opts = {}, extra = {}) {
+    return runWithEnvelopeKernel(spec, opts, extra, async ({ spec: resolvedSpec, opts: resolvedOpts, runtime }) => {
+      if (resolvedOpts.allAccounts && resolvedSpec.needsAuth) {
+        return executeBatch(resolvedSpec, resolvedOpts, runtime);
+      }
+      return executeSingle(resolvedSpec, resolvedOpts, {
+        emitResult: true,
+        parentSignal: runtime.signal,
+        runtimeConfig: runtime.runtimeConfig,
+        runtime,
       });
-    }
-    if (opts.allAccounts && needsAuth) {
-      return executeBatch(spec, opts, runtimeConfig);
-    }
-    return executeSingle(spec, opts, {
-      emitResult: true,
-      ...(runtimeConfig ? { runtimeConfig } : {}),
     });
-  };
+  }
+  executeCommand.runtimeConfigPolicy = spec.runtimeConfigPolicy;
+  executeCommand.lifecycle = spec.lifecycle;
+  return executeCommand;
 }

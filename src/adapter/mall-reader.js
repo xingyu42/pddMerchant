@@ -1,7 +1,7 @@
 import { PddCliError, ExitCodes } from '../infra/errors.js';
-import { isMockEnabled, mockCurrentMall, mockListMalls } from './mock-dispatcher.js';
 import { hasMallId, readActiveIdFromXhr } from './mall-xhr-probe.js';
 import { evaluateInMainWorld } from './browser.js';
+import { buildMallContext, resolveTargetPage } from './mall-context.js';
 
 const MALL_LIST_PATHS = [
   ['__PRELOADED_STATE__', 'mall', 'mallList'],
@@ -46,7 +46,7 @@ const STORAGE_ACTIVE_ID_KEYS = [
 const MALL_CONTEXT_HINT =
   '若 pdd doctor 显示已登录但店铺识别失败，可能是 mall-switcher 选择器或状态键已过期；可先用 --mall <id> 手动指定';
 
-const SWITCHER_TRIGGER_SELECTORS = [
+export const SWITCHER_TRIGGER_SELECTORS = [
   '[data-testid="mall-switcher"]',
   '[data-testid="shop-switcher"]',
   '[data-testid="mall-select"]',
@@ -116,37 +116,7 @@ async function readActiveIdFromStorage(page) {
   }
 }
 
-function normalizeMallRecord(raw, activeId) {
-  const id = String(raw.mallId ?? raw.mall_id ?? raw.id ?? '');
-  const name = String(raw.mallName ?? raw.mall_name ?? raw.name ?? '');
-  const isCurrent = activeId != null && String(activeId) === id;
-  return { id, name, is_current: isCurrent };
-}
-
-function normalizeMallList(rawList, activeId) {
-  if (!Array.isArray(rawList)) return [];
-  return rawList.map((item) => normalizeMallRecord(item, activeId)).filter((m) => m.id);
-}
-
-function resolveActiveName(activeName, malls, activeId) {
-  if (typeof activeName === 'string' && activeName.length > 0) return activeName;
-  if (activeId == null || !Array.isArray(malls)) return '';
-  const hit = malls.find((m) => m.id === String(activeId));
-  return typeof hit?.name === 'string' ? hit.name : '';
-}
-
-function buildMallContext({ activeId, activeName, malls, source }) {
-  const normalizedId = activeId == null ? null : String(activeId);
-  const normalizedMalls = normalizeMallList(malls, normalizedId);
-  return {
-    activeId: normalizedId,
-    activeName: resolveActiveName(activeName, normalizedMalls, normalizedId),
-    malls: normalizedMalls,
-    source: source ?? null,
-  };
-}
-
-async function tryOpenSwitcher(page) {
+export async function tryOpenSwitcher(page) {
   for (const sel of SWITCHER_TRIGGER_SELECTORS) {
     try {
       if (typeof page.locator !== 'function') break;
@@ -180,67 +150,49 @@ async function readMallListFromDom(page) {
   }
 }
 
-export async function resolveMallContext(page, opts = {}) {
-  if (isMockEnabled()) {
-    const current = await mockCurrentMall();
-    const malls = await mockListMalls();
-    return buildMallContext({
-      activeId: current?.id ?? null,
-      activeName: current?.name ?? '',
-      malls: Array.isArray(malls) ? malls : [],
-      source: 'mock',
-    });
-  }
+async function probeDomMallContext(page, activeNameFromState) {
+  const opened = await tryOpenSwitcher(page);
+  if (!opened) return null;
+  const domMalls = await readMallListFromDom(page);
+  try { await page.keyboard?.press?.('Escape'); } catch { /* ignore */ }
+  if (domMalls.length === 0) return null;
+  const firstId = domMalls[0]?.mallId ?? domMalls[0]?.id ?? null;
+  return buildMallContext({ activeId: firstId, activeName: activeNameFromState, malls: domMalls, source: 'dom' });
+}
 
+export async function detectLiveMallContext(target, opts = {}) {
+  const page = resolveTargetPage(target);
   const { activeProbeReload = false } = opts;
   const activeNameFromState = await readFromState(page, CURRENT_NAME_PATHS);
   const mallListFromState = await readFromState(page, MALL_LIST_PATHS);
 
-  const fromState = await readFromState(page, CURRENT_STATE_PATHS);
-  if (hasMallId(fromState)) {
-    return buildMallContext({ activeId: fromState, activeName: activeNameFromState, malls: mallListFromState, source: 'state' });
-  }
-
-  const fromUrl = await readActiveIdFromUrl(page);
-  if (hasMallId(fromUrl)) {
-    return buildMallContext({ activeId: fromUrl, activeName: activeNameFromState, malls: mallListFromState, source: 'url' });
-  }
-
-  const fromCookie = await readActiveIdFromCookie(page);
-  if (hasMallId(fromCookie)) {
-    return buildMallContext({ activeId: fromCookie, activeName: activeNameFromState, malls: mallListFromState, source: 'cookie' });
-  }
-
-  const fromStorage = await readActiveIdFromStorage(page);
-  if (hasMallId(fromStorage)) {
-    return buildMallContext({ activeId: fromStorage, activeName: activeNameFromState, malls: mallListFromState, source: 'storage' });
+  const directSources = [
+    ['state', () => readFromState(page, CURRENT_STATE_PATHS)],
+    ['url', () => readActiveIdFromUrl(page)],
+    ['cookie', () => readActiveIdFromCookie(page)],
+    ['storage', () => readActiveIdFromStorage(page)],
+  ];
+  for (const [source, read] of directSources) {
+    const activeId = await read();
+    if (hasMallId(activeId)) {
+      return buildMallContext({ activeId, activeName: activeNameFromState, malls: mallListFromState, source });
+    }
   }
 
   if (activeProbeReload && typeof page?.reload === 'function') {
     try { await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 }); } catch { /* best-effort */ }
   }
-
   const fromXhr = await readActiveIdFromXhr(page);
   if (hasMallId(fromXhr)) {
     return buildMallContext({ activeId: fromXhr, activeName: activeNameFromState, malls: mallListFromState, source: 'xhr' });
   }
 
-  const opened = await tryOpenSwitcher(page);
-  if (opened) {
-    const domMalls = await readMallListFromDom(page);
-    try { await page.keyboard?.press?.('Escape'); } catch { /* ignore */ }
-    if (domMalls.length > 0) {
-      const firstId = domMalls[0]?.mallId ?? domMalls[0]?.id ?? null;
-      return buildMallContext({ activeId: firstId, activeName: activeNameFromState, malls: domMalls, source: 'dom' });
-    }
-  }
-
-  return buildMallContext({ activeId: null, activeName: activeNameFromState, malls: mallListFromState, source: null });
+  return (await probeDomMallContext(page, activeNameFromState))
+    ?? buildMallContext({ activeId: null, activeName: activeNameFromState, malls: mallListFromState, source: null });
 }
 
-export async function currentMall(page) {
-  if (isMockEnabled()) return mockCurrentMall();
-  const ctx = await resolveMallContext(page);
+export async function currentLiveMall(target) {
+  const ctx = await detectLiveMallContext(target);
   if (!ctx.activeId) {
     throw new PddCliError({
       code: 'E_MALL_CONTEXT_MISSING',
@@ -252,9 +204,8 @@ export async function currentMall(page) {
   return { id: ctx.activeId, name: ctx.activeName, source: ctx.source };
 }
 
-export async function listMalls(page) {
-  if (isMockEnabled()) return mockListMalls();
-  const ctx = await resolveMallContext(page);
+export async function listMalls(target) {
+  const ctx = await detectLiveMallContext(target);
   if (ctx.malls.length > 0) return ctx.malls;
   if (ctx.activeId) {
     return [{ id: ctx.activeId, name: ctx.activeName, is_current: true }];
@@ -267,7 +218,4 @@ export async function listMalls(page) {
   });
 }
 
-export {
-  buildMallContext,
-  SWITCHER_TRIGGER_SELECTORS,
-};
+export { buildMallContext };
