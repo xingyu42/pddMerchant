@@ -134,11 +134,11 @@ export function createFixtureBundle({ seal, clock, parsedEnv, env, overrides = {
     : Object.freeze([]);
   const loadFixture = (relPath) => fixtureStore.load(relPath);
 
-  function createFixtureSourceFetcher({ parsedEnv: envConfig, browserPort, scrapeCooldown }) {
+  function createFixtureSourceFetcher({ browserPort, scrapeCooldown }) {
     const baseFetcher = createSourceProductFetcher({
       sourceCache: createNullSourceGoodsCache(),
       scrapeCooldown,
-      sourceProxyEnv: envConfig.sourceProxyEnv,
+      sourceProxyEnv: {},
       scrapeSimulate: false,
       browserPort,
       observePage: createFixtureObserveSourcePage({ fixtureStore }),

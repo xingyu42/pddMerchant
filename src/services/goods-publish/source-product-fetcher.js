@@ -177,8 +177,13 @@ async function resolveConsumerTarget(consumerAccount, resolveConsumerAccount) {
   return { accountId: resolved.accountId, storageState: undefined };
 }
 
-async function scrapeDirect({ goodsId, target, openContext, scrapeDeps }) {
-  const { observePage, scrapeSimulate, random, scrapeCooldown, log } = scrapeDeps;
+function resolveActiveLog(scrapeDeps, callLog) {
+  return callLog ?? scrapeDeps?.log ?? getLogger();
+}
+
+async function scrapeDirect({ goodsId, target, openContext, scrapeDeps, log }) {
+  const { observePage, scrapeSimulate, random, scrapeCooldown } = scrapeDeps;
+  const activeLog = resolveActiveLog(scrapeDeps, log);
   const consumer = await openContext(target.accountId, { storageState: target.storageState });
   try {
     const observed = await observePage(consumer.page, goodsId, {
@@ -186,19 +191,20 @@ async function scrapeDirect({ goodsId, target, openContext, scrapeDeps }) {
       random,
       scoreCandidate: scoreCandidateForObserver,
     });
-    return normalizeObservedResult(observed, scrapeCooldown, log);
+    return normalizeObservedResult(observed, scrapeCooldown, activeLog);
   } finally {
     await consumer.close();
   }
 }
 
-async function runProxyAttempt({ goodsId, proxyConfig, attempt, target, openContext, signal, scrapeDeps }) {
-  const { acquireProxyLease, observePage, scrapeSimulate, random, scrapeCooldown, now, log } = scrapeDeps;
+async function runProxyAttempt({ goodsId, proxyConfig, attempt, target, openContext, signal, scrapeDeps, log }) {
+  const { acquireProxyLease, observePage, scrapeSimulate, random, scrapeCooldown, now } = scrapeDeps;
+  const activeLog = resolveActiveLog(scrapeDeps, log);
   let consumer = null;
   let lease = null;
   try {
     lease = await acquireProxyLease(proxyConfig, { signal });
-    log.debug(proxyLeaseSummary(lease, attempt, now), 'goods-publish: source proxy acquired');
+    activeLog.debug(proxyLeaseSummary(lease, attempt, now), 'goods-publish: source proxy acquired');
     consumer = await openContext(target.accountId, {
       storageState: target.storageState,
       proxy: { server: lease.server },
@@ -208,8 +214,8 @@ async function runProxyAttempt({ goodsId, proxyConfig, attempt, target, openCont
       random,
       scoreCandidate: scoreCandidateForObserver,
     });
-    const source = normalizeObservedResult(observed, scrapeCooldown, log);
-    log.debug({ ...proxyLeaseSummary(lease, attempt, now), result: 'success' },
+    const source = normalizeObservedResult(observed, scrapeCooldown, activeLog);
+    activeLog.debug({ ...proxyLeaseSummary(lease, attempt, now), result: 'success' },
       'goods-publish: source proxy attempt completed');
     return source;
   } catch (err) {
@@ -218,17 +224,17 @@ async function runProxyAttempt({ goodsId, proxyConfig, attempt, target, openCont
     const failedSummary = lease
       ? proxyLeaseSummary(lease, attempt, now)
       : { provider: 'qingguo', attempt, request_id_hash: mapped?.detail?.request_id_hash ?? null };
-    log.debug({ ...failedSummary, result: mapped?.code ?? 'E_GENERAL' }, 'goods-publish: source proxy attempt failed');
+    activeLog.debug({ ...failedSummary, result: mapped?.code ?? 'E_GENERAL' }, 'goods-publish: source proxy attempt failed');
     throw mapped;
   } finally {
     await consumer?.close();
   }
 }
 
-async function scrapeWithProxy({ goodsId, proxyConfig, target, openContext, signal, onRetryRecovered, scrapeDeps }) {
+async function scrapeWithProxy({ goodsId, proxyConfig, target, openContext, signal, onRetryRecovered, scrapeDeps, log }) {
   for (let attempt = 1; attempt <= SOURCE_PROXY_MAX_ATTEMPTS; attempt += 1) {
     try {
-      const source = await runProxyAttempt({ goodsId, proxyConfig, attempt, target, openContext, signal, scrapeDeps });
+      const source = await runProxyAttempt({ goodsId, proxyConfig, attempt, target, openContext, signal, scrapeDeps, log });
       if (attempt > 1) onRetryRecovered();
       return source;
     } catch (err) {
@@ -252,15 +258,15 @@ function createLiveAcquisition({ goodsId, proxyConfig, warnings, clearCache, scr
     resolveConsumerAccount,
     loadConsumerAuthState,
     deleteConsumerAuthState,
-    log,
   } = scrapeDeps;
 
   return Object.freeze({
     goodsId,
     cacheHit: false,
     warnings,
-    async fetch({ signal, consumerAccount, warnings: callerWarnings, browserSession: callSession } = {}) {
+    async fetch({ signal, consumerAccount, warnings: callerWarnings, browserSession: callSession, log: callLog } = {}) {
       throwIfAborted(signal);
+      const log = resolveActiveLog(scrapeDeps, callLog);
       const target = await resolveConsumerTarget(consumerAccount, resolveConsumerAccount);
       const openContext = buildContextOpener({
         browserPort,
@@ -276,8 +282,8 @@ function createLiveAcquisition({ goodsId, proxyConfig, warnings, clearCache, scr
       try {
         log.info({ goodsId }, 'goods-publish: Phase A — scraping source');
         source = proxyConfig.enabled
-          ? await scrapeWithProxy({ goodsId, proxyConfig, target, openContext, signal, onRetryRecovered, scrapeDeps })
-          : await scrapeDirect({ goodsId, target, openContext, scrapeDeps });
+          ? await scrapeWithProxy({ goodsId, proxyConfig, target, openContext, signal, onRetryRecovered, scrapeDeps, log })
+          : await scrapeDirect({ goodsId, target, openContext, scrapeDeps, log });
       } catch (err) {
         await invalidateDegradedConsumerAuth(err, target.accountId, deleteConsumerAuthState, log);
         throw err;
@@ -291,12 +297,14 @@ function createLiveAcquisition({ goodsId, proxyConfig, warnings, clearCache, scr
   });
 }
 
-async function prepareSourceAcquisition(goodsUrl, sourceProxyEnv, readProxyConfig, scrapeDeps) {
-  const { sourceCache, scrapeCooldown, log } = scrapeDeps;
+async function prepareSourceAcquisition(goodsUrl, sourceProxyEnv, readProxyConfig, scrapeDeps, { log: callLog } = {}) {
+  const { sourceCache, scrapeCooldown } = scrapeDeps;
+  const log = resolveActiveLog(scrapeDeps, callLog);
   const goodsId = parseGoodsUrl(goodsUrl);
   const cachedSource = await readCachedSource(sourceCache, goodsId, log);
   const warnings = [];
-  const clearCache = (callerWarnings) => clearCachedSource(sourceCache, goodsId, callerWarnings ?? warnings, log);
+  const clearCache = (callerWarnings, clearLog) =>
+    clearCachedSource(sourceCache, goodsId, callerWarnings ?? warnings, resolveActiveLog(scrapeDeps, clearLog ?? callLog));
 
   if (cachedSource) {
     return Object.freeze({
@@ -339,10 +347,10 @@ export function createSourceProductFetcher(options = {}) {
     sleep: options.sleep ?? abortableSleep,
     now: options.now ?? Date.now,
     random: options.random ?? Math.random,
-    log: options.log ?? getLogger(),
+    log: options.log ?? null,
   };
 
   return Object.freeze({
-    prepare: (goodsUrl) => prepareSourceAcquisition(goodsUrl, sourceProxyEnv, readProxyConfig, scrapeDeps),
+    prepare: (goodsUrl, prepareOpts) => prepareSourceAcquisition(goodsUrl, sourceProxyEnv, readProxyConfig, scrapeDeps, prepareOpts),
   });
 }

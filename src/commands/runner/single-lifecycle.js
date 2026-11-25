@@ -202,7 +202,31 @@ function buildOwnedRuntimeState({ normSpec, opts, composedRuntime, parentSignal 
   return { startedAt, correlationId, warnings: [], log, opts: resolvedOpts, deadline };
 }
 
-function prepareSingleState({ normSpec, opts, composedRuntime, parentSignal, runtimeConfig, endpointState, emitResult }) {
+function chainDeadline(accountDeadline, parentDeadline) {
+  if (!parentDeadline) return accountDeadline;
+  return {
+    get signal() { return accountDeadline.signal; },
+    get deadlineAt() { return accountDeadline.deadlineAt; },
+    pause() {
+      parentDeadline.pause();
+      try {
+        accountDeadline.pause();
+      } catch (err) {
+        parentDeadline.resume();
+        throw err;
+      }
+    },
+    resume() {
+      accountDeadline.resume();
+      parentDeadline.resume();
+    },
+    dispose() {
+      accountDeadline.dispose();
+    },
+  };
+}
+
+function prepareSingleState({ normSpec, opts, composedRuntime, parentSignal, parentDeadline, runtimeConfig, endpointState, emitResult }) {
   const ownsDeadline = !composedRuntime.deadline;
   const owned = ownsDeadline
     ? buildOwnedRuntimeState({ normSpec, opts, composedRuntime, parentSignal })
@@ -214,13 +238,17 @@ function prepareSingleState({ normSpec, opts, composedRuntime, parentSignal, run
         opts: composedRuntime.opts ?? opts,
         deadline: composedRuntime.deadline,
       };
+  const deadline = ownsDeadline && parentDeadline
+    ? chainDeadline(owned.deadline, parentDeadline)
+    : owned.deadline;
   const runtime = {
     ...composedRuntime,
     ...owned,
+    deadline,
     emitResult,
     accountCtx: null,
-    signal: owned.deadline.signal,
-    get deadlineAt() { return owned.deadline.deadlineAt; },
+    signal: deadline.signal,
+    get deadlineAt() { return deadline.deadlineAt; },
     runtimeConfig: runtimeConfig ?? composedRuntime.runtimeConfig,
     endpointState: endpointState ?? composedRuntime.endpointState,
   };
@@ -230,6 +258,7 @@ function prepareSingleState({ normSpec, opts, composedRuntime, parentSignal, run
 export async function executeSingle(spec, opts = {}, {
   emitResult = true,
   parentSignal,
+  parentDeadline = null,
   runtimeConfig,
   endpointState = null,
   runtime: providedRuntime = null,
@@ -245,7 +274,7 @@ export async function executeSingle(spec, opts = {}, {
   });
   const normSpec = normalizeSingleSpec(spec, opts);
   const { ownsDeadline, runtime } = prepareSingleState({
-    normSpec, opts, composedRuntime, parentSignal, runtimeConfig, endpointState, emitResult,
+    normSpec, opts, composedRuntime, parentSignal, parentDeadline, runtimeConfig, endpointState, emitResult,
   });
 
   try {

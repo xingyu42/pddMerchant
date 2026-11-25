@@ -3,12 +3,14 @@ import { afterEach, describe, it, vi } from 'vitest';
 import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
 import { insertAccount } from '../../src/infra/account-store.js';
 import { ExitCodes, PddCliError } from '../../src/infra/errors.js';
+import { createLogger } from '../../src/infra/logger.js';
 import { createScrapeCooldown } from '../../src/infra/scrape-cooldown.js';
 import { createSourceProductFetcher } from '../../src/services/goods-publish/source-product-fetcher.js';
 import { createInMemoryBrowserRuntime } from '../helpers/in-memory-ports.js';
 
 afterEach(() => {
   vi.useRealTimers();
+  createLogger({ level: 'silent' });
 });
 
 function seedConsumerAccount({
@@ -553,6 +555,44 @@ describe('SourceProductFetcher', () => {
       });
       const acqQuota = await quotaFetcher.prepare('123456');
       await assert.rejects(acqQuota.fetch(), { code: 'E_PROXY_QUOTA' });
+    } finally {
+      await session.close();
+    }
+  });
+
+  it('routes diagnostic logs to the logger created via createLogger() after fetcher construction', async () => {
+    seedConsumerAccount();
+    createLogger({ level: 'silent' });
+    const cooldown = createScrapeCooldown({ threshold: 2, cooldownMs: 60_000, statePath: null });
+    const cache = makeMemoryCache();
+    const browser = createInMemoryBrowserRuntime();
+    const session = await browser.openSession();
+
+    try {
+      const fetcher = createSourceProductFetcher({
+        sourceCache: cache,
+        scrapeCooldown: cooldown,
+        browserPort: browser,
+        browserSession: session,
+        observePage: async (page) => ({
+          earlyObservation: null,
+          observation: makeValidObservation(),
+          pageUrl: page.url(),
+        }),
+      });
+
+      const chunks = [];
+      createLogger({
+        level: 'debug',
+        destination: { write(chunk) { chunks.push(String(chunk)); } },
+      });
+
+      const acq = await fetcher.prepare('123456');
+      await acq.fetch();
+      const output = chunks.join('');
+      assert.match(output, /goods-publish: Phase A — scraping source/);
+      assert.match(output, /source-scrape extracted fields/);
+      assert.match(output, /goods-publish: source cache written/);
     } finally {
       await session.close();
     }

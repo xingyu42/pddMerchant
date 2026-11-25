@@ -165,7 +165,6 @@ async function commitLogin(session, tx, handle, { seal, commit }) {
   session.qrImage = null;
   const result = await handle.verify({
     expectedMallId: tx.recoveryMallId,
-    state: tx.state,
     signal: tx.signal,
     deadlineAt: tx.deadlineAt,
   });

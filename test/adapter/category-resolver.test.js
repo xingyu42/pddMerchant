@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
-import { describe, it, vi } from 'vitest';
+import { afterEach, describe, it, vi } from 'vitest';
 import { createCategoryResolver } from '../../src/adapter/goods-publish/category-resolver.js';
 import { ExitCodes, PddCliError } from '../../src/infra/errors.js';
+import { createLogger } from '../../src/infra/logger.js';
+
+afterEach(() => {
+  createLogger({ level: 'silent' });
+});
 
 describe('CategoryResolverPort (instance-scoped)', () => {
   it('resolves category ids to normalized category fields and searchText', async () => {
@@ -119,5 +124,26 @@ describe('CategoryResolverPort (instance-scoped)', () => {
       (err) => err instanceof PddCliError && err.code === 'E_BUSINESS' && err.exitCode === ExitCodes.BUSINESS,
     );
     assert.equal(fetchMock.mock.calls.length, 1);
+  });
+
+  it('routes diagnostic logs to the logger created via createLogger() after resolver construction', async () => {
+    createLogger({ level: 'silent' });
+    const resolver = createCategoryResolver({
+      apiBase: 'https://category.example',
+      fetch: vi.fn(async () => { throw new Error('upstream down'); }),
+      sleep: async () => {},
+      failureThreshold: 1,
+    });
+
+    const chunks = [];
+    createLogger({
+      level: 'debug',
+      destination: { write(chunk) { chunks.push(String(chunk)); } },
+    });
+
+    await assert.rejects(resolver.resolve({ catId3: 1003 }), { code: 'E_NETWORK' });
+    const output = chunks.join('');
+    assert.match(output, /category API attempt failed/);
+    assert.match(output, /category API circuit tripped/);
   });
 });

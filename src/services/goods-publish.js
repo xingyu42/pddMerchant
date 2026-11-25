@@ -158,7 +158,7 @@ async function prepareAndFetchSource({
   setSourceCached,
 }) {
   const acquisition = await runPublishStage('prepare_source', getSourceCached, async () => {
-    const prepared = await sourceFetcher.prepare(goodsUrl);
+    const prepared = await sourceFetcher.prepare(goodsUrl, { log: ctx.log });
     setSourceCached(Boolean(prepared?.cacheHit));
     return prepared;
   });
@@ -173,6 +173,7 @@ async function prepareAndFetchSource({
       consumerAccount: ctx.config?.consumerAccount,
       warnings,
       browserSession: ctx.browserSession,
+      log: ctx.log,
     });
     appendUniqueWarnings(warnings, acquisition.warnings);
     return fetched;
@@ -273,7 +274,7 @@ async function runPublishFlow(ctx, goodsUrl, opts = {}) {
     ctx.log?.info?.({ catId3 }, 'goods-publish: Phase B — resolving category');
     return categoryResolver.resolve(
       { catId1: preDraftPlan.source.catID1, catId2: preDraftPlan.source.catID2, catId3 },
-      { signal: ctx.signal, apiBase: ctx.runtimeConfig?.categoryApiBase },
+      { signal: ctx.signal, apiBase: ctx.runtimeConfig?.categoryApiBase, log: ctx.log },
     );
   });
   const categorySearchText = categoryTextOf(category);
@@ -302,7 +303,7 @@ async function runPublishFlow(ctx, goodsUrl, opts = {}) {
         }),
       );
 
-  await acquisition.clearCache(warnings);
+  await acquisition.clearCache(warnings, ctx.log);
 
   return {
     goods_id: draft.goodsId,

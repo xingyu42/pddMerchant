@@ -92,6 +92,7 @@ async function runOneAccount(spec, opts, account, batch, runtimeConfig) {
     const envelope = await executeSingle(spec, perOpts, {
       emitResult: false,
       parentSignal: batch.signal,
+      parentDeadline: batch.runtime.deadline,
       runtime: scopedRuntime,
       ...(runtimeConfig !== undefined ? { runtimeConfig } : {}),
     }).catch((err) => errorToEnvelope(spec.name, err, {

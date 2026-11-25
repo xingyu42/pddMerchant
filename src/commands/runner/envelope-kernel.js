@@ -235,10 +235,13 @@ function buildKernelRuntime({
   log,
   deadline,
 }) {
+  const mergedConfigOptions = configOptions !== undefined
+    ? { ...(composedRuntime.configOptions ?? {}), ...configOptions }
+    : composedRuntime.configOptions;
   return {
     ...composedRuntime,
     ...(providedOutputSink ? { outputSink: providedOutputSink } : {}),
-    ...(configOptions !== undefined ? { configOptions } : {}),
+    ...(mergedConfigOptions !== undefined ? { configOptions: mergedConfigOptions } : {}),
     runtimeConfig: runtimeConfig ?? composedRuntime.runtimeConfig,
     opts: { ...opts, noColor, ...(effectiveTimeoutMs !== undefined ? { timeoutMs: effectiveTimeoutMs } : {}) },
     emitResult: true,

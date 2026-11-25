@@ -989,3 +989,53 @@ it('composes fixture consoleApp via composeDaemonRuntime using saveMerchantLogin
     sandbox.dispose();
   }
 });
+
+it.each(['qr', 'password'])('probes new %s relogin session when stored snapshot is known_rejected', async (mode) => {
+  saveAuthStateSnapshot({
+    ...original,
+    merchant_auth: {
+      version: 1,
+      mall_id: '900001',
+      usable: false,
+      last_check: {
+        verdict: 'rejected',
+        reason: 'login_false',
+        checked_at: '2026-11-24T09:00:00.000Z',
+      },
+    },
+  }, account.id);
+
+  let probeCount = 0;
+  const { app, driver } = buildHarness({
+    passwordOutcome: { outcome: 'success' },
+    verifyHook: async (target, opts, baseAuth) => {
+      if (opts?.state?.merchant_auth?.last_check?.verdict === 'rejected') {
+        return {
+          verdict: 'rejected',
+          reason: 'known_rejected',
+          checked_at: new Date().toISOString(),
+          http_status: null,
+          authoritative: true,
+        };
+      }
+      probeCount += 1;
+      assert.equal(opts.expectedMallId, '900001');
+      return baseAuth.verifyAndSeal(target, opts);
+    },
+  });
+
+  const { session_id: id } = app.sessions.start(account.slug, { mode, ownerTag: 'test-daemon' });
+  if (mode === 'qr') {
+    await driver.waitForWaiting(id);
+    driver.completeSession(id, 'success');
+  }
+  await app.sessions.awaitDone(id);
+
+  assert.equal(app.sessions.get(id).state, 'succeeded');
+  assert.ok(probeCount >= 1);
+  const saved = loadAuthState(account.id);
+  assert.equal(saved.revision, 3);
+  assert.equal(saved.metadata.check_verdict, 'verified');
+  assert.equal(saved.metadata.last_check.verdict, 'verified');
+  assertReleased();
+});
