@@ -277,8 +277,8 @@ it('records rejected live checks before reusing auto-relogin with a pausable dea
     assert.ok(task.deadlineAt <= Date.now() + 120_000);
     assert.deepEqual(loadAuthState(row.id).state.merchant_auth.last_check, {
       verdict: 'rejected',
-      reason: 'known_rejected',
-      checked_at: authResult.checked_at,
+      reason: 'login_false',
+      checked_at: checkedAt,
     });
   });
   const ctx = context({ runtime: harness.runtime, clock: harness.runtime.clock });
@@ -294,7 +294,7 @@ it('records rejected live checks before reusing auto-relogin with a pausable dea
   assert.equal(record.mock.calls.length, 2);
   assert.equal(attempt.mock.calls.length, 1);
   assert.equal(attempt.mock.calls[0][0].retainContext, false);
-  assert.equal(loadAuthState(row.id).revision, 3);
+  assert.equal(loadAuthState(row.id).revision, 2);
   assertSecretFree(ctx, row);
 });
 
@@ -556,4 +556,26 @@ it('honours fixture throttling and the breaker on later rounds', async () => {
     await networkRuntime.closeAll();
     await wrongRuntime.closeAll();
   }
+});
+
+it('leaves SQLite revision unchanged when patrolling a known_rejected account without password', async () => {
+  const row = account('900001', 'merchant', savedCookies);
+  const initialCheck = { verdict: 'rejected', reason: 'login_false', checked_at: checkedAt };
+  saveAuthStateSnapshot({
+    cookies: savedCookies,
+    origins: [],
+    merchant_auth: { version: 1, mall_id: row.identity, usable: false, last_check: initialCheck },
+  }, row.id);
+  const initialRevision = loadAuthState(row.id).revision;
+
+  const harness = makeLiveHarness({ clock: { now: Date.now, sleep: abortableSleep } });
+  const ctx = context({ runtime: harness.runtime, clock: harness.runtime.clock });
+  await runPatrolRound(ctx);
+  await runPatrolRound(ctx);
+
+  const after = loadAuthState(row.id);
+  assert.equal(after.revision, initialRevision);
+  assert.deepEqual(after.state.merchant_auth.last_check, initialCheck);
+  assert.equal(harness.checkSpy.mock.calls.length, 0);
+  assert.equal(harness.launch.mock.calls.length, 2);
 });

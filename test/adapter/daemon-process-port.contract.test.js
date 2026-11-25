@@ -65,7 +65,7 @@ const ADAPTER_FACTORIES = [
   {
     name: 'fixture',
     create: (opts = {}) => {
-      const host = createFakeProcessHost({ PDD_TEST_ADAPTER: 'fixture', ...(opts.baseEnv ?? {}) });
+      const host = createFakeProcessHost(opts.baseEnv);
       if (opts.failKillPid) host.failKillPids.add(opts.failKillPid);
       if (opts.epermPid) host.epermPids.add(opts.epermPid);
       const port = createFixtureDaemonProcessPort({

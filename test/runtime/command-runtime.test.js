@@ -488,4 +488,68 @@ describe('composeCommandRuntime', () => {
       config.dispose();
     }
   });
+
+  it('isolates fixture goodsPublish.sourceFetcher from Qingguo proxy env and external fetch calls', async () => {
+    const config = makeTempConfigDir();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    let runtime = null;
+    try {
+      runtime = await composeCommandRuntime({
+        mode: 'fixture',
+        env: {
+          PDD_SOURCE_PROXY_PROVIDER: 'qingguo',
+          PDD_QINGGUO_AUTH_KEY: 'k',
+          PDD_QINGGUO_KEY: 'k',
+          PDD_QINGGUO_PWD: 'p',
+        },
+        configOptions: config.configOptions,
+      });
+      const acquisition = await runtime.ports.goodsPublish.sourceFetcher.prepare('https://mobile.yangkeduo.com/goods.html?goods_id=123456');
+      const source = await acquisition.fetch();
+      assert.equal(source.goodsID, '123456');
+      assert.equal(fetchSpy.mock.calls.length, 0);
+    } finally {
+      fetchSpy.mockRestore();
+      if (runtime) await runtime.closeAll();
+      config.dispose();
+    }
+  });
+
+  it('propagates PDD_TEST_ADAPTER=fixture when spawning daemon subprocesses from fixture runtime', () => {
+    const commandUrl = new URL('../../src/runtime/command-runtime.js', import.meta.url).href;
+    const script = `
+      import { registerHooks } from 'node:module';
+      const spawns = [];
+      globalThis.__capturedDaemonSpawns = spawns;
+      const mockChildProcess = 'data:text/javascript,' + encodeURIComponent(\`
+        export function spawn(execPath, args, options) {
+          globalThis.__capturedDaemonSpawns.push({ execPath, args, env: options?.env ?? null });
+          return { pid: 42424, once() {}, unref() {} };
+        }
+      \`);
+      registerHooks({
+        resolve(specifier, context, nextResolve) {
+          if (specifier === 'node:child_process' && context.parentURL?.endsWith('/src/adapter/daemon-process.js')) {
+            return { url: mockChildProcess, shortCircuit: true };
+          }
+          return nextResolve(specifier, context);
+        },
+      });
+      const { composeCommandRuntime } = await import(${JSON.stringify(commandUrl)});
+      const rt = await composeCommandRuntime({ mode: 'fixture', env: {}, runtimeConfigPolicy: 'maintenance' });
+      rt.ports.daemonProcess.spawnDetached({ env: { PDD_TEST_ADAPTER: 'live', PDD_TEST_EXTRA: '1' } });
+      await rt.closeAll();
+      process.stdout.write(JSON.stringify(spawns));
+    `;
+    const res = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: projectRoot,
+      encoding: 'utf8',
+      timeout: 15_000,
+    });
+    assert.equal(res.status, 0, res.stderr || res.stdout);
+    const spawns = JSON.parse(res.stdout.trim());
+    assert.equal(spawns.length, 1);
+    assert.equal(spawns[0].env.PDD_TEST_ADAPTER, 'fixture');
+    assert.equal(spawns[0].env.PDD_TEST_EXTRA, '1');
+  });
 });

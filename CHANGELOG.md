@@ -6,6 +6,7 @@
 
 ### Breaking
 
+- **移除未使用的 `pdd doctor --probe` 选项**：携带 `--probe` 会在参数解析阶段以 `E_USAGE`（退出码 2）失败；直接运行 `pdd doctor` 即可完成诊断。
 - **数据库升级到 schema v3**（新增商品成本表）：新版首次运行自动升级；回退旧版需恢复升级前一致备份的数据库与配对 `master.key`，请勿手动降低 `user_version`。
 - **`goods cost` 去掉手填运费险**：`goods cost set` 不再接受 `--insurance-yuan`（未知选项，退出码 2）；`goods cost list` / `set` / `remove` 输出去掉 `insurance_yuan`；`goods cost import` 的记录含 `insurance_yuan` 时整批以 `E_COST_IMPORT_INVALID` 失败。运费险由 `goods profit` 按平台收费记录自动计算。数据库中已录入的运费险保留但不再读取或输出，无需迁移。
 - **`diagnose funnel` 由 `diagnose after-sales` 取代**：`diagnose shop` 的维度相应改为订单 / 库存 / 推广 / 售后。

@@ -3,7 +3,7 @@ import { beforeEach, describe, it, vi } from 'vitest';
 import { mockMerchantProbeTransport } from '../helpers/merchant-probe-transport.js';
 
 import { verifyMerchantContext, assertMerchantVerified, assertVerifiedMerchantCandidate } from '../../src/adapter/merchant-auth.js';
-import { withMerchantAuthUpdate, commitMerchantCandidate, recordMerchantCheck, boundMerchantMallId, merchantCandidateState } from '../../src/adapter/merchant-auth-storage.js';
+import { withMerchantAuthUpdate, commitMerchantCandidate, recordMerchantCheck, verifyStoredMerchant, boundMerchantMallId, merchantCandidateState } from '../../src/adapter/merchant-auth-storage.js';
 import { assertAuthTask } from '../../src/infra/auth-task.js';
 import { createCandidateSeal } from '../../src/infra/candidate-seal.js';
 import { verifyFixtureMerchantContext } from '../../src/adapter/fixtures/auth.js';
@@ -248,6 +248,28 @@ describe('leased verified merchant state', () => {
       assert.equal(saved.merchant_auth.last_check.verdict, verdict);
       assert.equal(saved.merchant_auth.usable, false);
     }
+  });
+
+  it('marks verifyStoredMerchant known_rejected cache hits non-authoritative and skips redundant SQLite writes', async () => {
+    const initialCheck = { verdict: 'rejected', reason: 'login_false', checked_at: '2026-11-24T08:00:00.000Z' };
+    saveAuthStateSnapshot({
+      ...state,
+      merchant_auth: { version: 1, mall_id: '900001', usable: false, last_check: initialCheck },
+    }, accountId);
+    assert.equal(loadAuthState(accountId).revision, 1);
+
+    await withMerchantAuthUpdate(accountId, async (tx) => {
+      const checkResult = await verifyStoredMerchant(null, tx.state);
+      assert.equal(checkResult.verdict, 'rejected');
+      assert.equal(checkResult.reason, 'known_rejected');
+      assert.equal(checkResult.authoritative, false);
+      recordMerchantCheck(checkResult, tx);
+      recordMerchantCheck({ verdict: 'rejected', reason: 'known_rejected', checked_at: new Date().toISOString() }, tx);
+    });
+
+    const loaded = loadAuthState(accountId);
+    assert.equal(loaded.revision, 1);
+    assert.deepEqual(loaded.state.merchant_auth.last_check, initialCheck);
   });
 
   it('redacts credential aliases and sealed material', () => {

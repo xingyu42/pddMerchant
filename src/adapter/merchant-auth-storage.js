@@ -15,7 +15,7 @@ export { boundMerchantMallId };
 // 已记录 rejected 的凭据直接短路；否则按显式店铺或凭据绑定店铺做协议校验。
 export async function verifyStoredMerchant(context, state, task = {}) {
   if (state?.merchant_auth?.last_check?.verdict === 'rejected') {
-    return { verdict: 'rejected', reason: 'known_rejected', checked_at: new Date().toISOString() };
+    return { verdict: 'rejected', reason: 'known_rejected', checked_at: new Date().toISOString(), authoritative: false };
   }
   const boundMallId = boundMerchantMallId(state);
   if (boundMallId && task.expectedMallId != null && String(task.expectedMallId) !== boundMallId) {
@@ -113,7 +113,7 @@ export function commitMerchantCandidate(candidate, transaction, { expectedRevisi
 }
 
 export function recordMerchantCheck(result, transaction) {
-  if (result?.authoritative === false) return;
+  if (result?.authoritative === false || result?.reason === 'known_rejected') return;
   if (!transaction.state || !['rejected', 'indeterminate'].includes(result.verdict)) return;
   const metadata = transaction.state.merchant_auth ?? { version: 1, mall_id: null };
   const state = { ...transaction.state, merchant_auth: {

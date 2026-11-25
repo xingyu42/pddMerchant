@@ -70,12 +70,16 @@ export function createCategoryResolver({
   fetch: fetchFn = globalThis.fetch,
   sleep = abortableSleep,
   now = Date.now,
-  log = getLogger(),
+  log = null,
   failureThreshold = DEFAULT_FAILURE_THRESHOLD,
   cooldownMs = DEFAULT_COOLDOWN_MS,
 } = {}) {
   let consecutiveFailures = 0;
   let cooldownUntil = 0;
+
+  function resolveLog(callLog) {
+    return callLog ?? log ?? getLogger();
+  }
 
   function assertCircuitClosed() {
     if (consecutiveFailures < failureThreshold) return;
@@ -90,15 +94,15 @@ export function createCategoryResolver({
     });
   }
 
-  function recordFailure() {
+  function recordFailure(activeLog) {
     consecutiveFailures += 1;
     if (consecutiveFailures >= failureThreshold) {
       cooldownUntil = now() + cooldownMs;
-      log.warn({ consecutiveFailures }, 'category API circuit tripped');
+      activeLog.warn({ consecutiveFailures }, 'category API circuit tripped');
     }
   }
 
-  async function fetchWithRetry(catId3, { signal, baseUrl }) {
+  async function fetchWithRetry(catId3, { signal, baseUrl, activeLog }) {
     const url = `${baseUrl}/api/v1/crx/PddCate?last_cate_id=${catId3}`;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
       throwIfAborted(signal);
@@ -108,12 +112,12 @@ export function createCategoryResolver({
         return body;
       } catch (err) {
         if (signal?.aborted) throwIfAborted(signal);
-        log.debug({ attempt, catId3, err: err?.message }, 'category API attempt failed');
+        activeLog.debug({ attempt, catId3, err: err?.message }, 'category API attempt failed');
         if (attempt < MAX_RETRIES) {
           await sleep(RETRY_DELAYS[attempt], signal);
           continue;
         }
-        recordFailure();
+        recordFailure(activeLog);
         throw new PddCliError({
           code: 'E_NETWORK',
           message: `类目 API 请求失败 (${MAX_RETRIES + 1} 次重试后): ${err.message}`,
@@ -125,7 +129,7 @@ export function createCategoryResolver({
   }
 
   return Object.freeze({
-    async resolve(catIds, { signal, apiBase: callApiBase } = {}) {
+    async resolve(catIds, { signal, apiBase: callApiBase, log: callLog } = {}) {
       throwIfAborted(signal);
       const normalized = normalizeCatIds(catIds);
       const baseUrl = callApiBase ?? apiBase;
@@ -138,7 +142,8 @@ export function createCategoryResolver({
       }
 
       assertCircuitClosed();
-      const body = await fetchWithRetry(normalized.catId3, { signal, baseUrl });
+      const activeLog = resolveLog(callLog);
+      const body = await fetchWithRetry(normalized.catId3, { signal, baseUrl, activeLog });
       if (body?.code !== 1 || !body?.data) {
         throw new PddCliError({
           code: 'E_BUSINESS',

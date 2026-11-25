@@ -58,7 +58,7 @@ function createScopedBrowserPort(parentBrowser) {
   });
 }
 
-async function resolveCommandRuntimeConfig({ runtimeConfigPolicy, configOptions, env, overrides }) {
+async function resolveCommandRuntimeConfig({ runtimeConfigPolicy, configOptions, overrides }) {
   if (runtimeConfigPolicy !== 'required' && runtimeConfigPolicy !== 'maintenance') {
     throw new PddCliError({
       code: 'E_CONFIG_INVALID',
@@ -71,10 +71,7 @@ async function resolveCommandRuntimeConfig({ runtimeConfigPolicy, configOptions,
     return overrides.runtimeConfig ?? null;
   }
 
-  const loaded = await loadRuntimeConfig({
-    env,
-    ...configOptions,
-  });
+  const loaded = await loadRuntimeConfig(configOptions);
   return overrides.runtimeConfig ? { ...loaded, ...overrides.runtimeConfig } : loaded;
 }
 
@@ -197,7 +194,12 @@ export async function composeCommandRuntime({
   const clock = resolveClock(customClock);
   const seal = overrides.seal ?? createCandidateSeal();
   const outputSink = overrides.outputSink ?? createOutputSink({ streams, debugRaw: parsedEnv.debugRaw });
-  const runtimeConfig = await resolveCommandRuntimeConfig({ runtimeConfigPolicy, configOptions, env, overrides });
+  const resolvedConfigOptions = { env, ...configOptions };
+  const runtimeConfig = await resolveCommandRuntimeConfig({
+    runtimeConfigPolicy,
+    configOptions: resolvedConfigOptions,
+    overrides,
+  });
   const bundle = await loadCommandBundle({ parsedEnv, seal, clock, env, overrides });
   const { endpointState, endpointPort } = createCommandEndpointPort({
     runtimeConfig,
@@ -233,7 +235,7 @@ export async function composeCommandRuntime({
   return createRuntimeView({
     parsedEnv,
     runtimeConfig,
-    configOptions,
+    configOptions: resolvedConfigOptions,
     outputSink,
     clock,
     seal,

@@ -348,6 +348,115 @@ describe('envelope-kernel: dynamic command names, timing, noColor, timeout, sing
       await runtime.closeAll();
     }
   });
+
+  it('pauses and resumes outer batch deadline during account pause without E_TIMEOUT while keeping parentSignal abort and remaining budget live', async () => {
+    vi.useFakeTimers();
+    const passState = { cookies: [{ name: 'PASS_ID', value: 'synthetic' }], origins: [] };
+    const accountA = insertAccount({ identity: '900001', displayName: 'Shop A' }, { setDefault: true });
+    const accountB = insertAccount({ identity: '900002', displayName: 'Shop B' });
+    saveAuthStateSnapshot(passState, accountA.id);
+    saveAuthStateSnapshot(passState, accountB.id);
+
+    const okStreams = makeMemoryStreams();
+    const okRuntime = await composeCommandRuntime({
+      mode: 'fixture',
+      runtimeConfigPolicy: 'maintenance',
+      env: {},
+      streams: okStreams.streams,
+    });
+    try {
+      const cmd = withCommand({
+        name: 'test.batchPauseResume',
+        needsAuth: true,
+        needsMall: 'none',
+        async run(ctx) {
+          if (ctx.accountSlug === 'shop-a') {
+            ctx.runtime.deadline.pause();
+            await new Promise((resolve) => setTimeout(resolve, 12_000));
+            ctx.runtime.deadline.resume();
+          }
+          return { headline: [`ok ${ctx.accountSlug}`] };
+        },
+      });
+      const pending = cmd({ allAccounts: true, timeoutMs: 6000, json: true }, { runtime: okRuntime });
+      await vi.advanceTimersByTimeAsync(12_000);
+      await vi.advanceTimersByTimeAsync(5_500);
+      const env = await pending;
+      assertEnvelopeShape(env, { ok: true, command: 'test.batchPauseResume', exitCode: 0, hasData: true, hasError: false });
+      assert.equal(env.data.accounts['shop-a'].ok, true);
+      assert.equal(env.data.accounts['shop-b'].ok, true);
+    } finally {
+      await okRuntime.closeAll();
+    }
+
+    const abortController = new AbortController();
+    const abortStreams = makeMemoryStreams();
+    const abortRuntime = await composeCommandRuntime({
+      mode: 'fixture',
+      runtimeConfigPolicy: 'maintenance',
+      env: {},
+      streams: abortStreams.streams,
+    });
+    try {
+      const cmd = withCommand({
+        name: 'test.batchPauseUserAbort',
+        needsAuth: true,
+        needsMall: 'none',
+        async run(ctx) {
+          ctx.runtime.deadline.pause();
+          abortController.abort(new Error('user-abort'));
+          assert.equal(ctx.signal.aborted, true);
+          await abortableSleep(5000, ctx.signal);
+          return { headline: ['unreachable'] };
+        },
+      });
+      const env = await cmd(
+        { allAccounts: true, timeoutMs: 6000, json: true },
+        { runtime: abortRuntime, parentSignal: abortController.signal },
+      );
+      assertEnvelopeShape(env, { ok: false, command: 'test.batchPauseUserAbort', exitCode: ExitCodes.NETWORK, hasData: false, hasError: true });
+      assert.equal(env.error.code, 'E_TIMEOUT');
+    } finally {
+      await abortRuntime.closeAll();
+    }
+
+    const expireStreams = makeMemoryStreams();
+    const expireRuntime = await composeCommandRuntime({
+      mode: 'fixture',
+      runtimeConfigPolicy: 'maintenance',
+      env: {},
+      streams: expireStreams.streams,
+    });
+    const visitedBeforeExpire = [];
+    try {
+      const cmd = withCommand({
+        name: 'test.batchPauseRemainingBudget',
+        needsAuth: true,
+        needsMall: 'none',
+        async run(ctx) {
+          visitedBeforeExpire.push(ctx.accountSlug);
+          if (ctx.accountSlug === 'shop-a') {
+            await new Promise((resolve) => setTimeout(resolve, 40));
+            ctx.runtime.deadline.pause();
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            ctx.runtime.deadline.resume();
+          }
+          return { headline: ['ok'] };
+        },
+      });
+      const pending = cmd({ allAccounts: true, timeoutMs: 100, json: true }, { runtime: expireRuntime });
+      await vi.advanceTimersByTimeAsync(40);
+      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(80);
+      const env = await pending;
+      assertEnvelopeShape(env, { ok: false, command: 'test.batchPauseRemainingBudget', exitCode: ExitCodes.NETWORK, hasData: false, hasError: true });
+      assert.equal(env.error.code, 'E_TIMEOUT');
+      assert.deepEqual(visitedBeforeExpire, ['shop-a']);
+    } finally {
+      vi.useRealTimers();
+      await expireRuntime.closeAll();
+    }
+  });
 });
 
 describe('lifecycle presets: backward compatibility, load-time validation, and --all-accounts rejection', () => {
@@ -462,6 +571,45 @@ describe('config.* maintenance mode under corrupted JSON configuration', () => {
     }
 
     assert.equal(readFileSync(configOptions.configPath, 'utf8'), damagedBefore);
+  });
+
+  it('propagates composition root env into runtime.configOptions for config.show and config.validate in maintenance mode', async () => {
+    const { env: _omitEnv, ...pathsOnly } = makeTempConfigDir();
+    const showStreams = makeMemoryStreams();
+    const showRuntime = await composeCommandRuntime({
+      mode: 'fixture',
+      runtimeConfigPolicy: 'maintenance',
+      configOptions: pathsOnly,
+      env: { PDD_LOG_LEVEL: 'invalid-level' },
+      streams: showStreams.streams,
+    });
+    try {
+      const showEnvelope = await configCmd.show({ json: true }, { runtime: showRuntime });
+      assertEnvelopeShape(showEnvelope, { ok: false, command: 'config.show', exitCode: 1, hasData: false, hasError: true });
+      assert.equal(showEnvelope.error.code, 'E_CONFIG_INVALID');
+      assert.ok(showEnvelope.error.detail?.issues?.some((issue) => issue.layer === 'env' && issue.field === 'logLevel'));
+    } finally {
+      await showRuntime.closeAll();
+    }
+
+    const validateStreams = makeMemoryStreams();
+    const validateRuntime = await composeCommandRuntime({
+      mode: 'fixture',
+      runtimeConfigPolicy: 'maintenance',
+      env: { PDD_LOG_LEVEL: 'invalid-level' },
+      streams: validateStreams.streams,
+    });
+    try {
+      const validateEnvelope = await configCmd.validate({ json: true }, {
+        runtime: validateRuntime,
+        configOptions: pathsOnly,
+      });
+      assertEnvelopeShape(validateEnvelope, { ok: false, command: 'config.validate', exitCode: 1, hasData: false, hasError: true });
+      assert.equal(validateEnvelope.error.code, 'E_CONFIG_INVALID');
+      assert.ok(validateEnvelope.error.detail?.issues?.some((issue) => issue.layer === 'env' && issue.field === 'logLevel'));
+    } finally {
+      await validateRuntime.closeAll();
+    }
   });
 });
 
