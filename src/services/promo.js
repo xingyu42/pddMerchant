@@ -1,9 +1,144 @@
 import { runEndpoint } from '../adapter/run-endpoint.js';
 import { PROMO_ENTITY_REPORT, PROMO_HOURLY_REPORT } from '../adapter/endpoints/promo.js';
+import { toPromoRoiView } from './views/promo.js';
+import { mallIdOf } from './views/_shared.js';
+import { sumKnown } from '../infra/metrics.js';
 
 export async function getPromoReport(page, params = {}, ctx = {}) {
   const { type = 'entity', mallId: paramMallId, ...rest } = params;
   const mallId = paramMallId ?? ctx.mallId;
   const meta = type === 'hourly' ? PROMO_HOURLY_REPORT : PROMO_ENTITY_REPORT;
   return runEndpoint(page, meta, rest, { ...ctx, mallId });
+}
+
+function isInactive(entity) {
+  return Boolean(entity.isDeleted || entity.planDeleted || entity.adDeleted);
+}
+
+function groupKey(entity, by) {
+  if (by === 'sku') {
+    const gid = entity.goodsId ?? entity.goods_id;
+    return gid != null && gid !== '' ? String(gid) : (entity.goodsName ?? entity.goods_name ?? 'unknown');
+  }
+  if (by === 'channel') {
+    return String(entity.scenesType ?? entity.promotionType ?? 'unknown');
+  }
+  const pid = entity.planId ?? entity.plan_id ?? 'unknown';
+  const aid = entity.adId ?? entity.ad_id ?? '';
+  return `${pid}:${aid}`;
+}
+
+function groupLabel(entity, by) {
+  if (by === 'sku') return entity.goodsName ?? entity.goods_name ?? 'unknown';
+  if (by === 'channel') return entity.promotionType ?? String(entity.scenesType ?? 'unknown');
+  return entity.adName ?? entity.ad_name ?? `plan:${entity.planId ?? '?'}`;
+}
+
+function entitySpend(entity) {
+  return entity.spend ?? entity.cost ?? null;
+}
+
+function initialPromoRow(entity, by, key) {
+  return {
+    key,
+    label: groupLabel(entity, by),
+    plan_id: entity.planId ?? entity.plan_id ?? null,
+    ad_id: entity.adId ?? entity.ad_id ?? null,
+    ad_name: entity.adName ?? entity.ad_name ?? null,
+    goods_id: entity.goodsId ?? entity.goods_id ?? null,
+    goods_name: entity.goodsName ?? entity.goods_name ?? null,
+    scenes_type: entity.scenesType ?? null,
+    promotion_type: entity.promotionType ?? null,
+    impression: 0,
+    click: 0,
+    gmv: 0,
+    spend: 0,
+    is_inactive: isInactive(entity),
+  };
+}
+
+function groupEntities(entities, by, includeInactive) {
+  const grouped = new Map();
+  let excludedCount = 0;
+  let excludedSpend = 0;
+
+  for (const entity of entities) {
+    if (!includeInactive && isInactive(entity)) {
+      excludedCount += 1;
+      excludedSpend = sumKnown([excludedSpend, entitySpend(entity)]);
+      continue;
+    }
+
+    const key = groupKey(entity, by);
+    if (!grouped.has(key)) grouped.set(key, initialPromoRow(entity, by, key));
+    const row = grouped.get(key);
+    row.impression = sumKnown([row.impression, entity.impression]);
+    row.click = sumKnown([row.click, entity.click]);
+    row.gmv = sumKnown([row.gmv, entity.gmv]);
+    row.spend = sumKnown([row.spend, entitySpend(entity)]);
+  }
+  return { grouped, excludedCount, excludedSpend };
+}
+
+export function analyzePromoRoi(input, { by = 'plan', includeInactive = false } = {}) {
+  const { entities = [], totals = {} } = input;
+  const { grouped, excludedCount, excludedSpend } = groupEntities(entities, by, includeInactive);
+  const rows = [];
+  let totalSpend = 0;
+  let totalGmv = 0;
+
+  for (const row of grouped.values()) {
+    const roi = row.spend > 0 && row.gmv !== null ? Number((row.gmv / row.spend).toFixed(2)) : null;
+    const ctr = row.impression === null || row.click === null ? null
+      : row.impression > 0 ? Number((row.click / row.impression).toFixed(4)) : 0;
+    rows.push({ ...row, ctr, roi });
+
+    totalSpend = sumKnown([totalSpend, row.spend]);
+    totalGmv = sumKnown([totalGmv, row.gmv]);
+  }
+
+  rows.sort((first, second) => (second.roi ?? -1) - (first.roi ?? -1));
+
+  const overallRoi = totalSpend > 0 && totalGmv !== null ? Number((totalGmv / totalSpend).toFixed(2)) : null;
+
+  return {
+    by,
+    rows,
+    summary: {
+      total_rows: rows.length,
+      excluded_inactive: excludedCount,
+      excluded_inactive_spend: excludedSpend,
+      total_spend: totalSpend,
+      total_gmv: totalGmv,
+      overall_roi: overallRoi,
+    },
+    totals,
+    warnings: [],
+  };
+}
+
+async function getPromoRoi(page, params = {}, ctx = {}) {
+  const report = await getPromoReport(page, {
+    type: 'entity',
+    page: params.page,
+    size: params.size,
+    // CLI 传入 YYYY-MM-DD 字符串，走显式日期校验；since/until 仅接受 Date
+    startDate: params.since,
+    endDate: params.until,
+  }, ctx);
+
+  const analysis = analyzePromoRoi(
+    { entities: report?.entities ?? [], totals: report?.totals ?? {} },
+    {
+      by: params.by ?? 'plan',
+      includeInactive: params.includeInactive ?? false,
+    },
+  );
+  return { ...analysis, warnings: [...(report?.unitWarnings ?? []), ...analysis.warnings] };
+}
+
+// promo.roi 命令级结果：{ data: v2 视图, warnings }
+export async function getPromoRoiView(page, params = {}, ctx = {}) {
+  const { warnings, ...analysis } = await getPromoRoi(page, params, ctx);
+  return { data: toPromoRoiView(analysis, { mallId: mallIdOf(ctx) }), warnings };
 }

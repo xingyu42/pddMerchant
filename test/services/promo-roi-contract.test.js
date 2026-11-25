@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { it } from 'vitest';
-import { analyzePromoRoi } from '../../src/services/promo-roi.js';
+import { analyzePromoRoi } from '../../src/services/promo.js';
 import { SAMPLE_PROMO_ENTITIES, createFactResponses } from '../fixtures/test-data.js';
 import { PROMO_ENTITY_REPORT } from '../../src/adapter/endpoints/promo.js';
 import { isNetworkError } from '../helpers/error-matchers.js';

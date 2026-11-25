@@ -1,5 +1,5 @@
 import { withCommand } from '../_runner.js';
-import { getPromoRoiView } from '../../services/promo-roi.js';
+import { getPromoRoiView } from '../../services/promo.js';
 
 export const run = withCommand({
   name: 'promo.roi',
