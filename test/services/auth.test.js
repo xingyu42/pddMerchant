@@ -13,11 +13,8 @@ import {
   createQrTerminalPresenter,
   loginConsumer,
   loginMerchant,
-  performQrLogin,
-  performHeadedLogin,
-  performConsumerQrLogin,
-  performConsumerHeadedLogin,
 } from '../../src/services/auth.js';
+import { createFixtureAuthPort, createFixtureInteractiveLogin } from '../../src/adapter/fixtures/auth.js';
 import * as fixtureMall from '../../src/adapter/fixtures/mall.js';
 import { createCliSandbox } from '../helpers/isolated-cli.js';
 import { createInMemoryBrowserRuntime } from '../helpers/in-memory-ports.js';
@@ -38,6 +35,7 @@ function makeTempDir() {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   while (sandboxes.length > 0) {
     sandboxes.pop().dispose();
   }
@@ -75,7 +73,7 @@ describe('fixture merchant auth verification without ports.auth', () => {
     }
   });
 
-  it('performQrLogin and performHeadedLogin pass runtime.seal and use runtime.fixture when ports.auth is absent', async () => {
+  it('loginMerchant passes runtime.seal and honors deps.seal override in fixture mode', async () => {
     const sandbox = makeSandbox({
       'shops.current.json': { id: '900456', name: 'No AuthPort Shop' },
     });
@@ -86,44 +84,46 @@ describe('fixture merchant auth verification without ports.auth', () => {
     });
 
     try {
-      const runtimeWithoutAuthPort = {
-        mode: 'fixture',
-        seal: composed.seal,
-        fixture: composed.fixture,
-      };
-      const qrResult = await performQrLogin({
-        transaction: {},
-        expectedMallId: '900456',
-        runtime: runtimeWithoutAuthPort,
-      });
-      assert.deepEqual(qrResult.identity, { mallId: '900456', displayName: 'No AuthPort Shop' });
-      assert.equal(qrResult.mode, 'qr');
-      assert.equal(composed.seal.has(qrResult.candidate), true);
+      const qrView = await loginMerchant({ qr: true, json: true }, { runtime: composed });
+      assert.equal(qrView.mall_id, '900456');
+      assert.equal(qrView.display_name, 'No AuthPort Shop');
+      assert.equal(qrView.mode, '扫码登录');
+      assert.equal(qrView.account_slug, 'no-authport-shop');
 
       const customSeal = createCandidateSeal();
-      const headedResult = await performHeadedLogin({
-        transaction: {},
-        expectedMallId: '900456',
-        seal: customSeal,
-        runtime: { mode: 'fixture', fixture: composed.fixture },
-      });
-      assert.equal(headedResult.mode, 'headed');
-      assert.equal(customSeal.has(headedResult.candidate), true);
+      let capturedCandidate = null;
+      const headedView = await loginMerchant(
+        { qr: false, account: qrView.account_slug },
+        {
+          seal: customSeal,
+          runtime: { mode: 'fixture', interactiveLogin: composed.interactiveLogin },
+          provisionMerchant: async (loginFn) => {
+            const result = await loginFn({ state: null });
+            capturedCandidate = result.candidate;
+            return { account: { slug: qrView.account_slug }, result };
+          },
+        },
+      );
+      assert.equal(headedView.mode, '有头浏览器登录');
+      assert.equal(customSeal.has(capturedCandidate), true);
     } finally {
       await composed.closeAll();
     }
   });
 
-  it('performQrLogin passes runtime.seal when both ports.auth and runtime.fixture are absent', async () => {
+  it('loginMerchant propagates fixture mall identity via injected fixture authPort and restores spies cleanly', async () => {
     vi.spyOn(fixtureMall, 'mockCurrentMall').mockResolvedValue({ id: '900789', name: 'Fallback Fixture Shop' });
     const seal = createCandidateSeal();
-    const result = await performQrLogin({
-      transaction: {},
-      expectedMallId: '900789',
-      runtime: { mode: 'fixture', seal },
+    const authPort = createFixtureAuthPort({
+      seal,
+      getCurrentMall: () => fixtureMall.mockCurrentMall(),
     });
-    assert.deepEqual(result.identity, { mallId: '900789', displayName: 'Fallback Fixture Shop' });
-    assert.equal(seal.has(result.candidate), true);
+    const interactiveLogin = createFixtureInteractiveLogin({ auth: authPort, seal });
+
+    const view = await loginMerchant({ qr: true, json: true }, { seal, authPort, interactiveLogin });
+    assert.equal(view.mall_id, '900789');
+    assert.equal(view.display_name, 'Fallback Fixture Shop');
+    assert.equal(view.account_slug, 'fallback-fixture-shop');
   });
 });
 
@@ -181,7 +181,7 @@ function createFakeConsumerPage(context, { loginSuccess = true, includeQr = fals
 }
 
 describe('consumer login BrowserRuntimePort wiring', () => {
-  it('performConsumerHeadedLogin uses runtime.ports.browser and resets runtime.scrapeCooldown on success, closing session on success and timeout', async () => {
+  it('loginConsumer (headed) uses runtime.ports.browser and resets runtime.scrapeCooldown on success, closing session on success and timeout', async () => {
     const pages = [];
     const browser = createInMemoryBrowserRuntime({
       createPage: (context) => {
@@ -194,16 +194,18 @@ describe('consumer login BrowserRuntimePort wiring', () => {
     scrapeCooldown.recordSoftBlock({ reason: 'empty_shell' });
     assert.throws(() => scrapeCooldown.check(), { code: 'E_RATE_LIMIT' });
 
-    const res = await performConsumerHeadedLogin({
+    const res = await loginConsumer({
+      headed: true,
       timeoutMs: 5000,
       consumerLoginUrl: 'https://mobile.yangkeduo.com/login.html',
+    }, {
       runtime: { ports: { browser }, scrapeCooldown },
     });
     assert.equal(browser.launches.length, 1);
     assert.equal(browser.launches[0].headed, true);
-    assert.deepEqual(res.identity, { uid: '880011', nickname: 'Consumer Buyer' });
-    assert.equal(res.mode, 'consumer-headed');
+    assert.equal(res.mode, '有头浏览器登录');
     assert.equal(res.url, 'https://mobile.yangkeduo.com/home');
+    assert.ok(res.account_fingerprint);
     assert.equal(pages[0].isClosed, true);
     assert.equal(scrapeCooldown.status().consecutiveSoftBlock, 0);
     scrapeCooldown.check();
@@ -219,9 +221,11 @@ describe('consumer login BrowserRuntimePort wiring', () => {
     const timeoutCooldown = createScrapeCooldown({ threshold: 1, cooldownMs: 60_000, statePath: null });
     timeoutCooldown.recordSoftBlock({ reason: 'empty_shell' });
     await assert.rejects(
-      performConsumerHeadedLogin({
+      loginConsumer({
+        headed: true,
         timeoutMs: 1000,
         consumerLoginUrl: 'https://mobile.yangkeduo.com/login.html',
+      }, {
         runtime: { ports: { browser: timeoutBrowser }, scrapeCooldown: timeoutCooldown },
       }),
       { code: 'E_AUTH_TIMEOUT' },
@@ -230,7 +234,7 @@ describe('consumer login BrowserRuntimePort wiring', () => {
     assert.equal(timeoutCooldown.status().consecutiveSoftBlock, 1);
   });
 
-  it('performConsumerQrLogin uses runtime.ports.browser, deriveConsumerContext, and optional explicit scrapeCooldown override', async () => {
+  it('loginConsumer (qr) uses runtime.ports.browser, deriveConsumerContext, and optional explicit scrapeCooldown override', async () => {
     const qrDir = makeTempDir();
     const pages = [];
     const browser = createInMemoryBrowserRuntime({
@@ -244,42 +248,48 @@ describe('consumer login BrowserRuntimePort wiring', () => {
     runtimeCooldown.recordSoftBlock({ reason: 'empty_shell' });
     const explicitCooldown = createScrapeCooldown({ threshold: 1, cooldownMs: 60_000, statePath: null });
     explicitCooldown.recordSoftBlock({ reason: 'empty_shell' });
-    const captured = [];
-    const res = await performConsumerQrLogin({
-      timeoutMs: 5000,
+    const { streams, readStdout, readStderr } = createMemoryStreamPair();
+    const res = await loginConsumer({
+      qr: true,
       headed: false,
+      json: true,
+      timeoutMs: 5000,
       consumerLoginUrl: 'https://mobile.yangkeduo.com/login.html',
-      scrapeCooldown: explicitCooldown,
       qrDir,
-      onQrCaptured: async (payload) => captured.push(payload),
+    }, {
+      streams,
+      scrapeCooldown: explicitCooldown,
       runtime: { ports: { browser }, scrapeCooldown: runtimeCooldown },
     });
 
     assert.equal(browser.launches.length, 1);
     assert.equal(browser.launches[0].headed, false);
     assert.equal(browser.derivedContexts.length, 1);
-    assert.equal(captured.length, 1);
-    assert.equal(existsSync(res.qrImagePath), true);
-    assert.deepEqual(res.identity, { uid: '880011', nickname: 'Consumer Buyer' });
-    assert.equal(res.mode, 'consumer-qr');
+    assert.equal(readStdout(), '');
+    assert.match(readStderr(), /等待本次消费端扫码授权：/);
+    assert.equal(existsSync(res.qr_image_path), true);
+    assert.equal(res.mode, '扫码登录');
     assert.equal(pages.every((page) => page.isClosed), true);
     assert.equal(explicitCooldown.status().consecutiveSoftBlock, 0);
     assert.equal(runtimeCooldown.status().consecutiveSoftBlock, 1);
   });
 
   it('falls back to legacy launchBrowser only when runtime.ports.browser is absent', async () => {
+    const { streams } = createMemoryStreamPair();
     await assert.rejects(
-      performConsumerHeadedLogin({
+      loginConsumer({
+        headed: true,
         timeoutMs: 1000,
         consumerLoginUrl: 'https://mobile.yangkeduo.com/login.html',
-      }),
+      }, { streams }),
       /Real browsers are disabled in offline tests/,
     );
     await assert.rejects(
-      performConsumerQrLogin({
+      loginConsumer({
+        qr: true,
         timeoutMs: 1000,
         consumerLoginUrl: 'https://mobile.yangkeduo.com/login.html',
-      }),
+      }, { streams }),
       /Real browsers are disabled in offline tests/,
     );
   });

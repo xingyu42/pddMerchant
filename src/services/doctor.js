@@ -284,6 +284,19 @@ function resolveDependencies(deps) {
   };
 }
 
+async function assertChromiumAvailable(browser, data) {
+  data.chromium = await checkChromiumAvailability(browser);
+  if (!data.chromium?.ok) {
+    throw new PddCliError({
+      code: 'E_CHROMIUM_MISSING',
+      message: 'Chromium 未安装',
+      hint: '执行 npx patchright install chromium',
+      detail: data,
+      exitCode: ExitCodes.GENERAL,
+    });
+  }
+}
+
 /** Run ordered read-only environment diagnostics and return a pure DoctorReport value. */
 export async function diagnoseEnvironment(options = {}, deps = {}) {
   const resolved = resolveDependencies(deps);
@@ -295,17 +308,7 @@ export async function diagnoseEnvironment(options = {}, deps = {}) {
     const merchant = normalizeMerchantInput(options);
     data.password_relogin = checkPasswordRelogin(merchant.accountId, resolved.getReloginSummary);
     const consumerAccount = await resolveConsumerInput(options.consumerAccount, resolved.resolveConsumer);
-
-    data.chromium = await checkChromiumAvailability(resolved.browser);
-    if (!data.chromium?.ok) {
-      throw new PddCliError({
-        code: 'E_CHROMIUM_MISSING',
-        message: 'Chromium 未安装',
-        hint: '执行 npx patchright install chromium',
-        detail: data,
-        exitCode: ExitCodes.GENERAL,
-      });
-    }
+    await assertChromiumAvailable(resolved.browser, data);
 
     const merchantLoaded = inspectAuthFile(merchant.accountId, { slug: merchant.slug, kind: 'merchant' }, resolved.loadAuthState);
     const consumerLoaded = inspectAuthFile(consumerAccount.accountId, { slug: consumerAccount.slug, kind: 'consumer' }, resolved.loadAuthState);
