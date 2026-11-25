@@ -17,7 +17,7 @@ node bin/pdd.js <domain> <command> [flags]
   -> withCommand(spec) -> executeSingle | executeBatch（allAccounts && needsAuth）
        executeSingle: resolveAccount -> armDeadline ->
          needsBrowser:false && !needsAuth -> executeWithoutBrowser
-         isMockEnabled()                  -> executeFixture
+         runtime.mode === 'fixture'       -> executeFixture
          otherwise live: withMerchantAuthUpdate 租约 -> withBrowser -> checkMerchantSession
            -> 打开 PDD_HOME -> resolveMallContext / switchTo -> createPageSession + EndpointClient
            -> run(ctx) -> pageSession.closeAll -> 复核并持久化登录态
@@ -141,7 +141,7 @@ withCommand({ needsAuth: false, needsMall: 'none', needsBrowser: false, ... })
 - SIGINT/SIGTERM and platform-specific SIGBREAK (Windows) or SIGHUP initiate shutdown. Daemon run owns these signals instead of the ordinary CLI signal handler. Stop components, close browsers, then atomically release the owned lease and clear its stop request; a replacement owner's request stays intact. A five-second hard deadline calls the injected `exit(1)` (production: `process.exit`).
 - `start` clears a stopped instance's stale console address in a short transaction, detaches a hidden process with ignored stdio, inherits env, calls `unref()` and polls at 200ms for ten seconds. Readiness requires both a valid lease and a published console address. `stop` requests cooperative shutdown and polls at 500ms for fifteen seconds, then rechecks owner token, host and unexpired heartbeat in a short synchronous transaction before killing the pid and deleting only the matching row.
 - Status fields: `headline`, `running`, `pid`, `started_at`, `heartbeat_at`, `last_patrol_at`, `console_url`, `patrol_enabled`. `_at` values use Asia/Shanghai local strings; missing values are null. Start adds `started`; stop returns `stopped`, `running` and optional `forced`; run returns `stopped_reason`.
-- Fixture-only timing seams: `PDD_TEST_DAEMON_LEASE_TTL_MS` and `PDD_TEST_DAEMON_HEARTBEAT_MS` accept positive safe integers in milliseconds. `daemonTimings()` guards both with `isMockEnabled()`; invalid values fall back to 90000/30000, and live mode ignores both variables. Timing overrides flow explicitly to infra lease helpers.
+- Fixture-only timing seams: `PDD_TEST_DAEMON_LEASE_TTL_MS` and `PDD_TEST_DAEMON_HEARTBEAT_MS` accept positive safe integers in milliseconds. `parseRuntimeEnv()` + `daemonTimings(parsedEnv)` gate both on `mode === 'fixture'`; invalid values fall back to 90000/30000, and live mode ignores both variables. Timing overrides flow explicitly to infra lease helpers.
 - Daemon logs use `channel:'daemon'`; foreground mode tees the existing rotating file destination to stderr through the logger's writable `destination` option. Stdout stays one envelope when the command exits.
 
 ### 4. Validation & Error Matrix

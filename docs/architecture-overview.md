@@ -17,7 +17,7 @@
 
 - **无构建步骤**：ESM 直接运行。
 - **统一输出与错误**：envelope v2 + `data` 契约 v2，退出码 0–7，`PddCliError`。
-- **fixture 模式**：`PDD_TEST_ADAPTER=fixture` 用原始上游响应替换传输层，判定与归一化照常执行。
+- **fixture 模式**：`PDD_TEST_ADAPTER=fixture`（或在组合根传入 `mode: 'fixture'`）切换至 `fixture-bundle.js` 与 `fixtures/` 提供方，用原始上游响应替换传输层，判定与归一化照常执行。
 - **日志脱敏**：`REDACT_KEYS` 指纹化敏感字段。
 - **限流保护**：429 按 `[1000, 2000, 4000] ms` 重试；同一 endpoint 连续 `cooldownThreshold` 次限流后冷却 `cooldownMs`（默认 3 次 / 5 分钟）。
 - **多账号**：账号与加密登录态存 SQLite，`--account` / `--all-accounts` 选择执行范围。
@@ -32,21 +32,26 @@
 ```
 bin/pdd.js                 CLI 入口：全局选项、信号/fatal 处理、wireAction
     ↓
-src/commands/              registry/ 注册命令树；handler 多为 withCommand() 薄封装
-  ├── runner/              withCommand 内部：账号、超时、浏览器、鉴权、店铺、envelope
+src/runtime/               双顶层组合根（composeCommandRuntime / composeDaemonRuntime）、白名单 env、Live/Fixture Bundle
+    ↓
+src/commands/              registry/ 注册命令树；handler 均为 withCommand() 薄封装
+  ├── runner/              withCommand 内部：envelope-kernel、账号、超时、浏览器、鉴权、店铺、fixture-runtime
   └── option-parsers.js    commander 解析期校验
 src/daemon/                常驻控制台 HTTP 服务（由 `pdd daemon run` 进入）
     ↓
 src/services/              领域编排；views/ 负责输出投影与中文标签
     ↓
-src/adapter/               Patchright、endpoint 传输、鉴权、店铺上下文、fixture
+src/adapter/               Patchright、endpoint 传输、鉴权、店铺上下文、fixture 提供方（fixtures/）
     ↓
-src/infra/                 envelope、错误、日志、配置、SQLite 存储、单位换算
+src/infra/                 envelope、output-sink、错误、日志、配置、SQLite 存储、单位换算
 ```
 
-- 只允许向下依赖：infra 不 import 上层，adapter 不 import services，services 不 import commands。
-- 现存的跨层直连（向下，允许）：`bin/pdd.js` 引用 `commands/runtime-options.js`；runner（`src/commands/runner/`）直接使用 adapter（浏览器、鉴权、店铺、fixture）；`commands/daemon.js` 引用 `src/daemon/run.js`；`src/daemon/` 只依赖 services。非 runner 命令 handler（含 `doctor.js`、`login.js`、`init.js`、`account.js`、`config.js`）均通过 services 或 runtime 注入端口访问 adapter。
+- 只允许向下依赖：infra 不 import 上层，adapter 不 import services，services 不 import commands；`src/runtime/` 作为唯一组合根装配跨层 Port 与白名单 env，不向底层回传 env 直读权限。
+- 现存的跨层向下直连（允许）：`bin/pdd.js` 引用 `commands/runtime-options.js`、`commands/_runner.js` 与 `infra/runtime-cleanup.js`；runner（`src/commands/runner/`）与 `src/runtime/` 使用 adapter（浏览器、鉴权、店铺、fixture）；`commands/daemon.js` 引用 `src/daemon/run.js`；`src/daemon/` 只依赖 `src/runtime/`、`src/services/` 与 infra。全部非 runner 命令 handler（含 `doctor.js`、`login.js`、`init.js`、`account.js`、`config.js`）均经 services 或 runtime 注入端口访问 adapter。
 - `src/services/views/` 只依赖 infra（`units`、`metrics`）与 `services/operating-report.js`。
+- **接缝抽象原则**：
+  - **多实现才抽象 Port**：仅在真实存在至少两套适配器的外部边界引入 Port（如 `BrowserRuntimePort`、`AuthPort`、`MallPort`、`EndpointTransportPort`、`DaemonProcessPort`、`ConsoleLoginDriverPort`、`CategoryResolverPort`、`MerchantDraftEditorPort`）。
+  - **SQLite 保持本地可替代（Local-substitutable）内部接缝**：数据库与存储模块（`db.js`、`account-store.js`、`daemon-state.js`、`goods-cost-store.js`、`leases.js`）直接通过 `PDD_DB_PATH` 在进程或单测间隔离替换，不为单一本地实现包裹冗余仓储 Port。
 - **守卫**：原 `test/layering-guard.unit.test.js` 已在 `cc0cb1c` 删除，分层目前靠 review 约束。
 
 ---
@@ -66,7 +71,7 @@ src/infra/                 envelope、错误、日志、配置、SQLite 存储�
 core.js      → init / login / doctor
 config.js    → config show / set / unset / validate
 shops.js     → shops list / current
-orders.js    → orders list / detail / stats
+orders.js    → orders list / detail / stats / after-sales
 goods.js     → goods list / stock / segment / traffic / profit / receipt / reviews / templates / publish
                goods cost list / set / remove / import
                goods update status / price / stock / title / batch
@@ -88,12 +93,16 @@ console.js   → console link
 | 文件 | 职责 |
 | --- | --- |
 | `envelope-kernel.js` | 生命周期预设校验、动态命令名、协作超时预算与单次发射守门 |
-| `single-lifecycle.js` | 单账号执行：`resolveAccount` → `armDeadline` → 三选一（无浏览器 / fixture / live） |
+| `single-lifecycle.js` | 单账号执行：`resolveAccount` → `armDeadline` → 三选一（无浏览器 / `runtime.mode === 'fixture'` / live） |
 | `batch-executor.js` | `--all-accounts`（仅 `needsAuth`）逐账号执行、抖动间隔、SIGINT 中断、限流冷却归因 |
 | `command-ctx.js` | `buildCommandCtx` 与行动/守护进程告警附加（`appendActionWarnings`） |
-| `fixture-runtime.js` | fixture 路径：fixture 会话核验、mock 店铺、端点传输 |
-| `envelope-finalizer.js` | `finalizeSuccess` / `finalizeError` / `emitOnce`，产出 envelope |
+| `fixture-runtime.js` | fixture 路径：消费注入端口或 `FixtureStore` / `fixtures/` 跑完整命令生命周期 |
+| `envelope-finalizer.js` | `finalizeSuccess` / `finalizeError` / `emitOnce`，依托 `OutputSink` 产出 envelope |
 
+- **顶层组合根 (`src/runtime/`)**：
+  - `env.js`（`parseRuntimeEnv`）：在组合根边界唯一解析并冻结白名单 `PDD_*` / `PDD_TEST_*` 环境变量，`live` 模式忽略 `PDD_TEST_*`。
+  - `command-runtime.js`（`composeCommandRuntime`）：按 `mode`（`'live'` | `'fixture'`）动态加载 `bundles/live-bundle.js` 或 `bundles/fixture-bundle.js`，装配 `ports`、`OutputSink`、`clock`、`seal`、`endpointState`、`scrapeCooldown` 与 `scopeRuntime`/`closeAll`（live 不加载 fixture 模块，fixture 不加载 `patchright`）。
+  - `daemon-runtime.js`（`composeDaemonRuntime`）：为守护进程与控制台组装同构 `ports`、`consoleApp`、`consoleExtraRoutes`、`routes` 与生命周期操作。
 - **live 路径**：`withMerchantAuthUpdate`（账号租约）→ `withBrowser` → `checkMerchantSession`（被拒时尝试密码重登）→ 打开商家首页 → 解析/切换店铺 → `createPageSession` + 共享 endpoint client → `run(ctx)` → 关闭页面 → 复核并持久化登录态 → `finalizeSuccess`。
 - **解析期校验** (`option-parsers.js`)：`integerArg(min, max)`、`goodsIdArg`、`goodsIdListArg`、`starsArg`、`withReportDays`、`Option.choices`；非法值在启动浏览器前以 `E_USAGE` 拒绝。
 
@@ -101,16 +110,16 @@ console.js   → console link
 
 | 领域 | 模块 |
 | --- | --- |
-| 订单 | `orders.js` |
+| 订单、售后与分页 | `orders.js`（含跨领域订单窗采集 `collectOrdersWindow`）、`after-sales.js`、`logistics.js`、`pagination.js`（可中止有界分页原语 `collectBoundedPages`） |
 | 商品 | `goods.js`（读）、`goods-write.js`（改价/库存/状态/标题/批量）、`goods-segmentation.js`、`goods-sales-matcher.js` |
-| 商品发布 | `goods-publish.js`、`goods-publish/source-product-fetcher.js`、`goods-publish/source-normalizer.js`、`goods-publish-source-cache.js` |
-| 推广 | `promo.js` |
-| 诊断 | `diagnose/`（订单、库存、推广、售后、趋势比较） |
+| 商品发布 | `goods-publish.js`、`goods-publish/source-product-fetcher.js`（`SourceProductFetcher`）、`goods-publish/source-normalizer.js`、`goods-publish/draft-planner.js`、`goods-publish/draft-guard.js`、`goods-publish-source-cache.js` |
+| 推广 | `promo.js`（统一导出 `getPromoReport`、`analyzePromoRoi`、`getPromoRoiView`） |
+| 诊断 | `diagnose/`（订单、库存、推广、售后、商品采集 `collectAllGoods`、趋势比较与 `summarize*` 纯函数面） |
 | 经营报表 | `operating-report.js`（报表声明与 days 规则）、`report-windows.js`、`traffic.js`、`goods-traffic*.js`、`customer-service.js`、`reviews.js`、`experience.js` |
-| 成本与利润 | `goods-cost*.js`（本地 SQLite 成本）、`goods-profit*.js`（ADR 0004） |
+| 成本与利润 | `goods-cost*.js`（本地 SQLite 成本）、`goods-profit.js`（唯一公开视图入口 `getGoodsProfitView`，私有计算/保险/推广子模块内部化，ADR 0004） |
 | 预估实收 | `goods-receipt.js`（价格管理页的平台估算值，口径见 GLOSSARY） |
 | 鉴权与会话 | `auth.js`（登录流程）、`auth-account-storage.js`（登录态保存）、`merchant-session.js`（命令与巡检的会话核验单一入口）、`relogin-policy.js`、`auto-relogin.js` |
-| 账号、配置与诊断 | `shops.js`、`account.js`、`config.js`、`doctor.js` |
+| 店铺、账号、配置与诊断 | `shops.js`、`account.js`（含预演/级联移除）、`config.js`（受管配置校验与读写）、`doctor.js`（`diagnoseEnvironment`，单次按需浏览器核验） |
 | 常驻控制台 | `daemon.js`、`daemon-runtime.js`、`patrol.js`、`console-*.js` |
 
 **领域视图** (`services/views/`)：白名单投影、分转元、比率百分数、中文枚举标签与 headline；view 自有词表放在各自文件，共享词表在 `labels.js`，投影辅助在 `_shared.js`。上游对象与 PII 不进入 `data`。
@@ -127,11 +136,11 @@ console.js   → console link
 
 ```
 runEndpoint(page, SPEC, params, ctx)                  run-endpoint.js（共享 client 的薄包装）
-  → PlaywrightEndpointClient.execute               endpoint-client.js：限速、冷却、429 重试
-    → send(spec, params, ctx)
-        fixture 模式：mockRunEndpoint → 原始上游响应
+  → EndpointClient.execute                         endpoint-client.js：限速、冷却、429 重试
+    → EndpointTransportPort.send(spec, params, ctx)
+        fixture 模式：createFixtureEndpointTransport → 原始上游响应
         page-api：page-api-client.js（页面内签名请求，不捕获 XHR）
-        fetch / legacy：endpoint-attempt.js + xhr-collector.js（route 或导航 + trigger + 捕获）
+        fetch / legacy：endpoint-attempt.js + xhr-collector.js（共享 endpoint-pages.js 预算裁剪导航 + trigger + 捕获）
     → interpretResponse(spec, …)                     response-interpreter.js：成功判定、限流识别、业务错误映射
     → spec.normalize(raw, params)                    形状校验与稳定结构
 ```
@@ -157,9 +166,9 @@ export const ORDER_LIST = {
 
 #### 3.4.3 鉴权与店铺上下文
 
-- 商家鉴权：`merchant-auth.js`、`merchant-auth-probe.js`、`merchant-auth-storage.js`（租约 + revision CAS 持久化）、`password-login.js` / `password-credential.js`；消费者：`consumer-qr-login.js`、`consumer-identity.js`。
-- 店铺上下文：`mall-reader.js` 探测链 mock → state → url → cookie → storage → xhr → dom；`mall-writer.js` 切换店铺。
-- fixture：`mock-dispatcher.js` 是 facade，`fixtures/core.js` 拥有唯一 fixture cache，`fixtures/endpoint.js` 按 `endpoints/<spec.name>[.<variant>|.page<N>].json` 查找原始响应。
+- 商家鉴权：`auth-port.js`（`AuthPort`）、`merchant-auth.js`、`merchant-auth-probe.js`、`merchant-auth-storage.js`（租约 + revision CAS 持久化）、`password-login.js` / `password-credential.js`、`interactive-login.js`；消费者：`consumer-qr-login.js`、`consumer-identity.js`。
+- 店铺上下文：`mall-port.js`（`MallPort`）、`mall-reader.js` 探测链 mock → state → url → cookie → storage → xhr → dom；`mall-writer.js` 切换店铺。
+- fixture 提供方（`src/adapter/fixtures/`）：由 `src/runtime/bundles/fixture-bundle.js` 按实例注入；`fixtures/core.js` 拥有按实例持有的 `FixtureStore` 缓存，`fixtures/endpoint.js` 按 `endpoints/<spec.name>[.<variant>|.page<N>].json` 查找原始响应，`fixtures/{auth,browser,daemon,goods-publish,mall}.js` 提供对应仿真端口。
 
 #### 3.4.4 商品发布子模块 (`adapter/goods-publish/`)
 
@@ -182,17 +191,17 @@ export const ORDER_LIST = {
 
 | 模块 | 职责 |
 | --- | --- |
-| `output.js` / `errors.js` | envelope 合约、`PddCliError`、退出码映射 |
+| `output.js` / `output-sink.js` / `errors.js` | envelope 合约、单次发射 `OutputSink`、`PddCliError`、退出码映射 |
 | `logger.js` | pino + `REDACT_KEYS` 指纹脱敏 |
 | `config.js` / `config-management.js` | 配置三层合并（示例基线 → `config.json` → 环境变量）与 zod 校验 |
-| `paths.js` | 数据、配置、日志、缓存路径 |
-| `db.js` / `master-key.js` / `secret-box.js` | SQLite schema 与迁移、主密钥、登录态加密 |
+| `paths.js` / `path-slug.js` / `runtime-cleanup.js` | 数据/配置/日志/缓存路径、slug 规整、进程清理钩子 |
+| `db.js` / `master-key.js` / `secret-box.js` | SQLite schema 与迁移、主密钥、登录态加密（local-substitutable 内部存储接缝） |
 | `account-store.js` / `account-resolver.js` / `consumer-account-resolver.js` | 账号存取与 `--account` 解析 |
 | `leases.js` / `daemon-state.js` | 账号租约、daemon 单实例状态 |
 | `goods-cost-store.js` | 商品成本表 |
 | `units.js` / `metrics.js` | 分转元、百分比、时间格式与指标投影 |
 | `scrape-cooldown.js` | 源抓取软封冷却（实例级注入，消费端抓包与消费端登录共用） |
-| `timeouts.js` / `abort.js` | 超时预算与 AbortController 封装 |
+| `timeouts.js` / `abort.js` / `clock.js` / `candidate-seal.js` / `auth-task.js` | 超时预算、`AbortController`、可注入时钟、候选密封与鉴权任务校验 |
 
 ---
 
@@ -225,21 +234,23 @@ fixture 模式下通过无磁盘空源缓存、内存冷却、合成源/类目/�
 
 ```
 test/
-├── setup.js                 # 全局开启 fixture 模式与临时 DB，禁止真实 patchright 与 fetch
+├── setup.js                 # 每测隔离临时 SQLite（PDD_DB_PATH）与 NO_COLOR=1，硬阻断 patchright 与 fetch（不全局注入 PDD_TEST_ADAPTER）
+├── runtime/                 # composeCommandRuntime / composeDaemonRuntime 与 parseRuntimeEnv 组合根测试
 ├── adapter/ commands/ console/ daemon/ infra/ services/   # 分层测试
-├── contract/                # data-contract-v2.test.js 覆盖全部注册命令
-├── e2e/*.e2e.test.js        # fixture 模式下 spawn CLI 子进程
+├── contract/                # data-contract-v2、command-docs、doc-paths、metric-tables 全仓守卫
+├── e2e/*.e2e.test.js        # 子进程显式传入 PDD_TEST_ADAPTER=fixture 运行 CLI
 ├── fixtures/test-data.js    # 合成 fixture 构造器
-└── helpers/                 # isolated-cli（runCli 沙箱）、data-contract 检查器等
+└── helpers/                 # isolated-cli（runCli 沙箱）、test-ctx、in-memory-ports、data-contract 检查器
 ```
 
 Vitest 按 `test/**/*.test.js` 自动发现。
 
-### 6.2 Fixture 模式
+### 6.2 无全局单例的组合根与 Fixture 测试接缝
 
-- `PDD_TEST_ADAPTER=fixture` 时，endpoint client 的 `send()` 改为读取原始上游响应，之后的成功判定、错误映射和 `normalize` 与真实模式相同；`page` 为 `null`。
+- **进程内无单例测试接缝**：领域与集成测试通过 `composeCommandRuntime` / `composeDaemonRuntime`（显式注入 `mode`、`env`、`overrides`、`streams`、`clock`）、`createTestCtx`（`test/helpers/test-ctx.js`）及 `test/helpers/in-memory-ports.js` 内存端口双实现隔离运行，避免模块级全局状态、`vi.stubEnv('PDD_TEST_*')` 或跨层 `vi.mock`。
+- **子进程 Fixture 模式**：`runCli` / `runCliAsync`（`test/helpers/isolated-cli.js`）为每个子进程生成独立沙箱目录与临时 `PDD_DB_PATH`，并在子进程环境显式传入 `PDD_TEST_ADAPTER=fixture` 与 `PDD_TEST_FIXTURE_DIR`。
+- `mode: 'fixture'` / `PDD_TEST_ADAPTER=fixture` 时，endpoint client 注入 `createFixtureEndpointTransport` 读取原始上游响应，之后的成功判定、错误映射和 `normalize` 与真实模式相同；`page` 为 `null`。
 - 文件名：`endpoints/<spec.name>.json`；分页 `.page<N>.json`（缺失的后续页由 `fixtureListKey` 合成空页）；声明 `fixtureVariantKey` 的 spec 优先读 `.<变体值>.json`。`__throws` 注入业务错误。
-- `isolated-cli.js` 把 fixture 写入临时沙箱目录并通过 `PDD_TEST_FIXTURE_DIR` 传给子进程。
 
 ---
 
@@ -264,7 +275,7 @@ Vitest 按 `test/**/*.test.js` 自动发现。
 | `fullCountDiscountRate` | `PDD_FULL_COUNT_DISCOUNT_RATE` | 发布时满件折扣 |
 | `timeoutMs` / `defaultMall` | `PDD_TIMEOUT_MS` / `PDD_DEFAULT_MALL` | 可选：默认超时、默认店铺 |
 
-### 7.2 直接读取的环境变量
+### 7.2 组合根解析的环境变量（`src/runtime/env.js`）与存储路径
 
 | 变量 | 用途 |
 | --- | --- |
@@ -274,9 +285,9 @@ Vitest 按 `test/**/*.test.js` 自动发现。
 | `PDD_IMAGE_TRANSFORM` | 发布图片处理开关 |
 | `PDD_SOURCE_PROXY_PROVIDER` / `PDD_QINGGUO_AUTH_KEY` / `PDD_QINGGUO_AREA` | 源抓取代理（仅 `qingguo`） |
 
-### 7.3 测试专用
+### 7.3 测试专用（仅 `mode === 'fixture'` 下由 `parseRuntimeEnv` 放行）
 
-`PDD_TEST_ADAPTER`、`PDD_TEST_FIXTURE_DIR`、`PDD_TEST_AUTH_INVALID`、`PDD_TEST_AUTH_INDETERMINATE`、`PDD_TEST_CONSUMER_AUTH_INVALID`、`PDD_TEST_PASSWORD_LOGIN*`、`PDD_TEST_PATROL_INTERVAL_MS`、`PDD_TEST_DAEMON_*`。
+`PDD_TEST_ADAPTER`、`PDD_TEST_FIXTURE_DIR`、`PDD_TEST_AUTH_INVALID`、`PDD_TEST_AUTH_INDETERMINATE`、`PDD_TEST_CONSUMER_AUTH_INVALID`、`PDD_TEST_PASSWORD_LOGIN*`、`PDD_TEST_PATROL_INTERVAL_MS`、`PDD_TEST_DAEMON_*`；`live` 模式忽略上述测试变量。
 
 ---
 
@@ -294,7 +305,7 @@ tmp/goods-publish-source-cache/   # 源商品缓存
 ```
 
 - 表：`meta`、`accounts`、`auth_states`、`leases`、`credentials`、`relogin_states`、`pending_actions`、`console_tokens`、`console_sessions`、`goods_cost_entries`（`src/infra/db.js`）。
-- `PDD_DB_PATH` 覆盖数据库位置，主密钥始终与数据库同目录；两者都是敏感文件，勿提交，备份恢复须成对保留。
+- `PDD_DB_PATH` 覆盖数据库位置（本地可替代内部接缝），主密钥始终与数据库同目录；两者都是敏感文件，勿提交，备份恢复须成对保留。
 - 登录态 `{ cookies, origins }` 加密存入 SQLite，使用时在内存解密交给浏览器。认证更新先取账号租约，最终在短事务内按 revision CAS 提交；浏览器与网络等待在事务外。删除账号级联删除相关数据。
 
 ---
@@ -354,10 +365,12 @@ new PddCliError({ code: 'E_BUSINESS', message, hint, detail, exitCode: ExitCodes
 
 | ADR | 主题 |
 | --- | --- |
-| 0001 | 青果代理只用于源商品抓取 |
-| 0002 | 严格的 headless 一致性浏览器配置 |
-| 0003 | 重新引入显式启动的 daemon 控制台 |
-| 0004 | 商品利润报表口径 |
+| [0001](adr/0001-scope-qingguo-proxy-to-source-fetch.md) | 青果代理只用于源商品抓取 |
+| [0002](adr/0002-use-strict-headless-consistency-profile.md) | 严格的 headless 一致性浏览器配置 |
+| [0003](adr/0003-reintroduce-explicit-daemon-console.md) | 重新引入显式启动的 daemon 控制台 |
+| [0004](adr/0004-goods-profit-reporting-semantics.md) | 商品利润报表口径 |
+| [0005](adr/0005-goods-reviews-deterministic-filtering.md) | 商品评价确定性过滤口径 |
+| [0006](adr/0006-after-sales-case-and-reason-reporting.md) | 售后单与退款原因查询口径 |
 
 领域术语见根目录 `GLOSSARY.md`；分层与运行时契约见 `.trellis/spec/architecture/`。
 
@@ -371,5 +384,5 @@ new PddCliError({ code: 'E_BUSINESS', message, hint, detail, exitCode: ExitCodes
 
 ---
 
-**更新时间**: 2026-11-08
+**更新时间**: 2026-11-25
 **适用版本**: pdd-cli 0.6.0

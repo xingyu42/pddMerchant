@@ -2,7 +2,7 @@
 
 ## 1. Scope / Trigger
 
-适用于修改 fixture adapter、mock dispatcher、endpoint fixtures、测试数据目录、`isMockEnabled()` guard，以及任何需要跳过真实浏览器/平台调用的测试 seam。
+适用于修改 fixture adapter、fixture bundle、endpoint fixtures、测试数据目录、composition root `mode: 'fixture'` 路由，以及任何需要跳过真实浏览器/平台调用的测试 seam。
 
 ## 2. Signatures
 
@@ -13,7 +13,7 @@ PDD_TEST_ADAPTER=fixture                 enable fixture mode
 PDD_TEST_FIXTURE_DIR=<path>              override fixture root
 src/adapter/fixtures/core.js             owns instance-level FixtureStore
 src/adapter/fixtures/endpoint.js         createFixtureEndpointTransport (EndpointTransportPort)
-src/adapter/mock-dispatcher.js           facade for mock payload routing
+src/runtime/bundles/fixture-bundle.js    composition-root fixture bundle (composeCommandRuntime / composeDaemonRuntime)
 test/fixtures/test-data.js               synthetic fixture builders (no checked-in endpoint JSON)
 test/helpers/isolated-cli.js             createCliSandbox / runCli：写入临时 fixture 目录
 PDD_TEST_PASSWORD_LOGIN=<outcome>        mockPasswordLogin 结果，默认 success；可取 challenge:<sms|slider|click|risk_confirm|unknown>、
@@ -42,7 +42,7 @@ runEndpoint(page, spec, params, ctx)
 
 - Endpoint fixture transport MUST work with `page: null` and skip browser/network/backend calls; existing merchant auth fixture branches retain their own lifecycle。
 - Fixture responses MUST preserve the same normalized output and envelope semantics as real mode。
-- `mock-dispatcher.js` is a facade; `FixtureStore` in `fixtures/core.js` holds per-instance fixture caches.
+- `src/runtime/bundles/fixture-bundle.js` wires fixture providers when `mode === 'fixture'`; `FixtureStore` in `src/adapter/fixtures/core.js` holds per-instance fixture caches.
 - New endpoint fixtures MUST be named/aligned with `spec.name`。
 - Tests MUST NOT rely on fixture cache mutation leaking across test cases。
 - Fixture runtime resolves the mock shop context through the adapter's `buildMallContext` (`normalizeMallRecord`), so fixture and live shop records share one shape (`{ id, name, is_current }`)。
@@ -105,13 +105,12 @@ export class FixtureStore {
 }
 ```
 
-### Env seam constants (`src/adapter/fixtures/core.js:8-11`)
+### Composition-root env whitelist (`src/runtime/env.js`)
 
 ```js
-export const ENV_ENABLED = 'PDD_TEST_ADAPTER';
-export const ENV_FIXTURE_DIR = 'PDD_TEST_FIXTURE_DIR';
-export const ENV_AUTH_INVALID = 'PDD_TEST_AUTH_INVALID';
-export const ENV_CONSUMER_AUTH_INVALID = 'PDD_TEST_CONSUMER_AUTH_INVALID';
+// parseRuntimeEnv(env, { mode }) resolves mode ('live' | 'fixture') from explicit mode or
+// env.PDD_TEST_ADAPTER === 'fixture' and freezes whitelisted PDD_TEST_* seams (live mode ignores them).
+// FixtureStore in src/adapter/fixtures/core.js reads PDD_TEST_FIXTURE_DIR via injected fixtureDir/env.
 ```
 
 ## 9. Endpoint Transport Parity

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { it, vi } from 'vitest';
 import * as browser from '../../src/adapter/browser.js';
 import * as authStorage from '../../src/adapter/merchant-auth-storage.js';
-import * as mocks from '../../src/adapter/mock-dispatcher.js';
+import * as authFixtures from '../../src/adapter/fixtures/auth.js';
 import * as autoRelogin from '../../src/services/auto-relogin.js';
 import { setAccountPassword } from '../../src/services/relogin-policy.js';
 import { createPatrol, patrolDelayMs, patrolIntervalMs, runPatrolRound } from '../../src/services/patrol.js';
@@ -497,17 +497,18 @@ it('daemon abort interrupts fixture relogin, releases the lease and skips the re
   const second = account('900002');
   setAccountPassword(first.id, credential);
   setAccountPassword(second.id, credential);
+  let entered;
+  const started = new Promise((resolve) => { entered = resolve; });
+  const attempt = vi.fn(async (_page, _credential, task) => {
+    entered();
+    await abortableSleep(120_000, task.signal);
+  });
   const runtime = await composeDaemonRuntime({
     mode: 'fixture',
     foreground: false,
     runtimeConfig: { logLevel: 'silent', patrolEnabled: true, patrolIntervalMs: 1000, passwordReloginMinIntervalMs: 1_800_000 },
     env: { PDD_TEST_AUTH_INVALID: '1' },
-  });
-  let entered;
-  const started = new Promise((resolve) => { entered = resolve; });
-  const attempt = vi.spyOn(mocks, 'mockPasswordLogin').mockImplementation(async (task) => {
-    entered();
-    await abortableSleep(120_000, task.signal);
+    overrides: { passwordLogin: attempt },
   });
   const controller = new AbortController();
   const patrol = createPatrol({ clock: { now: Date.now, sleep: async () => {} } });
@@ -540,7 +541,7 @@ it('honours fixture throttling and the breaker on later rounds', async () => {
     runtimeConfig: { logLevel: 'silent', patrolEnabled: true, patrolIntervalMs: 1000, passwordReloginMinIntervalMs: 1_800_000 },
     env: { PDD_TEST_AUTH_INVALID: '1', PDD_TEST_PASSWORD_LOGIN: 'wrong_password' },
   });
-  const attempt = vi.spyOn(mocks, 'mockPasswordLogin');
+  const attempt = vi.spyOn(authFixtures, 'mockPasswordLogin');
   try {
     await runPatrolRound(context({ runtime: networkRuntime }));
     await runPatrolRound(context({ runtime: networkRuntime }));

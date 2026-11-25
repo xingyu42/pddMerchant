@@ -111,14 +111,11 @@ export const run = withCommand({
 });
 ```
 
-### Real test seams (`src/adapter/fixtures/core.js`):
+### Real test seams (`src/runtime/command-runtime.js`, `src/runtime/daemon-runtime.js`, `src/runtime/env.js`):
 
 ```js
-export function isMockEnabled() {
-  return process.env[ENV_ENABLED] === 'fixture';
-}
-
-// ENV_AUTH_INVALID / ENV_CONSUMER_AUTH_INVALID simulate expired auth
+// Composition roots select fixture mode via `mode: 'fixture'` or `PDD_TEST_ADAPTER=fixture`
+// and inject parsed `authInvalid` / `consumerAuthInvalid` toggles into createFixtureAuthPort().
 ```
 
 ## 8. Scenario: Merchant On-Demand Auth Lifecycle Invariants

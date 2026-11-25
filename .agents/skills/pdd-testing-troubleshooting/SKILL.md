@@ -15,7 +15,7 @@ Select validation for a code change, or change tests, from the current `test/` t
 - `src/runtime/command-runtime.js` (`composeCommandRuntime`) and `src/runtime/daemon-runtime.js` (`composeDaemonRuntime`) for explicit `mode`, `env`, `overrides`, `streams`, and `clock` injection.
 - `test/helpers/isolated-cli.js` (`runCli`) for sandboxed subprocess runs with fixtures, auth state, and account registry.
 - `test/helpers/data-contract.js` and `test/helpers/envelope-assertions.js` for contract assertions.
-- `src/adapter/mock-dispatcher.js` and `src/adapter/fixtures/core.js` for fixture-mode behavior (`PDD_TEST_ADAPTER=fixture` in subprocesses or `mode: 'fixture'` in composition roots).
+- `src/adapter/fixtures/core.js` and `src/runtime/bundles/fixture-bundle.js` for fixture-mode behavior (`PDD_TEST_ADAPTER=fixture` in subprocesses or `mode: 'fixture'` in composition roots).
 - `.trellis/spec/standards/testing.md` for the data-contract v2 guard rules.
 - Related tests under `test/<layer>/` before modifying matching source code.
 

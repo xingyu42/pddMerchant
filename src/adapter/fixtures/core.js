@@ -4,12 +4,7 @@ import { join, isAbsolute } from 'node:path';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
 import { PROJECT_ROOT } from '../../infra/paths.js';
 
-const ENV_ENABLED = 'PDD_TEST_ADAPTER';
 const ENV_FIXTURE_DIR = 'PDD_TEST_FIXTURE_DIR';
-
-export function isMockEnabled(env = {}) {
-  return env?.[ENV_ENABLED] === 'fixture';
-}
 
 function resolveFixtureDir(env = {}) {
   const override = env?.[ENV_FIXTURE_DIR];

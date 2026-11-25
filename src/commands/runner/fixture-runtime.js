@@ -1,9 +1,9 @@
 // fixture 运行时（design D-2）：由 single-lifecycle 在 runtime.mode === 'fixture' 时按需动态加载。
-import { mockCurrentMall, mockListMalls, mockRunEndpoint } from '../../adapter/mock-dispatcher.js';
+import { mockCurrentMall, mockListMalls } from '../../adapter/fixtures/mall.js';
 import { buildMallContext } from '../../adapter/mall-reader.js';
 import { createCommandEndpointClient } from '../../adapter/endpoint-client.js';
 import { FixtureStore } from '../../adapter/fixtures/core.js';
-import { createFixtureEndpointTransport } from '../../adapter/fixtures/endpoint.js';
+import { createFixtureEndpointTransport, mockRunEndpoint } from '../../adapter/fixtures/endpoint.js';
 import { loadAuthState } from '../../adapter/auth-state.js';
 import { withMerchantAuthUpdate } from '../../adapter/merchant-auth-storage.js';
 import { assertMerchantVerified } from '../../infra/auth-task.js';
