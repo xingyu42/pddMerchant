@@ -19,7 +19,7 @@ npx patchright install chromium       # Required: install the fallback Chromium 
 
 ```
 bin/pdd.js               CLI entry (signal/fatal handlers, global options, wireAction, commander usage-error envelope; registration delegated to registry/)
-src/commands/            Command handlers — mostly thin wrappers around withCommand(); init/login/account/config emit directly
+src/commands/            Command handlers — thin wrappers around withCommand() (`merchant` / `local` / `maintenance` presets)
 src/commands/registry/   Domain registrars `register(program, wireAction)` — a new command also needs a v2 case and a `skills/pdd-cli/SKILL.md` line (both guarded under test/contract/)
 src/commands/runner/     withCommand internals (envelope-finalizer / fixture-runtime / single-lifecycle / batch-executor); _runner.js is a facade
 src/commands/option-parsers.js  Parse-time option validation (integerArg(min, max), goodsIdListArg, withReportDays) — rejects before any browser starts
@@ -31,7 +31,7 @@ src/adapter/fixtures/    Mock-mode providers (core.js owns the single fixture ca
 src/infra/               Cross-cutting: envelope, errors, logger, config, paths, timeouts, abort, units/metrics, SQLite storage and leases
 ```
 
-Layering (`commands → services → adapter → infra`) is enforced by review only — no guard test. Known downward shortcuts: runner, doctor and login import adapter directly; `src/daemon/` depends only on services. Full map: `docs/architecture-overview.md`.
+Layering (`commands → services → adapter → infra`) is enforced by review only — no guard test. Known downward shortcuts: runner (`src/commands/runner/`) imports adapter directly; `src/daemon/` depends only on services. Full map: `docs/architecture-overview.md`.
 
 ## Conventions
 

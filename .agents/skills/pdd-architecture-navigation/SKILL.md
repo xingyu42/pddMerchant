@@ -21,7 +21,7 @@ Read these in order for a new area:
 ## Layer Map
 
 - `bin/pdd.js`: CLI entry, global options, signal/fatal handlers, commander usage-error envelope; command registration lives in `src/commands/registry/`.
-- `src/commands/`: command handlers. Most wrap work with `withCommand()`; `init`, `login`, `account`, `config` emit directly. `src/commands/option-parsers.js` validates option values at parse time (`integerArg(min, max)`, `goodsIdListArg`, `withReportDays`).
+- `src/commands/`: command handlers, all wrapped with `withCommand()` (`merchant` / `local` / `maintenance` presets). `src/commands/option-parsers.js` validates option values at parse time (`integerArg(min, max)`, `goodsIdListArg`, `withReportDays`).
 - `src/commands/runner/`: `single-lifecycle`, `batch-executor`, `fixture-runtime`, `envelope-finalizer`.
 - `src/daemon/` + `src/console/`: explicit console daemon (HTTP routes, SSE, static frontend); depends only on services.
 - `src/services/`: domain orchestration — orders and after-sales, goods (read / write / publish / segmentation), promo, diagnose, operating reports (traffic, reviews, customer-service, experience, goods traffic), goods cost/profit/receipt, merchant session and password relogin, daemon/patrol/console. Reports expose facts, not advice or scores.
@@ -31,7 +31,7 @@ Read these in order for a new area:
 - `src/infra/`: envelope/output, errors, logger/redaction, config, paths, timeouts, abort, units/metrics, SQLite storage (`db`, `account-store`, `leases`, `goods-cost-store`), master key and secret box.
 - `test/`: layer folders; see `pdd-testing-troubleshooting` for the layout and validation matrix.
 
-Imports flow `commands -> services -> adapter -> infra`. Known downward shortcuts: runner and `login.js` import adapter directly; keep every other import flowing downward.
+Imports flow `commands -> services -> adapter -> infra`. Known downward shortcuts: runner (`src/commands/runner/`) imports adapter directly; all other commands go through services or runtime-injected ports.
 
 ## Runtime Flow
 

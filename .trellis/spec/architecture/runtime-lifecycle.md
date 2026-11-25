@@ -47,7 +47,7 @@ export const run = withCommand({
 
 ## 3. Contracts
 
-- Every `withCommand` command MUST finalize via success/error finalizer exactly once；`init`、`login`、`account`、`config` 直接 `emit()` 一次，同样只输出一个 envelope。
+- Every command handler（含 `init`、`login`、`login.consumer`、`doctor`、`account.*`、`config.*`）MUST wrap with `withCommand()`，经统一 `envelope-kernel` 与 finalizer 精确输出一个 envelope。
 - `--json` mode MUST write exactly one JSON envelope line to stdout。
 - Human diagnostics MAY go to stderr/logger, never pollute JSON stdout。
 - Signal/fatal errors MUST map to a valid `PddCliError` / `ExitCodes` envelope where possible。

@@ -10,28 +10,44 @@ Runner 相关模块职责：
 
 ```text
 src/commands/_runner.js                    facade; keep import surface stable
+src/commands/runner/envelope-kernel.js     lifecycle presets validation, dynamic command name, timeout budget, single-emit guard
 src/commands/runner/envelope-finalizer.js  success/error envelope emission
+src/commands/runner/command-ctx.js         ctx assembly and action/daemon warning injection
 src/commands/runner/fixture-runtime.js     fixture adapter command path
 src/commands/runner/single-lifecycle.js    one command execution lifecycle
 src/commands/runner/batch-executor.js      batch command execution and partial handling
 ```
 
-`withCommand(commandName, options, action)` 的 action 形态：
+`withCommand(spec)` 的声明形态（`name` 或动态 `command(opts)`、`lifecycle: 'merchant' | 'local' | 'maintenance'`、可选 `defaultTimeoutMs` / `render`，并在返回函数上挂载 `.runtimeConfigPolicy` 与 `.lifecycle`）：
 
 ```js
-async function action(ctx) {
-  return serviceCall(ctx, options);
-}
+export const run = withCommand({
+  name: 'orders.detail',
+  lifecycle: 'merchant',
+  needsAuth: true,
+  needsMall: 'switch',
+  async run(ctx) {
+    return serviceCall(ctx);
+  },
+});
 ```
 
 ## 3. Contracts
 
+- 全命令（含 `init`、`login`、`login.consumer`、`doctor`、`account.*`、`config.*`）均纳入 `withCommand()` + `envelope-kernel` 统一收敛，不再存在绕开 runner 直接 `emit()` 的命令或直连 `adapter/` 的非 runner 例外。
+- `envelope-kernel` 直接消费 `composeCommandRuntime` 与 `OutputSink`（`emit`、`hasEmitted()`、`streams`），统一生成 `correlation_id`、计算 `latency_ms`、归一化 `noColor`、装载协作式超时预算（`timeoutMs ?? defaultTimeoutMs`），并保证进入 `withCommand` 后结果恰好发射一次。
+- 三种互斥 `lifecycle` 预设与加载期校验：
+  - `merchant`（缺省）：`runtimeConfigPolicy: 'required'`、`needsBrowser: true`、`needsAuth` 默认 `true`、`needsAccount` 默认 `'required'`、`allowAllAccounts` 默认 `true`。
+  - `local`：`runtimeConfigPolicy: 'required'`、`needsBrowser: false`、`needsAuth: false`、`needsAccount: 'none' | 'optional' | 'required'`、`needsMall: 'none' | 'stored'`（`'stored'` 须配 `'required'`）、`allowAllAccounts: false`（传入 `--all-accounts` 抛 `E_USAGE`）。兼容规则：`needsAccount: true` 等价 `'required'`；未显式声明 `lifecycle` 时 `needsBrowser: false` 自动归入 `local`。
+  - `maintenance`：`runtimeConfigPolicy: 'maintenance'`、`needsBrowser: false`、`needsAuth: false`、`needsAccount: 'none'`、`needsMall: 'none'`、`allowAllAccounts: false`；`config.*` 在配置损坏时仍可进入并经统一信封返回错误或结果。
+  - 加载期立即拒绝非法组合（如 `needsBrowser: false` + `needsAuth: true`、`local` + `needsMall: 'switch'`、`maintenance` 声明鉴权/浏览器/账号/店铺/批量）并抛出 `E_CONFIG_INVALID`。
+- `doctor` 固定为 `lifecycle: 'local'`、`needsAccount: 'optional'`、`needsMall: 'none'`（跳过 runner 预启动浏览器，由 `services/doctor.js` 先检查 Chromium 可用性，仅在本地存储可读时打开**单次** `BrowserSession` 并以 `deriveConsumerContext` 串联检查双端；无 `--probe` 选项且不重复返回 `resolvedAccount`）。
 - Runner owns exactly-once envelope finalization。
 - Runner owns auth state resolution, account context, mall switching, timeout, abort signal, fixture adapter branching。
 - `ctx` is the boundary object for command/service code; do not bypass it with global state unless infra owns that state。
 - Batch mode MUST preserve per-item errors and use exit code 7 for partial outcomes。
 - Fixture runtime MUST emulate lifecycle enough that command tests exercise the same envelope/error behavior。
-- `needsAccount` 默认 false，仅命令显式启用时让 `needsBrowser:false + needsAuth:false` 分支解析本地 merchant 账号并填写 ctx/account meta；无账号报 E_ACCOUNT_REQUIRED / exit 2。未启用时保留既有跳过账号解析行为。
+- `needsAccount` 默认 `'none'`（`local`）或 `'required'`（`merchant` 鉴权路径），`local` 分支显式声明 `'optional'` 或 `'required'` 时解析本地 merchant 账号并填写 ctx/account meta；`'required'` 缺账号报 `E_ACCOUNT_REQUIRED` / exit 2。
 - `needsMall:'stored'` 为显式本地范围声明，runner 不启动浏览器、不探测/切换店铺、不解密登录态、不做认证/重登；service 从 config.mall 或账号 identity 确定存储范围。该能力只新增 opt-in 分支，既有命令、超时、finalizer 与 batch 行为不变。
 - 本地成本命令全部 allowAllAccounts:false；goods.profit 使用原有只读认证/多账号循环。回归入口 `test/commands/goods-cost-runtime.test.js`、`test/e2e/goods-cost.e2e.test.js`，共享生命周期必须全量 npm test。
 

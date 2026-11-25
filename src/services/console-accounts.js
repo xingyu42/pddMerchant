@@ -4,7 +4,7 @@ import { getAuthStateMetadata } from '../adapter/auth-state.js';
 import { getReloginSummary, setAccountPassword, clearAccountPassword, clearReloginBlock } from './relogin-policy.js';
 import { toConsoleAccountView } from './views/console.js';
 import { getConsoleLinkView } from './console-auth.js';
-import { removeAccountView } from './account-removal.js';
+import { removeAccount } from './account.js';
 import { consoleRequestError } from './console-runtime.js';
 
 export function consoleAccount(slug) {
@@ -51,6 +51,6 @@ export function removeConsoleAccount(slug, body, { isAccountLoggingIn = () => fa
   if (isAccountLoggingIn(account.id)) {
     throw consoleRequestError(409, 'E_CONSOLE_SESSION_STATE', '该店铺正在登录，请先取消登录');
   }
-  removeAccountView(account.slug, { confirm: true });
+  removeAccount(account.slug, { confirm: true });
   return { ok: true, removed: true };
 }

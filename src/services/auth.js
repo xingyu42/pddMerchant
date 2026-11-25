@@ -73,7 +73,8 @@ function resolveAuthTiming(options, deps, runtime) {
   return { qr, headed, timeoutMs, signal, deadlineAt, qrCaptureTimeoutMs, stderr };
 }
 
-export async function loginMerchant(options = {}, deps = {}) {
+/** Run merchant interactive login and atomic account provisioning, returning the provisioned record. */
+export async function authenticateMerchant(options = {}, deps = {}) {
   const runtime = deps.runtime ?? options.runtime;
   const { qr, headed, timeoutMs, signal, deadlineAt, qrCaptureTimeoutMs, stderr } = resolveAuthTiming(options, deps, runtime);
   const resolveAccount = deps.resolveAccount ?? ((account) => resolveAccountContext({ account, needsAuth: false }));
@@ -86,27 +87,34 @@ export async function loginMerchant(options = {}, deps = {}) {
     ?? ((loginOpts) => loginMerchantInteractive(loginOpts));
   const activeSeal = deps.seal ?? options.seal ?? runtime?.seal;
   const activeClock = deps.clock ?? runtime?.clock;
+  const activeLog = deps.log ?? runtime?.log ?? getLogger();
 
-  const provisioned = await (deps.provisionMerchant ?? provisionMerchantLogin)(async (transaction) => merchantInteractive({
-    transaction,
-    qr,
-    headed,
-    timeoutMs,
-    qrCaptureTimeoutMs,
-    expectedMallId: target.account?.identity,
-    signal,
-    deadlineAt,
-    onQrCaptured,
-    browserPort: deps.browserPort ?? runtime?.ports?.browser,
-    authPort: deps.authPort ?? runtime?.ports?.auth,
-    seal: activeSeal,
-    clock: activeClock,
-    log: deps.log ?? runtime?.log ?? getLogger(),
-    checkStoredSession: (checkTarget, task) => checkMerchantSession(checkTarget, {
-      tx: transaction, task, mode: 'login', runtime,
-    }),
-  }), { accountId: target.accountId, signal, deadlineAt, seal: activeSeal, clock: activeClock });
+  return (deps.provisionMerchant ?? provisionMerchantLogin)(async (transaction) => {
+    if (options.headedNotice) activeLog.info(options.headedNotice);
+    return merchantInteractive({
+      transaction,
+      qr,
+      headed,
+      timeoutMs,
+      qrCaptureTimeoutMs,
+      expectedMallId: target.account?.identity,
+      signal,
+      deadlineAt,
+      onQrCaptured,
+      browserPort: deps.browserPort ?? runtime?.ports?.browser,
+      authPort: deps.authPort ?? runtime?.ports?.auth,
+      seal: activeSeal,
+      clock: activeClock,
+      log: activeLog,
+      checkStoredSession: (checkTarget, task) => checkMerchantSession(checkTarget, {
+        tx: transaction, task, mode: 'login', runtime,
+      }),
+    });
+  }, { accountId: target.accountId, signal, deadlineAt, seal: activeSeal, clock: activeClock });
+}
 
+export async function loginMerchant(options = {}, deps = {}) {
+  const provisioned = await authenticateMerchant(options, deps);
   return toMerchantLoginView(provisioned.result, provisioned);
 }
 

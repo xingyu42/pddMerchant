@@ -24,12 +24,12 @@ Extend CLI behavior through the existing layers (`commands -> services -> adapte
 - Goods cost / profit / receipt: `src/services/goods-cost.js`, `src/services/goods-profit.js`, `src/services/goods-receipt.js` and their sibling helpers; costs persist through `src/infra/goods-cost-store.js`.
 - Promo: `src/services/promo.js`, `src/adapter/endpoints/promo.js`, commands under `src/commands/promo/`.
 - Diagnose and operating reports: `src/services/diagnose/` plus report services such as `src/services/traffic.js`, `src/services/reviews.js`, `src/services/customer-service.js`, `src/services/experience.js`; commands under `src/commands/diagnose/`. Reports carry facts and data-quality hints, leaving advice and scores to the user.
-- Account, config, daemon: `src/commands/account.js`, `src/commands/config.js`, `src/commands/daemon.js`, with storage in `src/infra/account-store.js`.
+- Account, config, doctor, daemon: `src/commands/account.js`, `src/commands/config.js`, `src/commands/doctor.js`, `src/commands/daemon.js`, backed by `src/services/account.js`, `src/services/config.js`, `src/services/doctor.js`, and storage in `src/infra/account-store.js`.
 
 ## Command Pattern
 
-- Use `withCommand({ name, needsAuth, needsMall, allowAllAccounts, run, render })`.
-- Keep command modules thin: validate CLI config, call service helpers, and return `{ data, meta, warnings? }` to the runner. Only top-level `init`, `login`, `account`, `config` emit directly.
+- Use `withCommand({ name, lifecycle, needsAuth, needsMall, allowAllAccounts, defaultTimeoutMs, run, render })`.
+- Keep command modules thin: call service helpers and return plain v2 `data` (or `{ data, meta, warnings? }`) to the runner (`merchant`, `local`, or `maintenance` preset).
 - Use `needsMall: 'switch'` when `--mall` should switch active mall before execution.
 - Set `allowAllAccounts: false` for write operations or commands that cannot safely batch across accounts.
 - Use `ExitCodes.PARTIAL` for mixed success/failure batch-style results.
