@@ -4,9 +4,14 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `promo` 吸收 `promo-roi` 并导出 `getPromoReport`、`analyzePromoRoi` 与 `getPromoRoiView`，删除冗余的 `promo-roi` 文件并更新 ROI 命令、商品分层与相关单测导入
-- [ ] 商品利润域 4 个单测文件从内部计算子文件穿透导入全面迁移至 `getGoodsProfitView` 公开入口，同步删除失效浅测
-- [ ] 保持诊断 `index` 对 `summarize*` 纯函数公开导出面及既有 `diagnose-facts` / `promo-diagnose-view` 断言正常，保留独立 `services/shops` 模块
-- [ ] 更新 `pdd-command-feature-development/SKILL.md` 第 25 行路径，通过 `doc-paths`、`data-contract-v2` 与 `npm run check`
+- [x] `promo` 吸收 `promo-roi` 并导出 `getPromoReport`、`analyzePromoRoi` 与 `getPromoRoiView`，删除冗余的 `promo-roi` 文件并更新 ROI 命令、商品分层与相关单测导入
+- [x] 商品利润域 4 个单测文件从内部计算子文件穿透导入全面迁移至 `getGoodsProfitView` 公开入口，同步删除失效浅测
+- [x] 保持诊断 `index` 对 `summarize*` 纯函数公开导出面及既有 `diagnose-facts` / `promo-diagnose-view` 断言正常，保留独立 `services/shops` 模块
+- [x] 更新 `pdd-command-feature-development/SKILL.md` 第 25 行路径，通过 `doc-paths`、`data-contract-v2` 与 `npm run check`
+
+## Comments
+
+- Merged `ticket/shallow-module-cleanup-02` (`e7aa3a48d803fac7f5dc4eb7435cf23f8c04e09a`) into `feat/phase3-lifecycle-and-cleanup` via `--no-ff` merge commit `7413cab43b1b5f8f7241a65e2096de11b85d5abd` (auto-merged `docs/architecture-overview.md` keeping both `doctor.js` and `promo.js` updates).
+- Verification: `npm run check` passed 100% (`npm run lint` / `knip` exited 0; `npm test` / Vitest passed `177 passed (177)` files, `2767 passed | 1 skipped (2768)` tests in 103.50s).
