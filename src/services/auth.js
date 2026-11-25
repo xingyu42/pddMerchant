@@ -1,42 +1,189 @@
-import { launchBrowser, closeBrowser, createConsumerContext, createSnapshotContext } from '../adapter/browser.js';
 import { PDD_HOME } from '../adapter/auth-state.js';
-import {
-  captureQrElement,
-  saveQrPng,
-  decodeQrContent,
-  renderQrToStream,
-} from '../adapter/qr-login.js';
-import {
-  captureConsumerQr,
-  waitForConsumerLogin,
-} from '../adapter/consumer-qr-login.js';
+import { renderQrToStream } from '../adapter/qr-login.js';
+import { CONSUMER_LOGIN_URL } from '../adapter/consumer-qr-login.js';
+import { assertMerchantVerified } from '../adapter/merchant-auth.js';
+import { loginMerchantInteractive, loginConsumerInteractive } from '../adapter/interactive-login.js';
+import { resolveAccountContext } from '../infra/account-resolver.js';
+import { resolveConsumerAccountContext } from '../infra/consumer-account-resolver.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
+import { getLogger, redactValue } from '../infra/logger.js';
 import { TIMEOUTS } from '../infra/timeouts.js';
-import { getLogger } from '../infra/logger.js';
-import { createConsumerIdentityObserver } from '../adapter/consumer-identity.js';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { verifyMerchantContext, assertMerchantVerified } from '../adapter/merchant-auth.js';
-import { boundMerchantMallId } from '../adapter/merchant-auth-storage.js';
-import { assertAuthTask } from '../infra/auth-task.js';
+import { provisionConsumerAuth, provisionMerchantLogin } from './auth-account-storage.js';
 import { checkMerchantSession } from './merchant-session.js';
-import { MERCHANT_CHECK_URL, hasPassId } from '../adapter/merchant-auth-probe.js';
-import { abortableSleep, budgetMs } from '../infra/abort.js';
+import { toConsumerLoginView, toMerchantLoginView } from './views/auth.js';
 
-async function waitForMerchantCandidate(context, task) {
-  while (true) {
-    assertAuthTask(task);
-    if (hasPassId(await context.cookies([MERCHANT_CHECK_URL]))) return;
-    await abortableSleep(budgetMs(task, 500), task.signal);
+function resolvePositiveTimeoutMs(rawTimeoutMs, qr) {
+  const timeoutMs = typeof rawTimeoutMs === 'number' && Number.isFinite(rawTimeoutMs)
+    ? rawTimeoutMs
+    : (qr ? TIMEOUTS.LOGIN_QR : TIMEOUTS.LOGIN_HEADED);
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new PddCliError({ code: 'E_USAGE', message: '登录超时必须是正数', exitCode: ExitCodes.USAGE });
   }
+  return timeoutMs;
+}
+
+function resolveClockNow(clock, runtime) {
+  return () => (clock?.now ? clock.now() : (runtime?.clock?.now ? runtime.clock.now() : Date.now()));
+}
+
+export function createQrTerminalPresenter({
+  stderr,
+  streams,
+  json = false,
+  timeoutMs,
+  kind = 'merchant',
+  renderQr = renderQrToStream,
+} = {}) {
+  const targetStream = stderr ?? streams?.stderr ?? process.stderr;
+  const isConsumer = kind === 'consumer';
+  return async function presentQr({ imagePath, qrContent } = {}) {
+    if (json) {
+      if (imagePath) {
+        const label = isConsumer ? '消费端' : '商家';
+        targetStream.write(`等待本次${label}扫码授权：${imagePath}\n`);
+      }
+      return;
+    }
+    targetStream.write(isConsumer ? '\n📱 请使用拼多多 App 扫码登录：\n\n' : '\n📱 请使用拼多多商家 App 扫码登录：\n\n');
+    if (qrContent) {
+      await renderQr(qrContent, { stream: targetStream });
+    } else if (!isConsumer || imagePath) {
+      targetStream.write(`（QR 解码失败：截图可能含周围留白或分辨率不足；PNG 已保存，可手动打开 ${imagePath} 扫码）\n`);
+    }
+    if (!isConsumer || imagePath) {
+      targetStream.write(`🖼️  QR 图片本地路径：${imagePath}\n`);
+    }
+    if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+      targetStream.write(`⏳ 等待扫码（超时 ${Math.round(timeoutMs / 1000)}s）...\n\n`);
+    }
+  };
+}
+
+function resolveAuthTiming(options, deps, runtime) {
+  const qr = Boolean(options.qr);
+  const headed = qr ? Boolean(options.headed) : true;
+  const timeoutMs = resolvePositiveTimeoutMs(options.timeoutMs, qr);
+  const clockNow = resolveClockNow(deps.clock, runtime);
+  const signal = deps.signal ?? options.signal ?? runtime?.signal;
+  const deadlineAt = deps.deadlineAt ?? options.deadlineAt ?? runtime?.deadlineAt ?? (clockNow() + timeoutMs);
+  const qrCaptureTimeoutMs = typeof options.timeout === 'number' && Number.isFinite(options.timeout)
+    ? options.timeout
+    : TIMEOUTS.QR_CAPTURE;
+  const stderr = deps.stderr ?? deps.streams?.stderr ?? runtime?.outputSink?.streams?.stderr ?? process.stderr;
+  return { qr, headed, timeoutMs, signal, deadlineAt, qrCaptureTimeoutMs, stderr };
+}
+
+export async function loginMerchant(options = {}, deps = {}) {
+  const runtime = deps.runtime ?? options.runtime;
+  const { qr, headed, timeoutMs, signal, deadlineAt, qrCaptureTimeoutMs, stderr } = resolveAuthTiming(options, deps, runtime);
+  const resolveAccount = deps.resolveAccount ?? ((account) => resolveAccountContext({ account, needsAuth: false }));
+  const target = options.account ? await resolveAccount(options.account) : { accountId: null, account: null };
+  const onQrCaptured = qr
+    ? createQrTerminalPresenter({ stderr, json: Boolean(options.json), timeoutMs, kind: 'merchant' })
+    : undefined;
+  const merchantInteractive = deps.interactiveLogin?.loginMerchant
+    ?? runtime?.interactiveLogin?.loginMerchant
+    ?? ((loginOpts) => loginMerchantInteractive(loginOpts));
+  const activeSeal = deps.seal ?? options.seal ?? runtime?.seal;
+  const activeClock = deps.clock ?? runtime?.clock;
+
+  const provisioned = await (deps.provisionMerchant ?? provisionMerchantLogin)(async (transaction) => merchantInteractive({
+    transaction,
+    qr,
+    headed,
+    timeoutMs,
+    qrCaptureTimeoutMs,
+    expectedMallId: target.account?.identity,
+    signal,
+    deadlineAt,
+    onQrCaptured,
+    browserPort: deps.browserPort ?? runtime?.ports?.browser,
+    authPort: deps.authPort ?? runtime?.ports?.auth,
+    seal: activeSeal,
+    clock: activeClock,
+    log: deps.log ?? runtime?.log ?? getLogger(),
+    checkStoredSession: (checkTarget, task) => checkMerchantSession(checkTarget, {
+      tx: transaction, task, mode: 'login', runtime,
+    }),
+  }), { accountId: target.accountId, signal, deadlineAt, seal: activeSeal, clock: activeClock });
+
+  return toMerchantLoginView(provisioned.result, provisioned);
+}
+
+export async function loginConsumer(options = {}, deps = {}) {
+  if (options.password) {
+    throw new PddCliError({
+      code: 'E_USAGE',
+      message: '消费端暂不支持密码登录',
+      hint: '使用 pdd login --consumer --qr（扫码）或 pdd login --consumer --headed（有头模式）',
+      exitCode: ExitCodes.USAGE,
+    });
+  }
+  const runtime = deps.runtime ?? options.runtime;
+  const { qr, headed, timeoutMs, signal, deadlineAt, qrCaptureTimeoutMs, stderr } = resolveAuthTiming(options, deps, runtime);
+  const resolveConsumerAccount = deps.resolveConsumerAccount ?? ((account) => resolveConsumerAccountContext({ account }));
+  const selectedAccount = options.consumerAccount ? await resolveConsumerAccount(options.consumerAccount) : null;
+  const consumerLoginUrl = options.consumerLoginUrl
+    ?? deps.consumerLoginUrl
+    ?? runtime?.runtimeConfig?.consumerLoginUrl
+    ?? CONSUMER_LOGIN_URL;
+  const onQrCaptured = qr
+    ? createQrTerminalPresenter({ stderr, json: Boolean(options.json), timeoutMs, kind: 'consumer' })
+    : undefined;
+  const consumerInteractive = deps.interactiveLogin?.loginConsumer
+    ?? runtime?.interactiveLogin?.loginConsumer
+    ?? ((loginOpts) => loginConsumerInteractive(loginOpts));
+
+  const result = await consumerInteractive({
+    qr,
+    headed,
+    timeoutMs,
+    qrCaptureTimeoutMs,
+    consumerLoginUrl,
+    qrDir: options.qrDir ?? deps.qrDir,
+    signal,
+    deadlineAt,
+    onQrCaptured,
+    browserPort: deps.browserPort ?? runtime?.ports?.browser,
+    clock: deps.clock ?? runtime?.clock,
+    log: deps.log ?? runtime?.log ?? getLogger(),
+  });
+  if (selectedAccount?.account && String(selectedAccount.account.identity ?? '') !== String(result.identity?.uid ?? '')) {
+    throw new PddCliError({
+      code: 'E_CONSUMER_ACCOUNT_IDENTITY_MISMATCH',
+      message: '登录后的消费者账号与所选账号不一致',
+      hint: '切换到正确账号后重试，或不传 --consumer-account 让系统自动识别',
+      exitCode: ExitCodes.AUTH,
+    });
+  }
+  const provisioned = (deps.provisionConsumer ?? provisionConsumerAuth)(result.state, result.identity);
+  (deps.scrapeCooldown ?? options.scrapeCooldown ?? runtime?.scrapeCooldown ?? null)?.recordSuccess();
+  const isFixture = Boolean(result.fixture);
+  return toConsumerLoginView(result, {
+    accountFingerprint: isFixture ? null : redactValue(provisioned.account.identity),
+    fixture: isFixture,
+  });
 }
 
 async function performMerchantLogin(options) {
   const { transaction, expectedMallId, qr, runtime, seal } = options;
-  const timeoutMs = options.timeoutMs ?? (qr ? TIMEOUTS.LOGIN_QR : TIMEOUTS.LOGIN_HEADED);
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    throw new PddCliError({ code: 'E_USAGE', message: '登录超时必须是正数', exitCode: ExitCodes.USAGE });
+  const timeoutMs = resolvePositiveTimeoutMs(options.timeoutMs, qr);
+  if (runtime?.interactiveLogin?.loginMerchant) {
+    return runtime.interactiveLogin.loginMerchant({
+      ...options,
+      timeoutMs,
+      authPort: runtime.ports?.auth,
+      browserPort: runtime.ports?.browser,
+      seal: seal ?? runtime.seal,
+      clock: runtime.clock,
+      log: runtime.log,
+      checkStoredSession: (checkTarget, task) => checkMerchantSession(checkTarget, {
+        tx: transaction,
+        task,
+        mode: 'login',
+        runtime,
+      }),
+    });
   }
   if (runtime?.mode === 'fixture') {
     const resolvedSeal = seal ?? runtime.seal;
@@ -55,105 +202,21 @@ async function performMerchantLogin(options) {
     assertMerchantVerified(result);
     return { identity: result.identity, mode: qr ? 'qr' : 'headed', url: PDD_HOME, candidate: result.candidate };
   }
-  const nowFn = runtime?.clock?.now ?? Date.now;
-  const deadlineAt = Math.min(options.deadlineAt ?? Infinity, nowFn() + timeoutMs);
-  return acquireMerchantLogin({ ...options, deadlineAt }, transaction);
-}
-
-async function acquireMerchantLogin(options, transaction) {
-  const { signal, deadlineAt, headed, qr, expectedMallId, runtime, seal } = options;
-  const browserPort = runtime?.ports?.browser;
-  let browserSession;
-  let browser;
-  let activeContext;
-  let qrDirectory;
-  let timer;
-  const onAbort = () => {
-    void (browserSession ? browserSession.close() : closeBrowser(browser)).catch(() => {});
-  };
-  signal?.addEventListener('abort', onAbort, { once: true });
-  try {
-    timer = setTimeout(onAbort, budgetMs({ deadlineAt }));
-    const reuseState = transaction.state && !transaction.corrupt;
-    const launchOptions = { headed, storageState: reuseState ? transaction.state : undefined };
-    const launched = browserPort
-      ? await browserPort.openSession(launchOptions)
-      : await launchBrowser(launchOptions);
-    if (browserPort) browserSession = launched;
-    else browser = launched.browser;
-    assertAuthTask(transaction);
-    const activeSeal = seal ?? runtime?.seal;
-    const verifyContext = runtime?.ports?.auth?.verifyAndSeal;
-    const task = {
-      signal,
-      deadlineAt,
-      expectedMallId: expectedMallId ?? boundMerchantMallId(transaction.state),
-      ...(activeSeal ? { seal: activeSeal } : {}),
-      ...(typeof verifyContext === 'function' ? { verifyContext } : {}),
-    };
-    const session = await prepareMerchantSession(launched, transaction, task, reuseState, browserSession);
-    activeContext = session.context;
-    let result = session.result;
-    let qrContentPresent;
-    if (!result || result.verdict !== 'verified') {
-      if (qr) qrDirectory = await mkdtemp(join(tmpdir(), 'pdd-merchant-login-'));
-      const acquired = await authorizeMerchantSession(session, options, task, qrDirectory, browserSession);
-      result = acquired.result;
-      qrContentPresent = acquired.qrContentPresent;
-    }
-    assertMerchantVerified(result);
-    return { identity: result.identity, candidate: result.candidate, url: PDD_HOME, mode: qr ? 'qr' : 'headed', qrContentPresent };
-  } catch (error) {
-    assertAuthTask(transaction);
-    if (error instanceof PddCliError) throw error;
-    throw new PddCliError({ code: 'E_AUTH_FLOW_FAILED', message: '商家授权或校验未完成', exitCode: ExitCodes.AUTH });
-  } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener('abort', onAbort);
-    if (browserSession) {
-      if (activeContext && activeContext !== browserSession.context) {
-        await activeContext.close?.().catch(() => {});
-      }
-      await browserSession.close();
-    } else {
-      await closeBrowser(browser);
-    }
-    if (qrDirectory) await rm(qrDirectory, { recursive: true, force: true });
-  }
-}
-
-async function prepareMerchantSession({ browser, context, page }, transaction, task, reuseState, browserSession) {
-  const checkTarget = browserSession ?? context;
-  const { result } = reuseState
-    ? await checkMerchantSession(checkTarget, { tx: transaction, task, mode: 'login' }) : { result: null };
-  if (!result || result.verdict === 'verified') return { context, page, result };
-  await context.close();
-  const emptyContext = browserSession
-    ? await browserSession.createSnapshotContext({ cookies: [], origins: [] })
-    : await createSnapshotContext(browser, { cookies: [], origins: [] });
-  return { context: emptyContext, page: await emptyContext.newPage(), result };
-}
-
-async function authorizeMerchantSession({ context, page }, options, task, qrDirectory, browserSession) {
-  assertAuthTask(task);
-  let qrContentPresent;
-  if (options.qr) {
-    const pngBuffer = await captureQrElement(page, { timeout: budgetMs(task, options.qrCaptureTimeoutMs ?? TIMEOUTS.QR_CAPTURE) });
-    const imagePath = await saveQrPng(pngBuffer, { dir: qrDirectory });
-    const qrContent = decodeQrContent(pngBuffer);
-    qrContentPresent = Boolean(qrContent);
-    if (options.onQrCaptured) await options.onQrCaptured({ imagePath, qrContent, pngBuffer });
-  } else {
-    await page.goto(PDD_HOME, { waitUntil: 'domcontentloaded', timeout: budgetMs(task, TIMEOUTS.NAV) });
-    getLogger().info('等待用户在独立浏览器中授权');
-  }
-  await waitForMerchantCandidate(context, task);
-  await page.close();
-  const verifyContext = typeof task.verifyContext === 'function' ? task.verifyContext : verifyMerchantContext;
-  const verifyTarget = browserSession
-    ? { context, createSnapshotContext: (snapshot) => browserSession.createSnapshotContext(snapshot) }
-    : context;
-  return { result: await verifyContext(verifyTarget, { ...task, ...(browserSession ? {} : { createSnapshotContext }) }), qrContentPresent };
+  return loginMerchantInteractive({
+    ...options,
+    timeoutMs,
+    browserPort: runtime?.ports?.browser,
+    authPort: runtime?.ports?.auth,
+    seal: seal ?? runtime?.seal,
+    clock: runtime?.clock,
+    log: runtime?.log,
+    checkStoredSession: (checkTarget, task) => checkMerchantSession(checkTarget, {
+      tx: transaction,
+      task,
+      mode: 'login',
+      runtime,
+    }),
+  });
 }
 
 export function performQrLogin(options) {
@@ -164,128 +227,34 @@ export function performHeadedLogin(options) {
   return performMerchantLogin({ ...options, qr: false, headed: true });
 }
 
-async function closeConsumerLoginResources(deriveConsumer, target, cleanupRoot) {
-  if (deriveConsumer) await target.close?.().catch(() => {});
-  await cleanupRoot();
-}
-
-async function openConsumerLoginTarget({ headed, deriveConsumer, browserPort }) {
-  const root = browserPort
-    ? await browserPort.openSession({ headed })
-    : await launchBrowser({ headed });
-  const cleanupRoot = browserPort
-    ? () => root.close().catch(() => {})
-    : () => closeBrowser(root.browser);
-  const resolveTarget = deriveConsumer
-    ? () => (browserPort ? browserPort.deriveConsumerContext(root) : createConsumerContext(root.browser))
-    : () => root;
-
-  try {
-    const target = await resolveTarget();
-    return {
-      context: target.context,
-      page: target.page,
-      close: () => closeConsumerLoginResources(deriveConsumer, target, cleanupRoot),
-    };
-  } catch (err) {
-    await cleanupRoot();
-    throw err;
-  }
-}
-
-async function waitForConsumerAuth(target, identityObserver, {
-  timeoutMs,
-  hint,
-  detail,
-  scrapeCooldown,
-}) {
-  const result = await waitForConsumerLogin(target.page, { timeoutMs });
-  if (!result.success) {
-    throw new PddCliError({
-      code: 'E_AUTH_TIMEOUT',
-      message: `消费端登录超时：${Math.round(timeoutMs / 1000)}s 内未检测到登录成功`,
-      hint,
-      ...(detail ? { detail } : {}),
-      exitCode: ExitCodes.AUTH,
-    });
-  }
-  const identity = await identityObserver.wait();
-  const state = await target.context.storageState();
-  scrapeCooldown?.recordSuccess();
-  return { state, identity, url: result.url };
-}
-
-export async function performConsumerQrLogin({
-  timeoutMs,
-  headed = false,
-  onQrCaptured,
-  consumerLoginUrl,
-  scrapeCooldown,
-  qrDir,
-  runtime,
-}) {
-  const log = getLogger();
-  let target = null;
-  let identityObserver = null;
+export async function performConsumerQrLogin(options = {}) {
+  const { scrapeCooldown, runtime, headed = false } = options;
   const resolvedCooldown = scrapeCooldown ?? runtime?.scrapeCooldown ?? null;
-  try {
-    target = await openConsumerLoginTarget({
-      headed,
-      deriveConsumer: true,
-      browserPort: runtime?.ports?.browser,
-    });
-    identityObserver = createConsumerIdentityObserver(target.page);
-
-    log.info({ headed }, '消费端：抓取登录二维码中');
-    const pngBuffer = await captureConsumerQr(target.page, { loginUrl: consumerLoginUrl });
-    const imagePath = await saveQrPng(pngBuffer, qrDir ? { dir: qrDir } : undefined);
-    const qrContent = decodeQrContent(pngBuffer);
-    if (onQrCaptured) await onQrCaptured({ imagePath, qrContent, pngBuffer });
-
-    const auth = await waitForConsumerAuth(target, identityObserver, {
-      timeoutMs,
-      hint: `QR 可能已过期，重新执行；或查看 ${imagePath}`,
-      detail: { imagePath, qr_content_present: Boolean(qrContent) },
-      scrapeCooldown: resolvedCooldown,
-    });
-    return { ...auth, mode: 'consumer-qr', qrImagePath: imagePath };
-  } finally {
-    identityObserver?.dispose();
-    await target?.close();
-  }
+  const login = runtime?.interactiveLogin?.loginConsumer ?? loginConsumerInteractive;
+  const auth = await login({
+    ...options,
+    qr: true,
+    headed,
+    browserPort: runtime?.ports?.browser,
+    clock: runtime?.clock,
+    log: runtime?.log,
+  });
+  resolvedCooldown?.recordSuccess();
+  return auth;
 }
 
-export async function performConsumerHeadedLogin({
-  timeoutMs,
-  consumerLoginUrl,
-  scrapeCooldown,
-  runtime,
-}) {
-  const log = getLogger();
-  let target = null;
-  let identityObserver = null;
+export async function performConsumerHeadedLogin(options = {}) {
+  const { scrapeCooldown, runtime } = options;
   const resolvedCooldown = scrapeCooldown ?? runtime?.scrapeCooldown ?? null;
-  try {
-    target = await openConsumerLoginTarget({
-      headed: true,
-      deriveConsumer: false,
-      browserPort: runtime?.ports?.browser,
-    });
-    identityObserver = createConsumerIdentityObserver(target.page);
-
-    await target.page.goto(consumerLoginUrl, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.NAV });
-    log.info(`消费端：等待手动登录（最长 ${Math.round(timeoutMs / 60000)} 分钟）`);
-
-    const auth = await waitForConsumerAuth(target, identityObserver, {
-      timeoutMs,
-      hint: '重新执行 pdd login --consumer',
-      scrapeCooldown: resolvedCooldown,
-    });
-    return { ...auth, mode: 'consumer-headed' };
-  } finally {
-    identityObserver?.dispose();
-    await target?.close();
-  }
+  const login = runtime?.interactiveLogin?.loginConsumer ?? loginConsumerInteractive;
+  const auth = await login({
+    ...options,
+    qr: false,
+    headed: true,
+    browserPort: runtime?.ports?.browser,
+    clock: runtime?.clock,
+    log: runtime?.log,
+  });
+  resolvedCooldown?.recordSuccess();
+  return auth;
 }
-
-export { renderQrToStream };

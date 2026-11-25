@@ -3,6 +3,7 @@ import { createFixtureBrowserRuntime } from '../../adapter/fixtures/browser.js';
 import { createFixtureMallPort } from '../../adapter/fixtures/mall.js';
 import {
   createFixtureAuthPort,
+  createFixtureInteractiveLogin,
   verifyFixtureMerchantContext,
   mockIsAuthValid,
   mockIsAuthIndeterminate,
@@ -116,6 +117,10 @@ export function createFixtureBundle({ seal, clock, parsedEnv, env, overrides = {
     readEndpoint: mockRunEndpoint,
   });
   const passwordLogin = overrides.passwordLogin ?? createFixturePasswordLogin(parsedEnv);
+  const interactiveLogin = overrides.interactiveLogin ?? createFixtureInteractiveLogin({
+    auth,
+    seal,
+  });
   const consoleLoginDriver = includeConsole
     ? (overrides.consoleLoginDriver ?? createFixtureConsoleLoginDriver({
         authPort: auth,
@@ -195,6 +200,7 @@ export function createFixtureBundle({ seal, clock, parsedEnv, env, overrides = {
     daemonProcess,
     endpointTransport,
     passwordLogin,
+    interactiveLogin,
     consoleLoginDriver,
     createGoodsPublishPort,
     consoleExtraRoutes,
