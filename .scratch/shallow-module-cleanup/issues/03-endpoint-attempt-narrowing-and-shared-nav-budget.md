@@ -4,8 +4,13 @@
 
 **Blocked by:** runtime-adapter-seams#06
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 端点单次尝试辅助的 10 字段宽参配置收窄为内聚分组结构，内部调用清晰无冗余透传
-- [ ] `page-api` 与 `fetch` / `legacy` 共同复用同一份带剩余预算裁剪的页面导航执行器与 `E_NETWORK` 错误包装逻辑
-- [ ] 端点导航、预算裁剪、超时中止与响应契约测试全部通过，且 `npm run check` 全绿
+- [x] 端点单次尝试辅助的 10 字段宽参配置收窄为内聚分组结构，内部调用清晰无冗余透传
+- [x] `page-api` 与 `fetch` / `legacy` 共同复用同一份带剩余预算裁剪的页面导航执行器与 `E_NETWORK` 错误包装逻辑
+- [x] 端点导航、预算裁剪、超时中止与响应契约测试全部通过，且 `npm run check` 全绿
+
+## Comments
+
+- Merged `ticket/shallow-module-cleanup-03` (`6a894e14d043dbb822721d8cf4263611d35237e8`) into `feat/phase3-lifecycle-and-cleanup` via `--no-ff` merge commit `abeac9df5d5d13b728d8420ec207e5428ad29156`.
+- Verification: `npm run check` passed 100% (`npm run lint` / `knip` exited 0; `npm test` / Vitest passed `175 passed (175)` files, `2753 passed | 1 skipped (2754)` tests in 79.65s).
