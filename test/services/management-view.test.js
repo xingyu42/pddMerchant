@@ -1,7 +1,7 @@
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import { toCurrentShopView, toShopListView } from '../../src/services/views/shops.js';
-import { toDoctorView, toMerchantLoginView } from '../../src/services/views/auth.js';
+import { toDoctorView, toMerchantLoginView, renderDoctor } from '../../src/services/views/auth.js';
 import { insertAccount, listAccounts, updateAccount } from '../../src/infra/account-store.js';
 import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
 import { toAccountView, toAccountListView, toAccountRemovedView, ACCOUNT_VIEW_FIELDS, ACCOUNT_REMOVED_VIEW_FIELDS } from '../../src/services/views/account.js';
@@ -11,7 +11,6 @@ import {
 import { toConsoleAccountView, CONSOLE_ACCOUNT_VIEW_FIELDS,
   CONSOLE_STATUS_LABEL, CONSOLE_LOGIN_REASON_LABEL, CONSOLE_CHALLENGE_DETAIL, CONSOLE_VERDICT_DETAIL,
 } from '../../src/services/views/console.js';
-import { renderDoctor } from '../../src/commands/doctor.js';
 
 describe('management headlines state only known facts', () => {
   it('separates the removed account slug from the following Chinese text', () => {
