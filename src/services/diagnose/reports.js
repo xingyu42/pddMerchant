@@ -3,13 +3,12 @@ import { getLogger } from '../../infra/logger.js';
 import { throwIfAborted } from '../../infra/abort.js';
 import { runEndpoint } from '../../adapter/run-endpoint.js';
 import { ORDER_REGION_DISTRIBUTION } from '../../adapter/endpoints/orders.js';
-import { computeOrderStats } from '../orders.js';
+import { collectOrdersWindow, computeOrderStats, ORDER_WINDOW_PAGE_SIZE } from '../orders.js';
 import { isDegradableReportError } from '../operating-report.js';
 import { mallIdOf } from '../views/_shared.js';
 import { toDimensionView, toOrdersDiagnosisView, toShopView } from '../views/diagnose.js';
 import { collectGoodsInput, collectOrdersInput, collectPromoInput } from './collectors.js';
 import { diagnoseShop, summarizeAfterSales, summarizeInventory, summarizeOrders, summarizePromo } from './index.js';
-import { collectOrdersForStaleAnalysis, STALE_PAGE_SIZE } from './orders-collector.js';
 import { compareShopDiagnosis, resolveCompareWindows } from './trend-compare.js';
 import { withEndpointPages } from '../../adapter/endpoint-pages.js';
 
@@ -61,15 +60,15 @@ export async function getPromoDiagnosis(ctx) {
 export async function getAfterSalesDiagnosis(ctx, { days } = {}) {
   const windowDays = typeof days === 'number' && days > 0 ? days : AFTER_SALES_DEFAULT_DAYS;
   const maxPages = Math.max(10, Math.ceil(windowDays / 7) * AFTER_SALES_PAGES_PER_WEEK);
-  const { orders, truncated, ratelimited } = await collectOrdersForStaleAnalysis(
+  const { orders, truncated, ratelimited } = await collectOrdersWindow(
     ctx.page,
     { ...ctx, mallId: mallIdOf(ctx) },
     // 售后统计需要包含退款和售后处理中的订单。
-    { scanDays: windowDays, maxPages, pageSize: STALE_PAGE_SIZE, scope: 'all' },
+    { scanDays: windowDays, maxPages, pageSize: ORDER_WINDOW_PAGE_SIZE, scope: 'all' },
   );
   const result = summarizeAfterSales({ orderStats: computeOrderStats(orders), windowDays });
   if (truncated || ratelimited) result.status = 'partial';
-  if (truncated) result.hints.push(`订单量超出采集上限（${maxPages * STALE_PAGE_SIZE} 条），统计基于部分数据`);
+  if (truncated) result.hints.push(`订单量超出采集上限（${maxPages * ORDER_WINDOW_PAGE_SIZE} 条），统计基于部分数据`);
   if (ratelimited) result.hints.push('订单采集因限流中断，统计基于部分数据');
   return dimensionResult('after_sales', result, ctx);
 }

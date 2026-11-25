@@ -1,8 +1,7 @@
 import { responseShapeError } from '../infra/errors.js';
 import { toFiniteNumber } from '../infra/units.js';
 import { throwIfAborted } from '../infra/abort.js';
-import { listOrders } from './orders.js';
-import { collectOrdersForStaleAnalysis } from './diagnose/orders-collector.js';
+import { collectOrdersWindow, listOrders } from './orders.js';
 import { listGoodsCosts } from '../infra/goods-cost-store.js';
 import { computeGoodsProfit, isUnpaidCancelled } from './goods-profit-calculation.js';
 import { collectProfitPromo } from './goods-profit-promo.js';
@@ -59,7 +58,7 @@ export async function collectProfitOrders(page, ctx, { window, maxPages, delayMs
     requestCount += 1;
     return readProfitOrders(currentPage, params, currentCtx);
   };
-  const scan = await collectOrdersForStaleAnalysis(page, ctx, {
+  const scan = await collectOrdersWindow(page, ctx, {
     scope: 'all', since: window.start, now: window.end - 1, scanDays: window.days,
     pageSize: 50, maxPages: maxPages ?? Math.max(10, Math.ceil(window.days / 7) * 3),
     ...(delayMs === undefined ? {} : { delayMs }), listOrders: read,
