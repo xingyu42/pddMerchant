@@ -20,7 +20,7 @@ function merchantLoginHeadline({ displayName, mallId }) {
   return mallId ? `商家端授权成功：店铺 ID ${mallId}（未获取到店铺名）` : '商家端授权成功（未获取到店铺信息）';
 }
 
-// result：performQrLogin / performHeadedLogin 结果；provisioned：注册到 registry 的账号（可空）
+// result：authenticateMerchant / interactiveLogin 结果；provisioned：注册到 registry 的账号（可空）
 export function toMerchantLoginView(result, provisioned) {
   const identity = result.identity ?? {};
   return {

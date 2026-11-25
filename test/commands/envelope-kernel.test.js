@@ -10,6 +10,8 @@ import { composeCommandRuntime } from '../../src/runtime/command-runtime.js';
 import { createOutputSink } from '../../src/infra/output-sink.js';
 import { PddCliError, ExitCodes } from '../../src/infra/errors.js';
 import { abortableSleep } from '../../src/infra/abort.js';
+import { insertAccount } from '../../src/infra/account-store.js';
+import { saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
 import * as configCmd from '../../src/commands/config.js';
 import { link as consoleLink } from '../../src/commands/console.js';
 import { status as daemonStatus } from '../../src/commands/daemon.js';
@@ -229,6 +231,120 @@ describe('envelope-kernel: dynamic command names, timing, noColor, timeout, sing
       assert.equal(envelope.error.code, 'E_TIMEOUT');
       assert.equal(runtime.outputSink.hasEmitted(), true);
     } finally {
+      await runtime.closeAll();
+    }
+  });
+
+  it('aborts --all-accounts batch promptly on already-aborted and in-flight parentSignal without setting exitCode 130', async () => {
+    const passState = { cookies: [{ name: 'PASS_ID', value: 'synthetic' }], origins: [] };
+    const accountA = insertAccount({ identity: '900001', displayName: 'Shop A' }, { setDefault: true });
+    const accountB = insertAccount({ identity: '900002', displayName: 'Shop B' });
+    saveAuthStateSnapshot(passState, accountA.id);
+    saveAuthStateSnapshot(passState, accountB.id);
+
+    const visitedPre = [];
+    const preAborted = new AbortController();
+    preAborted.abort(new Error('pre-aborted'));
+    const preStreams = makeMemoryStreams();
+    const preRuntime = await composeCommandRuntime({
+      mode: 'fixture',
+      runtimeConfigPolicy: 'maintenance',
+      env: {},
+      streams: preStreams.streams,
+    });
+    const exitCodeBefore = process.exitCode;
+    try {
+      const cmd = withCommand({
+        name: 'test.batchParentAbortPre',
+        needsAuth: true,
+        needsMall: 'none',
+        async run(ctx) {
+          visitedPre.push(ctx.accountSlug);
+          return { headline: ['ok'] };
+        },
+      });
+      const env = await cmd({ allAccounts: true, json: true }, { runtime: preRuntime, parentSignal: preAborted.signal });
+      assertEnvelopeShape(env, { ok: false, command: 'test.batchParentAbortPre', exitCode: ExitCodes.NETWORK, hasData: false, hasError: true });
+      assert.equal(env.error.code, 'E_TIMEOUT');
+      assert.deepEqual(visitedPre, []);
+      assert.equal(preRuntime.outputSink.hasEmitted(), true);
+      assert.deepEqual(JSON.parse(preStreams.readStdout().trim()), env);
+      assert.equal(process.exitCode, exitCodeBefore);
+    } finally {
+      await preRuntime.closeAll();
+    }
+
+    const visitedMid = [];
+    const midController = new AbortController();
+    const midStreams = makeMemoryStreams();
+    const midRuntime = await composeCommandRuntime({
+      mode: 'fixture',
+      runtimeConfigPolicy: 'maintenance',
+      env: {},
+      streams: midStreams.streams,
+    });
+    try {
+      const cmd = withCommand({
+        name: 'test.batchParentAbortMid',
+        needsAuth: true,
+        needsMall: 'none',
+        async run(ctx) {
+          visitedMid.push(ctx.accountSlug);
+          midController.abort(new Error('mid-aborted'));
+          await abortableSleep(5000, ctx.signal);
+          return { headline: ['unreachable'] };
+        },
+      });
+      const env = await cmd({ allAccounts: true, json: true }, { runtime: midRuntime, parentSignal: midController.signal });
+      assertEnvelopeShape(env, { ok: false, command: 'test.batchParentAbortMid', exitCode: ExitCodes.NETWORK, hasData: false, hasError: true });
+      assert.equal(env.error.code, 'E_TIMEOUT');
+      assert.deepEqual(visitedMid, ['shop-a']);
+      assert.equal(midRuntime.outputSink.hasEmitted(), true);
+      assert.deepEqual(JSON.parse(midStreams.readStdout().trim()), env);
+      assert.equal(process.exitCode, exitCodeBefore);
+    } finally {
+      await midRuntime.closeAll();
+    }
+  });
+
+  it('aborts --all-accounts batch promptly when --timeout fires during inter-account jitter', async () => {
+    vi.useFakeTimers();
+    const passState = { cookies: [{ name: 'PASS_ID', value: 'synthetic' }], origins: [] };
+    const accountA = insertAccount({ identity: '900001', displayName: 'Shop A' }, { setDefault: true });
+    const accountB = insertAccount({ identity: '900002', displayName: 'Shop B' });
+    saveAuthStateSnapshot(passState, accountA.id);
+    saveAuthStateSnapshot(passState, accountB.id);
+
+    const { streams, readStdout } = makeMemoryStreams();
+    const runtime = await composeCommandRuntime({
+      mode: 'fixture',
+      runtimeConfigPolicy: 'maintenance',
+      env: {},
+      streams,
+    });
+    const exitCodeBefore = process.exitCode;
+    const visited = [];
+    try {
+      const cmd = withCommand({
+        name: 'test.batchTimeout',
+        needsAuth: true,
+        needsMall: 'none',
+        async run(ctx) {
+          visited.push(ctx.accountSlug);
+          return { headline: ['ok'] };
+        },
+      });
+      const pending = cmd({ allAccounts: true, timeoutMs: 50, json: true }, { runtime });
+      await vi.advanceTimersByTimeAsync(60);
+      const env = await pending;
+      assertEnvelopeShape(env, { ok: false, command: 'test.batchTimeout', exitCode: ExitCodes.NETWORK, hasData: false, hasError: true });
+      assert.equal(env.error.code, 'E_TIMEOUT');
+      assert.deepEqual(visited, ['shop-a']);
+      assert.equal(runtime.outputSink.hasEmitted(), true);
+      assert.deepEqual(JSON.parse(readStdout().trim()), env);
+      assert.equal(process.exitCode, exitCodeBefore);
+    } finally {
+      vi.useRealTimers();
       await runtime.closeAll();
     }
   });

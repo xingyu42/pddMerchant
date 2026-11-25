@@ -1,11 +1,9 @@
 // 批量执行器（design D-2）：--all-accounts 账号循环、jitter、SIGINT 中断与
 // batch envelope 终结。withCommand 同时分派 single/batch，依 DAG 只能住本模块。
-import { randomUUID } from 'node:crypto';
-import { getLogger } from '../../infra/logger.js';
 import { emit as defaultEmit, buildBatchEnvelope, batchRenderer } from '../../infra/output.js';
 import { PddCliError, ExitCodes, errorToEnvelope, batchExitCode } from '../../infra/errors.js';
+import { throwIfAborted } from '../../infra/abort.js';
 import { listAccounts } from '../../infra/account-store.js';
-import { composeCommandRuntime } from '../../runtime/command-runtime.js';
 import { executeSingle } from './single-lifecycle.js';
 import { normalizeCommandSpec, resolveNoColor, runWithEnvelopeKernel } from './envelope-kernel.js';
 
@@ -143,9 +141,8 @@ async function runAccountLoop(spec, opts, accounts, batch, runtimeConfig) {
   return accountResults;
 }
 
-function finalizeBatch(spec, opts, accountResults, batch) {
-  const aborted = batch.signal.aborted;
-  if (aborted) {
+function finalizeBatch(spec, opts, accountResults, batch, interruptedBySigint = false) {
+  if (interruptedBySigint) {
     batch.warnings.push('batch_interrupted_sigint');
   }
 
@@ -155,7 +152,7 @@ function finalizeBatch(spec, opts, accountResults, batch) {
     {
       latency_ms: batch.runtime.clock.now() - batch.startedAt,
       correlation_id: batch.correlationId,
-      exit_code: aborted ? 130 : batchExitCode(accountResults),
+      exit_code: interruptedBySigint ? 130 : batchExitCode(accountResults),
       warnings: [...new Set(batch.warnings)],
     },
     {
@@ -176,64 +173,52 @@ function finalizeBatch(spec, opts, accountResults, batch) {
     ].join('\n'),
   });
 
-  if (aborted) {
+  if (interruptedBySigint) {
     process.exitCode = 130;
   }
 
   return batchEnvelope;
 }
 
-async function executeBatch(spec, opts, {
-  runtimeConfig,
-  runtime: providedRuntime,
-  correlationId: kernelCorrelationId,
-  startedAt: kernelStartedAt,
-  warnings: kernelWarnings,
-  log: kernelLog,
-} = {}) {
-  const selfComposed = !providedRuntime;
-  const runtime = providedRuntime ?? await composeCommandRuntime({
-    env: process.env,
-    runtimeConfigPolicy: 'maintenance',
-    overrides: runtimeConfig !== undefined ? { runtimeConfig } : {},
-  });
+async function executeBatch(spec, opts, runtime) {
+  const warnings = validateBatchOptions(opts);
+  runtime.warnings.push(...warnings);
+  throwIfAborted(runtime.signal);
+  const accounts = listMerchantAccounts();
 
-  try {
-    const startedAt = kernelStartedAt ?? runtime.clock.now();
-    const correlationId = kernelCorrelationId ?? randomUUID();
-
-    const log = kernelLog ?? (getLogger().withOp
-      ? getLogger().withOp({ command: spec.name, correlation_id: correlationId })
-      : getLogger());
-
-    const warnings = validateBatchOptions(opts);
-    if (kernelWarnings) kernelWarnings.push(...warnings);
-    const activeWarnings = kernelWarnings ?? warnings;
-    const accounts = listMerchantAccounts();
-
-    const abortController = new AbortController();
-    const onSigint = () => abortController.abort();
-    process.prependListener('SIGINT', onSigint);
-
-    const batch = {
-      startedAt,
-      correlationId,
-      warnings: activeWarnings,
-      log,
-      signal: abortController.signal,
-      runtime,
-    };
-    let accountResults;
-    try {
-      accountResults = await runAccountLoop(spec, opts, accounts, batch, runtimeConfig ?? runtime.runtimeConfig);
-    } finally {
-      process.removeListener('SIGINT', onSigint);
-    }
-
-    return finalizeBatch(spec, opts, accountResults, batch);
-  } finally {
-    if (selfComposed) await runtime.closeAll();
+  const abortController = new AbortController();
+  let interruptedBySigint = false;
+  const parentSignal = runtime.signal;
+  const onParentAbort = () => abortController.abort(parentSignal.reason);
+  const onSigint = () => {
+    interruptedBySigint = true;
+    abortController.abort();
+  };
+  if (parentSignal?.aborted) {
+    abortController.abort(parentSignal.reason);
+  } else {
+    parentSignal?.addEventListener('abort', onParentAbort, { once: true });
   }
+  process.prependListener('SIGINT', onSigint);
+
+  const batch = {
+    startedAt: runtime.startedAt,
+    correlationId: runtime.correlationId,
+    warnings: runtime.warnings,
+    log: runtime.log,
+    signal: abortController.signal,
+    runtime,
+  };
+  let accountResults;
+  try {
+    accountResults = await runAccountLoop(spec, opts, accounts, batch, runtime.runtimeConfig);
+  } finally {
+    process.removeListener('SIGINT', onSigint);
+    parentSignal?.removeEventListener('abort', onParentAbort);
+  }
+
+  if (!interruptedBySigint) throwIfAborted(parentSignal);
+  return finalizeBatch(spec, opts, accountResults, batch, interruptedBySigint);
 }
 
 export function withCommand(rawSpec) {
@@ -241,14 +226,7 @@ export function withCommand(rawSpec) {
   async function executeCommand(opts = {}, extra = {}) {
     return runWithEnvelopeKernel(spec, opts, extra, async ({ spec: resolvedSpec, opts: resolvedOpts, runtime }) => {
       if (resolvedOpts.allAccounts && resolvedSpec.needsAuth) {
-        return executeBatch(resolvedSpec, resolvedOpts, {
-          runtimeConfig: runtime.runtimeConfig,
-          runtime,
-          correlationId: runtime.correlationId,
-          startedAt: runtime.startedAt,
-          warnings: runtime.warnings,
-          log: runtime.log,
-        });
+        return executeBatch(resolvedSpec, resolvedOpts, runtime);
       }
       return executeSingle(resolvedSpec, resolvedOpts, {
         emitResult: true,

@@ -113,36 +113,55 @@ function buildMerchantTask(options, transaction, deadlineAt) {
   };
 }
 
-export async function loginMerchantInteractive(options = {}) {
-  const { transaction = {}, qr = false, headed = !qr, signal, browserPort, clock, checkStoredSession } = options;
+function resolveLoginBudget(options, qr) {
   const timeoutMs = resolveTimeoutMs(options.timeoutMs, qr);
-  const nowFn = clock?.now ?? Date.now;
+  const nowFn = options.clock?.now ?? Date.now;
   const deadlineAt = Math.min(options.deadlineAt ?? Infinity, nowFn() + timeoutMs);
-  const taskBudget = { signal, deadlineAt, clock };
+  return { timeoutMs, deadlineAt, taskBudget: { signal: options.signal, deadlineAt, clock: options.clock } };
+}
+
+function armAbortCleanup(signal, taskBudget, onAbort) {
+  signal?.addEventListener('abort', onAbort, { once: true });
+  const timer = setTimeout(onAbort, budgetMs(taskBudget));
+  return () => {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
+  };
+}
+
+async function openMerchantLaunch({ headed, transaction, browserPort }) {
+  const reuseState = Boolean(transaction.state && !transaction.corrupt);
+  const launchOptions = { headed, storageState: reuseState ? transaction.state : undefined };
+  const launched = browserPort ? await browserPort.openSession(launchOptions) : await launchBrowser(launchOptions);
+  return {
+    launched,
+    reuseState,
+    browserSession: browserPort ? launched : undefined,
+    browser: browserPort ? undefined : launched.browser,
+  };
+}
+
+export async function loginMerchantInteractive(options = {}) {
+  const { transaction = {}, qr = false, headed = !qr, signal, browserPort, checkStoredSession } = options;
+  const { deadlineAt, taskBudget } = resolveLoginBudget(options, qr);
   assertAuthTask(taskBudget);
 
   let browserSession;
   let browser;
   let activeContext;
   let qrDirectory;
-  let timer;
-  const onAbort = () => {
+  const disarmAbort = armAbortCleanup(signal, taskBudget, () => {
     void (browserSession ? browserSession.close() : closeBrowser(browser)).catch(() => {});
-  };
-  signal?.addEventListener('abort', onAbort, { once: true });
+  });
 
   try {
-    timer = setTimeout(onAbort, budgetMs(taskBudget));
-    const reuseState = Boolean(transaction.state && !transaction.corrupt);
-    const launchOptions = { headed, storageState: reuseState ? transaction.state : undefined };
-    const launched = browserPort ? await browserPort.openSession(launchOptions) : await launchBrowser(launchOptions);
-    if (browserPort) browserSession = launched;
-    else browser = launched.browser;
+    const opened = await openMerchantLaunch({ headed, transaction, browserPort });
+    ({ browserSession, browser } = opened);
     assertAuthTask(taskBudget);
 
     const task = buildMerchantTask(options, transaction, deadlineAt);
-    const session = await prepareMerchantSession(launched, transaction, task, {
-      reuseState,
+    const session = await prepareMerchantSession(opened.launched, transaction, task, {
+      reuseState: opened.reuseState,
       browserSession,
       checkStoredSession,
     });
@@ -152,11 +171,7 @@ export async function loginMerchantInteractive(options = {}) {
     if (!result || result.verdict !== 'verified') {
       if (qr) qrDirectory = await mkdtemp(join(tmpdir(), 'pdd-merchant-login-'));
       ({ result, qrContentPresent } = await authorizeMerchantSession(
-        session,
-        { ...options, qr, headed },
-        task,
-        qrDirectory,
-        browserSession,
+        session, { ...options, qr, headed }, task, qrDirectory, browserSession,
       ));
     }
     assertMerchantVerified(result);
@@ -166,8 +181,7 @@ export async function loginMerchantInteractive(options = {}) {
     if (error instanceof PddCliError) throw error;
     throw new PddCliError({ code: 'E_AUTH_FLOW_FAILED', message: '商家授权或校验未完成', exitCode: ExitCodes.AUTH });
   } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener('abort', onAbort);
+    disarmAbort();
     await cleanupMerchantResources({ browserSession, activeContext, browser, qrDirectory });
   }
 }
@@ -253,6 +267,30 @@ async function runConsumerQrFlow(target, identityObserver, options) {
   return { ...auth, mode: 'consumer-qr', qrImagePath: imagePath };
 }
 
+async function runConsumerHeadedFlow(target, identityObserver, {
+  consumerLoginUrl,
+  timeoutMs,
+  deadlineAt,
+  clock,
+  signal,
+  log,
+}) {
+  await target.page.goto(consumerLoginUrl, {
+    waitUntil: 'domcontentloaded',
+    timeout: budgetMs({ deadlineAt, clock }, TIMEOUTS.NAV),
+  });
+  throwIfAborted(signal);
+  log.info(`消费端：等待手动登录（最长 ${Math.round(timeoutMs / 60000)} 分钟）`);
+  const auth = await waitForConsumerAuth(target, identityObserver, {
+    timeoutMs,
+    deadlineAt,
+    clock,
+    signal,
+    hint: '重新执行 pdd login --consumer',
+  });
+  return { ...auth, mode: 'consumer-headed' };
+}
+
 export async function loginConsumerInteractive(options = {}) {
   const {
     qr = false,
@@ -261,62 +299,33 @@ export async function loginConsumerInteractive(options = {}) {
     qrCaptureTimeoutMs = TIMEOUTS.QR_CAPTURE,
     signal,
     browserPort,
-    clock,
     log,
   } = options;
-  const timeoutMs = resolveTimeoutMs(options.timeoutMs, qr);
-  const nowFn = clock?.now ?? Date.now;
-  const deadlineAt = Math.min(options.deadlineAt ?? Infinity, nowFn() + timeoutMs);
+  const { timeoutMs, deadlineAt, taskBudget } = resolveLoginBudget(options, qr);
   throwIfAborted(signal);
 
   const activeLog = log ?? getLogger();
   let target = null;
   let identityObserver = null;
-  let timer;
-  const onAbort = () => {
+  const disarmAbort = armAbortCleanup(signal, taskBudget, () => {
     identityObserver?.dispose();
     void target?.close().catch(() => {});
-  };
-  signal?.addEventListener('abort', onAbort, { once: true });
+  });
 
   try {
-    timer = setTimeout(onAbort, budgetMs({ deadlineAt, clock }));
     target = await openConsumerLoginTarget({ headed, deriveConsumer: qr, browserPort });
     throwIfAborted(signal);
     identityObserver = createConsumerIdentityObserver(target.page);
 
-    if (qr) {
-      return await runConsumerQrFlow(target, identityObserver, {
-        ...options,
-        headed,
-        consumerLoginUrl,
-        qrCaptureTimeoutMs,
-        timeoutMs,
-        deadlineAt,
-        log: activeLog,
-      });
-    }
-
-    await target.page.goto(consumerLoginUrl, {
-      waitUntil: 'domcontentloaded',
-      timeout: budgetMs({ deadlineAt, clock }, TIMEOUTS.NAV),
-    });
-    throwIfAborted(signal);
-    activeLog.info(`消费端：等待手动登录（最长 ${Math.round(timeoutMs / 60000)} 分钟）`);
-    const auth = await waitForConsumerAuth(target, identityObserver, {
-      timeoutMs,
-      deadlineAt,
-      clock,
-      signal,
-      hint: '重新执行 pdd login --consumer',
-    });
-    return { ...auth, mode: 'consumer-headed' };
+    const flowOptions = { ...options, headed, consumerLoginUrl, qrCaptureTimeoutMs, timeoutMs, deadlineAt, log: activeLog };
+    return qr
+      ? await runConsumerQrFlow(target, identityObserver, flowOptions)
+      : await runConsumerHeadedFlow(target, identityObserver, flowOptions);
   } catch (error) {
     throwIfAborted(signal);
     throw error;
   } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener('abort', onAbort);
+    disarmAbort();
     identityObserver?.dispose();
     await target?.close();
   }

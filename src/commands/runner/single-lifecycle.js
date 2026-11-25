@@ -169,41 +169,62 @@ async function executeWithoutBrowser(spec, runtime) {
   }
 }
 
-function prepareSingleState({ spec, opts, composedRuntime, parentSignal, runtimeConfig, endpointState, emitResult }) {
-  const clock = composedRuntime.clock;
-  const ownsDeadline = !composedRuntime.deadline;
+function normalizeSingleSpec(spec, opts) {
   const commandName = resolveCommandName(spec, opts);
-  const startedAt = ownsDeadline ? clock.now() : composedRuntime.startedAt;
-  const correlationId = ownsDeadline
-    ? (opts._correlationId ?? composedRuntime.correlationId ?? randomUUID())
-    : composedRuntime.correlationId;
-  const warnings = ownsDeadline ? [] : composedRuntime.warnings;
-  const log = ownsDeadline
-    ? (getLogger().withOp ? getLogger().withOp({ command: commandName, correlation_id: correlationId }) : getLogger())
-    : composedRuntime.log;
-  const effectiveTimeoutMs = resolveEffectiveTimeoutMs(spec, opts);
-  const resolvedOpts = ownsDeadline
-    ? { ...opts, noColor: resolveNoColor(opts), ...(effectiveTimeoutMs !== undefined ? { timeoutMs: effectiveTimeoutMs } : {}) }
-    : (composedRuntime.opts ?? opts);
-  const deadline = ownsDeadline
-    ? armDeadline(resolvedOpts, parentSignal ?? composedRuntime.signal ?? resolvedOpts.signal, startedAt, clock)
-    : composedRuntime.deadline;
+  const needsAuth = spec.needsAuth ?? true;
+  const needsMall = spec.needsMall ?? 'current';
+  const needsAccount = normalizeNeedsAccount(spec.needsAccount)
+    ?? (needsAuth ? 'required' : (spec.needsBrowser === false ? 'none' : 'optional'));
+  return {
+    ...spec,
+    name: commandName,
+    command: spec.command ?? commandName,
+    needsAuth,
+    needsMall,
+    needsAccount,
+  };
+}
+
+function buildOwnedRuntimeState({ normSpec, opts, composedRuntime, parentSignal }) {
+  const clock = composedRuntime.clock;
+  const startedAt = clock.now();
+  const correlationId = opts._correlationId ?? composedRuntime.correlationId ?? randomUUID();
+  const log = getLogger().withOp
+    ? getLogger().withOp({ command: normSpec.name, correlation_id: correlationId })
+    : getLogger();
+  const effectiveTimeoutMs = resolveEffectiveTimeoutMs(normSpec, opts);
+  const resolvedOpts = {
+    ...opts,
+    noColor: resolveNoColor(opts),
+    ...(effectiveTimeoutMs !== undefined ? { timeoutMs: effectiveTimeoutMs } : {}),
+  };
+  const deadline = armDeadline(resolvedOpts, parentSignal ?? composedRuntime.signal ?? resolvedOpts.signal, startedAt, clock);
+  return { startedAt, correlationId, warnings: [], log, opts: resolvedOpts, deadline };
+}
+
+function prepareSingleState({ normSpec, opts, composedRuntime, parentSignal, runtimeConfig, endpointState, emitResult }) {
+  const ownsDeadline = !composedRuntime.deadline;
+  const owned = ownsDeadline
+    ? buildOwnedRuntimeState({ normSpec, opts, composedRuntime, parentSignal })
+    : {
+        startedAt: composedRuntime.startedAt,
+        correlationId: composedRuntime.correlationId,
+        warnings: composedRuntime.warnings,
+        log: composedRuntime.log,
+        opts: composedRuntime.opts ?? opts,
+        deadline: composedRuntime.deadline,
+      };
   const runtime = {
     ...composedRuntime,
-    opts: resolvedOpts,
+    ...owned,
     emitResult,
-    startedAt,
-    correlationId,
-    warnings,
-    log,
     accountCtx: null,
-    signal: deadline.signal,
-    get deadlineAt() { return deadline.deadlineAt; },
-    deadline,
+    signal: owned.deadline.signal,
+    get deadlineAt() { return owned.deadline.deadlineAt; },
     runtimeConfig: runtimeConfig ?? composedRuntime.runtimeConfig,
     endpointState: endpointState ?? composedRuntime.endpointState,
   };
-  return { commandName, ownsDeadline, deadline, resolvedOpts, runtime };
+  return { ownsDeadline, runtime };
 }
 
 export async function executeSingle(spec, opts = {}, {
@@ -222,38 +243,37 @@ export async function executeSingle(spec, opts = {}, {
       ...(endpointState ? { endpointState } : {}),
     },
   });
-  const { needsAuth = true, needsMall = 'current', run, render } = spec;
-  const { commandName, ownsDeadline, deadline, resolvedOpts, runtime } = prepareSingleState({
-    spec, opts, composedRuntime, parentSignal, runtimeConfig, endpointState, emitResult,
+  const normSpec = normalizeSingleSpec(spec, opts);
+  const { ownsDeadline, runtime } = prepareSingleState({
+    normSpec, opts, composedRuntime, parentSignal, runtimeConfig, endpointState, emitResult,
   });
-  const normSpec = { name: commandName, command: spec.command ?? commandName, needsAuth, needsMall, run, render };
 
   try {
-    const needsAccount = normalizeNeedsAccount(spec.needsAccount)
-      ?? (needsAuth ? 'required' : (spec.needsBrowser === false ? 'none' : 'optional'));
-    const skipAccount = spec.lifecycle === 'maintenance'
-      || (spec.needsBrowser === false && !needsAuth && needsAccount === 'none');
+    const skipAccount = normSpec.lifecycle === 'maintenance'
+      || (normSpec.needsBrowser === false && !normSpec.needsAuth && normSpec.needsAccount === 'none');
     try {
-      runtime.accountCtx = skipAccount ? null : await resolveAccount(resolvedOpts, needsAuth, runtime.warnings, needsAccount);
+      runtime.accountCtx = skipAccount
+        ? null
+        : await resolveAccount(runtime.opts, normSpec.needsAuth, runtime.warnings, normSpec.needsAccount);
     } catch (err) {
       if (emitResult) return finalizeError(normSpec, runtime, err);
       throw err;
     }
 
-    if (needsMall === 'none' && resolvedOpts.mall) {
-      runtime.log.warn({ mall: resolvedOpts.mall }, 'command does not use --mall flag');
+    if (normSpec.needsMall === 'none' && runtime.opts.mall) {
+      runtime.log.warn({ mall: runtime.opts.mall }, 'command does not use --mall flag');
       runtime.warnings.push('unused_flag_mall');
     }
 
     // Both branches must settle before the deadline timer is disposed.
-    if (spec.needsBrowser === false && !needsAuth) return await executeWithoutBrowser(normSpec, runtime);
+    if (normSpec.needsBrowser === false && !normSpec.needsAuth) return await executeWithoutBrowser(normSpec, runtime);
     if (runtime.mode === 'fixture') {
       const { executeFixture } = await import('./fixture-runtime.js');
       return await executeFixture(normSpec, runtime);
     }
     return await executeLive(normSpec, runtime);
   } finally {
-    if (ownsDeadline) deadline?.dispose();
+    if (ownsDeadline) runtime.deadline?.dispose();
     if (selfComposed) await composedRuntime.closeAll();
   }
 }

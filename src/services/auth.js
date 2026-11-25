@@ -1,7 +1,5 @@
-import { PDD_HOME } from '../adapter/auth-state.js';
 import { renderQrToStream } from '../adapter/qr-login.js';
 import { CONSUMER_LOGIN_URL } from '../adapter/consumer-qr-login.js';
-import { assertMerchantVerified } from '../adapter/merchant-auth.js';
 import { loginMerchantInteractive, loginConsumerInteractive } from '../adapter/interactive-login.js';
 import { resolveAccountContext } from '../infra/account-resolver.js';
 import { resolveConsumerAccountContext } from '../infra/consumer-account-resolver.js';
@@ -171,98 +169,4 @@ export async function loginConsumer(options = {}, deps = {}) {
     accountFingerprint: isFixture ? null : redactValue(provisioned.account.identity),
     fixture: isFixture,
   });
-}
-
-async function performMerchantLogin(options) {
-  const { transaction, expectedMallId, qr, runtime, seal } = options;
-  const timeoutMs = resolvePositiveTimeoutMs(options.timeoutMs, qr);
-  if (runtime?.interactiveLogin?.loginMerchant) {
-    return runtime.interactiveLogin.loginMerchant({
-      ...options,
-      timeoutMs,
-      authPort: runtime.ports?.auth,
-      browserPort: runtime.ports?.browser,
-      seal: seal ?? runtime.seal,
-      clock: runtime.clock,
-      log: runtime.log,
-      checkStoredSession: (checkTarget, task) => checkMerchantSession(checkTarget, {
-        tx: transaction,
-        task,
-        mode: 'login',
-        runtime,
-      }),
-    });
-  }
-  if (runtime?.mode === 'fixture') {
-    const resolvedSeal = seal ?? runtime.seal;
-    const verifyOptions = {
-      expectedMallId,
-      ...(resolvedSeal !== undefined ? { seal: resolvedSeal } : {}),
-    };
-    let result;
-    if (runtime.ports?.auth) {
-      result = await runtime.ports.auth.verifyAndSeal(null, verifyOptions);
-    } else {
-      const verify = runtime.fixture?.verifyFixtureMerchantContext
-        ?? (await import('../adapter/fixtures/auth.js')).verifyFixtureMerchantContext;
-      result = await verify(null, verifyOptions);
-    }
-    assertMerchantVerified(result);
-    return { identity: result.identity, mode: qr ? 'qr' : 'headed', url: PDD_HOME, candidate: result.candidate };
-  }
-  return loginMerchantInteractive({
-    ...options,
-    timeoutMs,
-    browserPort: runtime?.ports?.browser,
-    authPort: runtime?.ports?.auth,
-    seal: seal ?? runtime?.seal,
-    clock: runtime?.clock,
-    log: runtime?.log,
-    checkStoredSession: (checkTarget, task) => checkMerchantSession(checkTarget, {
-      tx: transaction,
-      task,
-      mode: 'login',
-      runtime,
-    }),
-  });
-}
-
-export function performQrLogin(options) {
-  return performMerchantLogin({ ...options, qr: true, headed: options.headed ?? false });
-}
-
-export function performHeadedLogin(options) {
-  return performMerchantLogin({ ...options, qr: false, headed: true });
-}
-
-export async function performConsumerQrLogin(options = {}) {
-  const { scrapeCooldown, runtime, headed = false } = options;
-  const resolvedCooldown = scrapeCooldown ?? runtime?.scrapeCooldown ?? null;
-  const login = runtime?.interactiveLogin?.loginConsumer ?? loginConsumerInteractive;
-  const auth = await login({
-    ...options,
-    qr: true,
-    headed,
-    browserPort: runtime?.ports?.browser,
-    clock: runtime?.clock,
-    log: runtime?.log,
-  });
-  resolvedCooldown?.recordSuccess();
-  return auth;
-}
-
-export async function performConsumerHeadedLogin(options = {}) {
-  const { scrapeCooldown, runtime } = options;
-  const resolvedCooldown = scrapeCooldown ?? runtime?.scrapeCooldown ?? null;
-  const login = runtime?.interactiveLogin?.loginConsumer ?? loginConsumerInteractive;
-  const auth = await login({
-    ...options,
-    qr: false,
-    headed: true,
-    browserPort: runtime?.ports?.browser,
-    clock: runtime?.clock,
-    log: runtime?.log,
-  });
-  resolvedCooldown?.recordSuccess();
-  return auth;
 }
