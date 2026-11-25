@@ -4,9 +4,14 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 新增 `loginMerchantInteractive` / `loginConsumerInteractive` 适配入口；`init` 与 `login` 命令彻底消除适配器层直接导入与 `isMockEnabled()` / 过渡分岐
-- [ ] `init`、`login`、`login.consumer` 经统一执行内核发出含 `correlation_id`、真实耗时、`noColor` 与协作式 `Ctrl+C`/超时浏览器清理的标准信封，全部二维码输出严格仅落入 `streams.stderr`
-- [ ] `loginConsumer` 完整保留 `uid` 校验（`E_CONSUMER_ACCOUNT_IDENTITY_MISMATCH`）、进程内 `--password` 拦截接缝（`E_USAGE` exit 2）及可选注入冷却参数（默认沿用共享冷却兜底，无缝兼容与 P0-2 并行或先后合并）
-- [ ] 注入内存 `streams`/`clock`/适配器的命令与领域单测、Fixture E2E 及 `npm run check` 全绿
+- [x] 新增 `loginMerchantInteractive` / `loginConsumerInteractive` 适配入口；`init` 与 `login` 命令彻底消除适配器层直接导入与 `isMockEnabled()` / 过渡分岐
+- [x] `init`、`login`、`login.consumer` 经统一执行内核发出含 `correlation_id`、真实耗时、`noColor` 与协作式 `Ctrl+C`/超时浏览器清理的标准信封，全部二维码输出严格仅落入 `streams.stderr`
+- [x] `loginConsumer` 完整保留 `uid` 校验（`E_CONSUMER_ACCOUNT_IDENTITY_MISMATCH`）、进程内 `--password` 拦截接缝（`E_USAGE` exit 2）及可选注入冷却参数（默认沿用共享冷却兜底，无缝兼容与 P0-2 并行或先后合并）
+- [x] 注入内存 `streams`/`clock`/适配器的命令与领域单测、Fixture E2E 及 `npm run check` 全绿
+
+## Comments
+
+- Merged `ticket/command-lifecycle-unification-03` (`20a3d2352e784f1f62be7f6d3e82ece50bd9af0e`) into `feat/phase3-lifecycle-and-cleanup` via `--no-ff` merge commit `69fa263829d7e89a2414556d29608cb220311d66`.
+- Verification: `npm run check` passed 100% (`npm run lint` / `knip` exited 0; `npm test` / Vitest passed `178 passed (178)` files, `2780 passed | 1 skipped (2781)` tests in 80.32s).
