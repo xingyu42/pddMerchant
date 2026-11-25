@@ -4,9 +4,14 @@
 
 **Blocked by:** 01, auth-console-login-deepening#01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `diagnoseEnvironment`（吸收旧版存储探测、`renderDoctor` 同源归位）上线且只返回 `{ ok, view, raw, warnings, failure }`；`doctor` 在 Chromium 缺失时启动浏览器 0 次，双端健康时严格启动 1 次，且早期 `legacy_storage_detected` 在异常路径仍保留
-- [ ] 在 `runner` 与 `DoctorReport` 间保持商家可选账号单一解析出处（无账号 `null`、多账号无默认冲突按规则报错），遵循 ADR-0002/0003 仅做只读 `Merchant Authentication Check`（零指纹打分、零租约、零写回、零重登）
-- [ ] 删除旧版存储探测孤立浅模块并更新受影响文档路径，移除 `--probe` 选项及用户 CLI 技能文档第 59 行对应说明
-- [ ] `doctor` 彻底消除适配器直连与 `isMockEnabled()` / `runtime.mode === 'fixture'` 过渡分岐，通过领域/命令单测、Fixture E2E、`doc-paths` 与 `npm run check`
+- [x] `diagnoseEnvironment`（吸收旧版存储探测、`renderDoctor` 同源归位）上线且只返回 `{ ok, view, raw, warnings, failure }`；`doctor` 在 Chromium 缺失时启动浏览器 0 次，双端健康时严格启动 1 次，且早期 `legacy_storage_detected` 在异常路径仍保留
+- [x] 在 `runner` 与 `DoctorReport` 间保持商家可选账号单一解析出处（无账号 `null`、多账号无默认冲突按规则报错），遵循 ADR-0002/0003 仅做只读 `Merchant Authentication Check`（零指纹打分、零租约、零写回、零重登）
+- [x] 删除旧版存储探测孤立浅模块并更新受影响文档路径，移除 `--probe` 选项及用户 CLI 技能文档第 59 行对应说明
+- [x] `doctor` 彻底消除适配器直连与 `isMockEnabled()` / `runtime.mode === 'fixture'` 过渡分岐，通过领域/命令单测、Fixture E2E、`doc-paths` 与 `npm run check`
+
+## Comments
+
+- Merged `ticket/command-lifecycle-unification-02` (`630647ae27434350627cd7326c313a40d86ddb5b`) into `feat/phase3-lifecycle-and-cleanup` via `--no-ff` merge commit `2c674df7a427ac0150756f29d6188064fefa3211`.
+- Verification: `npm run check` passed 100% (`npm run lint` / `knip` exited 0; `npm test` / Vitest passed `177 passed (177)` files, `2767 passed | 1 skipped (2768)` tests in 169.41s).
