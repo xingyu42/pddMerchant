@@ -9,6 +9,8 @@ import {
   QR_SELECTORS,
 } from './qr-login.js';
 
+export const CONSUMER_LOGIN_URL = 'https://mobile.yangkeduo.com/login.html';
+
 const CONSUMER_QR_SELECTORS = [
   '[class*="qr-code"] canvas',
   '[class*="qrcode"] canvas',
@@ -63,17 +65,41 @@ export async function captureConsumerQr(page, { loginUrl, timeout = TIMEOUTS.QR_
   return extractElementImage(page, hit.element);
 }
 
-export async function waitForConsumerLogin(page, { timeoutMs }) {
+function safePageUrl(page) {
   try {
-    await page.waitForURL(
+    return page.url();
+  } catch {
+    return null;
+  }
+}
+
+export async function waitForConsumerLogin(page, { timeoutMs, signal }) {
+  if (signal?.aborted) {
+    return { success: false, url: safePageUrl(page), error: 'aborted' };
+  }
+  let onAbort;
+  try {
+    const waitPromise = page.waitForURL(
       (url) => {
-        const u = new URL(url.toString());
-        return !u.pathname.includes('/login');
+        const parsedUrl = new URL(url.toString());
+        return !parsedUrl.pathname.includes('/login');
       },
-      { timeout: timeoutMs }
+      { timeout: timeoutMs },
     );
-    return { success: true, url: page.url() };
+    waitPromise.catch(() => {});
+    if (signal) {
+      const abortPromise = new Promise((_, reject) => {
+        onAbort = () => reject(new Error('aborted'));
+        signal.addEventListener('abort', onAbort, { once: true });
+      });
+      await Promise.race([waitPromise, abortPromise]);
+    } else {
+      await waitPromise;
+    }
+    return { success: true, url: safePageUrl(page) };
   } catch (err) {
-    return { success: false, url: page.url(), error: err?.message || 'timeout' };
+    return { success: false, url: safePageUrl(page), error: err?.message || 'timeout' };
+  } finally {
+    if (signal && onAbort) signal.removeEventListener('abort', onAbort);
   }
 }

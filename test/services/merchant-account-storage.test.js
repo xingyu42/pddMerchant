@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
-import { beforeEach, describe, it, vi } from 'vitest';
+import { beforeEach, describe, it } from 'vitest';
 import { mockMerchantProbeTransport } from '../helpers/merchant-probe-transport.js';
 import { verifyMerchantContext, assertMerchantVerified } from '../../src/adapter/merchant-auth.js';
 import { provisionMerchantLogin, provisionConsumerAuth } from '../../src/services/auth-account-storage.js';
@@ -9,9 +9,8 @@ import { insertAccount, findAccountByIdentity, removeAccount, setDefaultAccount,
 import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
 import { openDatabase, run, get, isInTransaction } from '../../src/infra/db.js';
 import { seal, aad } from '../../src/infra/secret-box.js';
-import { runInteractiveLogin } from '../../src/commands/init.js';
+import { run as runInit } from '../../src/commands/init.js';
 import { composeCommandRuntime } from '../../src/runtime/command-runtime.js';
-import * as authService from '../../src/services/auth.js';
 import { TIMEOUTS } from '../../src/infra/timeouts.js';
 import { acquireLease, releaseLease } from '../../src/infra/leases.js';
 
@@ -90,22 +89,30 @@ describe('atomic merchant login registration', () => {
     { timeout: '1200', expected: TIMEOUTS.QR_CAPTURE },
     { timeout: undefined, expected: TIMEOUTS.QR_CAPTURE },
   ])('uses a finite numeric QR capture timeout for $timeout', async ({ timeout, expected }) => {
-    const login = vi.spyOn(authService, 'performQrLogin').mockImplementation(verifiedResult);
+    const captureCalls = [];
     const { streams, readStdout } = createMemoryStreams();
     const runtime = await composeCommandRuntime({
       mode: 'live',
       runtimeConfigPolicy: 'maintenance',
       env: {},
       streams,
-      overrides: { browser: createBrowserOverride() },
+      overrides: {
+        browser: createBrowserOverride(),
+        interactiveLogin: {
+          loginMerchant: async (loginOptions) => {
+            captureCalls.push(loginOptions);
+            return verifiedResult(loginOptions);
+          },
+        },
+      },
     });
     try {
-      const result = await runInteractiveLogin({ qr: true, timeout, timeoutMs: 5000, json: true, runtime });
+      const result = await runInit({ qr: true, timeout, timeoutMs: 5000, json: true }, { runtime });
       assert.equal(result.ok, true);
       assert.equal(runtime.outputSink.hasEmitted(), true);
       assert.equal(JSON.parse(readStdout().trim()).ok, true);
-      assert.equal(login.mock.calls.length, 1);
-      assert.equal(login.mock.calls[0][0].qrCaptureTimeoutMs, expected);
+      assert.equal(captureCalls.length, 1);
+      assert.equal(captureCalls[0].qrCaptureTimeoutMs, expected);
     } finally {
       await runtime.closeAll();
     }
@@ -263,7 +270,7 @@ describe('atomic merchant login registration', () => {
       authorize();
     };
     try {
-      const result = await runInteractiveLogin({ account: existing.slug, json: true, timeoutMs: 5000, runtime });
+      const result = await runInit({ account: existing.slug, json: true, timeoutMs: 5000 }, { runtime });
       assert.equal(result.ok, true, JSON.stringify(result.error));
       assert.equal(result.data.account_slug, existing.slug);
       assert.equal(loadAuthState(existing.id).revision, 2);

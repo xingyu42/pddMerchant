@@ -4,6 +4,7 @@ import { createLiveAuthPort } from '../../adapter/auth-port.js';
 import { createLiveDaemonProcessPort } from '../../adapter/daemon-process.js';
 import { createLiveEndpointTransport } from '../../adapter/endpoint-client.js';
 import { attemptPasswordLogin } from '../../adapter/password-login.js';
+import { createLiveInteractiveLogin } from '../../adapter/interactive-login.js';
 import { createLiveConsoleLoginDriver } from '../../adapter/console-login-driver.js';
 import { createCategoryResolver } from '../../adapter/goods-publish/category-resolver.js';
 import { createLiveMerchantDraftEditor } from '../../adapter/goods-publish/merchant-draft-editor.js';
@@ -18,6 +19,12 @@ export function createLiveBundle({ seal, clock, env, overrides = {}, includeCons
   const daemonProcess = overrides.daemonProcess ?? createLiveDaemonProcessPort({ env });
   const endpointTransport = overrides.endpointTransport ?? createLiveEndpointTransport();
   const passwordLogin = overrides.passwordLogin ?? attemptPasswordLogin;
+  const interactiveLogin = overrides.interactiveLogin ?? createLiveInteractiveLogin({
+    browserPort: browser,
+    authPort: auth,
+    seal,
+    clock,
+  });
   const consoleLoginDriver = includeConsole
     ? (overrides.consoleLoginDriver ?? createLiveConsoleLoginDriver({
         browserRuntime: browser,
@@ -61,6 +68,7 @@ export function createLiveBundle({ seal, clock, env, overrides = {}, includeCons
     daemonProcess,
     endpointTransport,
     passwordLogin,
+    interactiveLogin,
     consoleLoginDriver,
     createGoodsPublishPort,
     consoleExtraRoutes: Object.freeze([]),

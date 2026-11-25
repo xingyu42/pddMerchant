@@ -3,8 +3,10 @@ import { mockCurrentMall } from './mall.js';
 import { appendFile } from 'node:fs/promises';
 import { abortableSleep, budgetMs } from '../../infra/abort.js';
 import { PddCliError, ExitCodes } from '../../infra/errors.js';
-import { assertAuthTask, boundMerchantMallId } from '../../infra/auth-task.js';
+import { assertAuthTask, assertMerchantVerified, boundMerchantMallId } from '../../infra/auth-task.js';
 import { createCandidateSeal, deepFreeze } from '../../infra/candidate-seal.js';
+import { PDD_HOME } from '../auth-state.js';
+import { CONSUMER_LOGIN_URL } from '../consumer-qr-login.js';
 
 export function mockIsAuthValid(options = {}) {
   return !options?.authInvalid;
@@ -158,6 +160,51 @@ export function createFixtureAuthPort({
     checkMerchant,
     verifyAndSeal,
     checkConsumerOnline,
+  });
+}
+
+export function createFixtureInteractiveLogin({
+  auth,
+  seal,
+  consumerLoginUrl = CONSUMER_LOGIN_URL,
+} = {}) {
+  async function loginMerchant({
+    expectedMallId,
+    qr = false,
+    seal: optSeal,
+    authPort,
+  } = {}) {
+    const activeAuth = authPort ?? auth;
+    const resolvedSeal = optSeal ?? seal;
+    const result = await activeAuth.verifyAndSeal(null, {
+      expectedMallId,
+      ...(resolvedSeal !== undefined ? { seal: resolvedSeal } : {}),
+    });
+    assertMerchantVerified(result);
+    return {
+      identity: result.identity,
+      mode: qr ? 'qr' : 'headed',
+      url: PDD_HOME,
+      candidate: result.candidate,
+    };
+  }
+
+  async function loginConsumer({
+    qr = false,
+    consumerLoginUrl: overrideUrl,
+  } = {}) {
+    return {
+      state: { cookies: [], origins: [] },
+      identity: { uid: 'fixture-consumer', nickname: 'fixture-consumer' },
+      url: overrideUrl ?? consumerLoginUrl,
+      mode: qr ? 'consumer-qr' : 'consumer-headed',
+      fixture: true,
+    };
+  }
+
+  return Object.freeze({
+    loginMerchant,
+    loginConsumer,
   });
 }
 

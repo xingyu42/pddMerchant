@@ -3,11 +3,16 @@ import { EventEmitter } from 'node:events';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
 import { afterEach, describe, it, vi } from 'vitest';
 import { composeCommandRuntime } from '../../src/runtime/command-runtime.js';
 import { createCandidateSeal } from '../../src/infra/candidate-seal.js';
 import { createScrapeCooldown } from '../../src/infra/scrape-cooldown.js';
+import { insertAccount } from '../../src/infra/account-store.js';
 import {
+  createQrTerminalPresenter,
+  loginConsumer,
+  loginMerchant,
   performQrLogin,
   performHeadedLogin,
   performConsumerQrLogin,
@@ -277,5 +282,156 @@ describe('consumer login BrowserRuntimePort wiring', () => {
       }),
       /Real browsers are disabled in offline tests/,
     );
+  });
+});
+
+function createMemoryStreamPair() {
+  const stdoutChunks = [];
+  const stderrChunks = [];
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  stdout.on('data', (chunk) => stdoutChunks.push(chunk.toString('utf8')));
+  stderr.on('data', (chunk) => stderrChunks.push(chunk.toString('utf8')));
+  return {
+    streams: { stdout, stderr },
+    readStdout: () => stdoutChunks.join(''),
+    readStderr: () => stderrChunks.join(''),
+  };
+}
+
+describe('lowered auth domain services (loginMerchant, loginConsumer, createQrTerminalPresenter)', () => {
+  it('createQrTerminalPresenter writes ASCII QR, fallback, and JSON notice strictly to injected stderr', async () => {
+    const merchantPair = createMemoryStreamPair();
+    const merchantPresent = createQrTerminalPresenter({
+      streams: merchantPair.streams,
+      json: false,
+      timeoutMs: 180_000,
+      kind: 'merchant',
+      renderQr: async (content, { stream }) => {
+        stream.write(`[QR:${content}]\n`);
+      },
+    });
+    await merchantPresent({ imagePath: '/tmp/qr-merchant.png', qrContent: 'https://pdd.test/qr' });
+    await merchantPresent({ imagePath: '/tmp/qr-missing.png', qrContent: null });
+
+    assert.equal(merchantPair.readStdout(), '');
+    assert.match(merchantPair.readStderr(), /\[QR:https:\/\/pdd\.test\/qr\]/);
+    assert.match(merchantPair.readStderr(), /QR 解码失败/);
+    assert.match(merchantPair.readStderr(), /\/tmp\/qr-merchant\.png/);
+    assert.match(merchantPair.readStderr(), /超时 180s/);
+
+    const jsonPair = createMemoryStreamPair();
+    const consumerJsonPresent = createQrTerminalPresenter({
+      stderr: jsonPair.streams.stderr,
+      json: true,
+      timeoutMs: 180_000,
+      kind: 'consumer',
+    });
+    await consumerJsonPresent({ imagePath: '/tmp/qr-consumer.png', qrContent: 'ignored-in-json' });
+    assert.equal(jsonPair.readStdout(), '');
+    assert.equal(jsonPair.readStderr(), '等待本次消费端扫码授权：/tmp/qr-consumer.png\n');
+  });
+
+  it('loginMerchant orchestrates interactiveLogin, routes QR output to stderr, and projects v2 view', async () => {
+    const { streams, readStdout, readStderr } = createMemoryStreamPair();
+    const seal = createCandidateSeal();
+    const calls = [];
+    const view = await loginMerchant(
+      { qr: true, json: false, timeoutMs: 30_000 },
+      {
+        streams,
+        seal,
+        clock: { now: () => 1_700_000_000_000 },
+        interactiveLogin: {
+          loginMerchant: async (loginOptions) => {
+            calls.push(loginOptions);
+            await loginOptions.onQrCaptured({ imagePath: '/tmp/merchant.png', qrContent: null });
+            const identity = { mallId: '900111', displayName: 'Lowered Shop' };
+            return {
+              identity,
+              mode: 'qr',
+              url: 'https://mms.pinduoduo.com',
+              qrContentPresent: false,
+              candidate: seal.seal({
+                state: { cookies: [{ name: 'PASS_ID', value: 'p1' }], origins: [] },
+                identity,
+                checked_at: '2026-11-25T00:00:00.000Z',
+                scope: 'shop_read',
+              }),
+            };
+          },
+        },
+      },
+    );
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].qr, true);
+    assert.equal(readStdout(), '');
+    assert.match(readStderr(), /\/tmp\/merchant\.png/);
+    assert.equal(view.mall_id, '900111');
+    assert.equal(view.display_name, 'Lowered Shop');
+    assert.equal(view.mode, '扫码登录');
+    assert.equal(view.qr_decoded, false);
+    assert.equal(view.account_slug, 'lowered-shop');
+  });
+
+  it('loginConsumer validates --password, enforces uid match, and resets injected scrapeCooldown on success only', async () => {
+    await assert.rejects(
+      loginConsumer({ password: 'secret' }),
+      { code: 'E_USAGE', exitCode: 2 },
+    );
+
+    const cooldown = createScrapeCooldown({ threshold: 1, cooldownMs: 60_000, statePath: null });
+    cooldown.recordSoftBlock({ reason: 'empty_shell' });
+    assert.throws(() => cooldown.check(), { code: 'E_RATE_LIMIT' });
+
+    const existingConsumer = insertAccount({ kind: 'consumer', identity: 'uid-expected', displayName: 'Alice' });
+    await assert.rejects(
+      loginConsumer(
+        { consumerAccount: existingConsumer.slug, headed: true },
+        {
+          scrapeCooldown: cooldown,
+          interactiveLogin: {
+            loginConsumer: async () => ({
+              state: { cookies: [{ name: 'PDDAccessToken', value: 'tok' }], origins: [] },
+              identity: { uid: 'uid-different', nickname: 'Bob' },
+              url: 'https://mobile.yangkeduo.com/home',
+              mode: 'consumer-headed',
+            }),
+          },
+        },
+      ),
+      { code: 'E_CONSUMER_ACCOUNT_IDENTITY_MISMATCH', exitCode: 3 },
+    );
+    assert.equal(cooldown.status().consecutiveSoftBlock, 1);
+
+    const { streams, readStdout, readStderr } = createMemoryStreamPair();
+    const view = await loginConsumer(
+      { consumerAccount: existingConsumer.slug, qr: true, json: true },
+      {
+        streams,
+        scrapeCooldown: cooldown,
+        interactiveLogin: {
+          loginConsumer: async (loginOptions) => {
+            await loginOptions.onQrCaptured({ imagePath: '/tmp/consumer.png', qrContent: null });
+            return {
+              state: { cookies: [{ name: 'PDDAccessToken', value: 'tok' }], origins: [] },
+              identity: { uid: 'uid-expected', nickname: 'Alice Renamed' },
+              url: 'https://mobile.yangkeduo.com/home',
+              mode: 'consumer-qr',
+              qrImagePath: '/tmp/consumer.png',
+            };
+          },
+        },
+      },
+    );
+
+    assert.equal(readStdout(), '');
+    assert.equal(readStderr(), '等待本次消费端扫码授权：/tmp/consumer.png\n');
+    assert.equal(cooldown.status().consecutiveSoftBlock, 0);
+    cooldown.check();
+    assert.equal(view.mode, '扫码登录');
+    assert.equal(view.qr_image_path, '/tmp/consumer.png');
+    assert.ok(view.account_fingerprint);
   });
 });
