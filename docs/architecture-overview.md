@@ -45,7 +45,7 @@ src/infra/                 envelope、错误、日志、配置、SQLite 存储�
 ```
 
 - 只允许向下依赖：infra 不 import 上层，adapter 不 import services，services 不 import commands。
-- 现存的跨层直连（向下，允许）：`bin/pdd.js` 引用 `commands/runtime-options.js`；runner、`login.js` 直接使用 adapter（浏览器、鉴权、店铺、fixture）；`commands/daemon.js` 引用 `src/daemon/run.js`；`src/daemon/` 只依赖 services。
+- 现存的跨层直连（向下，允许）：`bin/pdd.js` 引用 `commands/runtime-options.js`；runner（`src/commands/runner/`）直接使用 adapter（浏览器、鉴权、店铺、fixture）；`commands/daemon.js` 引用 `src/daemon/run.js`；`src/daemon/` 只依赖 services。非 runner 命令 handler（含 `doctor.js`、`login.js`、`init.js`、`account.js`、`config.js`）均通过 services 或 runtime 注入端口访问 adapter。
 - `src/services/views/` 只依赖 infra（`units`、`metrics`）与 `services/operating-report.js`。
 - **守卫**：原 `test/layering-guard.unit.test.js` 已在 `cc0cb1c` 删除，分层目前靠 review 约束。
 
@@ -82,14 +82,16 @@ console.js   → console link
 
 ### 3.2 命令层与 Runner (`src/commands/`)
 
-- 多数 handler 是 `withCommand({ name, needsAuth, needsMall, needsBrowser, needsAccount, allowAllAccounts, run, render })` 的薄封装；`init`、`login`、`account`、`config` 直接 `emit()`，不经 runner。
+- 全部命令 handler（含 `init`、`login`、`doctor`、`account`、`config`）都是 `withCommand({ name | command, lifecycle, needsAuth, needsMall, needsBrowser, needsAccount, allowAllAccounts, defaultTimeoutMs, run, render })` 的薄封装，经统一 `envelope-kernel` 完成预设校验（`merchant` / `local` / `maintenance`）、超时预算与单次发射。
 - `_runner.js` 是 facade，实现在 `runner/`：
 
 | 文件 | 职责 |
 | --- | --- |
+| `envelope-kernel.js` | 生命周期预设校验、动态命令名、协作超时预算与单次发射守门 |
 | `single-lifecycle.js` | 单账号执行：`resolveAccount` → `armDeadline` → 三选一（无浏览器 / fixture / live） |
 | `batch-executor.js` | `--all-accounts`（仅 `needsAuth`）逐账号执行、抖动间隔、SIGINT 中断、限流冷却归因 |
-| `fixture-runtime.js` | fixture 路径：fixture 会话核验、mock 店铺、`buildCommandCtx`（ctx 字段单一来源） |
+| `command-ctx.js` | `buildCommandCtx` 与行动/守护进程告警附加（`appendActionWarnings`） |
+| `fixture-runtime.js` | fixture 路径：fixture 会话核验、mock 店铺、端点传输 |
 | `envelope-finalizer.js` | `finalizeSuccess` / `finalizeError` / `emitOnce`，产出 envelope |
 
 - **live 路径**：`withMerchantAuthUpdate`（账号租约）→ `withBrowser` → `checkMerchantSession`（被拒时尝试密码重登）→ 打开商家首页 → 解析/切换店铺 → `createPageSession` + 共享 endpoint client → `run(ctx)` → 关闭页面 → 复核并持久化登录态 → `finalizeSuccess`。
@@ -108,7 +110,7 @@ console.js   → console link
 | 成本与利润 | `goods-cost*.js`（本地 SQLite 成本）、`goods-profit*.js`（ADR 0004） |
 | 预估实收 | `goods-receipt.js`（价格管理页的平台估算值，口径见 GLOSSARY） |
 | 鉴权与会话 | `auth.js`（登录流程）、`auth-account-storage.js`（登录态保存）、`merchant-session.js`（命令与巡检的会话核验单一入口）、`relogin-policy.js`、`auto-relogin.js` |
-| 账号与诊断 | `shops.js`、`account-removal.js`、`doctor.js` |
+| 账号、配置与诊断 | `shops.js`、`account.js`、`config.js`、`doctor.js` |
 | 常驻控制台 | `daemon.js`、`daemon-runtime.js`、`patrol.js`、`console-*.js` |
 
 **领域视图** (`services/views/`)：白名单投影、分转元、比率百分数、中文枚举标签与 headline；view 自有词表放在各自文件，共享词表在 `labels.js`，投影辅助在 `_shared.js`。上游对象与 PII 不进入 `data`。

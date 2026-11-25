@@ -88,11 +88,46 @@ describe('merchant authentication CLI contract', () => {
     assert.equal(unknownPassword.status, 2);
     assert.equal(unknownPassword.envelope.error.code, 'E_USAGE');
 
-    for (const args of [['init', '--all-accounts'], ['login', '--all-accounts'], ['login', '--consumer', '--all-accounts']]) {
+    for (const args of [
+      ['init', '--all-accounts'],
+      ['login', '--all-accounts'],
+      ['login', '--consumer', '--all-accounts'],
+      ['account', 'add', '--all-accounts'],
+      ['account', 'list', '--all-accounts'],
+    ]) {
       const batchReject = runCli(args);
       assert.equal(batchReject.status, 2);
       assert.equal(batchReject.envelope.error.code, 'E_USAGE');
       assert.ok(batchReject.envelope.meta.correlation_id);
+    }
+  });
+
+  it('emits v2 envelopes with correlation_id, latency_ms, and warnings across account.* commands', () => {
+    const added = runCli(['account', 'add'], { accounts: [] });
+    assert.equal(added.status, 0);
+    assert.equal(added.envelope.command, 'account.add');
+    assert.equal(added.envelope.meta.v, 2);
+    assert.ok(added.envelope.meta.correlation_id);
+    assert.equal(typeof added.envelope.meta.latency_ms, 'number');
+    assert.equal(added.envelope.meta.warnings.includes('credentials_not_saved_headed_login'), true);
+
+    const accounts = [
+      { slug: 'shop-a', display_name: 'Shop A', identity: '900001', is_default: 1 },
+      { slug: 'shop-b', display_name: 'Shop B', identity: '900002', is_default: 0 },
+    ];
+    for (const [args, expectedCommand] of [
+      [['account', 'list'], 'account.list'],
+      [['account', 'default', '--slug', 'shop-b'], 'account.default'],
+      [['account', 'remove', '--slug', 'shop-b'], 'account.remove'],
+    ]) {
+      const res = runCli(args, { accounts });
+      assert.equal(res.status, 0);
+      assert.equal(res.envelope.ok, true);
+      assert.equal(res.envelope.command, expectedCommand);
+      assert.equal(res.envelope.meta.v, 2);
+      assert.ok(res.envelope.meta.correlation_id);
+      assert.equal(typeof res.envelope.meta.latency_ms, 'number');
+      assert.equal(res.stdout.trim().split(/\r?\n/).length, 1);
     }
   });
 
