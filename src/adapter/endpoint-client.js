@@ -11,9 +11,8 @@ import {
   timeoutError,
 } from '../infra/abort.js';
 import { resolveEndpointStrategy, validatePageApiMethod, validatePageApiPayload } from './endpoint-strategy-resolver.js';
-import { executeAttempt } from './endpoint-attempt.js';
+import { executeAttempt, navigatePageWithBudget } from './endpoint-attempt.js';
 import { executePageApiRequest } from './page-api-client.js';
-import { TIMEOUTS } from '../infra/timeouts.js';
 
 const RETRY_DELAYS_MS = [1000, 2000, 4000];
 const REQUIRED_RUNTIME_FIELDS = ['rateLimitQps', 'rateLimitBurst', 'cooldownThreshold', 'cooldownMs'];
@@ -94,54 +93,6 @@ function validatePageApiSpec(meta) {
   return validatePageApiMethod(meta.method, meta.name);
 }
 
-async function runTrigger(meta, page, params, ctx, log) {
-  if (typeof meta.trigger !== 'function') return;
-  try {
-    await meta.trigger(page, params, ctx);
-  } catch (err) {
-    if (meta.requiredTrigger) {
-      throw new PddCliError({
-        code: 'E_GENERAL',
-        message: `${meta.name}: required trigger failed: ${err?.message}`,
-        exitCode: ExitCodes.GENERAL,
-      });
-    }
-    log.debug({ endpoint: meta.name, err: err?.message }, 'trigger failed, relying on auto-load XHR');
-  }
-}
-
-async function preparePageApi(page, meta, ctx, navUrl) {
-  if (!navUrl) return;
-  throwIfAborted(ctx.signal);
-  const remaining = remainingMs(ctx);
-  if (remaining === 0) throw timeoutError();
-
-  try {
-    const currentUrl = typeof page.url === 'function' ? page.url() : page.url;
-    if (new URL(currentUrl).origin === new URL(navUrl).origin) return;
-  } catch {
-    // Fresh pages have no merchant runtime; initialize the supplied page in place.
-  }
-
-  try {
-    await page.goto(navUrl, {
-      waitUntil: meta.nav?.waitUntil ?? 'domcontentloaded',
-      timeout: Math.min(meta.navTimeout ?? TIMEOUTS.QUICK_NAV, remaining),
-    });
-  } catch (err) {
-    if (err instanceof PddCliError) throw err;
-    throwIfAborted(ctx.signal);
-    if (remainingMs(ctx) === 0) throw timeoutError();
-    throw new PddCliError({
-      code: 'E_NETWORK',
-      message: `${meta.name}: navigation failed: ${err?.message}`,
-      hint: '检查网络连通性或登录态',
-      detail: { url: navUrl },
-      exitCode: ExitCodes.NETWORK,
-    });
-  }
-}
-
 function buildPageApiResponse(page, meta, result, apiUrl = null) {
   if (result.unavailable) {
     throw new PddCliError({
@@ -179,12 +130,13 @@ function buildPageApiResponse(page, meta, result, apiUrl = null) {
   };
 }
 
-async function attemptPageApi(page, meta, params, ctx, navUrl, prepared = null) {
+async function attemptPageApi(meta, params, ctx) {
+  const { page, navUrl, pageApiRequest: prepared = null } = ctx;
   const method = prepared?.method ?? validatePageApiSpec(meta);
   const apiUrl = prepared?.apiUrl ?? resolvePageApiUrl(meta, params, ctx);
   const payload = prepared ? prepared.payload : meta.buildPayload(params, ctx);
   if (!prepared) validatePageApiPayload(method, payload, meta.name);
-  await preparePageApi(page, meta, ctx, navUrl);
+  await navigatePageWithBudget(page, navUrl, meta, ctx, { skipIfSameOrigin: true });
   throwIfAborted(ctx.signal);
   const requestBudgetMs = remainingMs(ctx);
   if (requestBudgetMs === 0) throw timeoutError();
@@ -209,61 +161,47 @@ async function attemptPageApi(page, meta, params, ctx, navUrl, prepared = null) 
   return buildPageApiResponse(page, meta, result, apiUrl);
 }
 
-async function attemptFetch(page, meta, params, ctx, log, navUrl, defaultPageSession) {
+async function attemptFetch(meta, params, ctx) {
   const payload = meta.buildPayload(params, ctx);
   let routeHandler;
 
   return executeAttempt({
-    page,
     meta,
     params,
     ctx,
-    log,
-    navUrl,
-    pageSession: ctx.pageSession ?? defaultPageSession,
-    prepareTransport: async (pg) => {
-      routeHandler = async (route) => {
-        const origPostData = route.request().postData();
-        const merged = mergePayload(origPostData, payload);
-        await route.continue({ postData: JSON.stringify(merged) });
-      };
-      await pg.route(meta.urlPattern, routeHandler);
+    transport: {
+      prepare: async (attemptPage) => {
+        routeHandler = async (route) => {
+          const origPostData = route.request().postData();
+          const merged = mergePayload(origPostData, payload);
+          await route.continue({ postData: JSON.stringify(merged) });
+        };
+        await attemptPage.route(meta.urlPattern, routeHandler);
+      },
+      cleanup: async (attemptPage) => {
+        if (routeHandler) {
+          await attemptPage.unroute(meta.urlPattern, routeHandler).catch((err) => {
+            ctx.log.debug({ err: err?.message, endpoint: meta?.name }, 'endpoint-client: unroute failed');
+          });
+        }
+      },
     },
-    cleanupTransport: async (pg) => {
-      if (routeHandler) {
-        await pg.unroute(meta.urlPattern, routeHandler).catch((err) => {
-          log.debug({ err: err?.message, endpoint: meta?.name }, 'endpoint-client: unroute failed');
-        });
-      }
-    },
-    runTrigger,
   });
 }
 
-async function attemptLegacy(page, meta, params, ctx, log, navUrl, defaultPageSession) {
-  return executeAttempt({
-    page,
-    meta,
-    params,
-    ctx,
-    log,
-    navUrl,
-    pageSession: ctx.pageSession ?? defaultPageSession,
-    prepareTransport: async () => {},
-    cleanupTransport: async () => {},
-    runTrigger,
-  });
+function attemptLegacy(meta, params, ctx) {
+  return executeAttempt({ meta, params, ctx });
 }
 
-function attemptLiveOnce(page, meta, params, ctx, log, navUrl, pageApiRequest, defaultPageSession) {
+function attemptLiveOnce(meta, params, ctx) {
   const { strategy } = resolveEndpointStrategy(meta);
   if (strategy === 'page-api') {
-    return attemptPageApi(page, meta, params, ctx, navUrl, pageApiRequest);
+    return attemptPageApi(meta, params, ctx);
   }
   if (strategy === 'fetch') {
-    return attemptFetch(page, meta, params, ctx, log, navUrl, defaultPageSession);
+    return attemptFetch(meta, params, ctx);
   }
-  return attemptLegacy(page, meta, params, ctx, log, navUrl, defaultPageSession);
+  return attemptLegacy(meta, params, ctx);
 }
 
 export function createLiveEndpointTransport({ pageSession } = {}) {
@@ -278,17 +216,13 @@ export function createLiveEndpointTransport({ pageSession } = {}) {
           exitCode: ExitCodes.USAGE,
         });
       }
-      const log = ctx.log ?? getLogger();
-      const response = await attemptLiveOnce(
-        ctx.page,
-        spec,
-        params,
-        ctx,
-        log,
-        ctx.navUrl,
-        ctx.pageApiRequest ?? null,
-        pageSession,
-      );
+      const attemptCtx = {
+        ...ctx,
+        log: ctx.log ?? getLogger(),
+        navUrl: Object.hasOwn(ctx, 'navUrl') ? ctx.navUrl : resolveNavUrl(spec, params, ctx),
+        pageSession: ctx.pageSession ?? pageSession ?? null,
+      };
+      const response = await attemptLiveOnce(spec, params, attemptCtx);
       const status = readResponseStatus(response);
       const raw = [401, 403, 429].includes(status) ? null : await parseBody(response);
       return { status, raw, response };
