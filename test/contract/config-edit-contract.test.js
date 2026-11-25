@@ -28,6 +28,7 @@ beforeEach(() => {
     env: {},
   };
   vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+  vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 });
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
@@ -57,7 +58,12 @@ describe('config set / unset v2 data', () => {
   ])('config.set preserves existing configuration on invalid daemon input %#', async (key, raw) => {
     writeFileSync(configOptions.configPath, '{"consolePort":47822}');
     const before = readFileSync(configOptions.configPath, 'utf8');
-    await assert.rejects(configCmd.set({ args: [key, raw], json: true }, { configOptions }), { code: 'E_CONFIG_INVALID' });
+    const envelope = await configCmd.set({ args: [key, raw], json: true }, { configOptions });
+    assert.equal(envelope.ok, false);
+    assert.equal(envelope.command, 'config.set');
+    assert.equal(envelope.error.code, 'E_CONFIG_INVALID');
+    assert.equal(envelope.meta.exit_code, 1);
+    assert.equal(envelope.meta.v, 2);
     assert.equal(readFileSync(configOptions.configPath, 'utf8'), before);
   });
 
@@ -66,11 +72,12 @@ describe('config set / unset v2 data', () => {
     const runtime = await loadRuntimeConfig(configOptions);
     assert.equal(Object.hasOwn(runtime, 'authStatePath'), false);
     const before = readFileSync(configOptions.configPath, 'utf8');
-    await assert.rejects(configCmd.set({ args: ['authStatePath', 'synthetic'], json: true }, { configOptions }), (error) => {
-      assert.equal(error.code, 'E_CONFIG_INVALID');
-      assert.equal(error.detail.reason, 'unknown_field');
-      return true;
-    });
+    const envelope = await configCmd.set({ args: ['authStatePath', 'synthetic'], json: true }, { configOptions });
+    assert.equal(envelope.ok, false);
+    assert.equal(envelope.command, 'config.set');
+    assert.equal(envelope.error.code, 'E_CONFIG_INVALID');
+    assert.equal(envelope.error.detail.reason, 'unknown_field');
+    assert.equal(envelope.meta.exit_code, 1);
     assert.equal(readFileSync(configOptions.configPath, 'utf8'), before);
   });
 

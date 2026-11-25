@@ -130,11 +130,13 @@ describe('single goods write commands', () => {
     const { streams, readStdout } = makeMemoryStreams();
     const runtime = await createRuntime(streams);
     try {
-      assert.throws(() => run({ allAccounts: true, confirm: true }, { runtime }),
-        (error) => error.code === 'E_USAGE' && error.exitCode === 2);
+      const envelope = await run({ allAccounts: true, confirm: true, json: true }, { runtime });
+      assert.equal(envelope.ok, false);
+      assert.equal(envelope.error.code, 'E_USAGE');
+      assert.equal(envelope.meta.exit_code, 2);
       assert.equal(transport.calls.length, 0);
-      assert.equal(runtime.outputSink.hasEmitted(), false);
-      assert.equal(readStdout(), '');
+      assert.equal(runtime.outputSink.hasEmitted(), true);
+      assert.deepEqual(JSON.parse(readStdout().trim()), envelope);
     } finally {
       await runtime.closeAll();
     }
