@@ -45,7 +45,7 @@ src/infra/                 envelope、错误、日志、配置、SQLite 存储�
 ```
 
 - 只允许向下依赖：infra 不 import 上层，adapter 不 import services，services 不 import commands。
-- 现存的跨层直连（向下，允许）：`bin/pdd.js` 引用 `commands/runtime-options.js` 与 `adapter/browser.js` 的 `closeAllBrowsers`；runner、`doctor.js`、`login.js` 直接使用 adapter（浏览器、鉴权、店铺、fixture）；`commands/daemon.js` 引用 `src/daemon/run.js`；`src/daemon/` 只依赖 services。
+- 现存的跨层直连（向下，允许）：`bin/pdd.js` 引用 `commands/runtime-options.js`；runner、`login.js` 直接使用 adapter（浏览器、鉴权、店铺、fixture）；`commands/daemon.js` 引用 `src/daemon/run.js`；`src/daemon/` 只依赖 services。
 - `src/services/views/` 只依赖 infra（`units`、`metrics`）与 `services/operating-report.js`。
 - **守卫**：原 `test/layering-guard.unit.test.js` 已在 `cc0cb1c` 删除，分层目前靠 review 约束。
 
@@ -108,7 +108,7 @@ console.js   → console link
 | 成本与利润 | `goods-cost*.js`（本地 SQLite 成本）、`goods-profit*.js`（ADR 0004） |
 | 预估实收 | `goods-receipt.js`（价格管理页的平台估算值，口径见 GLOSSARY） |
 | 鉴权与会话 | `auth.js`（登录流程）、`auth-account-storage.js`（登录态保存）、`merchant-session.js`（命令与巡检的会话核验单一入口）、`relogin-policy.js`、`auto-relogin.js` |
-| 账号 | `shops.js`、`account-removal.js`、`doctor-storage.js` |
+| 账号与诊断 | `shops.js`、`account-removal.js`、`doctor.js` |
 | 常驻控制台 | `daemon.js`、`daemon-runtime.js`、`patrol.js`、`console-*.js` |
 
 **领域视图** (`services/views/`)：白名单投影、分转元、比率百分数、中文枚举标签与 headline；view 自有词表放在各自文件，共享词表在 `labels.js`，投影辅助在 `_shared.js`。上游对象与 PII 不进入 `data`。

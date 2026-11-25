@@ -9,7 +9,7 @@ import { seedDb, DEFAULT_ACCOUNT } from '../helpers/seed-db.js';
 import { assertEnvelopeShape } from '../helpers/envelope-assertions.js';
 import { assertDataContractV2 } from '../helpers/data-contract.js';
 import { closeDatabase, getDatabasePath, openDatabase } from '../../src/infra/db.js';
-import { hasLegacyStorage } from '../../src/services/doctor-storage.js';
+import { hasLegacyStorage } from '../../src/services/doctor.js';
 
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
 const preloadUrl = new URL('../helpers/offline-preload.js', import.meta.url).href;

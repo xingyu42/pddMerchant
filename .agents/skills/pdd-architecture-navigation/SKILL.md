@@ -31,7 +31,7 @@ Read these in order for a new area:
 - `src/infra/`: envelope/output, errors, logger/redaction, config, paths, timeouts, abort, units/metrics, SQLite storage (`db`, `account-store`, `leases`, `goods-cost-store`), master key and secret box.
 - `test/`: layer folders; see `pdd-testing-troubleshooting` for the layout and validation matrix.
 
-Imports flow `commands -> services -> adapter -> infra`. Known downward shortcuts: runner, `doctor.js` and `login.js` import adapter directly; keep every other import flowing downward.
+Imports flow `commands -> services -> adapter -> infra`. Known downward shortcuts: runner and `login.js` import adapter directly; keep every other import flowing downward.
 
 ## Runtime Flow
 

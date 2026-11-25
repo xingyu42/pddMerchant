@@ -104,3 +104,29 @@ export function toDoctorView(data) {
   };
   return { headline: doctorHeadline(view), ...view };
 }
+
+/** Format a doctor command envelope as human-readable terminal lines. */
+export function renderDoctor(envelope) {
+  const data = envelope?.data ?? {};
+  const lines = [`OK  ${envelope?.command || 'doctor'}`, ...(Array.isArray(data.headline) ? data.headline : [])];
+
+  lines.push(data.chromium?.ok ? '✓ Chromium 可用' : '· Chromium 不可用');
+  lines.push(data.auth_file?.ok ? '✓ 商家端登录态文件可用' : '· 商家端登录态文件未配置或损坏');
+
+  const shops = data.logged_in?.detail?.shops;
+  const shopSummary = Number.isInteger(shops) ? `（${shops} 个店铺）` : '';
+  const verdict = data.logged_in?.detail?.verdict;
+  lines.push(data.logged_in?.ok ? `✓ 商家端登录态有效${shopSummary}`
+    : data.logged_in?.detail?.reason === AUTH_REASON_LABEL.identity_mismatch ? '· 商家端店铺绑定不一致'
+      : verdict === AUTH_VERDICT_LABEL.rejected ? '· 商家端登录态已失效'
+        : verdict === AUTH_VERDICT_LABEL.not_configured ? '· 商家端未配置' : '· 商家端登录态无法判定');
+  lines.push(`密码重登：${data.password_relogin?.status ?? '未保存密码'}`);
+
+  if (data.consumer_auth_file?.ok === true && data.consumer_logged_in?.ok === true) {
+    lines.push('✓ 用户端登录态有效');
+  } else {
+    lines.push('· 用户端未配置');
+  }
+
+  return lines.join('\n');
+}
