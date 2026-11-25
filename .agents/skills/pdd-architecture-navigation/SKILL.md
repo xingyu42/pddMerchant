@@ -53,7 +53,7 @@ Imports flow `commands -> services -> adapter -> infra`. Known downward shortcut
 - `src/commands/runner/single-lifecycle.js`: auth leases, merchant session check and auth persistence for every live command.
 - `src/services/merchant-session.js`, `src/adapter/merchant-auth*.js`, `src/infra/db.js`, `leases.js`, `master-key.js`.
 - Endpoint transport: `run-endpoint.js`, `endpoint-client.js`, `rate-limiter.js`, `response-interpreter.js`, `endpoint-strategy-resolver.js`, `page-api-client.js`, `endpoint-attempt.js`, `xhr-collector.js`, `page-session.js`.
-- Mall context: `mall-reader` (probe chain), `mall-writer`, `mall-xhr-probe`, `mall-id`; `mall-switcher` only re-exports.
+- Mall context: `mall-reader` (probe chain), `mall-writer`, `mall-xhr-probe`, `mall-id`, `mall-port`.
 - Envelope and exit-code behavior is widely tested; update specs/tests first when changing it.
 - `goods publish` spans consumer login state, category resolution, source scraping (Qingguo proxy, ADR 0001), form filling, pricing/image helpers and endpoint specs.
 - Daemon/patrol: single-instance lease, console sessions and takeover.

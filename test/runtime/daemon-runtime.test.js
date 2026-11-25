@@ -190,7 +190,7 @@ describe('composeDaemonRuntime', () => {
       assert.equal(res.status, 0, res.stderr || res.stdout);
     };
 
-    checkIsolation('live', '/(?:adapter\\/fixtures\\/|mock-dispatcher\\.js|console-login-fixture\\.js)/');
+    checkIsolation('live', '/(?:adapter\\/fixtures\\/|console-login-fixture\\.js)/');
     checkIsolation('fixture', '/^patchright$/');
   });
 });

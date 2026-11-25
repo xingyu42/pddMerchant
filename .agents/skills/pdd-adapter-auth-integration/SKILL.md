@@ -15,7 +15,7 @@ Make narrow, well-tested changes on integration paths. Storage, credential and r
 - `src/infra/account-store.js`, `src/infra/account-resolver.js`, `src/infra/consumer-account-resolver.js`, and `src/infra/master-key.js` for multi-account storage and encryption keys.
 - `src/adapter/mall-reader.js`, `src/adapter/mall-writer.js`, `src/adapter/mall-id.js`, and `src/adapter/mall-xhr-probe.js` for mall context.
 - `src/adapter/run-endpoint.js`, `src/adapter/endpoint-client.js`, `src/adapter/rate-limiter.js`, and `src/adapter/xhr-collector.js` for endpoint transport.
-- `src/adapter/mock-dispatcher.js` before changing test seams.
+- `src/adapter/fixtures/` and composition roots (`src/runtime/command-runtime.js`, `src/runtime/daemon-runtime.js`) before changing test seams.
 - `src/infra/logger.js` before adding fields to logs or envelopes.
 
 ## External Boundaries

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, it, vi } from 'vitest';
 import { attemptPasswordLogin, classifyAuthResponse, PASSWORD_LOGIN_SELECTORS as selectors, PASSWORD_LOGIN_URL, SMS_SELECTORS, submitSmsCode } from '../../src/adapter/password-login.js';
 import { classifyRateLimit } from '../../src/adapter/classify-rate-limit.js';
-import { mockPasswordLogin } from '../../src/adapter/mock-dispatcher.js';
+import { mockPasswordLogin } from '../../src/adapter/fixtures/auth.js';
 import { parseRuntimeEnv } from '../../src/runtime/env.js';
 import { MERCHANT_CHECK_URL } from '../../src/adapter/merchant-auth-probe.js';
 import { PddCliError, ExitCodes } from '../../src/infra/errors.js';

@@ -1,6 +1,6 @@
 import { FixtureStore } from '../../adapter/fixtures/core.js';
 import { createFixtureBrowserRuntime } from '../../adapter/fixtures/browser.js';
-import { createFixtureMallPort } from '../../adapter/fixtures/mall.js';
+import { createFixtureMallPort, mockCurrentMall, mockListMalls } from '../../adapter/fixtures/mall.js';
 import {
   createFixtureAuthPort,
   createFixtureInteractiveLogin,
@@ -8,12 +8,12 @@ import {
   mockIsAuthValid,
   mockIsAuthIndeterminate,
   mockIsConsumerAuthValid,
+  mockPasswordLogin,
   hasFixtureRelogin,
   createFixtureReloginContext,
 } from '../../adapter/fixtures/auth.js';
 import { createFixtureDaemonProcessPort } from '../../adapter/fixtures/daemon.js';
-import { createFixtureEndpointTransport } from '../../adapter/fixtures/endpoint.js';
-import { mockCurrentMall, mockListMalls, mockRunEndpoint, mockPasswordLogin } from '../../adapter/mock-dispatcher.js';
+import { createFixtureEndpointTransport, mockRunEndpoint } from '../../adapter/fixtures/endpoint.js';
 import {
   createFixtureCategoryResolver,
   createFixtureDraftSession,
