@@ -146,6 +146,7 @@ function createRuntimeView(shared, viewState) {
   return Object.freeze({
     mode: shared.parsedEnv.mode,
     runtimeConfig: shared.runtimeConfig,
+    configOptions: shared.configOptions,
     env: shared.parsedEnv,
     ports,
     outputSink: shared.outputSink,
@@ -231,6 +232,7 @@ export async function composeCommandRuntime({
   return createRuntimeView({
     parsedEnv,
     runtimeConfig,
+    configOptions,
     outputSink,
     clock,
     seal,

@@ -128,16 +128,17 @@ function mergeOptions(commanderCmd) {
   };
 }
 
-function wireAction(cmd, commandName, runFn, { runtimeConfigPolicy = 'required' } = {}) {
+function wireAction(cmd, commandName, runFn, { runtimeConfigPolicy } = {}) {
   cmd.action(async function action(...actionArgs) {
     const commanderCmd = actionArgs.at(-1) ?? this;
     const opts = mergeOptions(commanderCmd);
     const positionalArgs = actionArgs.slice(0, -2);
     daemonForeground = commandName === 'daemon.run';
     if (positionalArgs.length > 0) opts.args = positionalArgs;
+    const resolvedPolicy = runFn?.runtimeConfigPolicy ?? runtimeConfigPolicy ?? 'required';
     let runtime = null;
     try {
-      runtime = await prepareCommandRuntime(opts, { runtimeConfigPolicy });
+      runtime = await prepareCommandRuntime(opts, { runtimeConfigPolicy: resolvedPolicy });
       const runtimeConfig = runtime.runtimeConfig;
       if (runtimeConfig) createLogger({ level: runtimeConfig.logLevel, config: runtimeConfig });
       else createLogger({ level: 'silent' });

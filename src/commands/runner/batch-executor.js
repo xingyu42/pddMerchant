@@ -7,6 +7,7 @@ import { PddCliError, ExitCodes, errorToEnvelope, batchExitCode } from '../../in
 import { listAccounts } from '../../infra/account-store.js';
 import { composeCommandRuntime } from '../../runtime/command-runtime.js';
 import { executeSingle } from './single-lifecycle.js';
+import { normalizeCommandSpec, resolveNoColor, runWithEnvelopeKernel } from './envelope-kernel.js';
 
 const BATCH_JITTER_MIN = 2000;
 const BATCH_JITTER_MAX = 5000;
@@ -159,14 +160,16 @@ function finalizeBatch(spec, opts, accountResults, batch) {
     },
     {
       debugRaw: Boolean(batch.runtime.env?.debugRaw),
-      onRawDebug: batch.runtime.outputSink ? (entry) => batch.runtime.outputSink.writeDebugRaw(entry) : undefined,
+      onRawDebug: typeof batch.runtime.outputSink?.writeDebugRaw === 'function'
+        ? (entry) => batch.runtime.outputSink.writeDebugRaw(entry)
+        : undefined,
     },
   );
 
   const emitFn = batch.runtime.outputSink?.emit ?? defaultEmit;
   emitFn(batchEnvelope, {
-    json: opts.json,
-    noColor: opts.noColor,
+    json: Boolean(opts.json),
+    noColor: resolveNoColor(opts),
     renderer: (env, renderOpts) => [
       ...(env.data?.headline ?? []),
       batchRenderer(accountResults, renderOpts),
@@ -180,7 +183,14 @@ function finalizeBatch(spec, opts, accountResults, batch) {
   return batchEnvelope;
 }
 
-async function executeBatch(spec, opts, { runtimeConfig, runtime: providedRuntime } = {}) {
+async function executeBatch(spec, opts, {
+  runtimeConfig,
+  runtime: providedRuntime,
+  correlationId: kernelCorrelationId,
+  startedAt: kernelStartedAt,
+  warnings: kernelWarnings,
+  log: kernelLog,
+} = {}) {
   const selfComposed = !providedRuntime;
   const runtime = providedRuntime ?? await composeCommandRuntime({
     env: process.env,
@@ -189,14 +199,16 @@ async function executeBatch(spec, opts, { runtimeConfig, runtime: providedRuntim
   });
 
   try {
-    const startedAt = runtime.clock.now();
-    const correlationId = randomUUID();
+    const startedAt = kernelStartedAt ?? runtime.clock.now();
+    const correlationId = kernelCorrelationId ?? randomUUID();
 
-    const log = getLogger().withOp
+    const log = kernelLog ?? (getLogger().withOp
       ? getLogger().withOp({ command: spec.name, correlation_id: correlationId })
-      : getLogger();
+      : getLogger());
 
     const warnings = validateBatchOptions(opts);
+    if (kernelWarnings) kernelWarnings.push(...warnings);
+    const activeWarnings = kernelWarnings ?? warnings;
     const accounts = listMerchantAccounts();
 
     const abortController = new AbortController();
@@ -206,7 +218,7 @@ async function executeBatch(spec, opts, { runtimeConfig, runtime: providedRuntim
     const batch = {
       startedAt,
       correlationId,
-      warnings,
+      warnings: activeWarnings,
       log,
       signal: abortController.signal,
       runtime,
@@ -224,33 +236,29 @@ async function executeBatch(spec, opts, { runtimeConfig, runtime: providedRuntim
   }
 }
 
-export function withCommand({
-  name,
-  needsAuth = true,
-  needsMall = 'current',
-  needsBrowser = true,
-  needsAccount = false,
-  allowAllAccounts = true,
-  run,
-  render,
-}) {
-  const spec = { name, needsAuth, needsMall, needsBrowser, needsAccount, run, render };
-  return function executeCommand(opts = {}, { runtimeConfig, runtime } = {}) {
-    if (opts.allAccounts && !allowAllAccounts) {
-      throw new PddCliError({
-        code: 'E_USAGE',
-        message: `${name} does not support --all-accounts`,
-        hint: '写操作不支持批量账号执行，请指定单一账号',
-        exitCode: ExitCodes.USAGE,
+export function withCommand(rawSpec) {
+  const spec = normalizeCommandSpec(rawSpec);
+  async function executeCommand(opts = {}, extra = {}) {
+    return runWithEnvelopeKernel(spec, opts, extra, async ({ spec: resolvedSpec, opts: resolvedOpts, runtime }) => {
+      if (resolvedOpts.allAccounts && resolvedSpec.needsAuth) {
+        return executeBatch(resolvedSpec, resolvedOpts, {
+          runtimeConfig: runtime.runtimeConfig,
+          runtime,
+          correlationId: runtime.correlationId,
+          startedAt: runtime.startedAt,
+          warnings: runtime.warnings,
+          log: runtime.log,
+        });
+      }
+      return executeSingle(resolvedSpec, resolvedOpts, {
+        emitResult: true,
+        parentSignal: runtime.signal,
+        runtimeConfig: runtime.runtimeConfig,
+        runtime,
       });
-    }
-    if (opts.allAccounts && needsAuth) {
-      return executeBatch(spec, opts, { runtimeConfig, runtime });
-    }
-    return executeSingle(spec, opts, {
-      emitResult: true,
-      ...(runtimeConfig !== undefined ? { runtimeConfig } : {}),
-      ...(runtime ? { runtime } : {}),
     });
-  };
+  }
+  executeCommand.runtimeConfigPolicy = spec.runtimeConfigPolicy;
+  executeCommand.lifecycle = spec.lifecycle;
+  return executeCommand;
 }

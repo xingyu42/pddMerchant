@@ -2,6 +2,7 @@
 import { emit as defaultEmit, buildEnvelope } from '../../infra/output.js';
 import { ExitCodes, errorToEnvelope } from '../../infra/errors.js';
 import { accountMetaForEnvelope } from '../../infra/account-resolver.js';
+import { resolveCommandName, resolveNoColor } from './envelope-kernel.js';
 
 function normalizeRunResult(result) {
   if (result == null) return { data: null };
@@ -27,19 +28,24 @@ function nowMs(runtime) {
 function emitOnce(envelope, runtime, renderer) {
   if (runtime.emitResult) {
     const emitFn = runtime.outputSink?.emit ?? defaultEmit;
-    emitFn(envelope, { json: runtime.opts.json, noColor: runtime.opts.noColor, renderer });
+    emitFn(envelope, {
+      json: Boolean(runtime.opts?.json),
+      noColor: resolveNoColor(runtime.opts),
+      renderer,
+    });
   }
   return envelope;
 }
 
 export function finalizeSuccess(spec, runtime, result) {
   const { data, meta: extraMeta, warnings: resultWarnings } = normalizeRunResult(result);
+  const commandName = resolveCommandName(spec, runtime.opts);
   const envelope = buildEnvelope({
     ok: true,
-    command: spec.name,
+    command: commandName,
     data,
     meta: {
-      latency_ms: nowMs(runtime) - runtime.startedAt,
+      latency_ms: Math.max(0, nowMs(runtime) - runtime.startedAt),
       warnings: [...runtime.warnings, ...(resultWarnings ?? [])],
       correlation_id: runtime.correlationId,
       exit_code: ExitCodes.OK,
@@ -48,14 +54,17 @@ export function finalizeSuccess(spec, runtime, result) {
     },
   }, {
     debugRaw: Boolean(runtime.env?.debugRaw),
-    onRawDebug: runtime.outputSink ? (entry) => runtime.outputSink.writeDebugRaw(entry) : undefined,
+    onRawDebug: typeof runtime.outputSink?.writeDebugRaw === 'function'
+      ? (entry) => runtime.outputSink.writeDebugRaw(entry)
+      : undefined,
   });
   return emitOnce(envelope, runtime, spec.render);
 }
 
 export function finalizeError(spec, runtime, err) {
-  const envelope = errorToEnvelope(spec.name, err, {
-    latency_ms: nowMs(runtime) - runtime.startedAt,
+  const commandName = resolveCommandName(spec, runtime.opts);
+  const envelope = errorToEnvelope(commandName, err, {
+    latency_ms: Math.max(0, nowMs(runtime) - runtime.startedAt),
     warnings: runtime.warnings,
     correlation_id: runtime.correlationId,
   });

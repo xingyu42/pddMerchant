@@ -12,17 +12,23 @@ import { composeCommandRuntime } from '../../runtime/command-runtime.js';
 import { checkMerchantSession } from '../../services/merchant-session.js';
 import { buildCommandCtx, appendActionWarnings } from './command-ctx.js';
 import { finalizeSuccess, finalizeError } from './envelope-finalizer.js';
+import {
+  normalizeNeedsAccount,
+  resolveCommandName,
+  resolveEffectiveTimeoutMs,
+  resolveNoColor,
+} from './envelope-kernel.js';
 
 export { armDeadline } from '../../infra/abort.js';
 
-async function resolveAccount(opts, needsAuth, warnings, needsAccount = false) {
+async function resolveAccount(opts, needsAuth, warnings, needsAccount = 'none') {
   const resolved = await resolveAccountContext({
     account: opts.account,
     accountId: opts.accountId,
     needsAuth,
     warnings,
   });
-  if (needsAccount && resolved.accountId == null) {
+  if (needsAccount === 'required' && resolved.accountId == null) {
     throw new PddCliError({
       code: 'E_ACCOUNT_REQUIRED',
       message: '需要已登记的商家账号',
@@ -155,11 +161,49 @@ async function executeLive(spec, runtime) {
 
 async function executeWithoutBrowser(spec, runtime) {
   try {
+    throwIfAborted(runtime.signal);
     const ctx = buildCommandCtx(runtime, { client: null, page: null, mallCtx: null });
     return finalizeSuccess(spec, runtime, await spec.run(ctx));
   } catch (error) {
     return finalizeError(spec, runtime, error);
   }
+}
+
+function prepareSingleState({ spec, opts, composedRuntime, parentSignal, runtimeConfig, endpointState, emitResult }) {
+  const clock = composedRuntime.clock;
+  const ownsDeadline = !composedRuntime.deadline;
+  const commandName = resolveCommandName(spec, opts);
+  const startedAt = ownsDeadline ? clock.now() : composedRuntime.startedAt;
+  const correlationId = ownsDeadline
+    ? (opts._correlationId ?? composedRuntime.correlationId ?? randomUUID())
+    : composedRuntime.correlationId;
+  const warnings = ownsDeadline ? [] : composedRuntime.warnings;
+  const log = ownsDeadline
+    ? (getLogger().withOp ? getLogger().withOp({ command: commandName, correlation_id: correlationId }) : getLogger())
+    : composedRuntime.log;
+  const effectiveTimeoutMs = resolveEffectiveTimeoutMs(spec, opts);
+  const resolvedOpts = ownsDeadline
+    ? { ...opts, noColor: resolveNoColor(opts), ...(effectiveTimeoutMs !== undefined ? { timeoutMs: effectiveTimeoutMs } : {}) }
+    : (composedRuntime.opts ?? opts);
+  const deadline = ownsDeadline
+    ? armDeadline(resolvedOpts, parentSignal ?? composedRuntime.signal ?? resolvedOpts.signal, startedAt, clock)
+    : composedRuntime.deadline;
+  const runtime = {
+    ...composedRuntime,
+    opts: resolvedOpts,
+    emitResult,
+    startedAt,
+    correlationId,
+    warnings,
+    log,
+    accountCtx: null,
+    signal: deadline.signal,
+    get deadlineAt() { return deadline.deadlineAt; },
+    deadline,
+    runtimeConfig: runtimeConfig ?? composedRuntime.runtimeConfig,
+    endpointState: endpointState ?? composedRuntime.endpointState,
+  };
+  return { commandName, ownsDeadline, deadline, resolvedOpts, runtime };
 }
 
 export async function executeSingle(spec, opts = {}, {
@@ -172,52 +216,33 @@ export async function executeSingle(spec, opts = {}, {
   const selfComposed = !providedRuntime;
   const composedRuntime = providedRuntime ?? await composeCommandRuntime({
     env: process.env,
-    runtimeConfigPolicy: 'maintenance',
+    runtimeConfigPolicy: spec.runtimeConfigPolicy ?? 'maintenance',
     overrides: {
       ...(runtimeConfig !== undefined ? { runtimeConfig } : {}),
       ...(endpointState ? { endpointState } : {}),
     },
   });
+  const { needsAuth = true, needsMall = 'current', run, render } = spec;
+  const { commandName, ownsDeadline, deadline, resolvedOpts, runtime } = prepareSingleState({
+    spec, opts, composedRuntime, parentSignal, runtimeConfig, endpointState, emitResult,
+  });
+  const normSpec = { name: commandName, command: spec.command ?? commandName, needsAuth, needsMall, run, render };
 
-  const resolvedConfig = runtimeConfig ?? composedRuntime.runtimeConfig;
-  const resolvedEndpointState = endpointState ?? composedRuntime.endpointState;
-  const clock = composedRuntime.clock;
-
-  const { name, needsAuth = true, needsMall = 'current', run, render } = spec;
-  const normSpec = { name, needsAuth, needsMall, run, render };
-  const startedAt = clock.now();
-  const correlationId = opts._correlationId ?? composedRuntime.correlationId ?? randomUUID();
-  const warnings = [];
-
-  const log = getLogger().withOp
-    ? getLogger().withOp({ command: name, correlation_id: correlationId })
-    : getLogger();
-
-  let deadline;
   try {
-    const skipAccount = spec.needsBrowser === false && !needsAuth && !spec.needsAccount;
-    const accountCtx = skipAccount ? null : await resolveAccount(opts, needsAuth, warnings, spec.needsAccount);
-    deadline = armDeadline(opts, parentSignal ?? composedRuntime.signal ?? opts.signal, startedAt, clock);
+    const needsAccount = normalizeNeedsAccount(spec.needsAccount)
+      ?? (needsAuth ? 'required' : (spec.needsBrowser === false ? 'none' : 'optional'));
+    const skipAccount = spec.lifecycle === 'maintenance'
+      || (spec.needsBrowser === false && !needsAuth && needsAccount === 'none');
+    try {
+      runtime.accountCtx = skipAccount ? null : await resolveAccount(resolvedOpts, needsAuth, runtime.warnings, needsAccount);
+    } catch (err) {
+      if (emitResult) return finalizeError(normSpec, runtime, err);
+      throw err;
+    }
 
-    const runtime = {
-      ...composedRuntime,
-      opts,
-      emitResult,
-      startedAt,
-      correlationId,
-      warnings,
-      log,
-      accountCtx,
-      signal: deadline.signal,
-      get deadlineAt() { return deadline.deadlineAt; },
-      deadline,
-      runtimeConfig: resolvedConfig,
-      endpointState: resolvedEndpointState,
-    };
-
-    if (needsMall === 'none' && opts.mall) {
-      log.warn({ mall: opts.mall }, 'command does not use --mall flag');
-      warnings.push('unused_flag_mall');
+    if (needsMall === 'none' && resolvedOpts.mall) {
+      runtime.log.warn({ mall: resolvedOpts.mall }, 'command does not use --mall flag');
+      runtime.warnings.push('unused_flag_mall');
     }
 
     // Both branches must settle before the deadline timer is disposed.
@@ -228,7 +253,7 @@ export async function executeSingle(spec, opts = {}, {
     }
     return await executeLive(normSpec, runtime);
   } finally {
-    deadline?.dispose();
+    if (ownsDeadline) deadline?.dispose();
     if (selfComposed) await composedRuntime.closeAll();
   }
 }
