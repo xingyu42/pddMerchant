@@ -22,7 +22,7 @@ Extend CLI behavior through the existing layers (`commands -> services -> adapte
 - Goods read/write: `src/services/goods.js`, `src/services/goods-write.js`, `src/adapter/endpoints/goods.js`, commands under `src/commands/goods/`.
 - Goods publish: `src/services/goods-publish.js`, `src/adapter/goods-publish/`, `src/adapter/endpoints/goods-publish.js`.
 - Goods cost / profit / receipt: `src/services/goods-cost.js`, `src/services/goods-profit.js`, `src/services/goods-receipt.js` and their sibling helpers; costs persist through `src/infra/goods-cost-store.js`.
-- Promo: `src/services/promo.js`, `src/services/promo-roi.js`, `src/adapter/endpoints/promo.js`, commands under `src/commands/promo/`.
+- Promo: `src/services/promo.js`, `src/adapter/endpoints/promo.js`, commands under `src/commands/promo/`.
 - Diagnose and operating reports: `src/services/diagnose/` plus report services such as `src/services/traffic.js`, `src/services/reviews.js`, `src/services/customer-service.js`, `src/services/experience.js`; commands under `src/commands/diagnose/`. Reports carry facts and data-quality hints, leaving advice and scores to the user.
 - Account, config, daemon: `src/commands/account.js`, `src/commands/config.js`, `src/commands/daemon.js`, with storage in `src/infra/account-store.js`.
 

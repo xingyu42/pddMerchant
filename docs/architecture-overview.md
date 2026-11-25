@@ -102,7 +102,7 @@ console.js   → console link
 | 订单 | `orders.js` |
 | 商品 | `goods.js`（读）、`goods-write.js`（改价/库存/状态/标题/批量）、`goods-segmentation.js`、`goods-sales-matcher.js` |
 | 商品发布 | `goods-publish.js`、`goods-publish/source-product-fetcher.js`、`goods-publish/source-normalizer.js`、`goods-publish-source-cache.js` |
-| 推广 | `promo.js`、`promo-roi.js` |
+| 推广 | `promo.js` |
 | 诊断 | `diagnose/`（订单、库存、推广、售后、趋势比较） |
 | 经营报表 | `operating-report.js`（报表声明与 days 规则）、`report-windows.js`、`traffic.js`、`goods-traffic*.js`、`customer-service.js`、`reviews.js`、`experience.js` |
 | 成本与利润 | `goods-cost*.js`（本地 SQLite 成本）、`goods-profit*.js`（ADR 0004） |

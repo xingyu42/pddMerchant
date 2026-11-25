@@ -1,6 +1,6 @@
 import { beforeEach, it } from 'vitest';
 import assert from 'node:assert/strict';
-import { getPromoRoiView } from '../../src/services/promo-roi.js';
+import { getPromoRoiView } from '../../src/services/promo.js';
 import { createMemoryEndpointTransport, createTestCtx } from '../helpers/test-ctx.js';
 
 const emptyPromoRaw = {

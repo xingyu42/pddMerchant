@@ -2,7 +2,7 @@
 
 ## 1. Scope / Trigger
 
-适用于修改 `src/services/**` 中 orders、goods、promo、diagnose、promo-roi、goods-segmentation、auth 等领域逻辑。
+适用于修改 `src/services/**` 中 orders、goods、promo、diagnose、goods-segmentation、auth 等领域逻辑。
 
 ## 2. Signatures
 
@@ -42,8 +42,7 @@ src/services/orders.js         订单列表/详情/统计；get*View 产出命�
 src/services/goods.js          商品列表/库存视图、写入校验（validateWriteValue）
 src/services/goods-write.js    写操作编排：预演/提交、回显与 headline（单项 + batch）
 src/services/goods-publish.js  发布流程（含运费模板、软风控）
-src/services/promo.js          活动报表（Poseidon 适配）
-src/services/promo-roi.js      ROI 计算（analyzePromoRoi，内部）+ getPromoRoiView
+src/services/promo.js          活动报表（Poseidon 适配）、ROI 计算（analyzePromoRoi）与 getPromoRoiView
 src/services/diagnose/index.js 店铺数据汇总（summarize*，内部代码）
 src/services/diagnose/reports.js  diagnose.* 命令级结果（采集 → summarize → 视图）
 src/services/goods-segmentation.js  商品销量与库存统计 + getGoodsSegmentView

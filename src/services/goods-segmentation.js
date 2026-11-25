@@ -1,8 +1,7 @@
 import { matchSales, normalizeGoodsName, readGoodsId, scanQuality } from './goods-sales-matcher.js';
 import { collectAllGoods } from './diagnose/goods-collector.js';
 import { collectOrdersWindow } from './orders.js';
-import { analyzePromoRoi } from './promo-roi.js';
-import { getPromoReport } from './promo.js';
+import { analyzePromoRoi, getPromoReport } from './promo.js';
 import { getLogger } from '../infra/logger.js';
 import { toGoodsSegmentView } from './views/goods-segmentation.js';
 import { withEndpointPages } from '../adapter/endpoint-pages.js';
