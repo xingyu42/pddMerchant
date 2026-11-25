@@ -37,6 +37,7 @@ New sensitive keys must be camelCase (or otherwise impossible as an account slug
 - Daily rotation MUST auto-switch across midnight without restart; historical day files are retained.
 - Parent log directories MUST be created before write.
 - Bootstrap / silent logger (no runtimeConfig) MUST NOT force a project log file; stderr remains acceptable.
+- Services and adapters constructed during runtime composition before `createLogger()` (e.g., `SourceProductFetcher`, `CategoryResolver`) MUST resolve active loggers dynamically per call (`callLog ?? injectedLog ?? getLogger()`) rather than capturing the bootstrap silent logger at construction time.
 - QR content、cookies、Anti-Content、authorization、credentials、receiver/contact/address/media fields MUST NOT appear raw in stdout/stderr/log files。
 - Debug raw output MUST truncate large values per configured behavior and mark truncation。
 

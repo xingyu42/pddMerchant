@@ -46,6 +46,7 @@ mock -> state -> url -> cookie -> storage -> xhr -> dom
 - Goods-publish source browsing and degradation cleanup MUST use the same resolved consumer `accountId` (cleanup deletes that account's `auth_states` row).
 - Browser contexts receive the decrypted `storageState` object in memory; no temporary auth-state file is written.
 - Login/init failures MUST map to auth exit code 3 when credentials/session are invalid。
+- `loginConsumer` MUST re-verify `assertAuthTask({ signal, deadlineAt, clock })` immediately before `provisionConsumerAuth`, so late cancellation or timeout during `storageState()`/browser close skips persisting state and skips `scrapeCooldown.recordSuccess()`; direct `loginMerchantInteractive` calls reusing a stored session without a `browserSession` MUST still pass `createSnapshotContext` into verification.
 - QR login MAY render terminal QR and save PNG, but QR content and credentials MUST NOT be logged raw。
 - Consumer QR、headed 与 fixture login MUST 共用 `src/adapter/consumer-qr-login.js` 的 `CONSUMER_LOGIN_URL`。`consumerLoginUrl` 不属于公开运行配置，`PDD_CONSUMER_LOGIN_URL` 不得重新加入 env 映射；登录页改版应连同选择器和流程一起修改、测试。
 - `--mall <id>` MUST resolve/switch mall context before domain endpoint execution。

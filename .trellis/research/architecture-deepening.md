@@ -78,3 +78,8 @@
 - C6：`beginReloginAttempt` 统一尝试记录、失败抛错和原子成功提交；使用草稿 tx，提交失败时内存 revision/state/metadata/corrupt 同样保持原值。控制台预检复用带 manual/decrypt 选项的 `decideRelogin`，扫码保留原有封禁语义。
 - C3 安全子集：`merchant-session.js` 集中 command/patrol/login/report/snapshot 策略及巡检无浏览器第一阶段；doctor 保持只读。fixture 的免记录预检与独立浏览器编排保留并集中复用，跨进程恢复仍依赖 marker；marker 构造/识别已下沉 adapter。成功恢复改经 `verifyMerchantContext` 生成带品牌候选，再走正式提交与 metadata/corrupt 维护，删除旧 `commitFixtureRelogin` 直接写入路径。
 - 保留账号租约/CAS、巡检两次记录与 revision=3、90s 重登预算及 runtime getter 截止时间恢复、last_check/重登/待办转换和 envelope/data v2。定向验证：17 files / 339 passed；最终 `npm test`：`Test Files  112 passed (112)`，`Tests  2000 passed | 1 skipped (2001)`；全程离线 fixture/模拟传输，真实账密、验证码接管、巡检网络行为待账号验证。
+
+## 2026-11-25 架构深化收口状态（已合入 `main`: `52bd02f`）
+
+- 本备忘录中的核心结构深化议题（P0-1 `runtime-adapter-seams`、P0-2 `goods-publish-deepening`、P1-3 `command-lifecycle-unification`、P1-4 `auth-console-login-deepening`、P2-5 `shallow-module-cleanup` 共 5 份规格 / 23 张工单及两轮 Codex 复审修复）已全部实施并合入 `main`（`52bd02f`）。
+- 现行模块拓扑、组合根测试接缝与 ADR 索引已收敛至 [docs/architecture-overview.md](../../docs/architecture-overview.md) 与 `.trellis/spec/` 各对应契约文档；本文保留为历史评审溯源记录（注：`C4`/`C5` 类报表采集/投影通用骨架及账号宽表拆解未纳入本轮 5 份规格）。

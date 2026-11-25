@@ -34,7 +34,8 @@ PDD_SCRAPE_SOFTBLOCK_COOLDOWN_MS=<ms>  cooldown duration; default 7200000
 - `draftOnly: true` MUST still create and verify the merchant draft; it skips only the final submit endpoint。
 - Without explicit cost-template selection, the service MAY use `templates[0]` only after verifying the normalized template list is present and non-empty。
 - Normalizers MUST strip raw platform-only keys and return stable schema for envelope `data`。
-- When no valid temporary source cache exists, source-scrape IP soft-block cooldown MUST short-circuit before issuing the source request。
+- When no valid temporary source cache exists, source-scrape IP soft-block cooldown MUST short-circuit both in `prepare()` (before cost-template resolution) and again in `fetch()` immediately before live page scraping on cache miss (preventing cross-process cooldown races and preventing `recordSuccess()` from clearing a concurrent cooldown; cache hits continue skipping cooldown)。
+- `--confirm` submission MUST verify `submit?.success === true` inside `submit_draft` before clearing source cache; non-confirmed results throw `E_GENERAL` (`detail.stage = 'submit_draft'`) and preserve cached source data for retry.
 - Logs/output MUST redact sensitive media/contact fields such as `goods_image`、`phone`、`addr`、receiver fields。
 - Source empty-shell (`_fiberFound === false && _appWall === true`) MUST be classified before missing price/SKU. It is an IP/page degradation signal, not consumer-account degradation, and MUST NOT delete consumer auth.
 - Multi-SKU form fill MUST fail before any page mutation unless source data provides per-SKU price/stock plus a verified dimension-to-row mapping. Never silently fall back to single-SKU fields.

@@ -371,6 +371,8 @@ new PddCliError({ code: 'E_BUSINESS', message, hint, detail, exitCode: ExitCodes
 | [0004](adr/0004-goods-profit-reporting-semantics.md) | 商品利润报表口径 |
 | [0005](adr/0005-goods-reviews-deterministic-filtering.md) | 商品评价确定性过滤口径 |
 | [0006](adr/0006-after-sales-case-and-reason-reporting.md) | 售后单与退款原因查询口径 |
+| [0007](adr/0007-dual-composition-roots-and-local-substitutable-sqlite.md) | 双组合根与 SQLite 本地可替代接缝 |
+| [0008](adr/0008-closed-command-lifecycle-presets.md) | 三态封闭命令生命周期预设与统一执行内核 |
 
 领域术语见根目录 `GLOSSARY.md`；分层与运行时契约见 `.trellis/spec/architecture/`。
 
