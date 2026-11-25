@@ -4,9 +4,14 @@
 
 **Blocked by:** runtime-adapter-seams#04
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `envelope-kernel` 落地动态命令名、`correlation_id`、协作超时、`noColor` 与两阶段防重复发射守门（`hasEmitted()` 精确一次）
-- [ ] `merchant`、`local`、`maintenance` 三种互斥预设及加载期非法组合断言就位，30 个业务命令与 `console`/`daemon`/`goods.cost.*` 向后兼容且 `local` 拒绝 `--all-accounts`（`E_USAGE`）
-- [ ] `config.{show,set,unset,validate}` 下沉为配置维护领域入口并声明 `lifecycle: 'maintenance'`（`runtimeConfigPolicy: 'maintenance'`），领域单测可直测 `PddCliError`、命令层产出标准错误信封且配置损坏时依然可达
-- [ ] 全量命令超时、运行期与配置编辑契约测试及 `npm run check` 通过
+- [x] `envelope-kernel` 落地动态命令名、`correlation_id`、协作超时、`noColor` 与两阶段防重复发射守门（`hasEmitted()` 精确一次）
+- [x] `merchant`、`local`、`maintenance` 三种互斥预设及加载期非法组合断言就位，30 个业务命令与 `console`/`daemon`/`goods.cost.*` 向后兼容且 `local` 拒绝 `--all-accounts`（`E_USAGE`）
+- [x] `config.{show,set,unset,validate}` 下沉为配置维护领域入口并声明 `lifecycle: 'maintenance'`（`runtimeConfigPolicy: 'maintenance'`），领域单测可直测 `PddCliError`、命令层产出标准错误信封且配置损坏时依然可达
+- [x] 全量命令超时、运行期与配置编辑契约测试及 `npm run check` 通过
+
+## Comments
+
+- Merged `ticket/command-lifecycle-unification-01` (`69b5b2440060749bcc5696fb62daad3c8eb53ad0`) into `feat/phase3-lifecycle-and-cleanup` via `--no-ff` merge commit `5d13247ca655cb61338962006b1ba85bc70634cf`.
+- Verification: `npm run check` passed 100% (`npm run lint` / `knip` exited 0; `npm test` / Vitest passed `174 passed (174)` files, `2743 passed | 1 skipped (2744)` tests in 78.56s).
