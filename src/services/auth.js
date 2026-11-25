@@ -2,6 +2,7 @@ import { renderQrToStream } from '../adapter/qr-login.js';
 import { CONSUMER_LOGIN_URL } from '../adapter/consumer-qr-login.js';
 import { loginMerchantInteractive, loginConsumerInteractive } from '../adapter/interactive-login.js';
 import { resolveAccountContext } from '../infra/account-resolver.js';
+import { assertAuthTask } from '../infra/auth-task.js';
 import { resolveConsumerAccountContext } from '../infra/consumer-account-resolver.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { getLogger, redactValue } from '../infra/logger.js';
@@ -162,6 +163,7 @@ export async function loginConsumer(options = {}, deps = {}) {
       exitCode: ExitCodes.AUTH,
     });
   }
+  assertAuthTask({ signal, deadlineAt, clock: deps.clock ?? runtime?.clock });
   const provisioned = (deps.provisionConsumer ?? provisionConsumerAuth)(result.state, result.identity);
   (deps.scrapeCooldown ?? options.scrapeCooldown ?? runtime?.scrapeCooldown ?? null)?.recordSuccess();
   const isFixture = Boolean(result.fixture);

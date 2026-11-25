@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, it, vi } from 'vitest';
 import { composeDaemonRuntime } from '../../src/runtime/daemon-runtime.js';
+import { runCloseAllHooks } from '../../src/infra/runtime-cleanup.js';
 import { DAEMON_LEASE, acquireDaemonLease, readDaemonOwnerToken, daemonBrowserOwnerTag } from '../../src/infra/daemon-state.js';
 import { patrolIntervalMs } from '../../src/services/patrol.js';
 import { createConsoleLink, redeemConsoleToken } from '../../src/services/console-auth.js';
@@ -192,5 +193,76 @@ describe('composeDaemonRuntime', () => {
 
     checkIsolation('live', '/(?:adapter\\/fixtures\\/|console-login-fixture\\.js)/');
     checkIsolation('fixture', '/^patchright$/');
+  });
+
+  it('registers closeAll with runtime-cleanup hooks while running and unregisters on normal closeAll()', async () => {
+    const createTrackedBrowser = () => {
+      const pageCloseCounts = new Map();
+      const browser = createInMemoryBrowserRuntime({
+        createPage(context) {
+          const page = {
+            __memory: true,
+            context: () => context,
+            url: () => 'https://mms.pinduoduo.com',
+            goto: async () => {},
+            close: async () => {
+              pageCloseCounts.set(page, (pageCloseCounts.get(page) ?? 0) + 1);
+            },
+          };
+          return page;
+        },
+      });
+      return {
+        browser,
+        closeCount: (session) => pageCloseCounts.get(session.page) ?? 0,
+      };
+    };
+
+    const trackedA = createTrackedBrowser();
+    const sessionsCloseSpy = vi.fn(async () => {});
+    const runtimeA = await composeDaemonRuntime({
+      mode: 'live',
+      foreground: false,
+      runtimeConfig: { logLevel: 'silent', patrolIntervalMs: 300_000 },
+      env: {},
+      overrides: {
+        browser: trackedA.browser,
+        consoleApp: {
+          accounts: {},
+          auth: {},
+          health: {},
+          patrol: {},
+          sessions: { closeAll: sessionsCloseSpy },
+        },
+      },
+    });
+
+    try {
+      const sessionA = await runtimeA.ports.browser.openSession({ headed: false });
+      await runCloseAllHooks({ timeoutMs: 1000 });
+      assert.equal(trackedA.closeCount(sessionA), 1);
+      assert.equal(sessionsCloseSpy.mock.calls.length, 1);
+
+      // Re-calling runtimeA.closeAll() is deduplicated and does not re-close sessions/consoleApp.
+      await runtimeA.closeAll();
+      assert.equal(sessionsCloseSpy.mock.calls.length, 1);
+    } finally {
+      await runtimeA.closeAll();
+    }
+
+    const trackedB = createTrackedBrowser();
+    const runtimeB = await composeDaemonRuntime({
+      mode: 'live',
+      foreground: false,
+      runtimeConfig: { logLevel: 'silent', patrolIntervalMs: 300_000 },
+      env: {},
+      overrides: { browser: trackedB.browser },
+    });
+    await runtimeB.closeAll();
+
+    const leakedSession = await trackedB.browser.openSession({ headed: false });
+    await runCloseAllHooks({ timeoutMs: 1000 });
+    assert.equal(trackedB.closeCount(leakedSession), 0);
+    await leakedSession.close();
   });
 });

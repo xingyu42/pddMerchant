@@ -266,6 +266,7 @@ function createLiveAcquisition({ goodsId, proxyConfig, warnings, clearCache, scr
     warnings,
     async fetch({ signal, consumerAccount, warnings: callerWarnings, browserSession: callSession, log: callLog } = {}) {
       throwIfAborted(signal);
+      scrapeCooldown.check();
       const log = resolveActiveLog(scrapeDeps, callLog);
       const target = await resolveConsumerTarget(consumerAccount, resolveConsumerAccount);
       const openContext = buildContextOpener({

@@ -50,11 +50,12 @@ async function defaultCheckStoredSession(checkTarget, transaction, task) {
 async function prepareMerchantSession(launched, transaction, task, { reuseState, browserSession, checkStoredSession }) {
   const { browser, context, page } = launched;
   const checkTarget = browserSession ?? context;
+  const checkTask = browserSession ? task : { ...task, createSnapshotContext };
   let result = null;
   if (reuseState) {
     ({ result } = checkStoredSession
-      ? await checkStoredSession(checkTarget, task)
-      : await defaultCheckStoredSession(checkTarget, transaction, task));
+      ? await checkStoredSession(checkTarget, checkTask)
+      : await defaultCheckStoredSession(checkTarget, transaction, checkTask));
   }
   if (!result || result.verdict === 'verified') return { context, page, result };
   await context.close();

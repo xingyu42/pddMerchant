@@ -1468,6 +1468,34 @@ describe('publishGoodsFromLink via in-memory GoodsPublishPort + raw EndpointPort
       assert.equal(sourceCache.peek('123456'), null);
     });
 
+    it('rejects unconfirmed submitDraft ({ success: false } without raw) at submit_draft and retains source cache', async () => {
+      const sourceCache = createMemorySourceCache({ 123456: makeNormalizedCachedSource() });
+      const { ctx, port } = await makePublishCtx({ sourceGoodsCache: sourceCache });
+      const submitDraft = vi.fn(async () => ({ success: false }));
+      const ctxWithUnconfirmedSubmit = {
+        ...ctx,
+        goodsPublish: {
+          ...port,
+          draftEditor: {
+            ...port.draftEditor,
+            submitDraft,
+          },
+        },
+      };
+
+      await assert.rejects(
+        publishGoodsFromLink(ctxWithUnconfirmedSubmit, '123456', { draftOnly: false }),
+        (err) => err instanceof PddCliError
+          && err.code === 'E_GENERAL'
+          && err.detail?.stage === 'submit_draft'
+          && err.detail?.source_cached === true
+          && err.detail?.submit?.success === false,
+      );
+      assert.equal(submitDraft.mock.calls.length, 1);
+      assert.notEqual(sourceCache.peek('123456'), null);
+      assert.deepEqual(sourceCache.calls.remove, []);
+    });
+
     it('tolerates source cache read/write errors and emits source_cache_cleanup_failed without reversing publish success', async () => {
       seedConsumerAccount();
       const sourceCache = createMemorySourceCache();

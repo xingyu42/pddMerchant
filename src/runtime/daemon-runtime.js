@@ -1,5 +1,6 @@
 import { resolveClock } from '../infra/clock.js';
 import { createCandidateSeal } from '../infra/candidate-seal.js';
+import { registerCloseAllHook } from '../infra/runtime-cleanup.js';
 import { routesForMode } from '../daemon/routes.js';
 import { createDaemonLogger, createDaemonLifecycleOps } from '../services/daemon-runtime.js';
 import { createConsoleApp } from '../services/console-login.js';
@@ -45,10 +46,19 @@ export async function composeDaemonRuntime({
 
   const { log, closeLog } = createDaemonLogger({ foreground, runtimeConfig: resolvedRuntimeConfig ?? undefined });
   const lifecycle = createDaemonLifecycleOps({ parsedEnv, browser: ports.browser, log, closeLog });
-  const closeAll = async () => {
+  let unregisterCleanupHook = null;
+  let closingPromise = null;
+  const runCloseAll = async () => {
     await Promise.allSettled([consoleApp.sessions.closeAll(), lifecycle.closeBrowsers()]);
     closeLog();
   };
+  const closeAll = () => {
+    unregisterCleanupHook?.();
+    unregisterCleanupHook = null;
+    if (!closingPromise) closingPromise = runCloseAll();
+    return closingPromise;
+  };
+  unregisterCleanupHook = registerCloseAllHook(closeAll);
 
   return Object.freeze({
     mode: parsedEnv.mode,

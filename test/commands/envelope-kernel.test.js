@@ -611,6 +611,83 @@ describe('config.* maintenance mode under corrupted JSON configuration', () => {
       await validateRuntime.closeAll();
     }
   });
+
+  it('honors scoped runtime deadlineAt without explicit timeoutMs for expired and active parent deadlines', async () => {
+    let nowMs = 1_700_000_000_000;
+    const clock = { now: () => nowMs, sleep: async () => {} };
+    const parentStreams = makeMemoryStreams();
+    const parentRuntime = await composeCommandRuntime({
+      mode: 'fixture',
+      runtimeConfigPolicy: 'maintenance',
+      env: {},
+      streams: parentStreams.streams,
+      clock,
+    });
+
+    try {
+      const expiredHandler = vi.fn(async () => ({ headline: ['should-not-run'] }));
+      const expiredCmd = withCommand({
+        name: 'test.scopedExpiredDeadline',
+        lifecycle: 'local',
+        run: expiredHandler,
+      });
+      const expiredScope = parentRuntime.scopeRuntime({ deadlineAt: nowMs - 10 });
+      try {
+        const expiredEnv = await expiredCmd({ json: true }, { runtime: expiredScope });
+        assertEnvelopeShape(expiredEnv, {
+          ok: false,
+          command: 'test.scopedExpiredDeadline',
+          exitCode: ExitCodes.NETWORK,
+          hasData: false,
+          hasError: true,
+        });
+        assert.equal(expiredEnv.error.code, 'E_TIMEOUT');
+        assert.equal(expiredHandler.mock.calls.length, 0);
+      } finally {
+        await expiredScope.closeAll();
+      }
+
+      const activeStreams = makeMemoryStreams();
+      const activeParent = await composeCommandRuntime({
+        mode: 'fixture',
+        runtimeConfigPolicy: 'maintenance',
+        env: {},
+        streams: activeStreams.streams,
+        clock,
+      });
+      try {
+        const expectedDeadlineAt = nowMs + 250;
+        let seenDeadlineAt = null;
+        const activeCmd = withCommand({
+          name: 'test.scopedActiveDeadline',
+          lifecycle: 'local',
+          async run(ctx) {
+            seenDeadlineAt = ctx.deadlineAt;
+            return { headline: ['ok'], deadline_at: ctx.deadlineAt };
+          },
+        });
+        const activeScope = activeParent.scopeRuntime({ deadlineAt: expectedDeadlineAt });
+        try {
+          const activeEnv = await activeCmd({ json: true }, { runtime: activeScope });
+          assertEnvelopeShape(activeEnv, {
+            ok: true,
+            command: 'test.scopedActiveDeadline',
+            exitCode: 0,
+            hasData: true,
+            hasError: false,
+          });
+          assert.equal(seenDeadlineAt, expectedDeadlineAt);
+          assert.equal(activeEnv.data.deadline_at, expectedDeadlineAt);
+        } finally {
+          await activeScope.closeAll();
+        }
+      } finally {
+        await activeParent.closeAll();
+      }
+    } finally {
+      await parentRuntime.closeAll();
+    }
+  });
 });
 
 describe('CLI subprocess two-stage emit and maintenance policy', () => {

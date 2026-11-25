@@ -552,4 +552,46 @@ describe('composeCommandRuntime', () => {
     assert.equal(spawns[0].env.PDD_TEST_ADAPTER, 'fixture');
     assert.equal(spawns[0].env.PDD_TEST_EXTRA, '1');
   });
+
+  it('strips PDD_TEST_ADAPTER from daemon subprocess env in explicit live mode', () => {
+    const commandUrl = new URL('../../src/runtime/command-runtime.js', import.meta.url).href;
+    const script = `
+      import { registerHooks } from 'node:module';
+      const spawns = [];
+      globalThis.__capturedLiveDaemonSpawns = spawns;
+      const mockChildProcess = 'data:text/javascript,' + encodeURIComponent(\`
+        export function spawn(execPath, args, options) {
+          globalThis.__capturedLiveDaemonSpawns.push({ execPath, args, env: options?.env ?? null });
+          return { pid: 43434, once() {}, unref() {} };
+        }
+      \`);
+      registerHooks({
+        resolve(specifier, context, nextResolve) {
+          if (specifier === 'node:child_process' && context.parentURL?.endsWith('/src/adapter/daemon-process.js')) {
+            return { url: mockChildProcess, shortCircuit: true };
+          }
+          return nextResolve(specifier, context);
+        },
+      });
+      const { composeCommandRuntime } = await import(${JSON.stringify(commandUrl)});
+      const rt = await composeCommandRuntime({
+        mode: 'live',
+        env: { PDD_TEST_ADAPTER: 'fixture', PDD_TEST_EXTRA: '1' },
+        runtimeConfigPolicy: 'maintenance',
+      });
+      rt.ports.daemonProcess.spawnDetached();
+      await rt.closeAll();
+      process.stdout.write(JSON.stringify(spawns));
+    `;
+    const res = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: projectRoot,
+      encoding: 'utf8',
+      timeout: 15_000,
+    });
+    assert.equal(res.status, 0, res.stderr || res.stdout);
+    const spawns = JSON.parse(res.stdout.trim());
+    assert.equal(spawns.length, 1);
+    assert.equal(Object.hasOwn(spawns[0].env, 'PDD_TEST_ADAPTER'), false);
+    assert.equal(spawns[0].env.PDD_TEST_EXTRA, '1');
+  });
 });
