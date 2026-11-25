@@ -1,8 +1,7 @@
-import { listOrders, getOrderStats, computeOrderStats } from '../orders.js';
+import { collectOrdersWindow, listOrders, getOrderStats, computeOrderStats } from '../orders.js';
 import { getPromoReport } from '../promo.js';
 import { getLogger } from '../../infra/logger.js';
 import { collectAllGoods } from './goods-collector.js';
-import { collectOrdersForStaleAnalysis } from './orders-collector.js';
 import { withEndpointPages } from '../../adapter/endpoint-pages.js';
 
 function collectorLog(ctx) {
@@ -52,7 +51,7 @@ export async function collectGoodsInput(page, ctx) {
   let truncated = false;
   let ratelimited = false;
   try {
-    const stale = await collectOrdersForStaleAnalysis(page, ctx);
+    const stale = await collectOrdersWindow(page, ctx);
     orders30d = stale.orders;
     truncated = stale.truncated;
     ratelimited = stale.ratelimited;

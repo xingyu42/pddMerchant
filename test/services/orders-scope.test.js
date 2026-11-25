@@ -1,10 +1,9 @@
 // 订单范围（scope）贯通测试：各调用方传给 orders.list 的范围（design D5），以及退款字段缺失时的 null 传播。
 import assert from 'node:assert/strict';
 import { beforeEach, describe, it, vi } from 'vitest';
-import { collectOrdersForStaleAnalysis } from '../../src/services/diagnose/orders-collector.js';
 import { collectGoodsInput, collectOrdersInput } from '../../src/services/diagnose/collectors.js';
 import { getAfterSalesDiagnosis } from '../../src/services/diagnose/reports.js';
-import { getOrderListView, getOrderStatsView } from '../../src/services/orders.js';
+import { collectOrdersWindow, getOrderListView, getOrderStatsView } from '../../src/services/orders.js';
 import { createMemoryEndpointTransport, createTestCtx } from '../helpers/test-ctx.js';
 
 let transport;
@@ -35,9 +34,9 @@ beforeEach(() => {
 describe('order list scope per caller', () => {
   it('collects sales orders with the valid scope by default and honours an explicit scope', async () => {
     const listOrders = vi.fn(async () => ({ orders: [] }));
-    await collectOrdersForStaleAnalysis({}, ctx, { listOrders, now: 1700000000 });
+    await collectOrdersWindow({}, ctx, { listOrders, now: 1700000000 });
     assert.equal(listOrders.mock.calls[0][1].scope, 'valid');
-    await collectOrdersForStaleAnalysis({}, ctx, { listOrders, now: 1700000000, scope: 'all' });
+    await collectOrdersWindow({}, ctx, { listOrders, now: 1700000000, scope: 'all' });
     assert.equal(listOrders.mock.calls[1][1].scope, 'all');
   });
 
