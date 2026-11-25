@@ -597,4 +597,41 @@ describe('SourceProductFetcher', () => {
       await session.close();
     }
   });
+
+  it('re-checks scrapeCooldown inside fetch() on cache miss and aborts before observePage or recordSuccess when cooldown activates after prepare()', async () => {
+    seedConsumerAccount();
+    const cooldown = createScrapeCooldown({ threshold: 1, cooldownMs: 60_000, statePath: null });
+    const recordSuccessSpy = vi.spyOn(cooldown, 'recordSuccess');
+    const cache = makeMemoryCache();
+    const browser = createInMemoryBrowserRuntime();
+    const session = await browser.openSession();
+    const observePage = vi.fn();
+
+    try {
+      const fetcher = createSourceProductFetcher({
+        sourceCache: cache,
+        scrapeCooldown: cooldown,
+        browserPort: browser,
+        browserSession: session,
+        observePage,
+        log: makeFakeLogger(),
+      });
+      const acquisition = await fetcher.prepare('123456');
+      assert.equal(acquisition.cacheHit, false);
+
+      cooldown.recordSoftBlock({ reason: 'empty_shell' });
+
+      await assert.rejects(
+        acquisition.fetch(),
+        (err) => err instanceof PddCliError
+          && err.code === 'E_RATE_LIMIT'
+          && err.detail?.reason === 'ip_soft_block',
+      );
+      assert.equal(observePage.mock.calls.length, 0);
+      assert.equal(browser.derivedContexts.length, 0);
+      assert.equal(recordSuccessSpy.mock.calls.length, 0);
+    } finally {
+      await session.close();
+    }
+  });
 });

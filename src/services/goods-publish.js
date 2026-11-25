@@ -292,16 +292,25 @@ async function runPublishFlow(ctx, goodsUrl, opts = {}) {
 
   const submit = draftOnly
     ? null
-    : await runPublishStage('submit_draft', getSourceCached, () =>
-        draftEditor.submitDraft(draft, {
+    : await runPublishStage('submit_draft', getSourceCached, async () => {
+        const result = await draftEditor.submitDraft(draft, {
           page: ctx.page,
           client: ctx.client,
           signal: ctx.signal,
           deadlineAt: ctx.deadlineAt,
           clock: ctx.runtime?.clock ?? ctx.clock,
           log: ctx.log,
-        }),
-      );
+        });
+        if (!result || result.success !== true) {
+          throw new PddCliError({
+            code: 'E_GENERAL',
+            message: '提交商品草稿未确认成功',
+            detail: { stage: 'submit_draft', submit: result ?? null },
+            exitCode: ExitCodes.GENERAL,
+          });
+        }
+        return result;
+      });
 
   await acquisition.clearCache(warnings, ctx.log);
 

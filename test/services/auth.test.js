@@ -444,4 +444,71 @@ describe('lowered auth domain services (loginMerchant, loginConsumer, createQrTe
     assert.equal(view.qr_image_path, '/tmp/consumer.png');
     assert.ok(view.account_fingerprint);
   });
+
+  it('aborts loginConsumer before provisionConsumerAuth or scrapeCooldown.recordSuccess when signal aborts or deadline passes right as interactive login returns', async () => {
+    const controller = new AbortController();
+    const cooldownSignal = createScrapeCooldown({ threshold: 1, cooldownMs: 60_000, statePath: null });
+    cooldownSignal.recordSoftBlock({ reason: 'empty_shell' });
+    const signalCooldownSpy = vi.spyOn(cooldownSignal, 'recordSuccess');
+    const provisionOnSignal = vi.fn();
+
+    await assert.rejects(
+      loginConsumer(
+        { headed: true, timeoutMs: 5000 },
+        {
+          signal: controller.signal,
+          scrapeCooldown: cooldownSignal,
+          provisionConsumer: provisionOnSignal,
+          interactiveLogin: {
+            loginConsumer: async () => {
+              controller.abort();
+              return {
+                state: { cookies: [{ name: 'PDDAccessToken', value: 'tok' }], origins: [] },
+                identity: { uid: 'uid-abort', nickname: 'Late Abort' },
+                url: 'https://mobile.yangkeduo.com/home',
+                mode: 'consumer-headed',
+              };
+            },
+          },
+        },
+      ),
+      { code: 'E_AUTH_CANCELLED' },
+    );
+    assert.equal(provisionOnSignal.mock.calls.length, 0);
+    assert.equal(signalCooldownSpy.mock.calls.length, 0);
+    assert.equal(cooldownSignal.status().consecutiveSoftBlock, 1);
+
+    let nowMs = 1_700_000_000_000;
+    const cooldownClock = createScrapeCooldown({ threshold: 1, cooldownMs: 60_000, statePath: null, now: () => nowMs });
+    cooldownClock.recordSoftBlock({ reason: 'empty_shell' });
+    const clockCooldownSpy = vi.spyOn(cooldownClock, 'recordSuccess');
+    const provisionOnDeadline = vi.fn();
+
+    await assert.rejects(
+      loginConsumer(
+        { headed: true, timeoutMs: 5000 },
+        {
+          clock: { now: () => nowMs },
+          deadlineAt: nowMs + 1000,
+          scrapeCooldown: cooldownClock,
+          provisionConsumer: provisionOnDeadline,
+          interactiveLogin: {
+            loginConsumer: async () => {
+              nowMs += 1500;
+              return {
+                state: { cookies: [{ name: 'PDDAccessToken', value: 'tok' }], origins: [] },
+                identity: { uid: 'uid-expired', nickname: 'Late Deadline' },
+                url: 'https://mobile.yangkeduo.com/home',
+                mode: 'consumer-headed',
+              };
+            },
+          },
+        },
+      ),
+      { code: 'E_AUTH_TIMEOUT' },
+    );
+    assert.equal(provisionOnDeadline.mock.calls.length, 0);
+    assert.equal(clockCooldownSpy.mock.calls.length, 0);
+    assert.equal(cooldownClock.status().consecutiveSoftBlock, 1);
+  });
 });

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { getLogger } from '../../infra/logger.js';
 import { emit as defaultEmit } from '../../infra/output.js';
 import { PddCliError, ExitCodes, errorToEnvelope } from '../../infra/errors.js';
-import { armDeadline } from '../../infra/abort.js';
+import { armDeadline, timeoutError } from '../../infra/abort.js';
 import { composeCommandRuntime } from '../../runtime/command-runtime.js';
 
 const VALID_LIFECYCLES = new Set(['merchant', 'local', 'maintenance']);
@@ -292,7 +292,14 @@ export async function runWithEnvelopeKernel(spec, opts = {}, extra = {}, execute
 
     assertAllAccountsAllowed(spec, opts, commandName);
 
-    const effectiveTimeoutMs = resolveEffectiveTimeoutMs(spec, opts);
+    let effectiveTimeoutMs = resolveEffectiveTimeoutMs(spec, opts);
+    if (Number.isFinite(composedRuntime?.deadlineAt)) {
+      if (composedRuntime.deadlineAt <= startedAt) throw timeoutError();
+      const parentRemainingMs = composedRuntime.deadlineAt - startedAt;
+      effectiveTimeoutMs = effectiveTimeoutMs !== undefined
+        ? Math.min(effectiveTimeoutMs, parentRemainingMs)
+        : parentRemainingMs;
+    }
     const deadlineOpts = effectiveTimeoutMs !== undefined ? { ...opts, timeoutMs: effectiveTimeoutMs } : opts;
     deadline = armDeadline(deadlineOpts, parentSignal ?? composedRuntime.signal ?? opts.signal, startedAt, composedRuntime.clock);
 

@@ -37,7 +37,7 @@ export function resolveClock(clock) {
     });
   }
   return Object.freeze({
-    now: clock.now ?? (() => Date.now()),
-    sleep: clock.sleep ?? abortableSleep,
+    now: clock.now ? clock.now.bind(clock) : (() => Date.now()),
+    sleep: clock.sleep ? clock.sleep.bind(clock) : abortableSleep,
   });
 }
