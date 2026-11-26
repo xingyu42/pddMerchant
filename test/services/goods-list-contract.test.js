@@ -67,4 +67,81 @@ describe('goods list identity mapping', () => {
       '库存不高于 10 的在售规格 1 个（其中缺货 0 个），总库存高于 10 或缺失、因规格库存进入告警的商品 1 件',
     ]);
   });
+
+  it('passes through base catalog fields with zero counts preserved and unbound sentinels nulled', async () => {
+    const goods = [{
+      id: 101,
+      goods_name: 'Tea',
+      quantity: 5,
+      sku_group_price: [1290, 1690],
+      origin_sku_group_price: [1490, 1890],
+      out_goods_sn: '',
+      sold_quantity: 0,
+      sold_quantity_for_thirty_days: 'abc',
+      fav_cnt: 0,
+      costTemplateId: '0',
+      created_at: 1700000000,
+      updated_at: 0,
+    }];
+    const execute = vi.fn(async () => ({ data: { total: 1, goods } }));
+    const ctx = { client: { execute } };
+    const listed = await getGoodsListView({}, {}, ctx);
+    assert.equal(listed.items[0].out_goods_sn, null);
+    assert.equal(listed.items[0].origin_price_min_yuan, 14.9);
+    assert.equal(listed.items[0].origin_price_max_yuan, 18.9);
+    assert.equal(listed.items[0].sold_quantity, 0);
+    assert.equal(listed.items[0].sold_quantity_30d, null);
+    assert.equal(listed.items[0].fav_count, 0);
+    assert.equal(listed.items[0].cost_template_id, null);
+    assert.equal(listed.items[0].created_at, '2023-11-15 06:13:20');
+    assert.equal(listed.items[0].updated_at, null);
+
+    const stock = await getGoodsStockView({}, {}, ctx);
+    assert.equal(stock.items[0].origin_price_min_yuan, 14.9);
+    assert.equal(stock.items[0].sold_quantity, 0);
+    assert.equal(stock.items[0].cost_template_id, null);
+  });
+
+  it('expands 5-field skus and appends SKU summary headline when withSkus is true', async () => {
+    const goods = [
+      {
+        id: 101,
+        goods_name: 'Tea',
+        quantity: 0,
+        sku_list: [
+          { skuId: 1011, spec: '红色-M', outSkuSn: 'SKU-1', skuQuantity: 2, isOnsale: 1 },
+          { skuId: 1012, spec: '蓝色-L', outSkuSn: '', skuQuantity: 0, isOnsale: 0 },
+        ],
+      },
+      { id: 102, goods_name: 'Cup', quantity: 5, sku_list: [] },
+      { id: 103, goods_name: 'Bowl', quantity: 8, sku_list: null },
+    ];
+    const execute = vi.fn(async () => ({ data: { total: 3, goods } }));
+    const ctx = { client: { execute } };
+
+    const plain = await getGoodsListView({}, {}, ctx);
+    assert.equal(Object.hasOwn(plain.items[0], 'skus'), false);
+    assert.deepEqual(plain.headline, [
+      '在售商品共 3 件，本页 3 件',
+      '本页库存为 0 的商品 1 件',
+    ]);
+
+    const expanded = await getGoodsListView({}, { withSkus: true }, ctx);
+    assert.deepEqual(expanded.items[0].skus, [
+      { sku_id: '1011', spec: '红色-M', out_sku_sn: 'SKU-1', quantity: 2, on_sale: true },
+      { sku_id: '1012', spec: '蓝色-L', out_sku_sn: null, quantity: 0, on_sale: false },
+    ]);
+    assert.deepEqual(expanded.items[1].skus, []);
+    assert.equal(expanded.items[2].skus, null);
+    assert.equal(expanded.headline.length <= 3, true);
+    assert.deepEqual(expanded.headline, [
+      '在售商品共 3 件，本页 3 件',
+      '本页库存为 0 的商品 1 件',
+      '本页规格共 2 个，规格数据缺失的商品 1 件',
+    ]);
+
+    const stock = await getGoodsStockView({}, {}, ctx);
+    assert.equal(stock.items[0].skus[0].out_sku_sn, 'SKU-1');
+    assert.equal(stock.items[0].skus[1].out_sku_sn, null);
+  });
 });

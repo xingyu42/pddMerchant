@@ -32,6 +32,10 @@
   - `goods traffic` 新增 `today` 区块：默认输出全店商品今日实时概况（`queryGoodsPageRT`，解析千分位与百分号字符串，无法解析的非空格式写 `meta.warnings` 而不记显式 `null`）；传入 `--goods-id` 时输出该单商品今日实时汇总与按小时升序 `hourly[]`（`queryGoodsStatDtr`，隔离昨日对照字段）。
   - `diagnose customer-service` 新增 `today` 区块：输出实时 3 分钟人工回复率（显式标注口径「多多客服-实时数据（3 分钟人工回复率）」）、待回复人数、`as_of_hour` 与截至 `snapshot_at` 上海小时的今日按小时咨询序列 `hourly[]`（截除未到达的未来小时）。
   - 以上 `today` 均走可选降级：上游失败时 `today: null` 并附提示，原有历史区间与推广拆分照常返回，退出码保持 0。
+- **商品目录基础字段与按需 SKU 展开**：
+  - `goods list` 与 `goods stock` 的商品基础视图新增 9 个目录字段：`out_goods_sn`（商家商品编码）、`origin_price_min_yuan` / `origin_price_max_yuan`（日常拼单价区间）、`sold_quantity` / `sold_quantity_30d`（商品列表口径累计/近 30 天销量）、`fav_count`（收藏数）、`cost_template_id`（运费模板 ID，未绑定归为 `null`）、`created_at` / `updated_at`（北京时间；`0` 或缺失为 `null`）。
+  - `goods list` 默认仍省略 `skus` 键，新增 `--with-skus` 选项在同一条请求内按需展开每个商品的 `skus[]`（`sku_id`、`spec`、`out_sku_sn`、`quantity`、`on_sale`，缺失与 `[]` 区分），并在 `headline` 末尾追加 1 行规格统计。
+  - `goods stock` 的 `skus[]` 同步透出 `out_sku_sn`。
 
 ### Fixed
 

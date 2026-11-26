@@ -104,6 +104,13 @@ src/services/<domain>.js           业务逻辑（被 handler 调用）
 - JSON 为单行 v2 信封，文本模式显示摘要和售后单表格。窗口、分页、原因汇总与降级见服务契约的 After-Sales Case Reporting 小节。
 - `orders detail --sn <sn> [--with-track]` 对 `--sn` 执行解析阶段去空白非空校验（`nonEmptyStringArg` + `preserveParseErrorCommand`），自动补充 `after_sales_cases` 与 `hints`，沿用只读、鉴权、切店及批量模式。无 `--with-track` 且无售后标识时只请求一次详情（`meta.xhr_count: 1`）；成功时该计数包含本次逻辑端点调用，可选调用失败也计入。命中售后单或关联列表失败降级时，在既有三行 `headline` 后追加一行；加 `--with-track` 时正向轨迹结论并入第 3 行、退货耗时并入第 4 行，保持 `headline` 在 3–4 行内。
 
+### Goods List & Stock
+
+- `goods list` 为普通 needsAuth + mall switch 只读命令，支持 `--page`、`--size`、`--status onsale|offline` 与 `--with-skus`（默认 `false`），兼容 `--all-accounts`。
+- 默认模式保持紧凑输出（`items[]` 省略 `skus` 键，`headline` 1–2 行）；开启 `--with-skus` 后仍在同一条请求内返回（`meta.xhr_count: 1`），`items[]` 展开 5 字段 `skus[]`（缺失/非数组 `sku_list` → `null`，区别于 `[]`），并在 `items.length > 0` 时于 `headline` 末尾追加 1 行规格统计（保持总行数 `<= 3`）。
+- `goods stock` 共享商品基础视图并在 `skus[]` 中同步透出 `out_sku_sn`；低库存判定与告警计数规则不变。
+- 验证：`test/services/goods-view.test.js`、`test/services/goods-list-contract.test.js`、`test/e2e/goods-list.e2e.test.js`、`test/e2e/goods-stock.e2e.test.js`、`test/e2e/business-contract.e2e.test.js` 与 `test/contract/data-contract-v2.test.js`（覆盖 `goods.list`、`goods.list --with-skus` 与 `goods.stock`）。
+
 ### Goods Cost / Profit
 
 - `goods cost set/list/remove/import` 使用 `needsBrowser:false,needsAuth:false,needsAccount:true,needsMall:'stored',allowAllAccounts:false`；只读本地账号与成本，跳过 auth-state 解密/在线认证/重登/daemon。有效 mall 参数（含运行配置默认）优先，否则账号 identity。
@@ -138,7 +145,7 @@ src/services/<domain>.js           业务逻辑（被 handler 调用）
 ## 5. Good/Base/Bad Cases
 
 - Good：`orders detail --sn <sn>` validates `sn` in command layer, then calls service。
-- Base：`goods list --page --size --status` normalizes option types before service。
+- Base：`goods list --page --size --status [--with-skus]` normalizes option types before service；默认省略 `skus` 键，开启 `--with-skus` 时单次 XHR 展开 5 字段 `skus[]` 并控制 `headline` 不超过 3 行。
 - Bad：command handler catches errors and prints human messages itself；runner loses exit code mapping。
 
 ## 6. Tests Required

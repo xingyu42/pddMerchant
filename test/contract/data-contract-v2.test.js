@@ -22,8 +22,8 @@ import {
   ORDER_DETAIL_TRACK_FIELDS, FORWARD_TRACK_FIELDS, REVERSE_TRACK_CASE_FIELDS, TRACE_NODE_FIELDS,
 } from '../../src/services/views/logistics.js';
 import {
-  COST_TEMPLATE_VIEW_FIELDS, GOODS_PROMOTION_VIEW_FIELDS, GOODS_STOCK_ITEM_FIELDS, GOODS_STOCK_SKU_FIELDS,
-  GOODS_VIEW_FIELDS,
+  COST_TEMPLATE_VIEW_FIELDS, GOODS_LIST_SKU_FIELDS, GOODS_LIST_WITH_SKUS_ITEM_FIELDS,
+  GOODS_PROMOTION_VIEW_FIELDS, GOODS_STOCK_ITEM_FIELDS, GOODS_STOCK_SKU_FIELDS, GOODS_VIEW_FIELDS,
 } from '../../src/services/views/goods.js';
 import { PUBLISH_VIEW_FIELDS } from '../../src/services/views/goods-publish.js';
 import { GOODS_SEGMENT_ITEM_FIELDS } from '../../src/services/goods-segmentation.js';
@@ -61,6 +61,12 @@ function staleGoodsFixtures() {
 const PROMO_ENTITIES = { 'items[]': PROMO_ROI_ITEM_FIELDS, totals: PROMO_TOTALS_FIELDS };
 
 const GOODS_ENTITIES = { 'items[]': GOODS_VIEW_FIELDS, 'items[].promotion': GOODS_PROMOTION_VIEW_FIELDS };
+
+const GOODS_WITH_SKUS_ENTITIES = {
+  'items[]': GOODS_LIST_WITH_SKUS_ITEM_FIELDS,
+  'items[].promotion': GOODS_PROMOTION_VIEW_FIELDS,
+  'items[].skus[]': GOODS_LIST_SKU_FIELDS,
+};
 
 const GOODS_STOCK_ENTITIES = { 'items[]': GOODS_STOCK_ITEM_FIELDS, 'items[].promotion': GOODS_PROMOTION_VIEW_FIELDS,
   'items[].skus[]': GOODS_STOCK_SKU_FIELDS };
@@ -254,6 +260,7 @@ const V2_CASES = [
     freeKeyPaths: ['local.status_distribution'],
   },
   { command: 'goods.list', args: ['goods', 'list'], fixtures: createFactFixtures(), entityFields: GOODS_ENTITIES },
+  { command: 'goods.list', args: ['goods', 'list', '--with-skus'], fixtures: createFactFixtures(), entityFields: GOODS_WITH_SKUS_ENTITIES },
   { command: 'goods.stock', args: ['goods', 'stock'], fixtures: lowStockFixtures(), entityFields: GOODS_STOCK_ENTITIES },
   {
     command: 'goods.segment',

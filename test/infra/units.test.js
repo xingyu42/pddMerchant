@@ -2,7 +2,7 @@ import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import {
   isCalendarDate, isoToLocalDateTime, labelOf, parseYuanToFen, round, toFiniteNumber, toLocalDate, toLocalDateTime,
-  toPct, yuanFromFen,
+  toNonNegativeNumber, toPct, yuanFromFen,
 } from '../../src/infra/units.js';
 
 const INVALID_NUMBERS = [null, undefined, '', '  ', 'abc', '0x10', true, NaN, Infinity, -Infinity, {}, []];
@@ -13,6 +13,17 @@ describe('toFiniteNumber', () => {
     assert.equal(toFiniteNumber(' -1.5 '), -1.5);
     assert.equal(toFiniteNumber('0'), 0);
     for (const value of INVALID_NUMBERS) assert.equal(toFiniteNumber(value), null);
+  });
+});
+
+describe('toNonNegativeNumber', () => {
+  it('accepts zero and positive finite numbers/strings and maps negatives or invalid inputs to null', () => {
+    assert.equal(toNonNegativeNumber(0), 0);
+    assert.equal(toNonNegativeNumber('0'), 0);
+    assert.equal(toNonNegativeNumber(' 12.5 '), 12.5);
+    assert.equal(toNonNegativeNumber(-1), null);
+    assert.equal(toNonNegativeNumber('-0.1'), null);
+    for (const value of INVALID_NUMBERS) assert.equal(toNonNegativeNumber(value), null);
   });
 });
 

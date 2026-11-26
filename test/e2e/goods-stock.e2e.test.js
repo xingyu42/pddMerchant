@@ -16,10 +16,19 @@ function runStock(goodsList, args = []) {
 it('lists every sku of an alerted goods with id, spec, stock, on-sale flag and low-stock flag', () => {
   const data = runStock([createUpstreamGoods()]);
   assert.equal(data.items.length, 1);
+  assert.equal(data.items[0].out_goods_sn, 'SYN-OUT');
+  assert.equal(data.items[0].origin_price_min_yuan, 14.9);
+  assert.equal(data.items[0].origin_price_max_yuan, 18.9);
+  assert.equal(data.items[0].sold_quantity, 3);
+  assert.equal(data.items[0].sold_quantity_30d, 1);
+  assert.equal(data.items[0].fav_count, 5);
+  assert.equal(data.items[0].cost_template_id, '3001');
+  assert.equal(data.items[0].created_at, '2023-11-15 06:13:20');
+  assert.equal(data.items[0].updated_at, '2023-11-16 06:13:20');
   assert.equal(data.items[0].low_stock_sku_count, 1);
   assert.deepEqual(data.items[0].skus, [
-    { sku_id: '1011', spec: '红色-M', quantity: 6, on_sale: true, low_stock: true },
-    { sku_id: '1012', spec: '蓝色-L', quantity: 4, on_sale: false, low_stock: false },
+    { sku_id: '1011', spec: '红色-M', out_sku_sn: 'SYN-SKU-OUT', quantity: 6, on_sale: true, low_stock: true },
+    { sku_id: '1012', spec: '蓝色-L', out_sku_sn: 'SYN-SKU-OUT', quantity: 4, on_sale: false, low_stock: false },
   ]);
   assert.deepEqual(data.headline, [
     '本页扫描 1 件商品（在售共 1 件）',

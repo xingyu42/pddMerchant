@@ -7,12 +7,13 @@ function isCount(value) {
     && Number.isFinite(Number(value)) && Number(value) >= 0;
 }
 
-// 规格白名单投影：只保留四个字段；sku_list 缺失或非数组 → null（规格数据不可用，区别于零个规格）
+// 规格白名单投影：只保留五个字段；sku_list 缺失或非数组 → null（规格数据不可用，区别于零个规格）
 function normalizeSkuList(list) {
   if (!Array.isArray(list)) return null;
   return list.map((sku) => ({
     skuId: sku?.skuId ?? null,
     spec: sku?.spec ?? null,
+    outSkuSn: sku?.outSkuSn ?? null,
     skuQuantity: isCount(sku?.skuQuantity) ? Number(sku.skuQuantity) : null,
     isOnsale: sku?.isOnsale ?? null,
   }));
@@ -57,6 +58,13 @@ export const GOODS_LIST = {
         sku_group_price: g.sku_group_price,
         origin_sku_group_price: g.origin_sku_group_price,
         promotion: g.promotion_goods,
+        out_goods_sn: g.out_goods_sn ?? null,
+        sold_quantity: isCount(g.sold_quantity) ? Number(g.sold_quantity) : null,
+        sold_quantity_for_thirty_days: isCount(g.sold_quantity_for_thirty_days) ? Number(g.sold_quantity_for_thirty_days) : null,
+        fav_cnt: isCount(g.fav_cnt) ? Number(g.fav_cnt) : null,
+        costTemplateId: g.costTemplateId ?? null,
+        created_at: g.created_at ?? null,
+        updated_at: g.updated_at ?? null,
         mall_id: g.mall_id,
         sku_list: normalizeSkuList(g.sku_list),
       })),

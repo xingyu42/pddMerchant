@@ -1,6 +1,6 @@
 # 经营报表口径
 
-转述 `diagnose *`、`orders after-sales`、`orders detail`、`goods stock`、`goods traffic`、`goods profit`、`goods receipt`、`goods reviews` 结果前读本文件。通用规则见 SKILL.md「转述结果」：`headline` 优先、`null` 表示未知、`hints` 原样转述。标注 **必附** 的说明在转述时原样带上。
+转述 `diagnose *`、`orders after-sales`、`orders detail`、`goods list`、`goods stock`、`goods traffic`、`goods profit`、`goods receipt`、`goods reviews` 结果前读本文件。通用规则见 SKILL.md「转述结果」：`headline` 优先、`null` 表示未知、`hints` 原样转述。标注 **必附** 的说明在转述时原样带上。
 
 ## diagnose shop / orders / inventory / promo
 
@@ -114,11 +114,17 @@
   - 两组数据刷新时点不同，转述时分开说明，各自保持原值、不互相换算。
   - 降级：今日数据拉取失败时 `today: null` 并附提示，逐日数据照常返回。
 
+## goods list
+
+- 默认输出省略 `skus` 键，适合配合 `--size 50` 批量扫描全店目录。商品基础字段含：`out_goods_sn`（**Merchant Goods Code**，空串为 `null`）、`price_min_yuan` / `price_max_yuan`（**Current Group Price** 当前拼单价）、`origin_price_min_yuan` / `origin_price_max_yuan`（**Daily Group Price** 日常拼单价）、`sold_quantity` / `sold_quantity_30d`（**Catalog Sales** 商品列表口径累计/近 30 天销量，独立于 `goods segment` 与订单聚合口径）、`fav_count`、`cost_template_id`（字符串，未绑定为 `null`，与 `goods templates` 对齐）及 `created_at` / `updated_at`（北京时间；`0` 或缺失为 `null`）。
+- 活动状态由调用方自行对照当前拼单价 `price_*`、日常拼单价 `origin_price_*` 与 `promotion` 判断，CLI 不派生活动掉线判定或差价。
+- 传入 `--with-skus` 时在同一条上游请求内（`meta.xhr_count: 1`）展开每个商品的 `skus[]`（5 字段：`sku_id`、`spec`、`out_sku_sn`、`quantity`、`on_sale`）；上游缺失或非数组 `sku_list` 时输出 `skus: null`（区别于零个规格 `[]`），并在 `headline` 追加本页规格总数及规格数据缺失的商品件数。
+
 ## goods stock
 
-- 只扫描一页商品（`--size` 默认 50）。`items` 为总库存不高于 `threshold` 的商品，加上总库存高于阈值或缺失、但至少一个在售规格库存不高于阈值的商品。
+- 只扫描一页商品（`--size` 默认 50），共享 `goods list` 的商品基础字段。`items` 为总库存不高于 `threshold` 的商品，加上总库存高于阈值或缺失、但至少一个在售规格库存不高于阈值的商品。
 - `low_stock_count` 只计总库存不高于阈值的商品，可能少于 `items` 条数；仅因规格进入告警的商品由 headline 第三行单独计数，两行合计等于 `items` 条数。
-- `skus[]` 为该商品全部规格：
+- `skus[]` 为该商品全部规格，在 5 项基础规格字段（`sku_id`、`spec`、`out_sku_sn`、`quantity`、`on_sale`）外包含 `low_stock`：
   - `low_stock` 只在规格在售（`on_sale: true`）且库存为已知数并不高于阈值时为 true；在售标记未知或库存缺失不触发。
   - `low_stock_sku_count` 是该商品 `low_stock` 规格数。
   - 规格数据缺失时 `skus` 与 `low_stock_sku_count` 均为 `null`（区别于零个规格 `[]` / `0`）。

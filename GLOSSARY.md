@@ -159,3 +159,21 @@ _Avoid_: Refund comment, buyer remark, quality refund
 **After-Sales Reason Category** (售后原因大类):
 One of Pinduoduo's coarse workbench filter groups (such as 七天无理由退货, 质量问题, 商品描述不符, 发货履约原因, 少件, 疑似假货, or 其他原因) mapped to sets of reason codes. Because the platform leaves some live reason codes ungrouped, an After-Sales Case can carry a known After-Sales Reason with an unknown category.
 _Avoid_: Reason bucket, CLI classification, inferred category
+
+## Goods Catalog
+
+**Current Group Price** (当前拼单价):
+The active group-purchase price range currently shown for a goods item in the merchant goods list, reflecting any promotional price override in effect.
+_Avoid_: Original price, regular price, receipt price
+
+**Daily Group Price** (日常拼单价):
+The baseline group-purchase price range configured for a goods item outside temporary promotional overrides; comparing it with Current Group Price indicates whether a promotional price is currently in effect.
+_Avoid_: Single-buy price, market price, activity price
+
+**Catalog Sales** (商品列表口径销量):
+The cumulative or 30-day sales count reported directly on the merchant goods list by Pinduoduo, distinct from Data Center period orders and locally aggregated order quantities.
+_Avoid_: Period orders, net sales, segment units sold
+
+**Merchant Goods Code / Merchant SKU Code** (商家商品编码 / 商家 SKU 编码):
+An optional external identifier assigned by the merchant to a goods item or SKU for ERP and warehouse reconciliation, distinct from Pinduoduo's platform-assigned goods and SKU identifiers.
+_Avoid_: Platform ID, goods ID, SKU ID
