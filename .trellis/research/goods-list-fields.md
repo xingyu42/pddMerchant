@@ -37,14 +37,9 @@
   - 继续共享 `GOODS_VIEW_FIELDS`，自动继承新增的商品级字段。
   - 在 `GOODS_STOCK_SKU_FIELDS` 中同步补上 `out_sku_sn`（其余字段保持 `sku_id`、`spec`、`quantity`、`on_sale`、`low_stock`）。
 
-## 5. 实现前必做核验（已获用户授权）
+## 5. 实现前核验（已完成）
 
-正式改动代码前，先对默认账号执行一次**只读** `goodsList` 字段结构采样（仅记录键名、类型、值域并落盘至 `docs/research/`，不落盘敏感数据），重点核实：
-
-1. `sold_quantity_for_thirty_days`、`fav_cnt` 的实际键名与数值类型；
-2. `costTemplateId` 的实际大小写及未绑定运费模板时是否为 `0`；
-3. `created_at` / `updated_at` 的时间戳单位或格式；
-4. 有活动商品的 `sku_group_price` 与 `origin_sku_group_price` 实测对照（此前 [upstream-schema-2026-10.md](./archive/2026-10/10-07-domain-view-contract-v2/research/upstream-schema-2026-10.md) §3 因无活动样本记为语义不明）。
+已完成默认商家账号单次只读 `goodsList` 结构采样，核验结论沉淀于 [goods-list-fields-recon-2026-11-26.md](../../docs/research/goods-list-fields-recon-2026-11-26.md)：确认 `sold_quantity` / `sold_quantity_for_thirty_days` / `fav_cnt` / `costTemplateId` / `created_at`（10 位 Unix 秒）/ `updated_at`（10 位 Unix 秒）/ `out_goods_sn`（空串表未填）/ `sku_list[].outSkuSn` 键名与类型完全吻合，且 `origin_sku_group_price` 实测为日常拼单价基线（有活动时高于 `sku_group_price`）。
 
 ## 6. 参考来源
 
