@@ -196,28 +196,74 @@ describe('offline CLI envelopes and process exits', () => {
     assertRedacted(stdout, ['SYNTHETIC-ERROR-AUTH', 'SYNTHETIC-ERROR-PHONE', 'SYNTHETIC-ERROR-RAW']);
   });
 
-  it('emits upstream goods id and yuan price ranges in the list envelope data', () => {
+  it('emits upstream goods id, catalog base fields and yuan price ranges in the list envelope data', () => {
     const goods = { success: true, result: {
-      total: 1, goods_list: [{ ...createUpstreamGoods({ goods_id: undefined }), id: 673183509913 }],
+      total: 1,
+      goods_list: [{
+        ...createUpstreamGoods({
+          goods_id: undefined,
+          shipment_limit_second: 172800,
+          two_pieces_discount: 95,
+          unknown_field: 'SYN-NOISE',
+        }),
+        id: 673183509913,
+      }],
     } };
     const { status, stdout, envelope } = runCli(['goods', 'list'], { fixtures: {
       'endpoints/goods.list.json': goods,
     } });
     assert.equal(status, 0);
     assert.equal(envelope.command, 'goods.list');
+    assert.equal(envelope.meta.xhr_count, 1);
     assert.equal(envelope.data.total, 1);
     assert.equal(envelope.data.mall_id, '900001');
     assert.equal(Object.hasOwn(envelope.meta, 'total'), false);
     assert.equal(Object.hasOwn(envelope.meta, 'mall'), false);
+    assert.equal(Object.hasOwn(envelope.data.items[0], 'skus'), false);
     assert.deepEqual(envelope.data.items, [{
       goods_id: '673183509913', goods_name: 'Tea', quantity: 10,
       price_min_yuan: 12.9, price_max_yuan: 16.9, single_price_min_yuan: 15.9, single_price_max_yuan: 19.9,
       promotion: { name: 'Synthetic 限时折扣', price_min_yuan: 11.9, price_max_yuan: 15.9 },
+      out_goods_sn: 'SYN-OUT',
+      origin_price_min_yuan: 14.9, origin_price_max_yuan: 18.9,
+      sold_quantity: 3, sold_quantity_30d: 1, fav_count: 5,
+      cost_template_id: '3001',
+      created_at: '2023-11-15 06:13:20', updated_at: '2023-11-16 06:13:20',
     }]);
     assert.deepEqual(envelope.data.headline, ['在售商品共 1 件，本页 1 件']);
-    for (const token of ['sku_group_price', 'origin_sku_group_price', 'activity_id', 'thumb_url', '1290']) {
+    for (const token of [
+      'sku_group_price', 'origin_sku_group_price', 'activity_id', 'thumb_url', '1290',
+      'shipment_limit_second', 'two_pieces_discount', 'SYN-NOISE',
+    ]) {
       assert.equal(stdout.includes(token), false, `stdout must not contain ${token}`);
     }
+  });
+
+  it('normalizes zero counts, empty codes, unbound template sentinels and zero timestamps in goods list', () => {
+    const goods = { success: true, result: {
+      total: 1,
+      goods_list: [createUpstreamGoods({
+        out_goods_sn: '',
+        sold_quantity: 0,
+        sold_quantity_for_thirty_days: -1,
+        fav_cnt: 0,
+        costTemplateId: 0,
+        created_at: 0,
+        updated_at: null,
+      })],
+    } };
+    const { status, envelope } = runCli(['goods', 'list'], { fixtures: {
+      'endpoints/goods.list.json': goods,
+    } });
+    assert.equal(status, 0);
+    const [item] = envelope.data.items;
+    assert.equal(item.out_goods_sn, null);
+    assert.equal(item.sold_quantity, 0);
+    assert.equal(item.sold_quantity_30d, null);
+    assert.equal(item.fav_count, 0);
+    assert.equal(item.cost_template_id, null);
+    assert.equal(item.created_at, null);
+    assert.equal(item.updated_at, null);
   });
 
   it('rejects the removed cents price option and malformed yuan prices with usage exit 2', () => {

@@ -361,13 +361,15 @@ export function createUpstreamGoods(overrides = {}) {
     quantity: 10,
     sku_price: [1590, 1990],
     sku_group_price: [1290, 1690],
-    origin_sku_group_price: [1290, 1690],
+    origin_sku_group_price: [1490, 1890],
     promotion_goods: {
       min_price: 1190, max_price: 1590, activity_id: 9001, activity_type: 3,
       activity_name: 'Synthetic 限时折扣', enroll_id: 9002, activity_url_id: 'SYN-URL', activity_id_for_b: 9003,
     },
     mall_id: 900001,
     thumb_url: 'https://example.invalid/thumb.jpg', is_onsale: 1, out_goods_sn: 'SYN-OUT', sold_quantity: 3,
+    sold_quantity_for_thirty_days: 1, fav_cnt: 5, costTemplateId: 3001,
+    created_at: 1700000000, updated_at: 1700086400,
     sku_list: [
       createUpstreamSku(),
       createUpstreamSku({ skuId: 1012, spec: '蓝色-L', skuQuantity: 4, isOnsale: 0 }),

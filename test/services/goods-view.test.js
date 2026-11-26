@@ -22,6 +22,15 @@ const EXPECTED_GOODS_VIEW = Object.freeze({
   single_price_min_yuan: 15.9,
   single_price_max_yuan: 19.9,
   promotion: { name: 'Synthetic 限时折扣', price_min_yuan: 11.9, price_max_yuan: 15.9 },
+  out_goods_sn: 'SYN-OUT',
+  origin_price_min_yuan: 14.9,
+  origin_price_max_yuan: 18.9,
+  sold_quantity: 3,
+  sold_quantity_30d: 1,
+  fav_count: 5,
+  cost_template_id: '3001',
+  created_at: '2023-11-15 06:13:20',
+  updated_at: '2023-11-16 06:13:20',
 });
 
 describe('goods view projection', () => {
@@ -31,20 +40,54 @@ describe('goods view projection', () => {
     assert.deepEqual(Object.keys(view), [...GOODS_VIEW_FIELDS]);
   });
 
-  it('ignores unknown upstream fields', () => {
-    const noisy = createUpstreamGoods({ unknown_flag: 1, extra: { nested: true } });
+  it('ignores unknown upstream fields and deferred goods fields', () => {
+    const noisy = createUpstreamGoods({
+      unknown_flag: 1,
+      extra: { nested: true },
+      shipment_limit_second: 172800,
+      two_pieces_discount: 95,
+    });
     noisy.promotion_goods = { ...noisy.promotion_goods, activity_extra: 'x' };
     assert.deepEqual(toGoodsView(recordOf(noisy)), EXPECTED_GOODS_VIEW);
   });
 
-  it('keeps absent prices and promotion null instead of zero', () => {
+  it('keeps absent prices, counts, template id, timestamps and promotion null instead of zero', () => {
     const view = toGoodsView({ goods_id: 7, goods_name: 'Bare', quantity: 0 });
     assert.equal(view.goods_id, '7');
     assert.equal(view.quantity, 0);
-    for (const key of ['price_min_yuan', 'price_max_yuan', 'single_price_min_yuan', 'single_price_max_yuan', 'promotion']) {
+    for (const key of [
+      'price_min_yuan', 'price_max_yuan', 'single_price_min_yuan', 'single_price_max_yuan', 'promotion',
+      'out_goods_sn', 'origin_price_min_yuan', 'origin_price_max_yuan',
+      'sold_quantity', 'sold_quantity_30d', 'fav_count', 'cost_template_id', 'created_at', 'updated_at',
+    ]) {
       assert.equal(view[key], null, key);
     }
     assert.equal(toGoodsView({ promotion: 'invalid' }).promotion, null);
+  });
+
+  it('preserves zero counts and maps invalid counts, blank codes, unbound template sentinels and zero timestamps to null', () => {
+    const view = toGoodsView(recordOf(createUpstreamGoods({
+      out_goods_sn: '   ',
+      sold_quantity: 0,
+      sold_quantity_for_thirty_days: -1,
+      fav_cnt: 0,
+      costTemplateId: 0,
+      created_at: 0,
+      updated_at: -5,
+    })));
+    assert.equal(view.out_goods_sn, null);
+    assert.equal(view.sold_quantity, 0);
+    assert.equal(view.sold_quantity_30d, null);
+    assert.equal(view.fav_count, 0);
+    assert.equal(view.cost_template_id, null);
+    assert.equal(view.created_at, null);
+    assert.equal(view.updated_at, null);
+
+    for (const sentinel of [0, '0', -1, '-5', '', '   ', null, undefined, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.equal(toGoodsView({ cost_template_id: sentinel }).cost_template_id, null, String(sentinel));
+    }
+    assert.equal(toGoodsView({ out_goods_sn: '  ERP-101  ', cost_template_id: '3002' }).out_goods_sn, 'ERP-101');
+    assert.equal(toGoodsView({ cost_template_id: '3002' }).cost_template_id, '3002');
   });
 
   it('accepts a single price and skips non-numeric SKU prices', () => {

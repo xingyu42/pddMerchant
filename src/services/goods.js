@@ -36,6 +36,11 @@ function toSkuRecord(sku) {
   };
 }
 
+function toNonNegativeCount(value) {
+  const n = toFiniteNumber(value);
+  return n !== null && n >= 0 ? n : null;
+}
+
 function toGoodsRecord(g) {
   return {
     goods_id: g.goods_id ?? g.goodsId ?? g.id ?? null,
@@ -45,6 +50,13 @@ function toGoodsRecord(g) {
     sku_group_price: g.sku_group_price ?? g.skuGroupPrice ?? null,
     origin_sku_group_price: g.origin_sku_group_price ?? null,
     promotion: g.promotion ?? g.promotion_goods ?? null,
+    out_goods_sn: g.out_goods_sn ?? g.outGoodsSn ?? null,
+    sold_quantity: toNonNegativeCount(g.sold_quantity ?? g.soldQuantity),
+    sold_quantity_30d: toNonNegativeCount(g.sold_quantity_30d ?? g.sold_quantity_for_thirty_days),
+    fav_count: toNonNegativeCount(g.fav_count ?? g.fav_cnt ?? g.favCnt),
+    cost_template_id: g.cost_template_id ?? g.costTemplateId ?? null,
+    created_at: g.created_at ?? g.createdAt ?? null,
+    updated_at: g.updated_at ?? g.updatedAt ?? null,
     mall_id: g.mall_id ?? g.mallId ?? null,
     skus: Array.isArray(g.sku_list) ? g.sku_list.map(toSkuRecord) : null,
   };
