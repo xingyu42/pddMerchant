@@ -65,7 +65,8 @@ function registerReads(goods, wireAction) {
       .description('商品列表')
       .option('--page <n>', '页码', integerArg(1), 1)
       .option('--size <n>', '每页数量', integerArg(1), 10)
-      .option('--status <s>', '状态筛选：onsale | offline', 'onsale'),
+      .option('--status <s>', '状态筛选：onsale | offline', 'onsale')
+      .option('--with-skus', '展开每个商品的 SKU 规格明细（含编码与库存）', false),
     'goods.list',
     list.run
   );

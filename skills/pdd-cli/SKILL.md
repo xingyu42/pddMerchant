@@ -47,7 +47,7 @@ pdd <command> [options] --json
 
 - 以 `data.headline` 开头；细节用字段中文含义转述；`null` 说「数据不可用」；诊断 `status`（`数据完整` / `数据不完整`）仅陈述完整性，`hints` 与截断标记原样转述。
 - 只输出事实数字与口径，把经营判断、评分、保本 ROI 和建议留给用户。
-- 转述 `diagnose *`、`orders after-sales`、`orders detail`、`goods stock`、`goods traffic`、`goods profit`、`goods receipt`、`goods reviews` 前先读 [reports.md](reports.md)，按其中口径与必附说明转述。
+- 转述 `diagnose *`、`orders after-sales`、`orders detail`、`goods list`、`goods stock`、`goods traffic`、`goods profit`、`goods receipt`、`goods reviews` 前先读 [reports.md](reports.md)，按其中口径与必附说明转述。
 
 ## 命令
 
@@ -86,8 +86,8 @@ pdd promo roi [--by plan|sku|channel] [--since YYYY-MM-DD] [--size 50] [--includ
 ### 商品查询与写操作
 
 ```bash
-pdd goods list [--page 1] [--size 10] [--status onsale|offline]
-pdd goods stock [--threshold 10]                         # 低库存 / 缺货（含 SKU 级）
+pdd goods list [--page 1] [--size 10] [--status onsale|offline] [--with-skus]
+pdd goods stock [--threshold 10]                         # 低库存 / 缺货（含 SKU 级与商家编码）
 pdd goods segment [--days 30] [--max-pages 10] [--no-promo]
 pdd goods traffic [--days 30] [--goods-id <id>]          # 商品流量、推广拆分与今日实时 today
 pdd goods profit [--days 30] [--goods-id <id>]           # 净利润（需先录入成本）
@@ -102,6 +102,7 @@ pdd goods update batch  --changes '[{"goods_id":1001,"field":"price_yuan","value
 pdd goods publish --url <链接或goods_id> [--cost-template <id>] [--confirm]
 ```
 
+- `goods list` 默认省略 `skus` 键（适合 `--size 50` 扫目录），加 `--with-skus` 单次请求展开 5 字段 `skus[]`（含 `sku_id`、`spec`、`out_sku_sn`、`quantity`、`on_sale`）；`origin_price_*` 为日常拼单价、`sold_quantity` / `sold_quantity_30d` 为商品列表口径销量，口径见 [reports.md](reports.md#goods-list)。
 - 商品缺少 `goods_id` 时，库存与销量匹配按商品名回退（`matched_by` 显示「按商品名匹配（一侧缺少商品 ID）」）。
 - **线上写操作确认顺序**（每一步完成才进入下一步）：
   1. 与用户核对商品 ID、元单位价格（最多两位小数）与目标值。

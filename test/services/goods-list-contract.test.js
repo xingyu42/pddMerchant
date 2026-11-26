@@ -101,4 +101,47 @@ describe('goods list identity mapping', () => {
     assert.equal(stock.items[0].sold_quantity, 0);
     assert.equal(stock.items[0].cost_template_id, null);
   });
+
+  it('expands 5-field skus and appends SKU summary headline when withSkus is true', async () => {
+    const goods = [
+      {
+        id: 101,
+        goods_name: 'Tea',
+        quantity: 0,
+        sku_list: [
+          { skuId: 1011, spec: '红色-M', outSkuSn: 'SKU-1', skuQuantity: 2, isOnsale: 1 },
+          { skuId: 1012, spec: '蓝色-L', outSkuSn: '', skuQuantity: 0, isOnsale: 0 },
+        ],
+      },
+      { id: 102, goods_name: 'Cup', quantity: 5, sku_list: [] },
+      { id: 103, goods_name: 'Bowl', quantity: 8, sku_list: null },
+    ];
+    const execute = vi.fn(async () => ({ data: { total: 3, goods } }));
+    const ctx = { client: { execute } };
+
+    const plain = await getGoodsListView({}, {}, ctx);
+    assert.equal(Object.hasOwn(plain.items[0], 'skus'), false);
+    assert.deepEqual(plain.headline, [
+      '在售商品共 3 件，本页 3 件',
+      '本页库存为 0 的商品 1 件',
+    ]);
+
+    const expanded = await getGoodsListView({}, { withSkus: true }, ctx);
+    assert.deepEqual(expanded.items[0].skus, [
+      { sku_id: '1011', spec: '红色-M', out_sku_sn: 'SKU-1', quantity: 2, on_sale: true },
+      { sku_id: '1012', spec: '蓝色-L', out_sku_sn: null, quantity: 0, on_sale: false },
+    ]);
+    assert.deepEqual(expanded.items[1].skus, []);
+    assert.equal(expanded.items[2].skus, null);
+    assert.equal(expanded.headline.length <= 3, true);
+    assert.deepEqual(expanded.headline, [
+      '在售商品共 3 件，本页 3 件',
+      '本页库存为 0 的商品 1 件',
+      '本页规格共 2 个，规格数据缺失的商品 1 件',
+    ]);
+
+    const stock = await getGoodsStockView({}, {}, ctx);
+    assert.equal(stock.items[0].skus[0].out_sku_sn, 'SKU-1');
+    assert.equal(stock.items[0].skus[1].out_sku_sn, null);
+  });
 });

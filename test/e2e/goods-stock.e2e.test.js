@@ -27,8 +27,8 @@ it('lists every sku of an alerted goods with id, spec, stock, on-sale flag and l
   assert.equal(data.items[0].updated_at, '2023-11-16 06:13:20');
   assert.equal(data.items[0].low_stock_sku_count, 1);
   assert.deepEqual(data.items[0].skus, [
-    { sku_id: '1011', spec: '红色-M', quantity: 6, on_sale: true, low_stock: true },
-    { sku_id: '1012', spec: '蓝色-L', quantity: 4, on_sale: false, low_stock: false },
+    { sku_id: '1011', spec: '红色-M', out_sku_sn: 'SYN-SKU-OUT', quantity: 6, on_sale: true, low_stock: true },
+    { sku_id: '1012', spec: '蓝色-L', out_sku_sn: 'SYN-SKU-OUT', quantity: 4, on_sale: false, low_stock: false },
   ]);
   assert.deepEqual(data.headline, [
     '本页扫描 1 件商品（在售共 1 件）',

@@ -12,10 +12,14 @@ export const GOODS_VIEW_FIELDS = Object.freeze([
   'cost_template_id', 'created_at', 'updated_at',
 ]);
 
-// goods stock 专用：商品视图字段之后追加低库存规格数与规格明细；goods list 的商品视图字段不变
+export const GOODS_LIST_SKU_FIELDS = Object.freeze(['sku_id', 'spec', 'out_sku_sn', 'quantity', 'on_sale']);
+
+export const GOODS_LIST_WITH_SKUS_ITEM_FIELDS = Object.freeze([...GOODS_VIEW_FIELDS, 'skus']);
+
+// goods stock 专用：商品视图字段之后追加低库存规格数与规格明细；goods list 默认省略 skus
 export const GOODS_STOCK_ITEM_FIELDS = Object.freeze([...GOODS_VIEW_FIELDS, 'low_stock_sku_count', 'skus']);
 
-export const GOODS_STOCK_SKU_FIELDS = Object.freeze(['sku_id', 'spec', 'quantity', 'on_sale', 'low_stock']);
+export const GOODS_STOCK_SKU_FIELDS = Object.freeze([...GOODS_LIST_SKU_FIELDS, 'low_stock']);
 
 export const GOODS_PROMOTION_VIEW_FIELDS = Object.freeze(['name', 'price_min_yuan', 'price_max_yuan']);
 
@@ -81,21 +85,36 @@ export function toGoodsView(record) {
   };
 }
 
+// 规格基础 5 字段白名单投影，供 goods list --with-skus 与 goods stock 共用
+function toListSkuView(sku) {
+  return {
+    sku_id: text(pick(sku, ['sku_id', 'skuId'])),
+    spec: text(sku?.spec),
+    out_sku_sn: text(pick(sku, ['out_sku_sn', 'outSkuSn'])),
+    quantity: sku?.quantity ?? null,
+    on_sale: sku?.on_sale ?? null,
+  };
+}
+
 // 库存、在售与低库存标记由 services/goods.js 判定；视图只做白名单投影与 ID / 规格文本化
 function toStockSkuView(sku) {
   return {
-    sku_id: text(sku.sku_id),
-    spec: text(sku.spec),
-    quantity: sku.quantity,
-    on_sale: sku.on_sale,
+    ...toListSkuView(sku),
     low_stock: sku.low_stock,
+  };
+}
+
+export function toGoodsWithSkusView(record) {
+  return {
+    ...toGoodsView(record),
+    skus: Array.isArray(record?.skus) ? record.skus.map(toListSkuView) : null,
   };
 }
 
 // 输入为带 low_stock_sku_count 的商品记录；规格数据不可用时 skus 与 low_stock_sku_count 均为 null
 export function toGoodsStockView(record) {
   return { ...toGoodsView(record), low_stock_sku_count: record.low_stock_sku_count,
-    skus: record.skus?.map(toStockSkuView) ?? null };
+    skus: Array.isArray(record?.skus) ? record.skus.map(toStockSkuView) : null };
 }
 
 // free_province_need 无值域证据，不输出

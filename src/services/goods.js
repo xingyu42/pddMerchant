@@ -8,7 +8,7 @@ import {
 } from '../adapter/endpoints/goods.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
 import { parseYuanToFen, toFiniteNumber } from '../infra/units.js';
-import { toGoodsStockView, toGoodsView } from './views/goods.js';
+import { toGoodsStockView, toGoodsView, toGoodsWithSkusView } from './views/goods.js';
 import { mallIdOf } from './views/_shared.js';
 
 export const DEFAULT_LOW_STOCK_THRESHOLD = 10;
@@ -31,6 +31,7 @@ function toSkuRecord(sku) {
   return {
     sku_id: sku?.skuId ?? null,
     spec: sku?.spec ?? null,
+    out_sku_sn: sku?.outSkuSn ?? sku?.out_sku_sn ?? null,
     quantity: sku?.skuQuantity ?? null,
     on_sale: toOnSale(sku?.isOnsale),
   };
@@ -183,14 +184,24 @@ function goodsListHeadline(params, total, items) {
   const headline = [`${catalog}，${label} ${items.length} 件`];
   const soldOut = items.filter((item) => item.quantity === 0).length;
   if (soldOut > 0) headline.push(`${label}库存为 0 的商品 ${soldOut} 件`);
+  if (params.withSkus && items.length > 0) {
+    const skuCount = items.reduce((sum, item) => sum + (item.skus?.length ?? 0), 0);
+    const skuUnavailable = items.filter((item) => item.skus === null).length;
+    headline.push(
+      skuUnavailable > 0
+        ? `${label}规格共 ${skuCount} 个，规格数据缺失的商品 ${skuUnavailable} 件`
+        : `${label}规格共 ${skuCount} 个`,
+    );
+  }
   return headline;
 }
 
 export async function getGoodsListView(page, params = {}, ctx = {}) {
+  const withSkus = Boolean(params.withSkus);
   const result = await listGoods(page, params, ctx);
-  const items = result.goods.map(toGoodsView);
+  const items = result.goods.map(withSkus ? toGoodsWithSkusView : toGoodsView);
   return {
-    headline: goodsListHeadline(params, result.total, items),
+    headline: goodsListHeadline({ ...params, withSkus }, result.total, items),
     items,
     total: result.total,
     mall_id: mallIdOf(ctx),
