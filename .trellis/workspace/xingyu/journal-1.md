@@ -1682,3 +1682,46 @@ Topics: [docs/adr/0006-after-sales-case-and-reason-reporting.md](../../../docs/a
 
 - PDD_TEST_ADAPTER=fixture npm run check 通过：Knip 0 问题；Vitest 135 个文件、2289 通过、1 跳过、0 失败
 - 经授权默认账号只读验收 7 项全过（--days 30、2026-10 区间、--type return_refund、--sn 全历史、涉售后与无售后 orders detail、解析期互斥 E_USAGE），均 ok:true、warnings:[]，脱敏摘要已记入工单 03
+
+
+## Session 55: 商品列表字段扩展与 --with-skus 设计对齐（未实现代码）
+<!-- trellis-session: v=3 fp=766612b5d12538c0 -->
+
+**Date**: 2026-11-26
+**Task**: 商品列表字段扩展与 --with-skus 设计对齐（未实现代码）
+**Branch**: `main`
+
+### Summary
+
+通过 /grill-with-docs 确认 goods list 字段扩展与 --with-skus 设计、goods stock 共享策略、业务查询命令 AI JSON 优先定位及 Goods Catalog 术语（已写入 GLOSSARY.md）；本次仅沉淀文档与研究记录，未实现代码。
+Topics: [.trellis/research/goods-list-fields.md](../../research/goods-list-fields.md)
+
+### Git Commits
+
+(No associated commits)
+
+### Next Steps
+
+- 进入实现阶段时先对默认账号做只读 goodsList 字段核验并落盘至 docs/research/，确认键名与值域后再改动代码、测试、SKILL.md 与 .trellis/spec/
+
+
+## Session 56: 商品列表目录字段扩展与 --with-skus 交付合并
+<!-- trellis-session: v=3 fp=0f61a7dfa916a648 -->
+
+**Date**: 2026-11-27
+**Task**: 商品列表目录字段扩展与 --with-skus 交付合并
+**Branch**: `feat/goods-list-fields`
+
+### Summary
+
+完成 .scratch/goods-list-fields/ 全部 3 张工单、双轴与 Opus 两轮评审修复及默认账号只读验收并合入 main。扩展 goods list / goods stock 9 个商品级基础目录字段，新增 pdd goods list --with-skus（5 字段 SKU 明细与 headline 规格统计）并在 goods stock 同步补齐 out_sku_sn，更新 GLOSSARY.md、SKILL.md、reports.md、CHANGELOG.md 与 .trellis/spec/。
+Topics: [.trellis/research/goods-list-fields.md](../../research/goods-list-fields.md), [docs/research/goods-list-fields-recon-2026-11-26.md](../../../docs/research/goods-list-fields-recon-2026-11-26.md), [.trellis/spec/services/domain-service-contracts.md](../../spec/services/domain-service-contracts.md), [.trellis/spec/commands/command-contracts.md](../../spec/commands/command-contracts.md)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6ca240b` | feat(goods): expose 9 catalog base fields in goods list and stock views |
+| `06f9320` | feat(goods): add out_sku_sn, --with-skus mode, and sync docs |
+| `733b5fa` | chore(goods): address review feedback on changelog, non-negative helper, and view test |
+| `bfb3a3d` | fix(goods): address opus-review M1/L1/L2/L3 findings |
