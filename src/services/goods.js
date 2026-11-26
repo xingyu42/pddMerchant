@@ -7,7 +7,7 @@ import {
   GOODS_UPDATE_TITLE,
 } from '../adapter/endpoints/goods.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
-import { parseYuanToFen, toFiniteNumber } from '../infra/units.js';
+import { parseYuanToFen, toFiniteNumber, toNonNegativeNumber } from '../infra/units.js';
 import { toGoodsStockView, toGoodsView, toGoodsWithSkusView } from './views/goods.js';
 import { mallIdOf } from './views/_shared.js';
 
@@ -37,11 +37,6 @@ function toSkuRecord(sku) {
   };
 }
 
-function toNonNegativeCount(value) {
-  const n = toFiniteNumber(value);
-  return n !== null && n >= 0 ? n : null;
-}
-
 function toGoodsRecord(g) {
   return {
     goods_id: g.goods_id ?? g.goodsId ?? g.id ?? null,
@@ -52,9 +47,9 @@ function toGoodsRecord(g) {
     origin_sku_group_price: g.origin_sku_group_price ?? null,
     promotion: g.promotion ?? g.promotion_goods ?? null,
     out_goods_sn: g.out_goods_sn ?? g.outGoodsSn ?? null,
-    sold_quantity: toNonNegativeCount(g.sold_quantity ?? g.soldQuantity),
-    sold_quantity_30d: toNonNegativeCount(g.sold_quantity_30d ?? g.sold_quantity_for_thirty_days),
-    fav_count: toNonNegativeCount(g.fav_count ?? g.fav_cnt ?? g.favCnt),
+    sold_quantity: toNonNegativeNumber(g.sold_quantity ?? g.soldQuantity),
+    sold_quantity_30d: toNonNegativeNumber(g.sold_quantity_30d ?? g.sold_quantity_for_thirty_days),
+    fav_count: toNonNegativeNumber(g.fav_count ?? g.fav_cnt ?? g.favCnt),
     cost_template_id: g.cost_template_id ?? g.costTemplateId ?? null,
     created_at: g.created_at ?? g.createdAt ?? null,
     updated_at: g.updated_at ?? g.updatedAt ?? null,

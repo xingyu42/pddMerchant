@@ -17,6 +17,12 @@ export function toFiniteNumber(value) {
   return Number.isFinite(num) ? num : null;
 }
 
+// 非负有限 number（计数 / 库存等）；负数或无效输入 → null
+export function toNonNegativeNumber(value) {
+  const num = toFiniteNumber(value);
+  return num !== null && num >= 0 ? num : null;
+}
+
 // 四舍五入（远离零），toPrecision(15) 先消除二进制误差：1.005 → 1.01
 export function round(value, digits = 2) {
   const num = toFiniteNumber(value);

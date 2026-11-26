@@ -39,6 +39,7 @@ describe('goods view projection', () => {
     const view = toGoodsView(recordOf(createUpstreamGoods()));
     assert.deepEqual(view, EXPECTED_GOODS_VIEW);
     assert.deepEqual(Object.keys(view), [...GOODS_VIEW_FIELDS]);
+    assert.deepEqual(Object.keys(view.promotion), [...GOODS_PROMOTION_VIEW_FIELDS]);
   });
 
   it('ignores unknown upstream fields and deferred goods fields', () => {

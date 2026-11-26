@@ -1,6 +1,6 @@
 // 商品领域视图（输出契约 v2 防腐层）：白名单投影商品记录与运费模板，上游其余字段一律丢弃。
 // 字段依据 research/upstream-schema-2026-10.md §3–§4：sku_price / sku_group_price 为分的数组（多 SKU）。
-import { toFiniteNumber, toLocalDateTime, yuanFromFen } from '../../infra/units.js';
+import { toFiniteNumber, toLocalDateTime, toNonNegativeNumber, yuanFromFen } from '../../infra/units.js';
 import { pick, text } from './_shared.js';
 
 export const GOODS_VIEW_FIELDS = Object.freeze([
@@ -44,11 +44,6 @@ function toPromotionView(promotion) {
   };
 }
 
-function nonNegativeCount(value) {
-  const num = toFiniteNumber(value);
-  return num !== null && num >= 0 ? num : null;
-}
-
 // 上游未绑定运费模板可能返回 0 / '0' / 非正数 / 空串，统一归为 null（与 cost_template_id 字符串契约对齐）
 function toCostTemplateId(value) {
   if (typeof value === 'number' && !Number.isFinite(value)) return null;
@@ -76,9 +71,9 @@ export function toGoodsView(record) {
     out_goods_sn: text(record?.out_goods_sn),
     origin_price_min_yuan: originGroupPrice.min,
     origin_price_max_yuan: originGroupPrice.max,
-    sold_quantity: nonNegativeCount(record?.sold_quantity),
-    sold_quantity_30d: nonNegativeCount(pick(record, ['sold_quantity_30d', 'sold_quantity_for_thirty_days'])),
-    fav_count: nonNegativeCount(pick(record, ['fav_count', 'fav_cnt'])),
+    sold_quantity: toNonNegativeNumber(record?.sold_quantity),
+    sold_quantity_30d: toNonNegativeNumber(pick(record, ['sold_quantity_30d', 'sold_quantity_for_thirty_days'])),
+    fav_count: toNonNegativeNumber(pick(record, ['fav_count', 'fav_cnt'])),
     cost_template_id: toCostTemplateId(pick(record, ['cost_template_id', 'costTemplateId'])),
     created_at: toLocalDateTime(record?.created_at),
     updated_at: toLocalDateTime(record?.updated_at),
