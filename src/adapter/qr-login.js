@@ -50,9 +50,12 @@ const QR_TAB_SELECTORS = [
 export async function ensureQrTab(page, { tabSelectors = QR_TAB_SELECTORS } = {}) {
   for (const sel of tabSelectors) {
     const el = await page.$(sel);
-    if (el) {
-      await el.click({ timeout: 2000 }).catch(() => {});
+    if (!el) continue;
+    try {
+      await el.click({ timeout: 2000 });
       return true;
+    } catch {
+      // Try next tab selector when element is detached, hidden, or unclickable.
     }
   }
   return false;
@@ -108,10 +111,14 @@ export async function findQrElement(page, { timeoutMs = 0, pollIntervalMs = 500,
   do {
     for (const sel of selectors) {
       try {
-        const el = await page.$(sel);
-        if (el && await isQrReady(el)) {
-          log.debug({ selector: sel }, 'QR element matched');
-          return { element: el, selector: sel };
+        const elements = typeof page.$$ === 'function'
+          ? await page.$$(sel)
+          : [await page.$(sel)].filter(Boolean);
+        for (const el of elements) {
+          if (el && await isQrReady(el)) {
+            log.debug({ selector: sel }, 'QR element matched');
+            return { element: el, selector: sel };
+          }
         }
       } catch { /* try next */ }
     }
@@ -146,7 +153,7 @@ export async function extractElementImage(page, element) {
   });
 
   if (info?.type === 'dataUrl') {
-    const match = info.data.match(/^data:image\/\w+;base64,(.+)$/);
+    const match = info.data.match(/^data:image\/png;base64,(.+)$/i);
     if (match) return Buffer.from(match[1], 'base64');
   }
 

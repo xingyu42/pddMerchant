@@ -12,6 +12,13 @@ import {
 export const CONSUMER_LOGIN_URL = 'https://mobile.yangkeduo.com/login.html';
 
 const CONSUMER_QR_SELECTORS = [
+  'img.qr-code-box',
+  '.qr-code-inner img',
+  '.qr-code-wrapper img',
+  '.qr-code-area img',
+  '.qr-code-inner canvas',
+  '.qr-code-wrapper canvas',
+  '.qr-code-area canvas',
   '[class*="qr-code"] canvas',
   '[class*="qrcode"] canvas',
   '[class*="qr-code"] img',
@@ -24,11 +31,13 @@ const CONSUMER_QR_SELECTORS = [
 const CONSUMER_QR_TAB_SELECTORS = [
   'text=扫码登录',
   'text=二维码登录',
+  '.qrcode-login',
   '[class*="qr-tab"]',
   '[class*="qrcode-tab"]',
 ];
 
-export async function captureConsumerQr(page, { loginUrl, timeout = TIMEOUTS.QR_CAPTURE } = {}) {
+/** Navigate to the consumer login page, open the QR tab once ready, and capture the QR PNG buffer. */
+export async function captureConsumerQr(page, { loginUrl = CONSUMER_LOGIN_URL, timeout = TIMEOUTS.QR_CAPTURE } = {}) {
   const log = getLogger();
 
   try {
@@ -38,15 +47,30 @@ export async function captureConsumerQr(page, { loginUrl, timeout = TIMEOUTS.QR_
     await page.goto(new URL(loginUrl).origin, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.NAV });
   }
 
-  await page.waitForTimeout(1500);
-  await dismissModalOverlay(page);
-  await ensureQrTab(page, { tabSelectors: CONSUMER_QR_TAB_SELECTORS });
+  const deadline = Date.now() + Math.max(0, timeout);
+  let tabClicked = false;
+  let hit = null;
 
-  const hit = await findQrElement(page, {
-    timeoutMs: timeout,
-    pollIntervalMs: 500,
-    selectors: CONSUMER_QR_SELECTORS,
-  });
+  do {
+    await dismissModalOverlay(page);
+    if (!tabClicked) {
+      tabClicked = await ensureQrTab(page, { tabSelectors: CONSUMER_QR_TAB_SELECTORS });
+      if (tabClicked) {
+        const settleWait = Math.min(300, Math.max(0, deadline - Date.now()));
+        if (settleWait > 0) await page.waitForTimeout(settleWait);
+      }
+    }
+
+    hit = await findQrElement(page, {
+      timeoutMs: 0,
+      selectors: CONSUMER_QR_SELECTORS,
+    });
+    if (hit) break;
+
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    await page.waitForTimeout(Math.min(500, remaining));
+  } while (Date.now() < deadline);
 
   if (!hit) {
     throw new PddCliError({
@@ -55,7 +79,7 @@ export async function captureConsumerQr(page, { loginUrl, timeout = TIMEOUTS.QR_
       hint: '尝试 pdd login --consumer（有头模式）手动登录',
       detail: {
         triedSelectors: CONSUMER_QR_SELECTORS.length,
-        pageUrl: (() => { try { return page.url(); } catch { return null; } })(),
+        pageUrl: safePageUrl(page),
         timeoutMs: timeout,
       },
       exitCode: ExitCodes.AUTH,
