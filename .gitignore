@@ -20,6 +20,9 @@ log/
 
 issue.md
 
+# Local issue tracker / plans (main checkout only, not tracked in Git)
+.scratch/
+
 # Trellis: track notes and specs only; research binaries/captures stay local
 .trellis/.runtime/
 **/raw-sensitive/

@@ -41,6 +41,7 @@ npm run check
 
 - Worktrees under `.claude/worktrees/` resolve `node_modules` from the main checkout, so `npm test` runs there as-is.
 - `npm run lint` (knip) needs a local `node_modules` and reports unlisted `vitest`/`knip` binaries without one: the orchestrating session adds a junction (`node -e "require('fs').symlinkSync('<main>/node_modules','node_modules','junction')"`) and unlinks it before removing the worktree; worktree-isolated subagents run `npm test` and leave lint to the merge step.
+- `.scratch/` is gitignored and lives only in the main checkout; from any linked worktree, resolve it via `$(git rev-parse --git-common-dir)/../.scratch` (no junction, so worktree removal by any tool/agent stays isolated from local tickets).
 - A real-account run from any worktree sets `PDD_DB_PATH` to the main checkout's `data/pdd.db`.
 
 ## Verification

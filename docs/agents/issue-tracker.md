@@ -1,6 +1,10 @@
 # Issue tracker: Local Markdown
 
-Issues and specs for this repo live as markdown files in `.scratch/`.
+Issues and specs for this repo live as local, gitignored markdown files in `.scratch/` (never committed to Git). Durable contracts, decisions, and research graduate to `.trellis/spec/`, `docs/adr/`, `GLOSSARY.md`, or `docs/research/`.
+
+## Worktrees
+
+`.scratch/` lives only in the main checkout and is not linked into worktrees. From any linked worktree, resolve it via `$(git rev-parse --git-common-dir)/../.scratch` (or use the main checkout's absolute path). This keeps worktree creation and removal by any agent or tool completely isolated from untracked tickets.
 
 ## Conventions
 

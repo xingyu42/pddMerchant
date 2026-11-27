@@ -67,7 +67,7 @@ Layering (`commands → services → adapter → infra`) is enforced by review o
 
 ### Issue tracker
 
-Issues and specs live as local markdown under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+Issues and specs live as local, gitignored markdown under `.scratch/<feature>/` in the main checkout (from a linked worktree, resolve via `$(git rev-parse --git-common-dir)/../.scratch`). See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
