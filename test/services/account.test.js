@@ -3,18 +3,10 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'vitest';
 import { get, getDatabasePath, run } from '../../src/infra/db.js';
-import {
-  getAccount,
-  insertAccount,
-  insertPendingAction,
-  putCredential,
-  putReloginState,
-} from '../../src/infra/account-store.js';
-import { createCandidateSeal } from '../../src/infra/candidate-seal.js';
+import { putCredential, putReloginState, insertAccount, insertPendingAction, getAccount } from '../../src/infra/account-store.js';
 import { ExitCodes } from '../../src/infra/errors.js';
 import { saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
 import {
-  addAccount,
   listAccounts,
   removeAccount,
   setDefaultAccount,
@@ -70,50 +62,6 @@ describe('account domain service', () => {
     assert.equal(listed.items[1].is_default, false);
     assert.equal(listed.items[1].has_password, true);
     assert.equal(listed.items[1].password_relogin_status, '已熔断：密码错误');
-  });
-
-  it('adds an account via headed interactive login, preserves warning, and ignores --account', async () => {
-    const seal = createCandidateSeal();
-    const calls = [];
-    const infoLogs = [];
-    const result = await addAccount(
-      { account: 'ignored-slug', qr: true, json: true, timeoutMs: 25_000 },
-      {
-        seal,
-        clock: { now: () => 1_700_000_000_000 },
-        log: { info: (message) => infoLogs.push(message), warn: () => {}, debug: () => {} },
-        interactiveLogin: {
-          loginMerchant: async (loginOpts) => {
-            calls.push(loginOpts);
-            const identity = { mallId: '900555', displayName: 'Headed Shop' };
-            return {
-              identity,
-              mode: 'headed',
-              url: 'https://mms.pinduoduo.com',
-              candidate: seal.seal({
-                state: { cookies: [{ name: 'PASS_ID', value: 'p1' }], origins: [] },
-                identity,
-                checked_at: '2026-11-25T00:00:00.000Z',
-                scope: 'shop_read',
-              }),
-            };
-          },
-        },
-      },
-    );
-
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].qr, false);
-    assert.equal(calls[0].headed, true);
-    assert.equal(calls[0].expectedMallId, undefined);
-    assert.equal(calls[0].onQrCaptured, undefined);
-    assert.deepEqual(infoLogs, ['正在通过有头浏览器登录，请手动完成登录...']);
-    assert.deepEqual(result.warnings, ['credentials_not_saved_headed_login']);
-    assert.equal(result.data.slug, 'headed-shop');
-    assert.equal(result.data.display_name, 'Headed Shop');
-    assert.equal(result.data.mall_id, '900555');
-    assert.deepEqual(result.data.headline, ['已添加账号 Headed Shop（headed-shop），店铺 900555']);
-    assert.ok(getAccount('headed-shop'));
   });
 
   it('previews removal without touching data unless confirmed and cascades on confirm', () => {

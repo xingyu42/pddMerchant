@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it, vi } from 'vitest';
 import { GOODS_LIST } from '../../src/adapter/endpoints/goods.js';
-import { getGoodsListView, getGoodsStockView, isLowStock, listGoods } from '../../src/services/goods.js';
+import { getGoodsListView, isLowStock, listGoods } from '../../src/services/goods.js';
 
 describe('goods list identity mapping', () => {
   it('maps upstream id at both endpoint and service boundaries', async () => {
@@ -37,7 +37,7 @@ describe('goods list identity mapping', () => {
     const listed = await getGoodsListView({}, {}, ctx);
     assert.equal(listed.total, null);
     assert.deepEqual(listed.headline, ['在售商品总数未获取，本页 1 件']);
-    const stock = await getGoodsStockView({}, {}, ctx);
+    const stock = await getGoodsListView({}, { lowStock: true }, ctx);
     assert.deepEqual(stock.items, []);
     assert.equal(stock.headline[0], '本页扫描 1 件商品（在售总数未获取）');
   });
@@ -47,7 +47,7 @@ describe('goods list identity mapping', () => {
     const goods = [{ id: 101, quantity: 0,
       sku_list: flags.map((isOnsale, index) => ({ skuId: index, spec: 'S', skuQuantity: 1, isOnsale })) }];
     const execute = vi.fn(async () => ({ data: { total: 1, goods } }));
-    const [item] = (await getGoodsStockView({}, {}, { client: { execute } })).items;
+    const [item] = (await getGoodsListView({}, { lowStock: true }, { client: { execute } })).items;
     assert.deepEqual(item.skus.map((sku) => sku.on_sale), [true, true, true, false, false, false, null, null]);
     assert.deepEqual(item.skus.map((sku) => sku.low_stock), [true, true, true, false, false, false, false, false]);
     assert.equal(item.low_stock_sku_count, 3);
@@ -59,7 +59,7 @@ describe('goods list identity mapping', () => {
       { id: 102, quantity: null, sku_list: [{ skuId: 1021, spec: '蓝色-L', skuQuantity: 20, isOnsale: 1 }] },
     ];
     const execute = vi.fn(async () => ({ data: { total: 2, goods } }));
-    const stock = await getGoodsStockView({}, {}, { client: { execute } });
+    const stock = await getGoodsListView({}, { lowStock: true }, { client: { execute } });
     assert.deepEqual(stock.items.map((item) => [item.goods_id, item.quantity, item.low_stock_sku_count]), [['101', null, 1]]);
     assert.equal(stock.low_stock_count, 0);
     assert.deepEqual(stock.headline.slice(1), [
@@ -96,7 +96,7 @@ describe('goods list identity mapping', () => {
     assert.equal(listed.items[0].created_at, '2023-11-15 06:13:20');
     assert.equal(listed.items[0].updated_at, null);
 
-    const stock = await getGoodsStockView({}, {}, ctx);
+    const stock = await getGoodsListView({}, { lowStock: true }, ctx);
     assert.equal(stock.items[0].origin_price_min_yuan, 14.9);
     assert.equal(stock.items[0].sold_quantity, 0);
     assert.equal(stock.items[0].cost_template_id, null);
@@ -140,8 +140,32 @@ describe('goods list identity mapping', () => {
       '本页规格共 2 个，规格数据缺失的商品 1 件',
     ]);
 
-    const stock = await getGoodsStockView({}, {}, ctx);
+    const stock = await getGoodsListView({}, { lowStock: 5 }, ctx);
+    assert.equal(stock.threshold, 5);
     assert.equal(stock.items[0].skus[0].out_sku_sn, 'SKU-1');
     assert.equal(stock.items[0].skus[1].out_sku_sn, null);
+  });
+
+  it('uses offline scope in low-stock headline and honors threshold 0 and default page sizes', async () => {
+    const calls = [];
+    const execute = vi.fn(async (_spec, params) => {
+      calls.push(params);
+      return { data: { total: params.page === 2 ? null : 2, goods: [
+        { id: 101, goods_name: 'Tea', quantity: 0 },
+        { id: 102, goods_name: 'Cup', quantity: 5 },
+      ] } };
+    });
+    const ctx = { client: { execute } };
+
+    await getGoodsListView({}, { status: 'offline' }, ctx);
+    const offlineLow = await getGoodsListView({}, { lowStock: 0, status: 'offline' }, ctx);
+    const offlineUnknownTotal = await getGoodsListView({}, { lowStock: true, status: 'offline', page: 2 }, ctx);
+
+    assert.equal(calls[0].size, 10);
+    assert.equal(calls[1].size, 50);
+    assert.equal(offlineLow.threshold, 0);
+    assert.equal(offlineLow.low_stock_count, 1);
+    assert.equal(offlineLow.headline[0], '本页扫描 2 件商品（已下架共 2 件）');
+    assert.equal(offlineUnknownTotal.headline[0], '第 2 页扫描 2 件商品（已下架总数未获取）');
   });
 });

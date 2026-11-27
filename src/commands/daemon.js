@@ -3,6 +3,7 @@ import { startDaemon, stopDaemon, restartDaemon, getDaemonStatus } from '../serv
 import { toDaemonRunView } from '../services/views/daemon.js';
 import { runDaemon } from '../daemon/run.js';
 import { isConsoleLoopback } from '../services/console-runtime.js';
+import { consoleLinkForAccount } from '../services/console-accounts.js';
 
 const options = { needsAuth: false, needsMall: 'none', needsBrowser: false, allowAllAccounts: false };
 
@@ -29,3 +30,5 @@ export const run = withCommand({ ...options, name: 'daemon.run',
       clock: ctx.clock,
     }));
   } });
+export const link = withCommand({ ...options, name: 'daemon.link',
+  run: (ctx) => consoleLinkForAccount(ctx.config.account) });

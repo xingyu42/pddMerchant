@@ -11,12 +11,31 @@ import { parseYuanToFen, toFiniteNumber, toNonNegativeNumber } from '../infra/un
 import { toGoodsStockView, toGoodsView, toGoodsWithSkusView } from './views/goods.js';
 import { mallIdOf } from './views/_shared.js';
 
-export const DEFAULT_LOW_STOCK_THRESHOLD = 10;
+const DEFAULT_LOW_STOCK_THRESHOLD = 10;
+const DEFAULT_LIST_PAGE_SIZE = 10;
+const DEFAULT_LOW_STOCK_PAGE_SIZE = 50;
 
 export function isLowStock(goods, threshold = DEFAULT_LOW_STOCK_THRESHOLD) {
   const qty = toFiniteNumber(goods?.quantity);
   if (qty === null) return false;
   return qty <= threshold;
+}
+
+// 统一库存分档统计：缺货（<= 0）与低库存（1..threshold）；任一商品库存缺失时两项均返回 null
+export function summarizeStockCounts(goods, threshold = DEFAULT_LOW_STOCK_THRESHOLD) {
+  const quantities = goods.map((item) => toFiniteNumber(item?.quantity));
+  if (quantities.includes(null)) {
+    return {
+      out_of_stock_count: null,
+      low_stock_count: null,
+      low_stock_threshold: threshold,
+    };
+  }
+  return {
+    out_of_stock_count: quantities.filter((qty) => qty <= 0).length,
+    low_stock_count: quantities.filter((qty) => qty > 0 && qty <= threshold).length,
+    low_stock_threshold: threshold,
+  };
 }
 
 // 上游 isOnsale 形态未经真实样本确认（布尔或 0/1），其余取值记为未知
@@ -191,23 +210,39 @@ function goodsListHeadline(params, total, items) {
   return headline;
 }
 
+function resolveLowStockThreshold(lowStock) {
+  return lowStock === true ? DEFAULT_LOW_STOCK_THRESHOLD : lowStock;
+}
+
 export async function getGoodsListView(page, params = {}, ctx = {}) {
-  const withSkus = Boolean(params.withSkus);
-  const result = await listGoods(page, params, ctx);
-  const items = result.goods.map(withSkus ? toGoodsWithSkusView : toGoodsView);
+  const { page: pageNum, size, status, withSkus, lowStock } = params;
+  if (lowStock !== undefined && lowStock !== false) {
+    const threshold = resolveLowStockThreshold(lowStock);
+    return buildGoodsLowStockView(
+      page,
+      { page: pageNum, size: size ?? DEFAULT_LOW_STOCK_PAGE_SIZE, status },
+      threshold,
+      ctx,
+    );
+  }
+  const expandSkus = Boolean(withSkus);
+  const query = { page: pageNum, size: size ?? DEFAULT_LIST_PAGE_SIZE, status };
+  const result = await listGoods(page, query, ctx);
+  const items = result.goods.map(expandSkus ? toGoodsWithSkusView : toGoodsView);
   return {
-    headline: goodsListHeadline({ ...params, withSkus }, result.total, items),
+    headline: goodsListHeadline({ ...query, withSkus: expandSkus }, result.total, items),
     items,
     total: result.total,
     mall_id: mallIdOf(ctx),
   };
 }
 
-function stockHeadline({ page: pageNumber = 1 }, view) {
+function stockHeadline({ page: pageNumber = 1, status }, view) {
+  const scope = status === 'offline' ? '已下架' : '在售';
   const label = pageLabel(pageNumber);
   const { items, threshold } = view;
   const soldOut = items.filter((item) => item.quantity !== null && item.quantity <= 0).length;
-  const catalog = view.total === null ? '在售总数未获取' : `在售共 ${view.total} 件`;
+  const catalog = view.total === null ? `${scope}总数未获取` : `${scope}共 ${view.total} 件`;
   const lowSkus = items.flatMap((item) => item.skus ?? []).filter((sku) => sku.low_stock);
   const soldOutSkus = lowSkus.filter((sku) => sku.quantity <= 0).length;
   // 告警商品 = 总库存低 + 仅因规格进入（总库存高于阈值或缺失），两行合计覆盖全部 items
@@ -237,11 +272,8 @@ function withSkuLowStock(record, threshold) {
 
 // 仅扫描一页商品；items 为该页中总库存 ≤ threshold 或至少一个规格低库存的商品
 // low_stock_count 仅计总库存 ≤ threshold 的商品（与 headline 第二行一致）
-export async function getGoodsStockView(page, params = {}, ctx = {}) {
-  const threshold = Number.isFinite(Number(params.threshold))
-    ? Number(params.threshold)
-    : DEFAULT_LOW_STOCK_THRESHOLD;
-  const base = await listGoods(page, { ...params, size: params.size ?? 50 }, ctx);
+async function buildGoodsLowStockView(page, params, threshold, ctx = {}) {
+  const base = await listGoods(page, params, ctx);
   const alerted = base.goods
     .map((g) => withSkuLowStock(g, threshold))
     .filter((g) => isLowStock(g, threshold) || g.low_stock_sku_count > 0);

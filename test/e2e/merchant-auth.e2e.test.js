@@ -4,20 +4,18 @@ import { describe, it } from 'vitest';
 import { createCliSandbox, runCli, spawnNode } from '../helpers/isolated-cli.js';
 
 describe('merchant authentication CLI contract', () => {
-  for (const args of [['login', '--qr'], ['init', '--qr'], ['account', 'add']]) {
-    it(`keeps ${args.join(' ')} to one JSON line without exporting credentials`, () => {
-      const result = runCli(args, { accounts: [] });
-      assert.equal(result.status, 0);
-      assert.equal(result.envelope.ok, true);
-      assert.equal(result.envelope.data.mall_id, '900001');
-      assert.ok(result.envelope.data.account_slug ?? result.envelope.data.slug);
-      assert.ok(result.envelope.data.headline.length > 0);
-      assert.ok(!result.stdout.includes('PASS_ID'));
-      assert.ok(!result.stdout.includes('qr_pending'));
-      assert.ok(!result.stdout.includes('auth-state.json'));
-      assert.ok(!Object.hasOwn(result.envelope.data, 'daemon'));
-    });
-  }
+  it('keeps login --qr to one JSON line without exporting credentials', () => {
+    const result = runCli(['login', '--qr'], { accounts: [] });
+    assert.equal(result.status, 0);
+    assert.equal(result.envelope.ok, true);
+    assert.equal(result.envelope.data.mall_id, '900001');
+    assert.ok(result.envelope.data.account_slug ?? result.envelope.data.slug);
+    assert.ok(result.envelope.data.headline.length > 0);
+    assert.ok(!result.stdout.includes('PASS_ID'));
+    assert.ok(!result.stdout.includes('qr_pending'));
+    assert.ok(!result.stdout.includes('auth-state.json'));
+    assert.ok(!Object.hasOwn(result.envelope.data, 'daemon'));
+  });
 
   it('maps unconfirmed network checks to exit 5, not expired credentials', () => {
     const result = runCli(['orders', 'list'], { authIndeterminate: true });
@@ -65,9 +63,8 @@ describe('merchant authentication CLI contract', () => {
     assert.ok(!Object.hasOwn(result.envelope.data.fields, 'refreshJitterMs'));
   });
 
-  it('emits v2 envelopes with correlation_id and latency_ms for init, login, and login.consumer', () => {
+  it('emits v2 envelopes with correlation_id and latency_ms for login and login.consumer', () => {
     for (const [args, expectedCommand, expectedMode] of [
-      [['init', '--qr'], 'init', '扫码登录'],
       [['login', '--qr'], 'login', '扫码登录'],
       [['login', '--consumer', '--qr'], 'login.consumer', '扫码登录'],
       [['login', '--consumer', '--headed'], 'login.consumer', '有头浏览器登录'],
@@ -89,10 +86,8 @@ describe('merchant authentication CLI contract', () => {
     assert.equal(unknownPassword.envelope.error.code, 'E_USAGE');
 
     for (const args of [
-      ['init', '--all-accounts'],
       ['login', '--all-accounts'],
       ['login', '--consumer', '--all-accounts'],
-      ['account', 'add', '--all-accounts'],
       ['account', 'list', '--all-accounts'],
     ]) {
       const batchReject = runCli(args);
@@ -102,15 +97,7 @@ describe('merchant authentication CLI contract', () => {
     }
   });
 
-  it('emits v2 envelopes with correlation_id, latency_ms, and warnings across account.* commands', () => {
-    const added = runCli(['account', 'add'], { accounts: [] });
-    assert.equal(added.status, 0);
-    assert.equal(added.envelope.command, 'account.add');
-    assert.equal(added.envelope.meta.v, 2);
-    assert.ok(added.envelope.meta.correlation_id);
-    assert.equal(typeof added.envelope.meta.latency_ms, 'number');
-    assert.equal(added.envelope.meta.warnings.includes('credentials_not_saved_headed_login'), true);
-
+  it('emits v2 envelopes with correlation_id and latency_ms across account.* commands', () => {
     const accounts = [
       { slug: 'shop-a', display_name: 'Shop A', identity: '900001', is_default: 1 },
       { slug: 'shop-b', display_name: 'Shop B', identity: '900002', is_default: 0 },
@@ -131,15 +118,15 @@ describe('merchant authentication CLI contract', () => {
     }
   });
 
-  it('honors --no-color on non-JSON init output', async () => {
+  it('honors --no-color on non-JSON login output', async () => {
     const sandbox = createCliSandbox({ accounts: [] });
     try {
       const cliPath = fileURLToPath(new URL('../../bin/pdd.js', import.meta.url));
       const { NO_COLOR: _ignored, ...envWithoutNoColor } = sandbox.env;
-      const result = await spawnNode([cliPath, 'init', '--qr', '--no-color'], { env: envWithoutNoColor });
+      const result = await spawnNode([cliPath, 'login', '--qr', '--no-color'], { env: envWithoutNoColor });
       assert.equal(result.status, 0, result.stderr);
       assert.equal(/\u001b\[/.test(result.stdout), false);
-      assert.match(result.stdout, /init/);
+      assert.match(result.stdout, /login/);
     } finally {
       sandbox.dispose();
     }

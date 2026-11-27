@@ -7,8 +7,9 @@ function stockFixtures(goodsList) {
   return { 'endpoints/goods.list.json': { success: true, result: { total: goodsList.length, goods_list: goodsList } } };
 }
 
-function runStock(goodsList, args = []) {
-  const result = runCli(['goods', 'stock', ...args], { fixtures: stockFixtures(goodsList) });
+function runStock(goodsList, threshold) {
+  const args = threshold === undefined ? ['goods', 'list', '--low-stock'] : ['goods', 'list', '--low-stock', String(threshold)];
+  const result = runCli(args, { fixtures: stockFixtures(goodsList) });
   assert.equal(result.status, 0, result.stderr);
   return result.envelope.data;
 }
@@ -124,7 +125,7 @@ it('does not alert on low skus that are off sale, have unknown on-sale flag, or 
   assert.equal(data.headline[2], '库存不高于 10 的在售规格 0 个（其中缺货 0 个），总库存高于 10 或缺失、因规格库存进入告警的商品 0 件');
 });
 
-it('alerts on an on-sale sku with zero stock as sold out and applies --threshold to skus', () => {
+it('alerts on an on-sale sku with zero stock as sold out and applies --low-stock threshold to skus', () => {
   const data = runStock([
     createUpstreamGoods({ goods_id: 101, quantity: 40, sku_list: [
       createUpstreamSku({ skuId: 1011, skuQuantity: 0 }),
@@ -132,11 +133,27 @@ it('alerts on an on-sale sku with zero stock as sold out and applies --threshold
       createUpstreamSku({ skuId: 1013, skuQuantity: 37 }),
     ] }),
     createUpstreamGoods({ goods_id: 102, quantity: 2, sku_list: [createUpstreamSku({ skuId: 1021, skuQuantity: 2 })] }),
-  ], ['--threshold', '3']);
+  ], 3);
   assert.deepEqual(data.items.map((item) => [item.goods_id, item.low_stock_sku_count]), [['101', 2], ['102', 1]]);
   assert.deepEqual(data.items[0].skus.map((sku) => sku.low_stock), [true, true, false]);
   assert.deepEqual(data.headline.slice(1), [
     '库存不高于 3 的商品 1 件（其中缺货 0 件）',
     '库存不高于 3 的在售规格 3 个（其中缺货 1 个），总库存高于 3 或缺失、因规格库存进入告警的商品 1 件',
   ]);
+});
+
+it('uses offline scope in headline and supports --low-stock 0 via CLI', () => {
+  const goods = [
+    createUpstreamGoods({ goods_id: 101, quantity: 0, sku_list: [createUpstreamSku({ skuId: 1011, skuQuantity: 0 })] }),
+    createUpstreamGoods({ goods_id: 102, quantity: 5, sku_list: [createUpstreamSku({ skuId: 1021, skuQuantity: 5 })] }),
+  ];
+  const result = runCli(['goods', 'list', '--low-stock', '0', '--status', 'offline'], {
+    fixtures: stockFixtures(goods),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const { data } = result.envelope;
+  assert.equal(data.threshold, 0);
+  assert.equal(data.low_stock_count, 1);
+  assert.deepEqual(data.items.map((item) => item.goods_id), ['101']);
+  assert.equal(data.headline[0], '本页扫描 2 件商品（已下架共 2 件）');
 });

@@ -179,7 +179,7 @@ it('keeps stats, diagnosis and profit on order-level refund and processing calib
   const { local } = unchangedData(['orders', 'stats']);
   assert.deepEqual([local.order_count, local.refund_count, local.after_sales_count, local.refund_rate_pct],
     [4, 1, 2, 25]);
-  const { detail } = unchangedData(['diagnose', 'after-sales']);
+  const { dimensions: { after_sales: { detail } } } = unchangedData(['diagnose', 'shop']);
   assert.deepEqual([detail.total_orders, detail.refund_count, detail.after_sales_count,
     detail.refund_rate_pct, detail.after_sales_rate_pct], [4, 1, 2, 25, 50]);
   const { summary } = unchangedData(['goods', 'profit']);

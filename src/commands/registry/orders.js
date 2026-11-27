@@ -37,8 +37,9 @@ export function register(program, wireAction) {
   wireAction(
     orders
       .command('stats')
-      .description('订单统计（远程 + 本地聚合 P50/P95）')
-      .option('--size <n>', '本地聚合样本数', integerArg(1), 50),
+      .description('订单统计（远程 + 本地聚合 P50/P95；加 --with-regions 附带近 7 天省级成团地域分布）')
+      .option('--size <n>', '本地聚合样本数', integerArg(1), 50)
+      .option('--with-regions', '附带近 7 天省级成团地域分布（数据中心成团口径）', false),
     'orders.stats',
     stats.run
   );

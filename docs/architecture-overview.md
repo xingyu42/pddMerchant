@@ -47,7 +47,7 @@ src/infra/                 envelope、output-sink、错误、日志、配置、S
 ```
 
 - 只允许向下依赖：infra 不 import 上层，adapter 不 import services，services 不 import commands；`src/runtime/` 作为唯一组合根装配跨层 Port 与白名单 env，不向底层回传 env 直读权限。
-- 现存的跨层向下直连（允许）：`bin/pdd.js` 引用 `commands/runtime-options.js`、`commands/_runner.js` 与 `infra/runtime-cleanup.js`；runner（`src/commands/runner/`）与 `src/runtime/` 使用 adapter（浏览器、鉴权、店铺、fixture）；`commands/daemon.js` 引用 `src/daemon/run.js`；`src/daemon/` 只依赖 `src/runtime/`、`src/services/` 与 infra。全部非 runner 命令 handler（含 `doctor.js`、`login.js`、`init.js`、`account.js`、`config.js`）均经 services 或 runtime 注入端口访问 adapter。
+- 现存的跨层向下直连（允许）：`bin/pdd.js` 引用 `commands/runtime-options.js`、`commands/_runner.js` 与 `infra/runtime-cleanup.js`；runner（`src/commands/runner/`）与 `src/runtime/` 使用 adapter（浏览器、鉴权、店铺、fixture）；`commands/daemon.js` 引用 `src/daemon/run.js`；`src/daemon/` 只依赖 `src/runtime/`、`src/services/` 与 infra。全部非 runner 命令 handler（含 `doctor.js`、`login.js`、`account.js`、`config.js`）均经 services 或 runtime 注入端口访问 adapter。
 - `src/services/views/` 只依赖 infra（`units`、`metrics`）与 `services/operating-report.js`。
 - **接缝抽象原则**：
   - **多实现才抽象 Port**：仅在真实存在至少两套适配器的外部边界引入 Port（如 `BrowserRuntimePort`、`AuthPort`、`MallPort`、`EndpointTransportPort`、`DaemonProcessPort`、`ConsoleLoginDriverPort`、`CategoryResolverPort`、`MerchantDraftEditorPort`）。
@@ -68,26 +68,24 @@ src/infra/                 envelope、output-sink、错误、日志、配置、S
 **命令域注册器** (`src/commands/registry/`，`register(program, wireAction)`)：
 
 ```
-core.js      → init / login / doctor
+core.js      → login / doctor
 config.js    → config show / set / unset / validate
-shops.js     → shops list / current
+shops.js     → shops list
 orders.js    → orders list / detail / stats / after-sales
-goods.js     → goods list / stock / segment / traffic / profit / receipt / reviews / templates / publish
+goods.js     → goods list / segment / traffic / profit / receipt / reviews / templates / publish
                goods cost list / set / remove / import
                goods update status / price / stock / title / batch
 promo.js     → promo roi
-diagnose.js  → diagnose shop / orders / inventory / promo / after-sales
-               diagnose experience / customer-service / reviews / traffic
-account.js   → account add / remove / list / default
-daemon.js    → daemon start / stop / restart / status / run
-console.js   → console link
+diagnose.js  → diagnose shop / experience / customer-service / reviews / traffic
+account.js   → account remove / list / default
+daemon.js    → daemon start / stop / restart / status / run / link
 ```
 
 新增命令只需改命令文件与对应 registrar。
 
 ### 3.2 命令层与 Runner (`src/commands/`)
 
-- 全部命令 handler（含 `init`、`login`、`doctor`、`account`、`config`）都是 `withCommand({ name | command, lifecycle, needsAuth, needsMall, needsBrowser, needsAccount, allowAllAccounts, defaultTimeoutMs, run, render })` 的薄封装，经统一 `envelope-kernel` 完成预设校验（`merchant` / `local` / `maintenance`）、超时预算与单次发射。
+- 全部命令 handler（含 `login`、`doctor`、`account`、`config`）都是 `withCommand({ name | command, lifecycle, needsAuth, needsMall, needsBrowser, needsAccount, allowAllAccounts, defaultTimeoutMs, run, render })` 的薄封装，经统一 `envelope-kernel` 完成预设校验（`merchant` / `local` / `maintenance`）、超时预算与单次发射。
 - `_runner.js` 是 facade，实现在 `runner/`：
 
 | 文件 | 职责 |
@@ -207,7 +205,7 @@ export const ORDER_LIST = {
 
 ## 四、常驻 Daemon 与 Web 控制台
 
-- `pdd daemon start|stop|restart|status` 管理后台进程，`pdd daemon run` 前台运行；`pdd console link` 签发控制台登录链接。详见 ADR 0003。
+- `pdd daemon start|stop|restart|status` 管理后台进程，`pdd daemon run` 前台运行；`pdd daemon link` 签发控制台登录链接。详见 ADR 0003。
 - `src/daemon/`：`server.js`、`routes.js`、`http.js`、`sse.js`（画面推送）、`static.js`（提供 `src/console/public` 静态前端）、`run.js`（组装运行时与巡检）。
 - 控制台支持账号状态查看、密码保存、通过 CDP 接管完成扫码/验证码登录；可选巡检（`patrolEnabled`）定期核验商家会话。
 - daemon 以 SQLite 租约保证单实例；普通命令、`login`、`doctor` 不启动也不依赖它。

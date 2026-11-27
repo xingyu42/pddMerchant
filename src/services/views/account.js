@@ -39,15 +39,6 @@ export function toAccountListView(accounts, defaultSlug) {
   return { headline, items, total: items.length, default_slug: defaultSlug ?? null };
 }
 
-export function toAccountAddedView({ slug, display_name: displayName, identity: mallId }) {
-  return {
-    headline: [`已添加账号 ${displayName ?? slug}（${slug}），店铺 ${mallId ?? '未知'}`],
-    slug,
-    display_name: text(displayName),
-    mall_id: text(mallId),
-  };
-}
-
 function removedHeadline(account, footprint, confirm) {
   const parts = [footprint.hasLoginState && '登录态', footprint.hasPassword && '已存密码',
     footprint.goodsCostCount > 0 && `商品成本 ${footprint.goodsCostCount} 条`].filter(Boolean);

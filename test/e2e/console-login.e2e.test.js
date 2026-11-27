@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { it } from 'vitest';
-import { createDaemonSandbox, consoleLink, parseDaemonResult } from '../helpers/daemon-cli.js';
+import { createDaemonSandbox, daemonLink, parseDaemonResult } from '../helpers/daemon-cli.js';
 import { consoleRequest } from '../helpers/console-http.js';
 import { seedDb, DEFAULT_ACCOUNT } from '../helpers/seed-db.js';
 import { getDatabasePath, openDatabase, closeDatabase } from '../../src/infra/db.js';
@@ -18,7 +18,7 @@ const credential = { loginName: 'P4-private-login-7462', password: 'P4-private-p
 const otherAccounts = ['two', 'three'].map((slug, index) => ({ slug, display_name: slug, identity: String(900002 + index) }));
 
 function ordinary(sandbox) {
-  return parseDaemonResult(spawnSync(process.execPath, [cliPath, 'shops', 'current', '--json'], {
+  return parseDaemonResult(spawnSync(process.execPath, [cliPath, 'shops', 'list', '--json'], {
     cwd: sandbox.root, env: sandbox.env, encoding: 'utf8', timeout: 30000, windowsHide: true,
   }));
 }
@@ -34,7 +34,7 @@ async function setup({ accounts = [DEFAULT_ACCOUNT], password = true, challenge 
   const first = password ? ordinary(sandbox) : null;
   const started = sandbox.cli('start');
   assert.equal(started.envelope.ok, true);
-  const link = consoleLink(sandbox);
+  const link = daemonLink(sandbox);
   const port = Number(sandbox.env.PDD_CONSOLE_PORT);
   const redeemed = await consoleRequest(port, '/api/redeem', { method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-PDD-Console': '1' },

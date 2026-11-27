@@ -1,25 +1,9 @@
 import { withCommand } from './_runner.js';
-import { TIMEOUTS } from '../infra/timeouts.js';
 import {
-  addAccount,
   listAccounts,
   removeAccount,
   setDefaultAccount,
 } from '../services/account.js';
-
-export const add = withCommand({
-  name: 'account.add',
-  lifecycle: 'local',
-  needsAccount: 'none',
-  needsMall: 'none',
-  defaultTimeoutMs: TIMEOUTS.LOGIN_HEADED,
-  run: (ctx) => addAccount(ctx.config, {
-    runtime: ctx.runtime,
-    signal: ctx.signal,
-    deadlineAt: ctx.deadlineAt,
-    log: ctx.log,
-  }),
-});
 
 export const remove = withCommand({
   name: 'account.remove',

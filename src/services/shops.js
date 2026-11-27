@@ -1,5 +1,5 @@
 import { listMalls } from '../adapter/mall-reader.js';
-import { toCurrentShopView, toShopListView } from './views/shops.js';
+import { toShopListView } from './views/shops.js';
 
 // shops.list：优先使用 runner 已解析的店铺列表，缺失时再读取
 export async function getShopListView(ctx) {
@@ -10,8 +10,4 @@ export async function getShopListView(ctx) {
       ? ctx.runtime.ports.mall.listMalls(ctx.page)
       : listMalls(ctx.page));
   return toShopListView(records, ctx.mallCtx?.activeId ?? null);
-}
-
-export function getCurrentShopView(ctx) {
-  return toCurrentShopView(ctx.mallCtx);
 }

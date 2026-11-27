@@ -10,7 +10,7 @@ it('recovers expired auth with a password, saves verified state and continues th
   seed();
   const result = cli();
   assert.equal(result.status, 0);
-  assert.equal(result.envelope.command, 'shops.current');
+  assert.equal(result.envelope.command, 'shops.list');
   assert.deepEqual(attempts(), ['success']);
   assert.equal(state().reason, 'success');
   const saved = loadAuthState(1);
@@ -49,7 +49,7 @@ it('two concurrent processes wait past the normal lease budget and reuse one log
 
 it('password login has an independent budget even with a short ordinary command timeout', () => {
   seed();
-  const result = cli(['shops', 'current', '--timeout', '300'], { PDD_TEST_PASSWORD_LOGIN_DELAY_MS: '800' });
+  const result = cli(['shops', 'list', '--timeout', '300'], { PDD_TEST_PASSWORD_LOGIN_DELAY_MS: '800' });
   assert.equal(result.status, 0);
   assert.deepEqual(attempts(), ['success']);
 });

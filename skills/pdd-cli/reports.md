@@ -1,28 +1,26 @@
 # 经营报表口径
 
-转述 `diagnose *`、`orders after-sales`、`orders detail`、`goods list`、`goods stock`、`goods traffic`、`goods profit`、`goods receipt`、`goods reviews` 结果前读本文件。通用规则见 SKILL.md「转述结果」：`headline` 优先、`null` 表示未知、`hints` 原样转述。标注 **必附** 的说明在转述时原样带上。
+转述 `diagnose *`、`orders stats`、`orders after-sales`、`orders detail`、`goods list`、`goods segment`、`goods traffic`、`goods profit`、`goods receipt`、`goods reviews` 结果前读本文件。通用规则见 SKILL.md「转述结果」：`headline` 优先、`null` 表示未知、`hints` 原样转述。标注 **必附** 的说明在转述时原样带上。
 
-## diagnose shop / orders / inventory / promo
+## diagnose shop
 
 - `diagnose shop`：
   - 汇总订单 / 库存 / 推广 / 售后四个维度。
   - `--compare` 输出环比，窗口为 `{ start_date, end_date, days }`；`_pct` 指标的 `delta` 是百分点，`delta_pct` 是相对变化率。
   - 当前库存和待发货是快照，带 `note: "仅有当前快照，无上期数据"`，无历史对比。
-- `diagnose orders` 含两个口径相互独立的区块：
-  - `detail`（主区块）：待发货 / 延迟发货计数，以及近 7 天下单列表样本的 P95 发货时长、退款率。
-  - `regions`：口径「数据中心-地域分布（成团订单）」，默认近 7 天（`window_days: 7`，`queryType: 1`）。
-    - 按成团金额降序列出各省成团额（`_yuan`）、成团单数、成团买家数、客单价（`_yuan`）与笔单价（`_yuan`）。
-    - 无成团的省份不出现在 `items[]` 中；无成团省份时 `items: []`、`province_count: 0`、`window: null`，并保留 `window_days: 7`。
-    - 命中 `delayData` 时标注 `delayed: true` 并附提示。
-    - 降级：地域分布失败或返回字体混淆时仅 `regions: null` 并附 hint，主区块与退出码不变。
-  - `diagnose shop` 的 `orders` 维度不含 `regions`。
-- 统计范围：销量统计（`diagnose inventory`、`goods segment`）计入待发货、已发货、已收货订单；售后统计（`diagnose orders/shop/after-sales`）使用全部订单。
+  - `orders` 维度取待发货 / 延迟发货计数及近 7 天订单样本的 P95 发货时长与退款率（不含 `regions`）。
+  - `inventory` 维度低库存阈值统一为 `<= 10`（与 `goods list --low-stock`、`goods segment` 一致）。
+  - `after_sales` 维度取订单样本中的 `refund_count` / `refund_rate_pct` 与 `after_sales_count`（售后处理中）/ `after_sales_rate_pct`，空样本为 `null`。
+- 统计范围：销量统计（`diagnose shop` 的 `inventory` 维度、`goods segment`）计入待发货、已发货、已收货订单；售后统计（`diagnose shop` 的 `orders` / `after_sales` 维度、`orders stats`）使用全部订单。
 
-## diagnose after-sales
+## orders stats
 
-- 维度键 `after_sales`；`detail` 含 `total_orders`、`refund_count`、`refund_rate_pct`、`after_sales_count`、`after_sales_rate_pct`、`status_distribution`、`window_days`。
-- `after_sales_count` 只计售后处理中订单；两类占比的分母都是采集到的全部订单，空样本为 `null`。
-- 店铺汇总取近 7 天首批 50 条订单；单独查询默认近 30 天分页采集，截断和限流写入提示。
+- 主区块包含远程待发货/延迟发货/待收货计数与本地样本（默认 50 单，含售后订单）的 P50/P95 发货时长、退款与售后计数。
+- `--with-regions` 附带独立的省级成团分布 `regions` 区块（口径「数据中心-地域分布（成团订单）」，默认近 7 天 `window_days: 7`）：
+  - 按成团金额降序列出各省成团额（`_yuan`）、成团单数、成团买家数、客单价（`_yuan`）与笔单价（`_yuan`）。
+  - 无成团的省份不出现在 `items[]` 中；无成团省份时 `items: []`、`province_count: 0`、`window: null`，并保留 `window_days: 7`。
+  - 命中 `delayData` 时标注 `delayed: true` 并附提示。
+  - 降级：地域分布失败或返回字体混淆时仅 `regions: null` 并附 hint，主区块与退出码不变。
 
 ## orders after-sales
 
@@ -119,16 +117,17 @@
 - 默认输出省略 `skus` 键，适合配合 `--size 50` 批量扫描全店目录。商品基础字段含：`out_goods_sn`（**Merchant Goods Code**，空串为 `null`）、`price_min_yuan` / `price_max_yuan`（**Current Group Price** 当前拼单价）、`origin_price_min_yuan` / `origin_price_max_yuan`（**Daily Group Price** 日常拼单价）、`sold_quantity` / `sold_quantity_30d`（**Catalog Sales** 商品列表口径累计/近 30 天销量，独立于 `goods segment` 与订单聚合口径）、`fav_count`、`cost_template_id`（字符串，未绑定为 `null`，与 `goods templates` 对齐）及 `created_at` / `updated_at`（北京时间；`0` 或缺失为 `null`）。
 - 活动状态由调用方自行对照当前拼单价 `price_*`、日常拼单价 `origin_price_*` 与 `promotion` 判断，CLI 不派生活动掉线判定或差价。
 - 传入 `--with-skus` 时在同一条上游请求内（`meta.xhr_count: 1`）展开每个商品的 `skus[]`（5 字段：`sku_id`、`spec`、`out_sku_sn`、`quantity`、`on_sale`）；上游缺失或非数组 `sku_list` 时输出 `skus: null`（区别于零个规格 `[]`），并在 `headline` 追加本页规格总数及规格数据缺失的商品件数。
+- 传入 `--low-stock [threshold]`（默认阈值 `10`，默认 `--size 50`，支持 `--status onsale|offline`，默认 `onsale`）时仅扫描一页商品并筛出告警清单：
+  - `items` 为总库存不高于 `threshold` 的商品，加上总库存高于阈值或缺失、但至少一个在售规格库存不高于阈值的商品。
+  - `low_stock_count` 只计总库存不高于阈值的商品，可能少于 `items` 条数；仅因规格进入告警的商品由 headline 第三行单独计数，两行合计等于 `items` 条数。
+  - `skus[]` 为该商品全部规格，在 5 项基础规格字段外包含 `low_stock`（仅在规格在售 `on_sale: true` 且库存为已知数并不高于阈值时为 true）。
+  - `low_stock_sku_count` 是该商品 `low_stock` 规格数；规格数据缺失时 `skus` 与 `low_stock_sku_count` 均为 `null`（区别于零个规格 `[]` / `0`）。
+  - 「缺货」在商品级和规格级都指库存 `<= 0`。
 
-## goods stock
+## goods segment
 
-- 只扫描一页商品（`--size` 默认 50），共享 `goods list` 的商品基础字段。`items` 为总库存不高于 `threshold` 的商品，加上总库存高于阈值或缺失、但至少一个在售规格库存不高于阈值的商品。
-- `low_stock_count` 只计总库存不高于阈值的商品，可能少于 `items` 条数；仅因规格进入告警的商品由 headline 第三行单独计数，两行合计等于 `items` 条数。
-- `skus[]` 为该商品全部规格，在 5 项基础规格字段（`sku_id`、`spec`、`out_sku_sn`、`quantity`、`on_sale`）外包含 `low_stock`：
-  - `low_stock` 只在规格在售（`on_sale: true`）且库存为已知数并不高于阈值时为 true；在售标记未知或库存缺失不触发。
-  - `low_stock_sku_count` 是该商品 `low_stock` 规格数。
-  - 规格数据缺失时 `skus` 与 `low_stock_sku_count` 均为 `null`（区别于零个规格 `[]` / `0`）。
-- 「缺货」在商品级和规格级都指库存 `<= 0`。
+- 按商品汇总统计窗口内销量（`units_sold`）、可售天数（`stock_days`）与推广 ROI（`promo_roi`），`--no-promo` 可跳过推广查询。
+- `summary` 包含 `out_of_stock_count`（库存 `<= 0` 件数）、`low_stock_count`（库存 `1..10` 件数）、`low_stock_threshold`（固定 `10`）与 `zero_sales_count`（窗口内零销量且有库存件数，订单采集不完整时为 `null`）。任意商品库存未知时 `out_of_stock_count` 与 `low_stock_count` 为 `null`。
 
 ## goods traffic
 

@@ -1,11 +1,5 @@
 // 店铺视图（输出契约 v2）：mall-reader 归一后的店铺记录 → { mall_id, name, is_current }
-import { labelOf } from '../../infra/units.js';
 import { text } from './_shared.js';
-
-const MALL_SOURCE_LABEL = Object.freeze({
-  mock: '测试数据', state: '页面状态', url: '页面 URL', cookie: 'Cookie',
-  storage: '本地存储', xhr: '接口响应', dom: '页面元素',
-});
 
 export const SHOP_VIEW_FIELDS = Object.freeze(['mall_id', 'name', 'is_current']);
 
@@ -32,16 +26,5 @@ export function toShopListView(records, activeId) {
     headline: [`共 ${items.length} 个店铺；${describeCurrent(current?.mall_id, current?.name)}`],
     items,
     total: items.length,
-  };
-}
-
-export function toCurrentShopView(mallCtx) {
-  const mallId = text(mallCtx?.activeId);
-  const name = text(mallCtx?.activeName);
-  return {
-    headline: [describeCurrent(mallId, name)],
-    mall_id: mallId,
-    name,
-    source: labelOf(MALL_SOURCE_LABEL, mallCtx?.source),
   };
 }

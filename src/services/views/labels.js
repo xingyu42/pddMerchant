@@ -17,7 +17,7 @@ export const ORDER_SCOPE_LABEL = Object.freeze({
 // 10 / 11 = 售后处理中（中置信：与 afterSaleType=2 过滤结果 4/4 吻合，二者子类区别无证据）
 export const AFTER_SALES_STATUS_LABEL = Object.freeze({ 5: '退款成功', 10: '售后处理中', 11: '售后处理中' });
 
-// 商品与订单的匹配方式（goods.segment / diagnose.inventory）
+// 商品与订单的匹配方式（goods.segment / diagnose.shop.inventory）
 export const MATCHED_BY_LABEL = Object.freeze({
   goods_id: '按商品 ID 匹配',
   goods_name: '按商品名匹配',

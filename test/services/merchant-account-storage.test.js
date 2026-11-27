@@ -9,7 +9,7 @@ import { insertAccount, findAccountByIdentity, removeAccount, setDefaultAccount,
 import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
 import { openDatabase, run, get, isInTransaction } from '../../src/infra/db.js';
 import { seal, aad } from '../../src/infra/secret-box.js';
-import { run as runInit } from '../../src/commands/init.js';
+import { run as runLogin } from '../../src/commands/login.js';
 import { composeCommandRuntime } from '../../src/runtime/command-runtime.js';
 import { TIMEOUTS } from '../../src/infra/timeouts.js';
 import { acquireLease, releaseLease } from '../../src/infra/leases.js';
@@ -107,7 +107,7 @@ describe('atomic merchant login registration', () => {
       },
     });
     try {
-      const result = await runInit({ qr: true, timeout, timeoutMs: 5000, json: true }, { runtime });
+      const result = await runLogin({ qr: true, timeout, timeoutMs: 5000, json: true }, { runtime });
       assert.equal(result.ok, true);
       assert.equal(runtime.outputSink.hasEmitted(), true);
       assert.equal(JSON.parse(readStdout().trim()).ok, true);
@@ -270,7 +270,7 @@ describe('atomic merchant login registration', () => {
       authorize();
     };
     try {
-      const result = await runInit({ account: existing.slug, json: true, timeoutMs: 5000 }, { runtime });
+      const result = await runLogin({ account: existing.slug, json: true, timeoutMs: 5000 }, { runtime });
       assert.equal(result.ok, true, JSON.stringify(result.error));
       assert.equal(result.data.account_slug, existing.slug);
       assert.equal(loadAuthState(existing.id).revision, 2);

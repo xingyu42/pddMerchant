@@ -1,4 +1,4 @@
-// 账号管理领域服务：列表查询、有头登录添加、预演/级联移除（免解密）与默认账号切换。
+// 账号管理领域服务：列表查询、预演/级联移除（免解密）与默认账号切换。
 import { transaction } from '../infra/db.js';
 import {
   getAccount,
@@ -10,7 +10,6 @@ import {
 import { PddCliError, ExitCodes, accountNotFound } from '../infra/errors.js';
 import { getReloginSummary } from './relogin-policy.js';
 import {
-  toAccountAddedView,
   toAccountDefaultView,
   toAccountListView,
   toAccountRemovedView,
@@ -35,26 +34,6 @@ export function listAccounts() {
     accounts.map((account) => ({ ...account, relogin: getReloginSummary(account.id) })),
     defaultSlug,
   );
-}
-
-/** Register or refresh a merchant account through interactive headed login. */
-export async function addAccount(options = {}, deps = {}) {
-  const authenticate = deps.authenticateMerchant
-    ?? (await import('./auth.js')).authenticateMerchant;
-  const provisioned = await authenticate(
-    {
-      ...options,
-      account: undefined,
-      qr: false,
-      headed: true,
-      headedNotice: '正在通过有头浏览器登录，请手动完成登录...',
-    },
-    deps,
-  );
-  return {
-    data: toAccountAddedView(provisioned.account),
-    warnings: ['credentials_not_saved_headed_login'],
-  };
 }
 
 /** Preview or confirm account removal using decrypt-free footprint counts so mismatched master keys remain removable. */

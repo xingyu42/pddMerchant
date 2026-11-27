@@ -6,7 +6,6 @@ import { composeCommandRuntime } from '../../src/runtime/command-runtime.js';
 import { createOutputSink } from '../../src/infra/output-sink.js';
 import { createCandidateSeal } from '../../src/infra/candidate-seal.js';
 import { ExitCodes } from '../../src/infra/errors.js';
-import { run as runInit } from '../../src/commands/init.js';
 import { run as runLogin } from '../../src/commands/login.js';
 import { loginConsumerInteractive, loginMerchantInteractive } from '../../src/adapter/interactive-login.js';
 import { createInMemoryAuthPort, createInMemoryBrowserRuntime } from '../helpers/in-memory-ports.js';
@@ -26,15 +25,13 @@ function makeMemoryStreams() {
   };
 }
 
-describe('init and login command lifecycle lowering', () => {
-  it('declares local lifecycle with required runtimeConfigPolicy on both init and login', () => {
-    assert.equal(runInit.lifecycle, 'local');
-    assert.equal(runInit.runtimeConfigPolicy, 'required');
+describe('login command lifecycle lowering', () => {
+  it('declares local lifecycle with required runtimeConfigPolicy on login', () => {
     assert.equal(runLogin.lifecycle, 'local');
     assert.equal(runLogin.runtimeConfigPolicy, 'required');
   });
 
-  it('honors --no-color (color: false and noColor: true), clock latency_ms, correlation_id, and single-emit on init', async () => {
+  it('honors --no-color (color: false and noColor: true), clock latency_ms, correlation_id, and single-emit on login', async () => {
     const { streams, readStdout, readStderr } = makeMemoryStreams();
     const realSink = createOutputSink({ streams });
     const emitCalls = [];
@@ -83,10 +80,10 @@ describe('init and login command lifecycle lowering', () => {
     });
 
     try {
-      const envelope = await runInit({ qr: true, color: false, json: false }, { runtime });
+      const envelope = await runLogin({ qr: true, color: false, json: false }, { runtime });
       assertEnvelopeShape(envelope, {
         ok: true,
-        command: 'init',
+        command: 'login',
         exitCode: ExitCodes.OK,
         hasData: true,
         hasError: false,
@@ -96,7 +93,7 @@ describe('init and login command lifecycle lowering', () => {
       assert.equal(emitCalls.length, 1);
       assert.equal(emitCalls[0].options.noColor, true);
       assert.equal(realSink.hasEmitted(), true);
-      assert.equal(readStdout().startsWith('OK  init\n'), true);
+      assert.equal(readStdout().startsWith('OK  login\n'), true);
       assert.match(readStderr(), /\/tmp\/init-qr\.png/);
       assert.match(readStderr(), /QR 解码失败/);
     } finally {
@@ -104,9 +101,8 @@ describe('init and login command lifecycle lowering', () => {
     }
   });
 
-  it('rejects --all-accounts with E_USAGE on init, login, and login.consumer', async () => {
+  it('rejects --all-accounts with E_USAGE on login and login.consumer', async () => {
     for (const [handler, opts, expectedCommand] of [
-      [runInit, { allAccounts: true, json: true }, 'init'],
       [runLogin, { allAccounts: true, json: true }, 'login'],
       [runLogin, { consumer: true, allAccounts: true, json: true }, 'login.consumer'],
     ]) {

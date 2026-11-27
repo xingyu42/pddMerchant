@@ -221,7 +221,7 @@ function assertDoctorLogin(data, log) {
     throw new PddCliError({
       code: 'E_AUTH_STATE_MISSING',
       message: '登录态文件缺失或损坏',
-      hint: '执行 pdd init 完成首次授权',
+      hint: '执行 pdd login 完成首次授权',
       detail: data,
       exitCode: ExitCodes.AUTH,
     });

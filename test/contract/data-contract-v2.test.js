@@ -13,7 +13,7 @@ import {
 import { ACCOUNT_VIEW_FIELDS, ACCOUNT_REMOVED_VIEW_FIELDS } from '../../src/services/views/account.js';
 import { CONFIG_FIELD_VIEW_FIELDS } from '../../src/services/views/config.js';
 import { SHOP_VIEW_FIELDS } from '../../src/services/views/shops.js';
-import { ORDER_DETAIL_VIEW_FIELDS, ORDER_VIEW_FIELDS } from '../../src/services/views/order.js';
+import { ORDER_DETAIL_VIEW_FIELDS, ORDER_VIEW_FIELDS, ORDER_REGIONS_FIELDS, ORDER_REGION_ITEM_FIELDS } from '../../src/services/views/order.js';
 import {
   AFTER_SALES_CASE_FIELDS, AFTER_SALES_CASE_WITH_DELIVERY_FIELDS, AFTER_SALES_DELIVERY_SUMMARY_FIELDS,
   REASON_SUMMARY_FIELDS, AFTER_SALES_WINDOW_FIELDS, AFTER_SALES_FILTER_FIELDS,
@@ -28,9 +28,9 @@ import {
 import { PUBLISH_VIEW_FIELDS } from '../../src/services/views/goods-publish.js';
 import { GOODS_SEGMENT_ITEM_FIELDS } from '../../src/services/goods-segmentation.js';
 import { PROMO_ROI_ITEM_FIELDS, PROMO_TOTALS_FIELDS } from '../../src/services/views/promo.js';
-import { STALE_SAMPLE_FIELDS, ORDER_REGIONS_FIELDS, ORDER_REGION_ITEM_FIELDS } from '../../src/services/views/diagnose.js';
+import { STALE_SAMPLE_FIELDS } from '../../src/services/views/diagnose.js';
 import { DAEMON_STATUS_VIEW_FIELDS } from '../../src/services/views/daemon.js';
-import { runDaemonContract, runConsoleLinkContract } from '../helpers/daemon-cli.js';
+import { runDaemonContract, runDaemonLinkContract } from '../helpers/daemon-cli.js';
 import { runCostContract, runProfitContract } from '../helpers/goods-cost-cli.js';
 import { GOODS_COST_ENTRY_FIELDS } from '../../src/services/views/goods-cost.js';
 import { GOODS_PROFIT_ITEM_FIELDS, GOODS_PROFIT_SUMMARY_FIELDS, GOODS_PROFIT_QUALITY_FIELDS } from '../../src/services/views/goods-profit.js';
@@ -151,7 +151,7 @@ const V2_CASES = [
   { command: 'goods.cost.remove', args: ['goods', 'cost', 'remove'], execute: () => runCostContract('remove') },
   { command: 'goods.cost.import', args: ['goods', 'cost', 'import'], execute: () => runCostContract('import'),
     entityFields: { 'items[]': GOODS_COST_ENTRY_FIELDS } },
-  { command: 'console.link', args: ['console', 'link'], execute: runConsoleLinkContract,
+  { command: 'daemon.link', args: ['daemon', 'link'], execute: runDaemonLinkContract,
     entityFields: { '': ['headline', 'url', 'expires_at'] } },
   { command: 'daemon.start', args: ['daemon', 'start'], execute: () => runDaemonContract('start') },
   { command: 'daemon.stop', args: ['daemon', 'stop'], execute: () => runDaemonContract('stop') },
@@ -160,8 +160,6 @@ const V2_CASES = [
     entityFields: { '': DAEMON_STATUS_VIEW_FIELDS } },
   { command: 'daemon.run', args: ['daemon', 'run'], execute: () => runDaemonContract('run') },
   { command: 'shops.list', args: ['shops', 'list'], entityFields: { 'items[]': SHOP_VIEW_FIELDS } },
-  { command: 'shops.current', args: ['shops', 'current'] },
-  { command: 'account.add', args: ['account', 'add'] },
   {
     command: 'account.list',
     args: ['account', 'list'],
@@ -184,7 +182,6 @@ const V2_CASES = [
     entityFields: { 'fields.*': CONFIG_FIELD_VIEW_FIELDS },
   },
   { command: 'config.validate', args: ['config', 'validate'] },
-  { command: 'init', args: ['init', '--qr'] },
   { command: 'login', args: ['login', '--qr'] },
   { command: 'login', envelopeCommand: 'login.consumer', args: ['login', '--consumer', '--qr'] },
   {
@@ -259,9 +256,16 @@ const V2_CASES = [
     fixtures: createFactFixtures(),
     freeKeyPaths: ['local.status_distribution'],
   },
+  {
+    command: 'orders.stats',
+    args: ['orders', 'stats', '--with-regions'],
+    fixtures: createFactFixtures(),
+    freeKeyPaths: ['local.status_distribution'],
+    entityFields: { regions: ORDER_REGIONS_FIELDS, 'regions.items[]': ORDER_REGION_ITEM_FIELDS },
+  },
   { command: 'goods.list', args: ['goods', 'list'], fixtures: createFactFixtures(), entityFields: GOODS_ENTITIES },
   { command: 'goods.list', args: ['goods', 'list', '--with-skus'], fixtures: createFactFixtures(), entityFields: GOODS_WITH_SKUS_ENTITIES },
-  { command: 'goods.stock', args: ['goods', 'stock'], fixtures: lowStockFixtures(), entityFields: GOODS_STOCK_ENTITIES },
+  { command: 'goods.list', args: ['goods', 'list', '--low-stock'], fixtures: lowStockFixtures(), entityFields: GOODS_STOCK_ENTITIES },
   {
     command: 'goods.segment',
     args: ['goods', 'segment', '--days', '7'],
@@ -315,21 +319,6 @@ const V2_CASES = [
     args: ['promo', 'roi', '--by', 'channel'],
     fixtures: createFactFixtures(),
     entityFields: PROMO_ENTITIES,
-  },
-  { command: 'diagnose.orders', args: ['diagnose', 'orders'], fixtures: createFactFixtures(),
-    entityFields: { regions: ORDER_REGIONS_FIELDS, 'regions.items[]': ORDER_REGION_ITEM_FIELDS } },
-  {
-    command: 'diagnose.inventory',
-    args: ['diagnose', 'inventory'],
-    fixtures: staleGoodsFixtures(),
-    entityFields: { 'detail.stale_sample[]': STALE_SAMPLE_FIELDS },
-  },
-  { command: 'diagnose.promo', args: ['diagnose', 'promo'], fixtures: createFactFixtures() },
-  {
-    command: 'diagnose.after-sales',
-    args: ['diagnose', 'after-sales'],
-    fixtures: createFactFixtures(),
-    freeKeyPaths: ['detail.status_distribution'],
   },
   {
     command: 'diagnose.shop',

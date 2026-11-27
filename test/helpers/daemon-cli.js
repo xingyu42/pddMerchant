@@ -31,8 +31,8 @@ export async function createDaemonSandbox() {
   return { ...sandbox, cli, cliAsync };
 }
 
-export function consoleLink(sandbox, args = []) {
-  return parseDaemonResult(spawnSync(process.execPath, [cliPath, 'console', 'link', ...args, '--json'], {
+export function daemonLink(sandbox, args = []) {
+  return parseDaemonResult(spawnSync(process.execPath, [cliPath, 'daemon', 'link', ...args, '--json'], {
     cwd: sandbox.root, env: sandbox.env, encoding: 'utf8', timeout: 15000, windowsHide: true,
   }));
 }
@@ -79,10 +79,10 @@ export async function runDaemonContract(action) {
   }
 }
 
-export async function runConsoleLinkContract() {
+export async function runDaemonLinkContract() {
   const sandbox = await createDaemonSandbox();
   try {
     await sandbox.cliAsync('start');
-    return parseDaemonResult(await spawnNode([cliPath, 'console', 'link', '--json'], { cwd: sandbox.root, env: sandbox.env }));
+    return parseDaemonResult(await spawnNode([cliPath, 'daemon', 'link', '--json'], { cwd: sandbox.root, env: sandbox.env }));
   } finally { await sandbox.cliAsync('stop'); sandbox.dispose(); }
 }

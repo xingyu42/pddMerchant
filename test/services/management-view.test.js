@@ -1,6 +1,6 @@
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
-import { toCurrentShopView, toShopListView } from '../../src/services/views/shops.js';
+import { toShopListView } from '../../src/services/views/shops.js';
 import { toDoctorView, toMerchantLoginView, renderDoctor } from '../../src/services/views/auth.js';
 import { insertAccount, listAccounts, updateAccount } from '../../src/infra/account-store.js';
 import { loadAuthState, saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
@@ -21,11 +21,8 @@ describe('management headlines state only known facts', () => {
   });
 
   it('does not invent a shop name when it is missing', () => {
-    assert.deepEqual(toCurrentShopView({ activeId: '445301049', activeName: '', source: 'state' }).headline, [
-      '当前店铺 ID 445301049（未获取到店铺名）',
-    ]);
     assert.deepEqual(toShopListView([{ id: '1', name: '' }], '1').headline, ['共 1 个店铺；当前店铺 ID 1（未获取到店铺名）']);
-    assert.deepEqual(toCurrentShopView({ activeId: null }).headline, ['未能识别当前店铺']);
+    assert.deepEqual(toShopListView([{ id: '1', name: '' }], null).headline, ['共 1 个店铺；未能识别当前店铺']);
     assert.deepEqual(toMerchantLoginView({ identity: { mallId: '1' }, mode: 'qr' }).headline, [
       '商家端授权成功：店铺 ID 1（未获取到店铺名）',
     ]);

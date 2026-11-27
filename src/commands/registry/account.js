@@ -4,11 +4,6 @@ import * as accountCmd from '../account.js';
 export function register(program, wireAction) {
   const account = program.command('account').description('👤 多账号管理');
   wireAction(
-    account.command('add').description('添加新账号（有头浏览器登录 + 自动注册）'),
-    'account.add',
-    accountCmd.add
-  );
-  wireAction(
     account.command('remove')
       .description('删除账号及其登录态、密码和商品成本（需 --confirm）')
       .requiredOption('--slug <slug>', '账号 slug')

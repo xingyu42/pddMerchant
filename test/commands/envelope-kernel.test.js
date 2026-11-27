@@ -13,8 +13,7 @@ import { abortableSleep } from '../../src/infra/abort.js';
 import { insertAccount } from '../../src/infra/account-store.js';
 import { saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
 import * as configCmd from '../../src/commands/config.js';
-import { link as consoleLink } from '../../src/commands/console.js';
-import { status as daemonStatus } from '../../src/commands/daemon.js';
+import { link as daemonLink, status as daemonStatus } from '../../src/commands/daemon.js';
 import { run as goodsCostList } from '../../src/commands/goods/cost/list.js';
 import { run as ordersList } from '../../src/commands/orders/list.js';
 import { runCli, createCliSandbox, spawnNode } from '../helpers/isolated-cli.js';
@@ -466,8 +465,8 @@ describe('lifecycle presets: backward compatibility, load-time validation, and -
     assert.equal(configCmd.unset.runtimeConfigPolicy, 'maintenance');
     assert.equal(configCmd.validate.runtimeConfigPolicy, 'maintenance');
 
-    assert.equal(consoleLink.runtimeConfigPolicy, 'required');
-    assert.equal(consoleLink.lifecycle, 'local');
+    assert.equal(daemonLink.runtimeConfigPolicy, 'required');
+    assert.equal(daemonLink.lifecycle, 'local');
     assert.equal(daemonStatus.runtimeConfigPolicy, 'required');
     assert.equal(daemonStatus.lifecycle, 'local');
     assert.equal(goodsCostList.runtimeConfigPolicy, 'required');
@@ -506,7 +505,7 @@ describe('lifecycle presets: backward compatibility, load-time validation, and -
 
   it('rejects --all-accounts with E_USAGE in local and maintenance commands and emits once', async () => {
     for (const [handler, expectedCommand] of [
-      [consoleLink, 'console.link'],
+      [daemonLink, 'daemon.link'],
       [daemonStatus, 'daemon.status'],
       [goodsCostList, 'goods.cost.list'],
       [configCmd.show, 'config.show'],

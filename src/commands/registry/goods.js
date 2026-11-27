@@ -1,7 +1,6 @@
 // 🛍️ Goods 分组注册：读操作 + update 写操作子组 + publish/templates（design D-3）
 import { Option } from 'commander';
 import * as list from '../goods/list.js';
-import * as stock from '../goods/stock.js';
 import * as segment from '../goods/segment.js';
 import * as updateStatus from '../goods/update/status.js';
 import * as updatePrice from '../goods/update/price.js';
@@ -18,7 +17,7 @@ import * as profit from '../goods/profit.js';
 import * as traffic from '../goods/traffic.js';
 import * as receipt from '../goods/receipt.js';
 import * as reviews from '../goods/reviews.js';
-import { goodsIdArg, goodsIdListArg, integerArg, starsArg, withReportDays } from '../option-parsers.js';
+import { goodsIdArg, goodsIdListArg, integerArg, preserveParseErrorCommand, starsArg, withReportDays } from '../option-parsers.js';
 import { GOODS_REVIEWS_REPORT } from '../../services/reviews.js';
 import { GOODS_TRAFFIC_REPORT } from '../../services/goods-traffic.js';
 import { GOODS_PROFIT_REPORT } from '../../services/goods-profit.js';
@@ -59,27 +58,16 @@ function registerReads(goods, wireAction) {
     .addOption(new Option('--caliber <name>', `商家出资口径：${describeReceiptCalibers()}`)
       .choices(Object.keys(RECEIPT_CALIBERS)).default(DEFAULT_RECEIPT_CALIBER)),
   'goods.receipt', receipt.run);
-  wireAction(
-    goods
-      .command('list')
-      .description('商品列表')
-      .option('--page <n>', '页码', integerArg(1), 1)
-      .option('--size <n>', '每页数量', integerArg(1), 10)
-      .option('--status <s>', '状态筛选：onsale | offline', 'onsale')
-      .option('--with-skus', '展开每个商品的 SKU 规格明细（含编码与库存）', false),
-    'goods.list',
-    list.run
-  );
-  wireAction(
-    goods
-      .command('stock')
-      .description('库存告警（按阈值筛低库存/缺货）')
-      .option('--page <n>', '页码', integerArg(1), 1)
-      .option('--size <n>', '每页数量', integerArg(1), 50)
-      .option('--threshold <n>', '低库存阈值', integerArg(0), 10),
-    'goods.stock',
-    stock.run
-  );
+  const listCommand = goods
+    .command('list')
+    .description('商品列表（加 --low-stock 筛选低库存/缺货商品并展开规格）')
+    .option('--page <n>', '页码', integerArg(1), 1)
+    .option('--size <n>', '每页数量（默认 10；--low-stock 模式默认 50）', integerArg(1))
+    .option('--status <s>', '状态筛选：onsale | offline', 'onsale')
+    .option('--with-skus', '展开每个商品的 SKU 规格明细（含编码与库存）', false)
+    .option('--low-stock [threshold]', '仅筛选低库存/缺货商品（总库存或任一在售规格 ≤ 阈值，默认 10；自动展开规格）', integerArg(0));
+  preserveParseErrorCommand(listCommand);
+  wireAction(listCommand, 'goods.list', list.run);
   wireAction(
     goods
       .command('segment')

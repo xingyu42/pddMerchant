@@ -16,7 +16,7 @@ export const GOODS_LIST_SKU_FIELDS = Object.freeze(['sku_id', 'spec', 'out_sku_s
 
 export const GOODS_LIST_WITH_SKUS_ITEM_FIELDS = Object.freeze([...GOODS_VIEW_FIELDS, 'skus']);
 
-// goods stock 专用：商品视图字段之后追加低库存规格数与规格明细；goods list 默认省略 skus
+// goods list --low-stock 专用：商品视图字段之后追加低库存规格数与规格明细；goods list 默认省略 skus
 export const GOODS_STOCK_ITEM_FIELDS = Object.freeze([...GOODS_VIEW_FIELDS, 'low_stock_sku_count', 'skus']);
 
 export const GOODS_STOCK_SKU_FIELDS = Object.freeze([...GOODS_LIST_SKU_FIELDS, 'low_stock']);
@@ -80,7 +80,7 @@ export function toGoodsView(record) {
   };
 }
 
-// 规格基础 5 字段白名单投影，供 goods list --with-skus 与 goods stock 共用
+// 规格基础 5 字段白名单投影，供 goods list --with-skus 与 --low-stock 共用
 function toListSkuView(sku) {
   return {
     sku_id: text(pick(sku, ['sku_id', 'skuId'])),

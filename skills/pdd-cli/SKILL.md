@@ -47,15 +47,14 @@ pdd <command> [options] --json
 
 - 以 `data.headline` 开头；细节用字段中文含义转述；`null` 说「数据不可用」；诊断 `status`（`数据完整` / `数据不完整`）仅陈述完整性，`hints` 与截断标记原样转述。
 - 只输出事实数字与口径，把经营判断、评分、保本 ROI 和建议留给用户。
-- 转述 `diagnose *`、`orders after-sales`、`orders detail`、`goods list`、`goods stock`、`goods traffic`、`goods profit`、`goods receipt`、`goods reviews` 前先读 [reports.md](reports.md)，按其中口径与必附说明转述。
+- 转述 `diagnose *`、`orders stats`、`orders after-sales`、`orders detail`、`goods list`、`goods segment`、`goods traffic`、`goods profit`、`goods receipt`、`goods reviews` 前先读 [reports.md](reports.md)，按其中口径与必附说明转述。
 
 ## 命令
 
 ### 鉴权与环境
 
 ```bash
-pdd init [--qr]              # 首次登录（默认弹浏览器；--qr 终端扫码）
-pdd login [--qr|--consumer]  # 重新登录
+pdd login [--qr|--consumer]  # 登录或刷新登录态（默认弹浏览器；--qr 终端扫码）
 pdd doctor                   # 环境与登录态自检
 ```
 
@@ -74,7 +73,7 @@ pdd config unset <key> --json
 ```bash
 pdd orders list [--page 1] [--size 20] [--since <unix>] [--until <unix>] [--status all|pending_ship|shipped|received|after_sales]
 pdd orders detail --sn <订单号> [--with-track]
-pdd orders stats [--size 50]   # 本地样本 P50/P95、退款与售后计数
+pdd orders stats [--size 50] [--with-regions]   # 本地样本 P50/P95、退款与售后计数；--with-regions 附带省级成团分布
 pdd orders after-sales [--days 30|--since <date|unix> [--until <date|unix>]] [--sn <订单号>|--goods-id <id>] [--status all|open|refunded|closed] [--type all|refund|return_refund|exchange|resend|repair] [--with-delivery [--max-track-fetches <n>]]
 pdd promo roi [--by plan|sku|channel] [--since YYYY-MM-DD] [--size 50] [--include-inactive]
 ```
@@ -86,8 +85,7 @@ pdd promo roi [--by plan|sku|channel] [--since YYYY-MM-DD] [--size 50] [--includ
 ### 商品查询与写操作
 
 ```bash
-pdd goods list [--page 1] [--size 10] [--status onsale|offline] [--with-skus]
-pdd goods stock [--threshold 10]                         # 低库存 / 缺货（含 SKU 级与商家编码）
+pdd goods list [--page 1] [--size 10] [--status onsale|offline] [--with-skus] [--low-stock [threshold]]
 pdd goods segment [--days 30] [--max-pages 10] [--no-promo]
 pdd goods traffic [--days 30] [--goods-id <id>]          # 商品流量、推广拆分与今日实时 today
 pdd goods profit [--days 30] [--goods-id <id>]           # 净利润（需先录入成本）
@@ -135,29 +133,26 @@ pdd goods cost remove --goods-id 101 [--spec <精确规格>] [--confirm]
 
 ```bash
 pdd diagnose shop [--compare] [--days 7]
-pdd diagnose orders|inventory|promo
-pdd diagnose after-sales [--days 30]
 pdd diagnose experience [--days 7]
 pdd diagnose customer-service [--days 30]
 pdd diagnose reviews [--days 30]
 pdd diagnose traffic [--days 30]
 ```
 
-附加区块速览：`diagnose orders` 含省级成团分布 `regions`；`diagnose customer-service` 含 `sales` 与 `today`；`diagnose reviews` 含近 30 日 `goods_scores`；`diagnose traffic` 含 `today`。各命令天数范围与口径见 [reports.md](reports.md)。
+附加区块速览：`orders stats --with-regions` 含省级成团分布 `regions`；`diagnose customer-service` 含 `sales` 与 `today`；`diagnose reviews` 含近 30 日 `goods_scores`；`diagnose traffic` 含 `today`。各命令天数范围与口径见 [reports.md](reports.md)。
 
 ### 店铺、账号与常驻控制台
 
 ```bash
-pdd shops list|current
-pdd account add|list|default|remove --slug <slug> [--confirm]
-pdd daemon start|status|stop|restart|run
-pdd console link [--account <slug>]
+pdd shops list
+pdd account list|default|remove --slug <slug> [--confirm]
+pdd daemon start|status|stop|restart|run|link [--account <slug>]
 ```
 
-- `account add` 无参数；`account default` / `remove` 用 `--slug <slug>`，`remove` 带 `--confirm` 才实际删除。
-- `daemon` 需显式启动，配置与巡航见 [operations.md](operations.md)。
+- `account default` / `remove` 用 `--slug <slug>`，`remove` 带 `--confirm` 才实际删除；新增商家账号直接执行 `pdd login`。
+- `daemon` 需显式启动，`daemon link` 生成一次性控制台访问链接，配置与巡航见 [operations.md](operations.md)。
 
 ## 登录失效与运维
 
-- **凭证红线**：密码、登录名与验证码只由用户本人在控制台输入，聊天中绝不索要。`console link` 返回的一次性凭证链接只原样转给用户本人，不写入文件、日志或其他会话。
+- **凭证红线**：密码、登录名与验证码只由用户本人在控制台输入，聊天中绝不索要。`daemon link` 返回的一次性凭证链接只原样转给用户本人，不写入文件、日志或其他会话。
 - **遇到以下情况先读 [operations.md](operations.md)**：退出码 `3` / `5`；错误码 `E_AUTH_*`、`E_MASTER_KEY_*`、`E_SECRET_DECRYPT_FAILED`、`E_PASSWORD_LOGIN_FORM_CHANGED`、`E_DAEMON_NOT_RUNNING`、`E_CHROMIUM_MISSING`；`meta.warnings` 含 `account_action_required` / `daemon_not_running`；命令挂起或疑似风控；配置控制台反代、自动巡航、日志路径、上货代理或 fixture Mock 模式。

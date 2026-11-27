@@ -10,7 +10,7 @@
 
 ```bash
 npm install && npx patchright install chromium
-pdd init && pdd doctor      # 登录 + 自检
+pdd login && pdd doctor     # 登录 + 自检
 pdd orders list --json      # AI 消费加 --json
 ```
 

@@ -71,7 +71,7 @@ describe('diagnose views', () => {
       '近 7 天订单 4 单，退款成功 1 单（退款率 25%）',
       '售后处理中 1 单（占比 25%）',
     ]);
-    const singleText = renderSingleDashboard({ command: 'diagnose.after-sales', data: view }, { useColor: false });
+    const singleText = renderSingleDashboard({ command: 'diagnose.售后', data: view }, { useColor: false });
     assert.match(singleText, /统计·售后/);
     assert.match(singleText, /after_sales_rate_pct/);
     const shop = toShopView(diagnoseShop({ after_sales: input }));
@@ -94,6 +94,7 @@ describe('diagnose views', () => {
   it('labels inventory matching and keeps samples whitelisted', () => {
     const view = toDimensionView('inventory', summarizeInventory({ goods: structuredClone(SAMPLE_GOODS), orders30d: [] }));
     assert.equal(view.detail.matched_by, '按商品 ID 匹配');
+    assert.equal(view.headline[0], '统计商品 4 件：缺货 1 件，库存不高于 10 的 2 件');
     for (const item of view.detail.stale_sample) assert.deepEqual(Object.keys(item), ['goods_id', 'goods_name', 'quantity']);
     const ambiguous = toDimensionView('inventory', summarizeInventory({
       goods: [{ goods_name: 'Tea', quantity: 2 }, { goods_name: ' Tea ', quantity: 4 }], orders30d: [],

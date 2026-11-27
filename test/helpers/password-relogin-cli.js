@@ -63,13 +63,13 @@ export function usePasswordReloginSandbox() {
     return existsSync(path) ? readFileSync(path, 'utf8').trim().split(/\r?\n/).filter(Boolean) : [];
   }
 
-  function cli(args = ['shops', 'current'], env = {}) {
+  function cli(args = ['shops', 'list'], env = {}) {
     return parseResult(spawnSync(process.execPath, ['--import', preloadUrl, cliPath, ...args, '--json'], {
       cwd: sandbox.root, env: { ...sandbox.env, ...env }, encoding: 'utf8', timeout: 30000, windowsHide: true,
     }));
   }
 
-  function startCli(args = ['shops', 'current'], env = {}) {
+  function startCli(args = ['shops', 'list'], env = {}) {
     const child = spawn(process.execPath, ['--import', preloadUrl, cliPath, ...args, '--json'], {
       cwd: sandbox.root, env: { ...sandbox.env, ...env }, windowsHide: true,
     });

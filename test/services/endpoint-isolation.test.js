@@ -23,7 +23,7 @@ beforeEach(() => {
 it.each([
   ['diagnose.shop', getShopDiagnosis, 3, { 'goods.list': 0, 'promo.entityReport': 1, 'orders.stats': 2 }],
   ['goods.segment', getGoodsSegmentView, 2, { 'orders.list': 0, 'promo.entityReport': 1 }],
-  ['diagnose.orders', (ctx) => collectOrdersInput(ctx.page, ctx), 1, { 'orders.stats': 0 }],
+  ['diagnose.shop.orders', (ctx) => collectOrdersInput(ctx.page, ctx), 1, { 'orders.stats': 0 }],
 ])('%s routes parallel sources to separate leased pages', async (_name, collect, count, routes) => {
   const pages = Array.from({ length: count }, () => ({ close: async () => {} }));
   const context = { newPage: vi.fn() };

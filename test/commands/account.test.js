@@ -2,16 +2,14 @@ import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { describe, it, vi } from 'vitest';
+import { describe, it } from 'vitest';
 import { composeCommandRuntime } from '../../src/runtime/command-runtime.js';
 import { createOutputSink } from '../../src/infra/output-sink.js';
-import { createCandidateSeal } from '../../src/infra/candidate-seal.js';
 import { getDatabasePath, run } from '../../src/infra/db.js';
 import { insertAccount, putCredential, putReloginState } from '../../src/infra/account-store.js';
 import { ExitCodes } from '../../src/infra/errors.js';
 import { saveAuthStateSnapshot } from '../../src/adapter/auth-state.js';
 import * as accountCmd from '../../src/commands/account.js';
-import { createInMemoryBrowserRuntime } from '../helpers/in-memory-ports.js';
 import { assertDataContractV2 } from '../helpers/data-contract.js';
 import { assertEnvelopeShape } from '../helpers/envelope-assertions.js';
 
@@ -30,8 +28,8 @@ function makeMemoryStreams() {
 }
 
 describe('account.* commands unified via withCommand local lifecycle', () => {
-  it('declares local lifecycle and required runtimeConfigPolicy on all 4 handlers', () => {
-    for (const handler of [accountCmd.add, accountCmd.remove, accountCmd.list, accountCmd.setDefault]) {
+  it('declares local lifecycle and required runtimeConfigPolicy on all 3 handlers', () => {
+    for (const handler of [accountCmd.remove, accountCmd.list, accountCmd.setDefault]) {
       assert.equal(handler.lifecycle, 'local');
       assert.equal(handler.runtimeConfigPolicy, 'required');
     }
@@ -86,119 +84,6 @@ describe('account.* commands unified via withCommand local lifecycle', () => {
       assert.equal(/\u001b\[/.test(outputLines[0]), false);
       assert.equal(/\u001b\[/.test(outputLines.at(-1)), false);
     } finally {
-      await runtime.closeAll();
-    }
-  });
-
-  it('runs account.add through runtime.interactiveLogin with credentials_not_saved_headed_login warning', async () => {
-    const { streams, readStdout } = makeMemoryStreams();
-    const seal = createCandidateSeal();
-    const calls = [];
-    const runtime = await composeCommandRuntime({
-      mode: 'fixture',
-      runtimeConfigPolicy: 'maintenance',
-      env: {},
-      streams,
-      overrides: {
-        seal,
-        interactiveLogin: {
-          loginMerchant: async (loginOpts) => {
-            calls.push(loginOpts);
-            const identity = { mallId: '900888', displayName: 'Added Shop' };
-            return {
-              identity,
-              mode: 'headed',
-              url: 'https://mms.pinduoduo.com',
-              candidate: seal.seal({
-                state: { cookies: [{ name: 'PASS_ID', value: 'p1' }], origins: [] },
-                identity,
-                checked_at: '2026-11-25T00:00:00.000Z',
-                scope: 'shop_read',
-              }),
-            };
-          },
-        },
-      },
-    });
-
-    try {
-      const envelope = await accountCmd.add({ json: true }, { runtime });
-      assertEnvelopeShape(envelope, {
-        ok: true,
-        command: 'account.add',
-        exitCode: ExitCodes.OK,
-        hasData: true,
-        hasError: false,
-      });
-      assertDataContractV2(envelope.data);
-      assert.ok(envelope.meta.correlation_id);
-      assert.deepEqual(envelope.meta.warnings, ['credentials_not_saved_headed_login']);
-      assert.equal(calls.length, 1);
-      assert.equal(calls[0].qr, false);
-      assert.equal(calls[0].headed, true);
-      assert.equal(envelope.data.slug, 'added-shop');
-      assert.equal(runtime.outputSink.hasEmitted(), true);
-      assert.deepEqual(JSON.parse(readStdout().trim()), envelope);
-    } finally {
-      await runtime.closeAll();
-    }
-  });
-
-  it('aborts account.add cleanly on cooperative timeout and closes browser session', async () => {
-    vi.useFakeTimers();
-    const closedFlags = [];
-    const hangingBrowser = createInMemoryBrowserRuntime({
-      createPage: (context) => ({
-        context: () => context,
-        url: () => 'https://mms.pinduoduo.com/login',
-        goto: async () => {},
-        waitForTimeout: async () => {},
-        evaluate: async () => 0,
-        close: async () => { closedFlags.push('page'); },
-      }),
-    });
-    const originalOpen = hangingBrowser.openSession;
-    const trackedBrowser = {
-      ...hangingBrowser,
-      async openSession(options) {
-        const session = await originalOpen(options);
-        const origClose = session.close;
-        return {
-          ...session,
-          async close() {
-            closedFlags.push('session');
-            return origClose();
-          },
-        };
-      },
-    };
-
-    const { streams, readStdout } = makeMemoryStreams();
-    const runtime = await composeCommandRuntime({
-      mode: 'live',
-      runtimeConfigPolicy: 'maintenance',
-      env: {},
-      streams,
-      overrides: { browser: trackedBrowser },
-    });
-
-    try {
-      const pending = accountCmd.add({ timeoutMs: 45, json: true }, { runtime });
-      await vi.advanceTimersByTimeAsync(70);
-      const envelope = await pending;
-      assertEnvelopeShape(envelope, {
-        ok: false,
-        command: 'account.add',
-        exitCode: ExitCodes.NETWORK,
-        hasData: false,
-        hasError: true,
-      });
-      assert.equal(envelope.error.code, 'E_AUTH_TIMEOUT');
-      assert.equal(closedFlags.includes('session'), true);
-      assert.equal(runtime.outputSink.hasEmitted(), true);
-      assert.deepEqual(JSON.parse(readStdout().trim()), envelope);
-    } finally {
-      vi.useRealTimers();
       await runtime.closeAll();
     }
   });
@@ -295,7 +180,6 @@ describe('account.* commands unified via withCommand local lifecycle', () => {
 
   it('rejects --all-accounts with E_USAGE across all account.* handlers', async () => {
     for (const [handler, expectedCommand] of [
-      [accountCmd.add, 'account.add'],
       [accountCmd.remove, 'account.remove'],
       [accountCmd.list, 'account.list'],
       [accountCmd.setDefault, 'account.default'],

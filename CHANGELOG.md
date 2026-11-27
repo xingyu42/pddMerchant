@@ -9,7 +9,16 @@
 - **移除未使用的 `pdd doctor --probe` 选项**：携带 `--probe` 会在参数解析阶段以 `E_USAGE`（退出码 2）失败；直接运行 `pdd doctor` 即可完成诊断。
 - **数据库升级到 schema v3**（新增商品成本表）：新版首次运行自动升级；回退旧版需恢复升级前一致备份的数据库与配对 `master.key`，请勿手动降低 `user_version`。
 - **`goods cost` 去掉手填运费险**：`goods cost set` 不再接受 `--insurance-yuan`（未知选项，退出码 2）；`goods cost list` / `set` / `remove` 输出去掉 `insurance_yuan`；`goods cost import` 的记录含 `insurance_yuan` 时整批以 `E_COST_IMPORT_INVALID` 失败。运费险由 `goods profit` 按平台收费记录自动计算。数据库中已录入的运费险保留但不再读取或输出，无需迁移。
-- **`diagnose funnel` 由 `diagnose after-sales` 取代**：`diagnose shop` 的维度相应改为订单 / 库存 / 推广 / 售后。
+- **`diagnose funnel` 已移除，`diagnose shop` 维度调整为订单 / 库存 / 推广 / 售后**（售后单明细与退款原因分布使用 `orders after-sales`）。
+- **CLI 命令整合（51 → 43 个子命令，12 → 10 个顶层分组）**：
+  - `pdd init` 与 `pdd account add` 合入 `pdd login`（`account` 保留 `list` / `default` / `remove`）。
+  - `pdd diagnose orders` 移除，省级成团地域分布合入 `pdd orders stats --with-regions`。
+  - `pdd diagnose promo` 移除，推广 ROI 统一使用 `pdd promo roi`。
+  - `pdd diagnose inventory` 移除，全店库存摘要计数（缺货 / 低库存 / 零销量）合入 `pdd goods segment` 的 `summary`，低库存阈值与 `diagnose shop` 的 `inventory` 维度及 `goods list --low-stock` 统一为 `<= 10`。
+  - `pdd diagnose after-sales` 独立命令移除，保留在 `pdd diagnose shop` 的 `after_sales` 维度中；逐单售后与原因分布统一使用 `pdd orders after-sales`。
+  - `pdd console link` 迁至 `pdd daemon link`，移除顶层 `console` 分组。
+  - `pdd shops current` 移除并合入 `pdd shops list`。
+  - `pdd goods stock` 移除并合入 `pdd goods list --low-stock [threshold]`（默认阈值 `10`，默认 `--size 50`，支持 `--status onsale|offline`）。
 
 ### Added
 
@@ -25,17 +34,17 @@
 - **商品预估实收**：`goods receipt [--goods-id <id>] [--page 1] [--size 1-10] [--caliber regular|all]` 按 SKU 原样输出「商品价格管理」页的平台预估实收（券前价 − 商家出资优惠），含单件与多件最低场景及各自的优惠明细，自动补全每个商品的全部 SKU。`--caliber all` 切换到「商家出资所有优惠」口径；`--goods-id` 可重复或逗号分隔，取值错误在参数解析阶段以退出码 2 拒绝。
 - **流量与商品明细**：`diagnose traffic [--days 30]` 输出全店逐日访客、浏览、成交及平台同行参考值；`goods traffic [--days 1|7|30] [--goods-id <id>]` 输出全店商品明细，并按商品拆分推广直接 / 间接成交与花费，`non_promo_*` 为总成交减推广直接成交的差值。推广拆分口径尚未经有投放店铺实测。
 - **订单收货地区**：`orders list` 每项与 `orders detail` 新增 `province` / `city` / `district`，只取平台返回的省 / 市 / 区名称，缺失为 `null`；街道、邮编、详细地址仍不输出。
-- **库存规格明细与规格级告警**：`goods stock` 每项新增 `skus[]`（`sku_id`、`spec`、`quantity`、`on_sale`、`low_stock`）与 `low_stock_sku_count`；总库存高于阈值（或缺失）但有在售规格库存不高于阈值的商品也进入告警。`low_stock_count` 仍只计总库存不高于阈值的商品，可能少于 `items` 条数；规格数据缺失时 `skus` 与 `low_stock_sku_count` 为 `null`。
-- **订单省级成团地域分布**：`diagnose orders` 新增独立的 `regions` 区块，输出近 7 天按省汇总的成团额、成团单数、成团买家数、客单价与笔单价（口径「数据中心-地域分布（成团订单）」），与原有订单列表样本及待发货统计并列输出。部分省份金额缺失时，摘要仅在金额已知的省份中比较；命中字体混淆或拉取失败时仅 `regions: null` 并附提示。
+- **库存规格明细与规格级告警**：`goods list --low-stock [threshold]`（默认阈值 `10`，默认 `--size 50`，支持 `--status onsale|offline`）每项输出 `skus[]`（`sku_id`、`spec`、`out_sku_sn`、`quantity`、`on_sale`、`low_stock`）与 `low_stock_sku_count`；总库存高于阈值（或缺失）但有在售规格库存不高于阈值的商品也进入告警。`low_stock_count` 仍只计总库存不高于阈值的商品，可能少于 `items` 条数；规格数据缺失时 `skus` 与 `low_stock_sku_count` 为 `null`。
+- **订单省级成团地域分布**：`orders stats --with-regions` 新增独立的 `regions` 区块，输出近 7 天按省汇总的成团额、成团单数、成团买家数、客单价与笔单价（口径「数据中心-地域分布（成团订单）」），与远程待发货统计及本地订单样本并列输出。部分省份金额缺失时，摘要仅在金额已知的省份中比较；命中字体混淆或拉取失败时仅 `regions: null` 并附提示。
 - **全店今日实时**：`diagnose traffic` 新增 `today` 区块（流量看板实时访客 / 浏览，按小时累计的成交及 `hourly[]`，`snapshot_at` 为抓取时间）；今日数据拉取失败时 `today: null` 并附提示，逐日数据照常返回。
 - **商品与客服今日实时**：
   - `goods traffic` 新增 `today` 区块：默认输出全店商品今日实时概况（`queryGoodsPageRT`，解析千分位与百分号字符串，无法解析的非空格式写 `meta.warnings` 而不记显式 `null`）；传入 `--goods-id` 时输出该单商品今日实时汇总与按小时升序 `hourly[]`（`queryGoodsStatDtr`，隔离昨日对照字段）。
   - `diagnose customer-service` 新增 `today` 区块：输出实时 3 分钟人工回复率（显式标注口径「多多客服-实时数据（3 分钟人工回复率）」）、待回复人数、`as_of_hour` 与截至 `snapshot_at` 上海小时的今日按小时咨询序列 `hourly[]`（截除未到达的未来小时）。
   - 以上 `today` 均走可选降级：上游失败时 `today: null` 并附提示，原有历史区间与推广拆分照常返回，退出码保持 0。
 - **商品目录基础字段与按需 SKU 展开**：
-  - `goods list` 与 `goods stock` 的商品基础视图新增 9 个目录字段：`out_goods_sn`（商家商品编码）、`origin_price_min_yuan` / `origin_price_max_yuan`（日常拼单价区间）、`sold_quantity` / `sold_quantity_30d`（商品列表口径累计/近 30 天销量）、`fav_count`（收藏数）、`cost_template_id`（运费模板 ID，未绑定归为 `null`）、`created_at` / `updated_at`（北京时间；`0` 或缺失为 `null`）。
+  - `goods list`（含 `--low-stock` 模式）的商品基础视图新增 9 个目录字段：`out_goods_sn`（商家商品编码）、`origin_price_min_yuan` / `origin_price_max_yuan`（日常拼单价区间）、`sold_quantity` / `sold_quantity_30d`（商品列表口径累计/近 30 天销量）、`fav_count`（收藏数）、`cost_template_id`（运费模板 ID，未绑定归为 `null`）、`created_at` / `updated_at`（北京时间；`0` 或缺失为 `null`）。
   - `goods list` 默认仍省略 `skus` 键，新增 `--with-skus` 选项在同一条请求内按需展开每个商品的 `skus[]`（`sku_id`、`spec`、`out_sku_sn`、`quantity`、`on_sale`，缺失与 `[]` 区分），并在 `headline` 末尾追加 1 行规格统计。
-  - `goods stock` 的 `skus[]` 同步透出 `out_sku_sn`。
+  - `goods list --low-stock` 模式的 `skus[]` 同步透出 `out_sku_sn`。
 
 ### Fixed
 

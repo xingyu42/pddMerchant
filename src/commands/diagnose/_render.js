@@ -60,29 +60,12 @@ function renderHints(hints, useColor) {
   return out;
 }
 
-function renderRegions(regions, useColor) {
-  if (!regions?.items?.length) return '';
-  const table = new Table({
-    head: ['省份', '成团额(元)', '成团单数', '买家数', '客单价(元)', '笔单价(元)'],
-    style: useColor ? undefined : { head: [], border: [] },
-  });
-  for (const item of regions.items) {
-    table.push([
-      item.province, formatValue(item.confirmed_order_amount_yuan), formatValue(item.confirmed_order_count),
-      formatValue(item.confirmed_buyer_count), formatValue(item.avg_buyer_amount_yuan), formatValue(item.avg_order_amount_yuan),
-    ]);
-  }
-  return `省级成团分布（${regions.caliber}）\n${table.toString()}`;
-}
-
 export function renderSingleDashboard(envelope, { useColor }) {
   const diag = envelope.data;
   const title = String(envelope.command).replace(/^diagnose\./, '');
   const lines = [renderHeader(title, diag, useColor), ...renderHeadline(diag)];
   const details = renderDetails(diag?.detail, useColor);
   if (details) lines.push('', details);
-  const regions = renderRegions(diag?.regions, useColor);
-  if (regions) lines.push('', regions);
   const issueLines = renderIssues(diag?.issues, useColor);
   if (issueLines.length > 0) lines.push('', ...issueLines);
   const hintLines = renderHints(diag?.hints, useColor);

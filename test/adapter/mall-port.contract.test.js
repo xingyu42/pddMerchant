@@ -5,7 +5,7 @@ import { createFixtureMallPort } from '../../src/adapter/fixtures/mall.js';
 import { FixtureStore } from '../../src/adapter/fixtures/core.js';
 import { createInMemoryMallPort } from '../helpers/in-memory-ports.js';
 import { createCliSandbox } from '../helpers/isolated-cli.js';
-import { toCurrentShopView, toShopListView } from '../../src/services/views/shops.js';
+import { toShopListView } from '../../src/services/views/shops.js';
 
 function createFakeMallPage({
   activeId = '900001',
@@ -158,7 +158,6 @@ describe.each(ADAPTER_FACTORIES)('MallPort shared contract ($name)', ({ create }
       { mall_id: '900001', name: 'Shop A', is_current: true },
       { mall_id: '900002', name: 'Shop B', is_current: false },
     ]);
-    assert.equal(toCurrentShopView(detected).mall_id, '900001');
   });
 
   it('switchMall validates strict boolean and mallId format before switching', async () => {

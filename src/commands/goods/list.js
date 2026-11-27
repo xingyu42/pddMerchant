@@ -6,8 +6,8 @@ export const run = withCommand({
   needsAuth: true,
   needsMall: 'switch',
   async run(ctx) {
-    const { page: pageNum, size, status, withSkus } = ctx.config;
-    const data = await getGoodsListView(ctx.page, { page: pageNum, size, status, withSkus: Boolean(withSkus) }, ctx);
+    const { page, size, status, withSkus, lowStock } = ctx.config;
+    const data = await getGoodsListView(ctx.page, { page, size, status, withSkus, lowStock }, ctx);
     return { data, meta: { xhr_count: 1 } };
   },
 });

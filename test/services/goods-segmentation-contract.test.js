@@ -15,6 +15,10 @@ describe('goods sales and inventory facts', () => {
     assert.equal(cup.quantity, 0);
     assert.equal(cup.stock_days, 0);
     assert.equal(result.total, 2);
+    assert.equal(result.summary.out_of_stock_count, 1);
+    assert.equal(result.summary.low_stock_count, 0);
+    assert.equal(result.summary.low_stock_threshold, 10);
+    assert.equal(result.summary.zero_sales_count, 0);
   });
 
   it('uses the requested sales window for stock-day calculations', () => {
@@ -29,6 +33,66 @@ describe('goods sales and inventory facts', () => {
     assert.equal(result.items[0].quantity, null);
     assert.equal(result.items[0].stock_days, null);
     assert.equal(result.items[0].units_sold, 2);
+    assert.equal(result.summary.out_of_stock_count, null);
+    assert.equal(result.summary.low_stock_count, null);
+    assert.equal(result.summary.low_stock_threshold, 10);
+  });
+
+  it('counts quantity <= 10 and numeric string stock consistently in items and summary', () => {
+    const result = segmentGoods({
+      goods: [
+        { goods_id: '101', goods_name: 'Tea', quantity: 0 },
+        { goods_id: '102', goods_name: 'Cup', quantity: '5' },
+        { goods_id: '103', goods_name: 'Plate', quantity: 10 },
+        { goods_id: '104', goods_name: 'Bag', quantity: 11 },
+      ],
+      orders30d: [{ goods_id: '104', goods_name: 'Bag', quantity: 2 }],
+    });
+    assert.deepEqual(result.items.map((item) => [item.goods_id, item.quantity]), [
+      ['101', 0], ['102', 5], ['103', 10], ['104', 11],
+    ]);
+    assert.equal(result.summary.out_of_stock_count, 1);
+    assert.equal(result.summary.low_stock_count, 2);
+    assert.equal(result.summary.low_stock_threshold, 10);
+    assert.equal(result.summary.zero_sales_count, 2);
+  });
+
+  it('keeps summary stock counts null when any item has missing stock', () => {
+    const result = segmentGoods({
+      goods: [
+        { goods_id: '101', goods_name: 'Tea', quantity: 5 },
+        { goods_id: '102', goods_name: 'Cup', quantity: null },
+      ],
+      orders30d: [],
+    });
+    assert.equal(result.summary.out_of_stock_count, null);
+    assert.equal(result.summary.low_stock_count, null);
+    assert.equal(result.summary.low_stock_threshold, 10);
+    assert.equal(result.summary.zero_sales_count, 1);
+  });
+
+  it('keeps summary zero_sales_count null on incomplete orders and counts stocked zero-sales items when complete', () => {
+    const complete = segmentGoods({
+      goods: [
+        { goods_id: '101', goods_name: 'Tea', quantity: 12 },
+        { goods_id: '202', goods_name: 'Cup', quantity: 0 },
+        { goods_id: '303', goods_name: 'Plate', quantity: 8 },
+      ],
+      orders30d: [{ goods_id: '101', goods_name: 'Tea', quantity: 3 }],
+    });
+    assert.equal(complete.summary.data_quality.orders_complete, true);
+    assert.equal(complete.summary.zero_sales_count, 1);
+
+    const incomplete = segmentGoods({
+      goods: [
+        { goods_id: '101', goods_name: 'Tea', quantity: 12 },
+        { goods_id: '303', goods_name: 'Plate', quantity: 8 },
+      ],
+      orders30d: [{ goods_id: '101', goods_name: 'Tea', quantity: 3 }],
+      truncated: true,
+    });
+    assert.equal(incomplete.summary.data_quality.orders_complete, false);
+    assert.equal(incomplete.summary.zero_sales_count, null);
   });
 
   it('distinguishes a complete zero-sales period from unknown sales', () => {

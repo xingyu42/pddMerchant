@@ -53,7 +53,7 @@ it('serves public health and protects every API/static route with security heade
     const denied = await consoleRequest(port, path);
     assert.equal(denied.status, 401);
     assertSecurity(denied, path === '/');
-    if (path === '/') assert.match(denied.body, /请通过 pdd console link 获取访问链接/);
+    if (path === '/') assert.match(denied.body, /请通过 pdd daemon link 获取访问链接/);
   }
   const page = await consoleRequest(port, '/', { headers });
   assert.equal(page.status, 200);

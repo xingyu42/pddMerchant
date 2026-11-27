@@ -1,5 +1,6 @@
 import { matchSales, normalizeGoodsName, readGoodsId, scanQuality } from './goods-sales-matcher.js';
 import { collectAllGoods } from './diagnose/goods-collector.js';
+import { summarizeStockCounts } from './goods.js';
 import { collectOrdersWindow } from './orders.js';
 import { analyzePromoRoi, getPromoReport } from './promo.js';
 import { getLogger } from '../infra/logger.js';
@@ -58,6 +59,16 @@ function segmentCompleteness(quality, goods, orders, promoRoi) {
   return promoRoi ? 'full' : 'no_promo';
 }
 
+function segmentStockSummary(goods, items, ordersComplete) {
+  const zeroSalesCount = ordersComplete
+    ? items.filter((item) => item.units_sold === 0 && typeof item.quantity === 'number' && item.quantity > 0).length
+    : null;
+  return {
+    ...summarizeStockCounts(goods),
+    zero_sales_count: zeroSalesCount,
+  };
+}
+
 export function segmentGoods(input, { windowDays = 30 } = {}) {
   const { goods = [], orders30d = [], promoRoi = null } = input;
   // 分群把缺失的商品列表视为空列表。
@@ -74,6 +85,7 @@ export function segmentGoods(input, { windowDays = 30 } = {}) {
     ambiguous_groups: matched.ambiguous.length,
     data_completeness: segmentCompleteness(dataQuality, goods, orders30d, promoRoi),
     data_quality: dataQuality,
+    ...segmentStockSummary(goods, items, dataQuality.orders_complete),
   };
   return {
     headline: segmentHeadline(windowDays, items, summary),

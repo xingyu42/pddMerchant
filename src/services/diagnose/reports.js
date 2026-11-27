@@ -1,77 +1,11 @@
-// diagnose.* 命令级结果（输出契约 v2）：采集 → summarize（内部代码）→ 视图（标签 + headline）。
+// diagnose.shop 命令级结果（输出契约 v2）：采集 → summarize（内部代码）→ 视图（标签 + headline）。
 import { getLogger } from '../../infra/logger.js';
-import { throwIfAborted } from '../../infra/abort.js';
-import { runEndpoint } from '../../adapter/run-endpoint.js';
-import { ORDER_REGION_DISTRIBUTION } from '../../adapter/endpoints/orders.js';
-import { collectOrdersWindow, computeOrderStats, ORDER_WINDOW_PAGE_SIZE } from '../orders.js';
-import { isDegradableReportError } from '../operating-report.js';
 import { mallIdOf } from '../views/_shared.js';
-import { toDimensionView, toOrdersDiagnosisView, toShopView } from '../views/diagnose.js';
+import { toShopView } from '../views/diagnose.js';
 import { collectGoodsInput, collectOrdersInput, collectPromoInput } from './collectors.js';
-import { diagnoseShop, summarizeAfterSales, summarizeInventory, summarizeOrders, summarizePromo } from './index.js';
+import { diagnoseShop } from './index.js';
 import { compareShopDiagnosis, resolveCompareWindows } from './trend-compare.js';
 import { withEndpointPages } from '../../adapter/endpoint-pages.js';
-
-const AFTER_SALES_DEFAULT_DAYS = 30;
-const AFTER_SALES_PAGES_PER_WEEK = 3;
-
-function dimensionResult(name, result, ctx, warnings = []) {
-  return { data: { ...toDimensionView(name, result), mall_id: mallIdOf(ctx) }, warnings };
-}
-
-async function collectOrderRegions(ctx) {
-  throwIfAborted(ctx.signal);
-  try {
-    const regions = await runEndpoint(ctx.page, ORDER_REGION_DISTRIBUTION, {}, ctx);
-    throwIfAborted(ctx.signal);
-    return { regions, regionReason: null };
-  } catch (err) {
-    throwIfAborted(ctx.signal);
-    if (!isDegradableReportError(err)) {
-      throw err;
-    }
-    (ctx.log ?? getLogger()).debug({ err: err?.message, code: err?.code }, 'diagnose.orders: regions collection failed');
-    const regionReason = err.detail?.reason === 'pua_obfuscated' ? 'regions_obfuscated' : 'regions_unavailable';
-    return { regions: null, regionReason };
-  }
-}
-
-export async function getOrdersDiagnosis(ctx) {
-  const input = await collectOrdersInput(ctx.page, { ...ctx, mallId: mallIdOf(ctx) });
-  const { regions, regionReason } = await collectOrderRegions(ctx);
-  const data = toOrdersDiagnosisView(summarizeOrders(input || {}), {
-    regions,
-    mallId: mallIdOf(ctx),
-    regionReason,
-  });
-  return { data, warnings: [] };
-}
-
-export async function getInventoryDiagnosis(ctx) {
-  const input = await collectGoodsInput(ctx.page, { ...ctx, mallId: mallIdOf(ctx) });
-  return dimensionResult('inventory', summarizeInventory(input || {}), ctx);
-}
-
-export async function getPromoDiagnosis(ctx) {
-  const input = await collectPromoInput(ctx.page, { ...ctx, mallId: mallIdOf(ctx) });
-  return dimensionResult('promo', summarizePromo(input), ctx, input?.warnings ?? []);
-}
-
-export async function getAfterSalesDiagnosis(ctx, { days } = {}) {
-  const windowDays = typeof days === 'number' && days > 0 ? days : AFTER_SALES_DEFAULT_DAYS;
-  const maxPages = Math.max(10, Math.ceil(windowDays / 7) * AFTER_SALES_PAGES_PER_WEEK);
-  const { orders, truncated, ratelimited } = await collectOrdersWindow(
-    ctx.page,
-    { ...ctx, mallId: mallIdOf(ctx) },
-    // 售后统计需要包含退款和售后处理中的订单。
-    { scanDays: windowDays, maxPages, pageSize: ORDER_WINDOW_PAGE_SIZE, scope: 'all' },
-  );
-  const result = summarizeAfterSales({ orderStats: computeOrderStats(orders), windowDays });
-  if (truncated || ratelimited) result.status = 'partial';
-  if (truncated) result.hints.push(`订单量超出采集上限（${maxPages * ORDER_WINDOW_PAGE_SIZE} 条），统计基于部分数据`);
-  if (ratelimited) result.hints.push('订单采集因限流中断，统计基于部分数据');
-  return dimensionResult('after_sales', result, ctx);
-}
 
 async function settleDimension(label, promise, log) {
   try {

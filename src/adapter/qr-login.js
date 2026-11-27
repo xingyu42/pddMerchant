@@ -195,7 +195,7 @@ export async function captureQrElement(page, { timeout = TIMEOUTS.QR_CAPTURE } =
     throw new PddCliError({
       code: 'E_QR_NOT_FOUND',
       message: '未能在登录页上找到二维码元素',
-      hint: '页面结构可能已变更，尝试 pdd init（有头模式）',
+      hint: '页面结构可能已变更，尝试 pdd login（有头模式）',
       detail: {
         triedSelectors: QR_SELECTORS.length,
         pageUrl: (() => { try { return page.url(); } catch { return null; } })(),

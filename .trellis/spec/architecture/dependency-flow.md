@@ -38,7 +38,7 @@ commands -> services -> adapter -> infra
 - `bin/pdd.js` MAY import command registrars、`commands/runtime-options.js`、`commands/_runner.js` 与 infra helpers（含经 `infra/runtime-cleanup.js` 挂载的运行时 `closeAll` 信号/异常清理钩子）；不再直接 import `adapter/browser.js`。
 - `src/runtime/**` MAY import `adapter/**`（含按 mode 动态加载的 Live / Fixture bundle）、`daemon/routes.js`、`services/**` 与 `infra/**`，作为唯一解析白名单环境变量的组合根入口；禁止回传白名单 env 直读权力给下层模块。
 - `src/commands/**` MAY import `src/runtime/**`、`src/services/**`、runner facade、infra types/helpers；非 runner 命令 handler MUST NOT 直接 import `src/adapter/**`。
-- `src/commands/runner/**` MAY import `src/runtime/**` 与 `src/adapter/**`：只有 runner 拥有浏览器、鉴权、店铺与 fixture 生命周期；全部非 runner 命令 handler（含 `commands/doctor.js`、`commands/login.js`、`commands/init.js`、`commands/account.js`、`commands/config.js`）经 services 访问 adapter 或由 runtime 注入端口，不存在命令层直连 adapter 的例外。
+- `src/commands/runner/**` MAY import `src/runtime/**` 与 `src/adapter/**`：只有 runner 拥有浏览器、鉴权、店铺与 fixture 生命周期；全部非 runner 命令 handler（含 `commands/doctor.js`、`commands/login.js`、`commands/account.js`、`commands/config.js`）经 services 访问 adapter 或由 runtime 注入端口，不存在命令层直连 adapter 的例外。
 - `src/commands/daemon.js` MAY import `src/daemon/run.js`；`src/daemon/**` MAY import `src/runtime/**`、`src/services/**` 与 infra，不直接 import adapter。
 - `src/services/views/**` MAY import infra（units、metrics）与 `services/operating-report.js`，不 import adapter。
 - `src/services/**` MAY import `src/adapter/**` 与 `src/infra/**`。

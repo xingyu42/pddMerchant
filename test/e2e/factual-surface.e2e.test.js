@@ -97,7 +97,7 @@ describe('factual reports through the offline CLI', () => {
     assert.equal(Object.hasOwn(envelope.data.dimensions, 'funnel'), false);
   });
 
-  it('reports refunds and open after-sales cases through diagnose.after-sales', () => {
+  it('reports refunds and open after-sales cases through diagnose.shop', () => {
     const fixtures = createFactFixtures();
     const source = fixtures['endpoints/orders.list.json'].result.pageItems[0];
     fixtures['endpoints/orders.list.json'] = { success: true, result: { totalItemNum: 4, pageItems: [
@@ -106,26 +106,29 @@ describe('factual reports through the offline CLI', () => {
       { ...source, order_sn: 'SYN-OPEN', after_sales_status: 10 },
       { ...source, order_sn: 'SYN-RECEIVED', order_status_str: '已收货', after_sales_status: null },
     ] } };
-    const { status, envelope } = runCli(['diagnose', 'after-sales', '--days', '7'], { fixtures });
+    const { status, envelope } = runCli(['diagnose', 'shop', '--days', '7'], { fixtures });
     assert.equal(status, 0);
-    assert.equal(envelope.command, 'diagnose.after-sales');
-    assert.deepEqual(envelope.data.detail, {
+    assert.equal(envelope.command, 'diagnose.shop');
+    const afterSales = envelope.data.dimensions.after_sales;
+    assert.deepEqual(afterSales.detail, {
       total_orders: 4, refund_count: 1, refund_rate_pct: 25,
       after_sales_count: 1, after_sales_rate_pct: 25,
       status_distribution: { '待发货': 1, '已发货，待收货': 2, '已收货': 1 },
       window_days: 7,
     });
-    assert.deepEqual(envelope.data.headline, [
+    assert.deepEqual(afterSales.headline, [
       '近 7 天订单 4 单，退款成功 1 单（退款率 25%）',
       '售后处理中 1 单（占比 25%）',
     ]);
   });
 
-  it('rejects the removed diagnose funnel entry point', () => {
-    const { status, envelope } = runCli(['diagnose', 'funnel']);
-    assert.equal(status, 2);
-    assert.equal(envelope.ok, false);
-    assert.equal(envelope.error.code, 'E_USAGE');
+  it('rejects removed diagnose entry points', () => {
+    for (const subcommand of ['funnel', 'orders', 'inventory', 'promo', 'after-sales']) {
+      const { status, envelope } = runCli(['diagnose', subcommand]);
+      assert.equal(status, 2);
+      assert.equal(envelope.ok, false);
+      assert.equal(envelope.error.code, 'E_USAGE');
+    }
   });
 
   it('retains other dimensions and attributes unavailable promotion data', () => {

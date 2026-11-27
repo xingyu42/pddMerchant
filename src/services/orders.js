@@ -1,16 +1,22 @@
 import { runEndpoint } from '../adapter/run-endpoint.js';
 import {
-  ORDER_LIST, ORDER_DETAIL, ORDER_STATS, ORDER_LIST_DEFAULT_DAYS, ORDER_LIST_CLI_SCOPES, ORDER_LIST_DEFAULT_SCOPE,
+  ORDER_LIST, ORDER_DETAIL, ORDER_STATS, ORDER_REGION_DISTRIBUTION,
+  ORDER_LIST_DEFAULT_DAYS, ORDER_LIST_CLI_SCOPES, ORDER_LIST_DEFAULT_SCOPE,
 } from '../adapter/endpoints/orders.js';
+import { throwIfAborted } from '../infra/abort.js';
 import { PddCliError, ExitCodes } from '../infra/errors.js';
+import { getLogger } from '../infra/logger.js';
 import { percentile, toLocalDate } from '../infra/units.js';
 import { AFTER_SALES_REPORT, getOrderAfterSalesCases } from './after-sales.js';
 import { collectOrderTrack } from './logistics.js';
+import { isDegradableReportError } from './operating-report.js';
 import {
   collectBoundedPages, DEFAULT_MAX_PAGES, DEFAULT_PAGE_DELAY_MS, DEFAULT_PAGE_SIZE,
 } from './pagination.js';
+import { windowEndingAt } from './report-windows.js';
 import {
-  orderStatusLabel, toLocalOrderStatsView, toOrderDetailView, toOrderView, toRemoteOrderStatsView,
+  ORDER_REGIONS_WINDOW_DAYS, orderStatusLabel, regionUnavailableHint, regionsHeadline,
+  toLocalOrderStatsView, toOrderDetailView, toOrderRegionsView, toOrderView, toRemoteOrderStatsView,
 } from './views/order.js';
 import { mallIdOf, yuanText } from './views/_shared.js';
 import { ORDER_SCOPE_LABEL } from './views/labels.js';
@@ -209,22 +215,58 @@ function localStatsSentence(local) {
 
 function statsHeadline(remote, local) {
   return [
-    `待发货 ${remote.pending_ship_count} 单，其中超过 12 小时 ${remote.pending_ship_over_12h_count} 单`,
-    `延迟发货 ${remote.delayed_ship_count} 单，已发货待收货 ${remote.pending_receipt_count} 单`,
+    `待发货 ${remote.pending_ship_count} 单（超 12 小时 ${remote.pending_ship_over_12h_count} 单），延迟发货 ${remote.delayed_ship_count} 单，已发货待收货 ${remote.pending_receipt_count} 单`,
     localStatsSentence(local),
   ];
 }
 
-export async function getOrderStatsView(page, { size = 50 } = {}, ctx = {}) {
+function resolveRegionsWindow(rawRegions) {
+  const endDate = rawRegions?.items?.map((row) => row.statDate).filter(Boolean).sort().at(-1) ?? null;
+  return endDate ? windowEndingAt(ORDER_REGIONS_WINDOW_DAYS, endDate) : null;
+}
+
+async function collectOrderRegions(page, ctx = {}) {
+  throwIfAborted(ctx.signal);
+  try {
+    const regions = await runEndpoint(page, ORDER_REGION_DISTRIBUTION, {}, ctx);
+    throwIfAborted(ctx.signal);
+    return { regions, regionReason: null };
+  } catch (err) {
+    throwIfAborted(ctx.signal);
+    if (!isDegradableReportError(err)) {
+      throw err;
+    }
+    (ctx.log ?? getLogger()).debug({ err: err?.message, code: err?.code }, 'orders.stats: regions collection failed');
+    const regionReason = err.detail?.reason === 'pua_obfuscated' ? 'regions_obfuscated' : 'regions_unavailable';
+    return { regions: null, regionReason };
+  }
+}
+
+export async function getOrderStatsView(page, { size = 50, withRegions = false } = {}, ctx = {}) {
   const remote = toRemoteOrderStatsView(await getOrderStats(page, ctx));
   // 本地样本须包含售后订单（scope all），否则退款统计在请求层即被排除
   const listResult = await listOrders(page, { page: 1, size, scope: 'all' }, ctx);
   const local = toLocalOrderStatsView(computeOrderStats(listResult.orders));
-  return { headline: statsHeadline(remote, local), remote, local, mall_id: mallIdOf(ctx) };
+  const headline = statsHeadline(remote, local);
+  if (!withRegions) return { headline, remote, local, mall_id: mallIdOf(ctx) };
+  const { regions, regionReason } = await collectOrderRegions(page, ctx);
+  const regionsView = toOrderRegionsView(regions, { window: resolveRegionsWindow(regions) });
+  const hints = [
+    ...regionUnavailableHint(regionReason),
+    ...(regionsView?.delayed ? ['平台标记地域分布数据延迟'] : []),
+  ];
+  return {
+    headline: [...headline, ...(regionsView ? [regionsHeadline(regionsView)] : [])],
+    remote,
+    local,
+    regions: regionsView,
+    hints,
+    mall_id: mallIdOf(ctx),
+  };
 }
 
 const ORDER_WINDOW_DEFAULT_DAYS = 30;
-export const ORDER_WINDOW_PAGE_SIZE = DEFAULT_PAGE_SIZE;
+const ORDER_WINDOW_PAGE_SIZE = DEFAULT_PAGE_SIZE;
 const DAY_SECONDS = 86400;
 
 // 按时间窗有界分页采集订单：options.scope 默认 'valid'（全部发货状态、仅无售后 = 销量口径）；需要退款数据的调用方传 'all'

@@ -64,7 +64,7 @@ Exit codes：
 - Only `meta.warnings` MAY grow for additive warnings; do not add arbitrary top-level fields。
 - `meta.v` MUST be `2`: single constant `ENVELOPE_VERSION` in `src/infra/output.js`; `buildEnvelope` writes it after merging caller meta, so commands cannot override it. Single-command, batch, error and commander usage-error envelopes all carry `v: 2`。
 - `meta` carries technical fields only (`v`, `exit_code`, `latency_ms`, `xhr_count`, `warnings`, `correlation_id`, `account*`, batch flag). Business context (`total`, `mall_id`, `threshold` …) belongs in `data`。
-- Successful `data` MUST be a plain object with `headline: string[]` (1–3 factual Chinese sentences: counts, states, missing data; no advice, scores or good/bad judgements; multi-block reports such as `diagnose reviews` adding `goods_scores` MAY extend up to 4 sentences so existing lines stay intact)。
+- Successful `data` MUST be a plain object with `headline: string[]` (默认 1–3 句；包含独立附加区块或异常补充行时允许最多 4 句；只陈述事实计数、状态与数据可用性，不含经营建议、评分或好坏判断)。
 - List-like commands MUST use `{ headline, items, total, ...context }`; `data` is never a top-level array。
 - Upstream objects MUST NOT reach `data`; services project them through whitelist views in `src/services/views/`。
 - `data` MUST NOT use `data` / `meta` / `warnings` as top-level keys (reserved by `normalizeRunResult`); warnings travel via the `{ data, warnings }` return shape。
@@ -94,8 +94,8 @@ Password relogin errors（`src/infra/errors.js`，全部 exit 3；场景见 [aut
 
 | 工厂函数 | code | message | hint | detail |
 | --- | --- | --- | --- | --- |
-| `authHumanRequired` | `E_AUTH_HUMAN_REQUIRED` | 账号登录需要人工完成验证 | 执行 pdd console link 获取控制台链接并转给用户；不要在聊天中索要密码 | `{ account, challenge }` |
-| `reloginBlocked` | `E_AUTH_RELOGIN_BLOCKED` | 账号自动重登已熔断 | 执行 pdd console link 重设密码或解除熔断，或执行 pdd login --qr 扫码登录 | `{ account, reason }` |
+| `authHumanRequired` | `E_AUTH_HUMAN_REQUIRED` | 账号登录需要人工完成验证 | 执行 pdd daemon link 获取控制台链接并转给用户；不要在聊天中索要密码 | `{ account, challenge }` |
+| `reloginBlocked` | `E_AUTH_RELOGIN_BLOCKED` | 账号自动重登已熔断 | 执行 pdd daemon link 重设密码或解除熔断，或执行 pdd login --qr 扫码登录 | `{ account, reason }` |
 | `reloginFailed` | `E_AUTH_RELOGIN_FAILED` | 自动重登未完成 | 稍后重试或执行 pdd login | `{ account, reason, relogin?, next_attempt_at? }` |
 | `passwordLoginFormChanged` | `E_PASSWORD_LOGIN_FORM_CHANGED` | 登录页结构已变化，无法自动填写账密 | 执行 pdd login --qr 扫码登录，并反馈此问题 | `{ account, reason? }` |
 
@@ -107,7 +107,7 @@ daemon 与控制台错误（`src/infra/errors.js` / `services/console-runtime.js
 
 | code | exit / HTTP | 场景 |
 | --- | --- | --- |
-| `E_DAEMON_NOT_RUNNING` | exit 1 | `console link` 时 daemon 未运行（hint `执行 pdd daemon start`） |
+| `E_DAEMON_NOT_RUNNING` | exit 1 | `daemon link` 时 daemon 未运行（hint `执行 pdd daemon start`） |
 | `E_DAEMON_START_TIMEOUT` | exit 1 | `daemon start` 10 秒内未见心跳 |
 | `E_DAEMON_STOP_TIMEOUT` | exit 1 | 租约属于其他主机，或强杀后仍未释放；detail 仅 `{ pid?, port?, reason }` |
 | `E_CONSOLE_PORT_IN_USE` | exit 1 | 监听端口被占用 |

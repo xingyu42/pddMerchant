@@ -1,8 +1,7 @@
 // 订单范围（scope）贯通测试：各调用方传给 orders.list 的范围（design D5），以及退款字段缺失时的 null 传播。
 import assert from 'node:assert/strict';
-import { beforeEach, describe, it, vi } from 'vitest';
+import { beforeEach, describe, it } from 'vitest';
 import { collectGoodsInput, collectOrdersInput } from '../../src/services/diagnose/collectors.js';
-import { getAfterSalesDiagnosis } from '../../src/services/diagnose/reports.js';
 import { collectOrdersWindow, getOrderListView, getOrderStatsView } from '../../src/services/orders.js';
 import { createMemoryEndpointTransport, createTestCtx } from '../helpers/test-ctx.js';
 
@@ -33,11 +32,15 @@ beforeEach(() => {
 
 describe('order list scope per caller', () => {
   it('collects sales orders with the valid scope by default and honours an explicit scope', async () => {
-    const listOrders = vi.fn(async () => ({ orders: [] }));
+    const calls = [];
+    const listOrders = async (_page, params) => {
+      calls.push(params);
+      return { orders: [] };
+    };
     await collectOrdersWindow({}, ctx, { listOrders, now: 1700000000 });
-    assert.equal(listOrders.mock.calls[0][1].scope, 'valid');
+    assert.equal(calls[0].scope, 'valid');
     await collectOrdersWindow({}, ctx, { listOrders, now: 1700000000, scope: 'all' });
-    assert.equal(listOrders.mock.calls[1][1].scope, 'all');
+    assert.equal(calls[1].scope, 'all');
   });
 
   it('uses the valid (sales) scope for inventory enrichment', async () => {
@@ -45,28 +48,10 @@ describe('order list scope per caller', () => {
     assert.deepEqual(listScopes(), ['valid']);
   });
 
-  it('uses the all scope for order diagnosis, after-sales diagnosis and local order stats', async () => {
+  it('uses the all scope for order diagnosis and local order stats', async () => {
     await collectOrdersInput(ctx.page, ctx);
-    await getAfterSalesDiagnosis(ctx);
     await getOrderStatsView(ctx.page, {}, ctx);
-    assert.deepEqual(listScopes(), ['all', 'all', 'all']);
-  });
-
-  it('retains partial-data hints when the after-sales order scan reaches its cap', async () => {
-    vi.useFakeTimers();
-    orders = Array.from({ length: 50 }, (_, index) => ({
-      order_sn: `SYN-${index}`, after_sales_status: 10,
-    }));
-    const pending = getAfterSalesDiagnosis(ctx, { days: 7 });
-    await vi.runAllTimersAsync();
-    const { data } = await pending;
-    assert.equal(data.status, '数据不完整');
-    assert.equal(data.detail.total_orders, 500);
-    assert.equal(data.detail.after_sales_count, 500);
-    assert.equal(data.detail.after_sales_rate_pct, 100);
-    assert.ok(data.hints.some((hint) => hint.includes('采集上限（500 条）')));
-    assert.equal(listScopes().length, 10);
-    assert.ok(listScopes().every((scope) => scope === 'all'));
+    assert.deepEqual(listScopes(), ['all', 'all']);
   });
 
   it('defaults orders list to all and forwards an explicit CLI scope', async () => {
@@ -86,25 +71,14 @@ describe('order list scope per caller', () => {
 });
 
 describe('refund facts when the after-sales field is absent', () => {
-  it('keeps after-sales counts and rates null when the source field is absent', async () => {
-    orders = [{ order_sn: 'SYN-1', order_status_str: '已收货' }];
-    const { data } = await getAfterSalesDiagnosis(ctx);
-    assert.equal(data.detail.total_orders, 1);
-    assert.equal(data.detail.refund_count, null);
-    assert.equal(data.detail.refund_rate_pct, null);
-    assert.equal(data.detail.after_sales_count, null);
-    assert.equal(data.detail.after_sales_rate_pct, null);
-    assert.equal(Object.hasOwn(data.detail, 'fulfillment_rate_pct'), false);
-    assert.ok(data.headline.some((line) => line.includes('售后数据不可用')));
-    assert.ok(data.headline.every((line) => !line.includes('退款 0 单')));
-  });
-
   it('states unavailable refund data in the local order stats headline', async () => {
     orders = [{ order_sn: 'SYN-1', order_status_str: '已收货' }];
     const view = await getOrderStatsView(ctx.page, {}, ctx);
     assert.equal(view.local.refund_count, null);
     assert.equal(view.local.refund_rate_pct, null);
-    assert.match(view.headline[2], /退款数据不可用/);
+    assert.equal(view.headline.length, 2);
+    assert.equal(view.headline[0], '待发货 1 单（超 12 小时 0 单），延迟发货 0 单，已发货待收货 0 单');
+    assert.match(view.headline[1], /退款数据不可用/);
   });
 
   it('reports refunded and open after-sales counts when the field is present', async () => {
@@ -118,13 +92,7 @@ describe('refund facts when the after-sales field is absent', () => {
     assert.equal(view.local.refund_count, 1);
     assert.equal(view.local.after_sales_count, 1);
     assert.equal(view.local.refund_rate_pct, 25);
-    assert.match(view.headline[2], /退款成功 1 单，售后处理中 1 单/);
-    const { data } = await getAfterSalesDiagnosis(ctx);
-    assert.deepEqual(data.headline, [
-      '近 30 天订单 4 单，退款成功 1 单（退款率 25%）',
-      '售后处理中 1 单（占比 25%）',
-    ]);
-    assert.equal(data.detail.after_sales_count, 1);
-    assert.equal(data.detail.after_sales_rate_pct, 25);
+    assert.equal(view.headline.length, 2);
+    assert.match(view.headline[1], /退款成功 1 单，售后处理中 1 单/);
   });
 });

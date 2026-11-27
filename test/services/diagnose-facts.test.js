@@ -38,9 +38,9 @@ describe('diagnostic source availability and facts', () => {
     assert.equal(result.status, 'full');
     assert.equal(result.detail.total, 4);
     assert.equal(result.detail.out_of_stock_count, 1);
-    assert.equal(result.detail.low_stock_count, 1);
+    assert.equal(result.detail.low_stock_count, 2);
     assert.equal(result.detail.out_of_stock_rate_pct, 25);
-    assert.equal(result.detail.low_or_out_rate_pct, 50);
+    assert.equal(result.detail.low_or_out_rate_pct, 75);
     assert.equal(result.detail.stale_count, 2);
     assert.deepEqual(result.detail.stale_sample, [
       { goods_id: '303', goods_name: 'Plate', quantity: 10 },

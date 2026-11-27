@@ -13,7 +13,7 @@ it.each(['sms', 'slider', 'click', 'risk_confirm', 'unknown'])('stops on %s, per
   const result = cli(undefined, { PDD_TEST_PASSWORD_LOGIN: `challenge:${challenge}` });
   assert.equal(result.status, 3);
   assert.equal(result.envelope.error.code, 'E_AUTH_HUMAN_REQUIRED');
-  assert.match(result.envelope.error.hint, /pdd console link/);
+  assert.match(result.envelope.error.hint, /pdd daemon link/);
   assert.equal(state().status, 'awaiting_human');
   assert.deepEqual(openActions().map((action) => [action.kind, action.reason]), [['human_takeover', challenge]]);
   assert.deepEqual(actionWarnings(result), [{ code: 'account_action_required', account: DEFAULT_ACCOUNT.slug, reason: challenge }]);

@@ -1,4 +1,4 @@
-import { start, stop, restart, status, run } from '../daemon.js';
+import { start, stop, restart, status, run, link } from '../daemon.js';
 
 const SUBCOMMANDS = [
   ['start', '后台启动', start],
@@ -6,6 +6,7 @@ const SUBCOMMANDS = [
   ['restart', '重启进程（更新代码后使用）', restart],
   ['status', '运行状态', status],
   ['run', '前台运行', run],
+  ['link', '生成一次性控制台访问链接', link],
 ];
 
 export function register(program, wireAction) {

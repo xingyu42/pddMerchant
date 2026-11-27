@@ -102,7 +102,7 @@ it.each([
   ['orders', 'list', '--size', '0'],
   ['orders', 'stats', '--size', '1.5'],
   ['goods', 'list', '--size', '-1'],
-  ['goods', 'stock', '--threshold', 'x'],
+  ['goods', 'list', '--low-stock', 'x'],
   ['goods', 'segment', '--max-pages', '0'],
   ['promo', 'roi', '--page', '0'],
   ['promo', 'roi', '--by', 'foo'],

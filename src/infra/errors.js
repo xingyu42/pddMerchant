@@ -171,7 +171,7 @@ export function authHumanRequired(detail) {
   return new PddCliError({
     code: 'E_AUTH_HUMAN_REQUIRED',
     message: '账号登录需要人工完成验证',
-    hint: '执行 pdd console link 获取控制台链接并转给用户；不要在聊天中索要密码',
+    hint: '执行 pdd daemon link 获取控制台链接并转给用户；不要在聊天中索要密码',
     detail: reloginDetail(detail),
     exitCode: ExitCodes.AUTH,
   });
@@ -180,7 +180,7 @@ export function authHumanRequired(detail) {
 export function reloginBlocked(detail) {
   return new PddCliError({
     code: 'E_AUTH_RELOGIN_BLOCKED', message: '账号自动重登已熔断',
-    hint: '执行 pdd console link 重设密码或解除熔断，或执行 pdd login --qr 扫码登录',
+    hint: '执行 pdd daemon link 重设密码或解除熔断，或执行 pdd login --qr 扫码登录',
     detail: reloginDetail(detail),
     exitCode: ExitCodes.AUTH,
   });

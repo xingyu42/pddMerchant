@@ -73,7 +73,7 @@ function resolveAuthTiming(options, deps, runtime) {
 }
 
 /** Run merchant interactive login and atomic account provisioning, returning the provisioned record. */
-export async function authenticateMerchant(options = {}, deps = {}) {
+async function authenticateMerchant(options = {}, deps = {}) {
   const runtime = deps.runtime ?? options.runtime;
   const { qr, headed, timeoutMs, signal, deadlineAt, qrCaptureTimeoutMs, stderr } = resolveAuthTiming(options, deps, runtime);
   const resolveAccount = deps.resolveAccount ?? ((account) => resolveAccountContext({ account, needsAuth: false }));

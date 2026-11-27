@@ -112,10 +112,10 @@ function redeem({ consoleApp, body, request, response, runtimeConfig }) {
 function authenticated(request, response, path, consoleApp) {
   if (consoleApp.auth.resolveSession(readConsoleCookie(request))) return true;
   if (request.method === 'GET' && path === '/') {
-    sendHtml(response, 401, '请通过 pdd console link 获取访问链接');
+    sendHtml(response, 401, '请通过 pdd daemon link 获取访问链接');
     return false;
   }
-  throw consoleRequestError(401, 'E_CONSOLE_UNAUTHORIZED', '请通过 pdd console link 获取访问链接');
+  throw consoleRequestError(401, 'E_CONSOLE_UNAUTHORIZED', '请通过 pdd daemon link 获取访问链接');
 }
 
 export async function dispatchRoute(request, response, path, runtimeConfig, access, context = {}) {

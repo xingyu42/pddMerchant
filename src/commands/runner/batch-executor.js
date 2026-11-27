@@ -38,7 +38,7 @@ function listMerchantAccounts() {
     throw new PddCliError({
       code: 'E_USAGE',
       message: 'No registered accounts found',
-      hint: 'Run "pdd account add" to register an account first',
+      hint: 'Run "pdd login" to register an account first',
       exitCode: ExitCodes.USAGE,
     });
   }

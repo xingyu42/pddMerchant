@@ -19,7 +19,7 @@ it('warnings cover only the merchant account actually used, including successful
   assert.equal(own.status, 0);
   assert.deepEqual(actionWarnings(own), []);
   assert.equal(own.envelope.meta.warnings.some((warning) => warning.code === 'daemon_not_running'), false);
-  const other = cli(['shops', 'current', '--account', secondAccount.slug], { PDD_TEST_AUTH_INVALID: '0' });
+  const other = cli(['shops', 'list', '--account', secondAccount.slug], { PDD_TEST_AUTH_INVALID: '0' });
   assert.equal(other.status, 0);
   assert.deepEqual(actionWarnings(other), [{ code: 'account_action_required', account: secondAccount.slug, reason: 'slider' }]);
   assert.deepEqual(other.envelope.meta.warnings.filter((warning) => warning.code === 'daemon_not_running'), [{ code: 'daemon_not_running' }]);
@@ -77,14 +77,14 @@ it('doctor reports no password when no current merchant account exists', () => {
 it('all-accounts recovers in order and aggregates each used account action warning', () => {
   const accounts = [DEFAULT_ACCOUNT, secondAccount];
   seed({ accounts });
-  const result = cli(['shops', 'current', '--all-accounts'], { PDD_TEST_PASSWORD_LOGIN_DELAY_MS: '100' });
+  const result = cli(['shops', 'list', '--all-accounts'], { PDD_TEST_PASSWORD_LOGIN_DELAY_MS: '100' });
   assert.equal(result.status, 0);
   assert.deepEqual(Object.keys(result.envelope.data.accounts), accounts.map((account) => account.slug));
   assert.deepEqual(attempts(), ['success', 'success']);
   assert.ok(Date.parse(state(2).last_attempt_at) - Date.parse(state(1).last_attempt_at) >= 100);
   database();
   for (const id of [1, 2]) insertPendingAction(id, { kind: 'human_takeover', reason: 'sms' });
-  const warned = cli(['shops', 'current', '--all-accounts']);
+  const warned = cli(['shops', 'list', '--all-accounts']);
   assert.equal(warned.status, 0);
   assert.deepEqual(actionWarnings(warned), accounts.map((account) => ({ code: 'account_action_required', account: account.slug, reason: 'sms' })));
   assert.deepEqual(warned.envelope.meta.warnings.filter((warning) => warning.code === 'daemon_not_running'), [{ code: 'daemon_not_running' }]);

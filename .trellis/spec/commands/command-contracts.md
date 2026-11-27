@@ -78,7 +78,7 @@ src/services/<domain>.js           业务逻辑（被 handler 调用）
 
 - `withCommand` 通过三种互斥 `lifecycle` 预设收口全部命令（向后兼容：未声明 `lifecycle` 时 `needsBrowser: false` 自动归入 `local`，其余默认 `merchant`；`needsAccount: true` 等价 `'required'`，加载期校验非法组合立即抛出 `E_CONFIG_INVALID`）：
   - `merchant`（默认）：`runtimeConfigPolicy: 'required'`、账号解析/租约、浏览器会话、鉴权复核与切店（支持 `--all-accounts`，写命令显式设 `allowAllAccounts: false`）。
-  - `local`：`runtimeConfigPolicy: 'required'`，跳过执行器预启动浏览器与自动鉴权，支持 `needsAccount: 'none' | 'optional' | 'required'` 及 `needsMall: 'none' | 'stored'`（`'stored'` 须配 `'required'`；`doctor` 用 `needsAccount: 'optional'`，`goods.cost.*` 用 `'required'` + `'stored'`，`init` / `login` / `account.*` / `console` / `daemon` 用 `'none'`），一律拒绝 `--all-accounts`（`E_USAGE` / exit 2）；交互命令可声明 `defaultTimeoutMs`。
+  - `local`：`runtimeConfigPolicy: 'required'`，跳过执行器预启动浏览器与自动鉴权，支持 `needsAccount: 'none' | 'optional' | 'required'` 及 `needsMall: 'none' | 'stored'`（`'stored'` 须配 `'required'`；`doctor` 用 `needsAccount: 'optional'`，`goods.cost.*` 用 `'required'` + `'stored'`，`login` / `account.*` / `daemon`（含 `daemon.link`）用 `'none'`），一律拒绝 `--all-accounts`（`E_USAGE` / exit 2）；交互命令可声明 `defaultTimeoutMs`。
   - `maintenance`：挂载 `runtimeConfigPolicy: 'maintenance'`，跳过运行配置加载、账号解析、SQLite 与浏览器启动，即使本地配置损坏也可运行，并拒绝 `--all-accounts`。
 - Global flags include `--json`、`--no-color`、`--timeout <ms>`、`--mall <id>`、`--headed`、`--verbose`。
 - Command handlers MUST wrap with `withCommand()` and register via `wireAction`；`bin/pdd.js` 读取 handler 上的 `runtimeConfigPolicy`（缺省 `'required'`）并通过 `composeCommandRuntime` + `OutputSink` 实现两阶段防重复发射（进入 `withCommand` 后由统一 `envelope-kernel` 单次终结，未进入前的 Commander 解析错误由 `bin/pdd.js` 兜底发射）。
@@ -90,9 +90,9 @@ src/services/<domain>.js           业务逻辑（被 handler 调用）
 - `goods update batch` price changes use `field: "price_yuan"` with `value` in yuan (number or string); `field: "price"` → `E_USAGE` exit 2 whose hint shows the new format. All items are validated before the first write; writes run sequentially。
 - Write echo (dry-run and confirmed) shape: `{ headline, goods_id(string), field, value, [sku_id], dry_run, [result: { success, failed_count }], mall_id }`. `field` equals the batch field name (`status|price_yuan|stock|title`); price `value` is yuan; status `value` is the Chinese action (`上架|下架`) while the upstream payload keeps `onsale|offline`. Batch: dry-run `{ headline, planned[], count, dry_run, mall_id }`, confirmed `{ headline, succeeded, failed, results[{ goods_id, field, ok, error_code?, message? }], dry_run, mall_id }`; partial exit 7 via `meta.exit_code`。
 - Command handlers stay thin: call one service function that returns the full v2 `data` (or `{ data, warnings }`). Option values are parsed and validated in the registrar at commander parse time (`src/commands/option-parsers.js` helpers, `Option.choices`), so usage errors exit 2 before any browser starts; usage checks of CLI options inside services are legacy (`src/services/goods.js`), never a precedent. Projection, unit conversion, labels and headline live in `src/services/` + `src/services/views/`, never in commands。
-- Every success `data` MUST include a factual Chinese `headline: string[]` (1–3 sentences; `diagnose reviews` with `goods_scores` and `orders detail` with a case summary or failed lookup MAY extend to 4 sentences so existing lines stay intact). Headlines state counts, states and data availability only — no advice, scores, rankings or good/bad wording。
+- Every success `data` MUST include a factual Chinese `headline: string[]` (默认 1–3 句；包含独立附加区块或异常补充行时允许最多 4 句). Headlines state counts, states and data availability only — no advice, scores, rankings or good/bad wording.
 - Config `set/unset` MUST NOT require `--confirm`; they only edit the reversible project-local sparse override after strict Schema validation and atomic-write checks。
-- 全部注册命令（含 `init`、`login`、`login.consumer`、`doctor`、`account.*`、`config.*` 与全部业务域命令）均经 `withCommand()` 与统一 `envelope-kernel` 执行；handler 返回纯 v2 `data`（或 `{ data, warnings?, meta? }`），由 `src/services/views/*` 投影并经 `OutputSink` 精确发射一次，不存在直接调用 `emit()` 或直连 `adapter/` 的非 runner 命令例外。
+- 全部注册命令（含 `login`、`login.consumer`、`doctor`、`account.*`、`config.*`、`daemon.*` 与全部业务域命令）均经 `withCommand()` 与统一 `envelope-kernel` 执行；handler 返回纯 v2 `data`（或 `{ data, warnings?, meta? }`），由 `src/services/views/*` 投影并经 `OutputSink` 精确发射一次，不存在直接调用 `emit()` 或直连 `adapter/` 的非 runner 命令例外。
 - `goods segment`, `promo roi`, and `diagnose` return factual statistics and data-quality hints only. No operating advice, health scores, tiers, or promo quality classifications. `action plan` and `--break-even` are removed and must fail as usage errors.
 
 ## 4. Validation & Error Matrix
@@ -104,12 +104,12 @@ src/services/<domain>.js           业务逻辑（被 handler 调用）
 - JSON 为单行 v2 信封，文本模式显示摘要和售后单表格。窗口、分页、原因汇总与降级见服务契约的 After-Sales Case Reporting 小节。
 - `orders detail --sn <sn> [--with-track]` 对 `--sn` 执行解析阶段去空白非空校验（`nonEmptyStringArg` + `preserveParseErrorCommand`），自动补充 `after_sales_cases` 与 `hints`，沿用只读、鉴权、切店及批量模式。无 `--with-track` 且无售后标识时只请求一次详情（`meta.xhr_count: 1`）；成功时该计数包含本次逻辑端点调用，可选调用失败也计入。命中售后单或关联列表失败降级时，在既有三行 `headline` 后追加一行；加 `--with-track` 时正向轨迹结论并入第 3 行、退货耗时并入第 4 行，保持 `headline` 在 3–4 行内。
 
-### Goods List & Stock
+### Goods List & Low Stock
 
-- `goods list` 为普通 needsAuth + mall switch 只读命令，支持 `--page`、`--size`、`--status onsale|offline` 与 `--with-skus`（默认 `false`），兼容 `--all-accounts`。
+- `goods list` 为普通 needsAuth + mall switch 只读命令，支持 `--page`、`--size`、`--status onsale|offline`、`--with-skus`（默认 `false`）与 `--low-stock [threshold]`（默认阈值 `10`，默认 `--size 50`），兼容 `--all-accounts`。
 - 默认模式保持紧凑输出（`items[]` 省略 `skus` 键，`headline` 1–2 行）；开启 `--with-skus` 后仍在同一条请求内返回（`meta.xhr_count: 1`），`items[]` 展开 5 字段 `skus[]`（缺失/非数组 `sku_list` → `null`，区别于 `[]`），并在 `items.length > 0` 时于 `headline` 末尾追加 1 行规格统计（保持总行数 `<= 3`）。
-- `goods stock` 共享商品基础视图并在 `skus[]` 中同步透出 `out_sku_sn`；低库存判定与告警计数规则不变。
-- 验证：`test/services/goods-view.test.js`、`test/services/goods-list-contract.test.js`、`test/e2e/goods-list.e2e.test.js`、`test/e2e/goods-stock.e2e.test.js`、`test/e2e/business-contract.e2e.test.js` 与 `test/contract/data-contract-v2.test.js`（覆盖 `goods.list`、`goods.list --with-skus` 与 `goods.stock`）。
+- `goods list --low-stock [threshold]` 共享商品基础视图并支持 `--status onsale|offline`，在 `skus[]` 中同步透出 `out_sku_sn` 与 `low_stock`；低库存判定与告警计数规则不变。
+- 验证：`test/services/goods-view.test.js`、`test/services/goods-list-contract.test.js`、`test/e2e/goods-list.e2e.test.js`、`test/e2e/goods-low-stock.e2e.test.js`、`test/e2e/business-contract.e2e.test.js` 与 `test/contract/data-contract-v2.test.js`（覆盖 `goods.list`、`goods.list --with-skus` 与 `goods.list --low-stock`）。
 
 ### Goods Cost / Profit
 
@@ -145,7 +145,7 @@ src/services/<domain>.js           业务逻辑（被 handler 调用）
 ## 5. Good/Base/Bad Cases
 
 - Good：`orders detail --sn <sn>` validates `sn` in command layer, then calls service。
-- Base：`goods list --page --size --status [--with-skus]` normalizes option types before service；默认省略 `skus` 键，开启 `--with-skus` 时单次 XHR 展开 5 字段 `skus[]` 并控制 `headline` 不超过 3 行。
+- Base：`goods list --page --size --status [--with-skus] [--low-stock [threshold]]` normalizes option types before service；默认省略 `skus` 键，开启 `--with-skus` 时单次 XHR 展开 5 字段 `skus[]` 并控制 `headline` 不超过 3 行，开启 `--low-stock` 时筛选低库存/缺货商品并展开带 `low_stock` 标记的 `skus[]`。
 - Bad：command handler catches errors and prints human messages itself；runner loses exit code mapping。
 
 ## 6. Tests Required

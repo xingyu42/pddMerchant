@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { it } from 'vitest';
-import { createDaemonSandbox, consoleLink } from '../helpers/daemon-cli.js';
+import { createDaemonSandbox, daemonLink } from '../helpers/daemon-cli.js';
 import { consoleRequest } from '../helpers/console-http.js';
 import { seedDb, DEFAULT_ACCOUNT } from '../helpers/seed-db.js';
 import { CLI_LOG_DIR, DAEMON_LOG_DIR } from '../../src/infra/paths.js';
@@ -18,7 +18,7 @@ function logContents(directory) {
 }
 
 async function authorize(sandbox, args = []) {
-  const link = consoleLink(sandbox, args);
+  const link = daemonLink(sandbox, args);
   assert.equal(link.envelope.ok, true);
   const path = new URL(link.envelope.data.url).pathname;
   const port = Number(sandbox.env.PDD_CONSOLE_PORT);
@@ -30,15 +30,15 @@ async function authorize(sandbox, args = []) {
   return { port, link, path, redeemed, cookie: redeemed.headers['set-cookie'][0].split(';')[0] };
 }
 
-it('console link requires an explicitly started daemon and rejects unknown account slugs', async () => {
+it('daemon link requires an explicitly started daemon and rejects unknown account slugs', async () => {
   const sandbox = await createDaemonSandbox();
   try {
-    const stopped = consoleLink(sandbox);
+    const stopped = daemonLink(sandbox);
     assert.equal(stopped.envelope.error.code, 'E_DAEMON_NOT_RUNNING');
     assert.equal(stopped.status, 1);
     assert.match(stopped.envelope.error.hint, /pdd daemon start/);
     sandbox.cli('start');
-    assert.equal(consoleLink(sandbox, ['--account', 'unknown']).envelope.error.code, 'E_ACCOUNT_NOT_FOUND');
+    assert.equal(daemonLink(sandbox, ['--account', 'unknown']).envelope.error.code, 'E_ACCOUNT_NOT_FOUND');
   } finally { sandbox.cli('stop'); sandbox.dispose(); }
 });
 

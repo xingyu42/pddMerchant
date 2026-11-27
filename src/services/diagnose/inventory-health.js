@@ -1,9 +1,8 @@
-import { toFiniteNumber } from '../../infra/units.js';
 import { ratioPct } from '../../infra/metrics.js';
+import { summarizeStockCounts } from '../goods.js';
 import { matchSales, scanQuality } from '../goods-sales-matcher.js';
 
 const STALE_SAMPLE_LIMIT = 10;
-const LOW_STOCK_THRESHOLD = 10;
 
 function staleSkipDetail(reason) {
   const detail = {
@@ -46,15 +45,12 @@ function computeStale(orders30d, goods) {
 
 function stockDetail(goods) {
   const total = goods.length;
-  const quantities = goods.map((item) => toFiniteNumber(item?.quantity));
-  const missing = quantities.includes(null);
-  const outOfStock = missing ? null : quantities.filter((quantity) => quantity === 0).length;
-  const lowStock = missing ? null : quantities.filter((quantity) => quantity !== 0 && quantity < LOW_STOCK_THRESHOLD).length;
+  const counts = summarizeStockCounts(goods);
+  const { out_of_stock_count: outOfStock, low_stock_count: lowStock } = counts;
+  const missing = outOfStock === null || lowStock === null;
   return {
     total,
-    out_of_stock_count: outOfStock,
-    low_stock_count: lowStock,
-    low_stock_threshold: LOW_STOCK_THRESHOLD,
+    ...counts,
     out_of_stock_rate_pct: ratioPct(outOfStock, total),
     low_or_out_rate_pct: missing ? null : ratioPct(outOfStock + lowStock, total),
   };

@@ -4,8 +4,8 @@ import { authHumanRequired, reloginBlocked, reloginFailed, passwordLoginFormChan
 import { daemonNotRunning, daemonStartTimeout, daemonStopTimeout, consolePortInUse, PddCliError, mapErrorToExit } from '../../src/infra/errors.js';
 
 it.each([
-  [authHumanRequired, 'E_AUTH_HUMAN_REQUIRED', '账号登录需要人工完成验证', '执行 pdd console link 获取控制台链接并转给用户；不要在聊天中索要密码'],
-  [reloginBlocked, 'E_AUTH_RELOGIN_BLOCKED', '账号自动重登已熔断', '执行 pdd console link 重设密码或解除熔断，或执行 pdd login --qr 扫码登录'],
+  [authHumanRequired, 'E_AUTH_HUMAN_REQUIRED', '账号登录需要人工完成验证', '执行 pdd daemon link 获取控制台链接并转给用户；不要在聊天中索要密码'],
+  [reloginBlocked, 'E_AUTH_RELOGIN_BLOCKED', '账号自动重登已熔断', '执行 pdd daemon link 重设密码或解除熔断，或执行 pdd login --qr 扫码登录'],
   [reloginFailed, 'E_AUTH_RELOGIN_FAILED', '自动重登未完成', '稍后重试或执行 pdd login'],
   [passwordLoginFormChanged, 'E_PASSWORD_LOGIN_FORM_CHANGED', '登录页结构已变化，无法自动填写账密', '执行 pdd login --qr 扫码登录，并反馈此问题'],
 ])('builds safe AUTH errors %#', (factory, code, message, hint) => {
